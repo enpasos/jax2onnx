@@ -133,12 +133,11 @@ to_onnx(
 
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
-  * Advanced ONNX function support, including function reuse, and improved variable naming
 
 
 ### **Upcoming Version**
  
-* **0.9.1**:
+* **0.10.0**:
   * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
   * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
   * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints

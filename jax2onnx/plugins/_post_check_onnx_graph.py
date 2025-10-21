@@ -449,7 +449,7 @@ class _GraphView:
                 steps.append((tok, None))
 
         for gname, g in self.graphs:
-            if allowed is not None and gname not in allowed:
+            if allowed is not None and not _graph_filter_allows(allowed, gname):
                 continue
             considered_any = True
             ok, why, matched = _match_path_on_graph(
@@ -609,7 +609,18 @@ def _nodes(g):
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
 
 
-def _normalize_graph_filter(graph_filter: Any) -> Optional[Set[str]]:
+def _graph_filter_allows(
+    normalized: Tuple[Set[str], Set[str], Set[str]], graph_name: str
+) -> bool:
+    exact, prefixes, _ = normalized
+    if graph_name in exact:
+        return True
+    return any(graph_name.startswith(prefix) for prefix in prefixes)
+
+
+def _normalize_graph_filter(
+    graph_filter: Any,
+) -> Optional[Tuple[Set[str], Set[str], Set[str]]]:
     if graph_filter is None:
         return None
     items: List[str]
@@ -621,14 +632,21 @@ def _normalize_graph_filter(graph_filter: Any) -> Optional[Set[str]]:
         except TypeError:
             items = [str(graph_filter)]
 
-    normalized: Set[str] = set()
+    exact_matches: Set[str] = set()
+    prefix_matches: Set[str] = set()
+    recorded_entries: Set[str] = set()
 
     def _add_entry(entry: str):
         if not entry:
             return
-        normalized.add(entry)
+        exact_matches.add(entry)
+        recorded_entries.add(entry)
         sanitized = _sanitize_graph_selector(entry)
-        normalized.add(sanitized)
+        exact_matches.add(sanitized)
+        recorded_entries.add(sanitized)
+        if ":" not in entry:
+            prefix_matches.add(f"{entry}:")
+            prefix_matches.add(f"{sanitized}:")
 
     for item in items:
         if not isinstance(item, str):
@@ -644,7 +662,9 @@ def _normalize_graph_filter(graph_filter: Any) -> Optional[Set[str]]:
         else:
             _add_entry(item)
             _add_entry(f"fn:{item}")
-    return normalized if normalized else None
+    if not exact_matches and not prefix_matches:
+        return None
+    return exact_matches, prefix_matches, recorded_entries
 
 
 def _graph_inputs(g):
@@ -1381,17 +1401,18 @@ def auto_expect_graph_spec(
     """Generate expect_graph specs from the current ONNX/IR graph structure."""
 
     pas = set(passthrough_ops or DEFAULT_PASSTHROUGH_OPS)
+    normalized = _normalize_graph_filter(graph)
     if search_functions is None:
-        normalized = _normalize_graph_filter(graph)
         search_functions = normalized is not None and any(
-            item != "top" and not item.startswith("fn:") for item in normalized
+            entry != "top" and not entry.startswith("fn:")
+            for entry in (normalized[2] if normalized else set())
         )
     gv = _GraphView(model, search_functions=bool(search_functions), passthrough_ops=pas)
-    target_graphs = _normalize_graph_filter(graph)
+    target_graphs = normalized
     symtab = _SymbolTable()
     specs: List[Union[str, Dict[str, Any]]] = []
     for gname, g in gv.graphs:
-        if target_graphs is not None and gname not in target_graphs:
+        if target_graphs is not None and not _graph_filter_allows(target_graphs, gname):
             continue
         shape_index = gv._shape_index.get(gname, {})
         paths = _summarize_graph_primary_paths(

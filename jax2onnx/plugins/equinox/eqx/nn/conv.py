@@ -135,7 +135,7 @@ _EQX_CONV_EXAMPLE: Final[eqx.nn.Conv2d] = eqx.nn.Conv2d(
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
         }
     ],
-    since="v0.9.1",
+    since="v0.10.0",
     context="primitives.eqx",
     component="conv",
     testcases=[
