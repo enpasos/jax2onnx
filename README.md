@@ -117,6 +117,7 @@ to_onnx(
   * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
   * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
   * Gather support enhanced
+  * ONNX function nodes stay named after the original callable while domains handle per-instance uniqueness
   * IR builder refactor: live graph proxies plus a reusable `clone_graph` helper keep function/loop subgraphs detached and eliminate cross-graph ownership errors
 
 
@@ -155,23 +156,24 @@ If conversion doesn't work out of the box, it could be due to:
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](https://enpasos.github.io/jax2onnx/design#plugin-op-specific) to handle the unsupported function (this is straightforward!).
 
+  
 ---
 
 ## 🧩 Coverage & Examples (Interactive)
 
-!!! tip "JAX · Flax · Equinox"
-    Explore everything that’s supported **and** see it in action.
-
-    - ✅ **Support matrix**: status per component  
-    - 🧪 **Exact regression testcase** for each entry  
-    - 🔍 **One-click Netron** graph to inspect nodes, shapes, attributes  
-    - 🧩 **Examples that compose multiple components** (Conv→Norm→Activation→Pool, MLP w/ LayerNorm+Dropout, `reshape/transpose/concat`, `scan`/`while_loop`, `gather`/`scatter`, …)
-
-    [Open support matrix ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components){ .md-button .md-button--primary }
-    [Browse examples ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples){ .md-button }
-
+> [!TIP]
+> **JAX · Flax · Equinox** — explore everything that’s supported **and** see it in action.
+>
+> - ✅ **Support matrix**: status per component
+> - 🧪 **Exact regression testcase** for each entry
+> - 🔍 **One-click Netron** graph to inspect nodes, shapes, attributes
+> - 🧩 **Examples that compose multiple components** (Conv→Norm→Activation→Pool, MLP w/ LayerNorm+Dropout, `reshape/transpose/concat`, `scan`/`while_loop`, `gather`/`scatter`, …)
+>
+> **Links:** [Open support matrix ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components) ·
+> [Browse examples ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples)
 
 ---
+
 
 ## 📌 Dependencies
 
