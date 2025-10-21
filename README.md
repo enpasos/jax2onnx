@@ -186,14 +186,6 @@ If conversion doesn't work out of the box, it could be due to:
 
 ---
 
-## ⚠️ Limitations
-
-- Currently not all JAX/Flax or Equinox components are supported (you can easily help expand this coverage!).
-- Function references need dynamic resolution at call-time.
-
-
----
-
 ## 🤝 How to Contribute
 
 We warmly welcome contributions!
