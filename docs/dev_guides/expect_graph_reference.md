@@ -99,6 +99,16 @@ main data edge (by default we skip `Reshape`, `Identity`, `Cast`, `CastLike`,
 out into shape-building side chains, such as the CNN dynamic example where the
 `Transpose` output feeds both `Reshape` and the shape-construction subgraph.
 
+### Function naming compatibility
+
+Function exports now keep the original callable name as the node `op_type`
+(`TransformerBlock`, `MLPBlock`, …) and move the numeric suffix into
+`node.name`/`domain` (`TransformerBlock_2`, `custom.TransformerBlock_2`, …). To
+keep older expectations valid, `expect_graph` automatically strips trailing
+`_123` suffixes when comparing `op_type` and normalises graph filters such as
+`fn:custom.TransformerBlock_2`. Prefer matching on the base `op_type` unless a
+specific call-site needs to be distinguished by name.
+
 ## Practical tips
 
 - Prefer a single path that covers the interesting operators rather than every
