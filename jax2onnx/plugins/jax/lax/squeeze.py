@@ -28,17 +28,13 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
+    """Emit an INT64 constant via the builder to centralize initializer policy."""
     arr = np.asarray(values, dtype=np.int64)
     if arr.ndim == 0:
         arr = arr.reshape(1)
-    val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((arr.size,)),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(val)
-    return val
+    name = ctx.fresh_name(name_hint)
+    # Route through builder so function-mode and duplicate policies apply.
+    return ctx.builder.const_i64(name, arr.tolist())
 
 
 def _dim_const_value(dim) -> int | None:

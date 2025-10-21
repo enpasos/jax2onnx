@@ -11,7 +11,6 @@ import onnx_ir as ir
 
 import jax
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -30,17 +29,10 @@ def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple:
 
 
 def _const_array(ctx: "IRContext", arr: np.ndarray, *, name_hint: str) -> ir.Value:
-    """Materialize a constant initializer that survives both graph + function modes."""
-
-    enum = _dtype_to_ir(arr.dtype, ctx.builder.enable_double_precision)
-    value = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(enum),
-        shape=ir.Shape(tuple(int(d) for d in arr.shape)),
-        const_value=ir.tensor(arr),
+    """Emit a constant through the builder so function-mode and dedup policies apply."""
+    return ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(name_hint), array=arr
     )
-    ctx._initializers.append(value)
-    return value
 
 
 def _unsqueeze(ctx: "IRContext", value: ir.Value, axis: int) -> ir.Value:

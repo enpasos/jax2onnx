@@ -133,7 +133,64 @@ class _InitializerList(MutableSequence[ir.Value]):
         name = value.name
         if name is None:
             raise ValueError("Initializer values must have a name")
-        self._graph.initializers[name] = value
+
+        # Prefer the graph container API to register initializers. It
+        # maintains graph invariants better than raw item assignment.
+        # Additionally enforce a no-readd policy for duplicate names:
+        # - If an initializer with the same name already exists and the
+        #   constant payloads are identical, reuse the existing one and do
+        #   not overwrite connections.
+        # - If a different payload is attempted under the same name, raise.
+
+        if name in self._graph.initializers:
+            existing = self._graph.initializers[name]
+            if existing is value:
+                return
+
+            def _const_numpy(v: ir.Value) -> Optional[np.ndarray]:
+                for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+                    payload = getattr(v, attr, None)
+                    if payload is None:
+                        continue
+                    try:
+                        return np.asarray(payload)
+                    except Exception:
+                        try:
+                            return np.asarray(
+                                payload()
+                            )  # callable returning array-like
+                        except Exception:
+                            continue
+                return None
+
+            arr_new = _const_numpy(value)
+            arr_old = _const_numpy(existing)
+            if arr_new is not None and arr_old is not None:
+                # Normalize dtype for fair comparison: onnx_ir tensors may
+                # materialize as float64 via numpy bridge.
+                try:
+                    arr_new_cast = arr_new.astype(arr_old.dtype, copy=False)
+                except Exception:
+                    arr_new_cast = arr_new
+                same = (
+                    arr_new_cast.shape == arr_old.shape
+                    and arr_new_cast.dtype == arr_old.dtype
+                    and np.array_equal(arr_new_cast, arr_old)
+                )
+                if same:
+                    # Keep using the existing initializer to preserve
+                    # value connections; do not re-add.
+                    return
+                raise ValueError(
+                    f"Initializer '{name}' already exists with different data"
+                )
+            # If payloads are not comparable, be conservative and reject.
+            raise ValueError(
+                f"Initializer '{name}' already exists and payloads are not comparable"
+            )
+
+        # No conflict: register through the container's add method.
+        self._graph.initializers.add(value)
 
     def _values(self) -> list[ir.Value]:
         return list(self._graph.initializers.values())
@@ -229,7 +286,48 @@ class IRBuilder:
     # public helpers for initializers (used by FunctionPlugin)
     def add_initializer_from_scalar(self, name: str, value: Any) -> ir.Value:
         if name in self.graph.initializers:
-            return self.graph.initializers[name]
+            # Enforce duplicate policy: identical → reuse; different → error.
+            existing = self.graph.initializers[name]
+
+            def _const_numpy(v: ir.Value) -> Optional[np.ndarray]:
+                for attr in ("const_value", "_const_value", "value", "data", "numpy"):
+                    payload = getattr(v, attr, None)
+                    if payload is None:
+                        continue
+                    try:
+                        return np.asarray(payload)
+                    except Exception:
+                        try:
+                            return np.asarray(payload())
+                        except Exception:
+                            continue
+                return None
+
+            arr_existing = _const_numpy(existing)
+            arr_new = np.asarray(value)
+            # Respect dtype downcast policy for floats when comparing
+            if not self.enable_double_precision and np.issubdtype(
+                arr_new.dtype, np.floating
+            ):
+                arr_new = arr_new.astype(np.float32)
+            if arr_existing is not None:
+                try:
+                    arr_new_cast = arr_new.astype(arr_existing.dtype, copy=False)
+                except Exception:
+                    arr_new_cast = arr_new
+                if (
+                    arr_existing.shape == arr_new_cast.shape
+                    and arr_existing.dtype == arr_new_cast.dtype
+                    and np.array_equal(arr_existing, arr_new_cast)
+                ):
+                    return existing
+                raise ValueError(
+                    f"Initializer '{name}' already exists with different data"
+                )
+            # If we cannot compare payloads, be conservative and reject
+            raise ValueError(
+                f"Initializer '{name}' already exists and payloads are not comparable"
+            )
 
         arr = np.asarray(value)
         if not self.enable_double_precision and np.issubdtype(arr.dtype, np.floating):
