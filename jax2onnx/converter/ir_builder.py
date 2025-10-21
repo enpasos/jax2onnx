@@ -35,6 +35,20 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         raise TypeError(f"Unsupported dtype: {dtype}") from e
 
 
+def _value_const_numpy(value: ir.Value) -> Optional[np.ndarray]:
+    """Return a numpy view of `value` when backed by a constant tensor."""
+    const = value.const_value
+    if const is None:
+        return None
+    try:
+        return const.numpy()
+    except Exception:
+        try:
+            return np.asarray(const)
+        except Exception:
+            return None
+
+
 class _InitializerList(MutableSequence[ir.Value]):
     """List-like view over graph initializers that mirrors legacy builder semantics."""
 
@@ -147,24 +161,8 @@ class _InitializerList(MutableSequence[ir.Value]):
             if existing is value:
                 return
 
-            def _const_numpy(v: ir.Value) -> Optional[np.ndarray]:
-                for attr in ("const_value", "_const_value", "value", "data", "numpy"):
-                    payload = getattr(v, attr, None)
-                    if payload is None:
-                        continue
-                    try:
-                        return np.asarray(payload)
-                    except Exception:
-                        try:
-                            return np.asarray(
-                                payload()
-                            )  # callable returning array-like
-                        except Exception:
-                            continue
-                return None
-
-            arr_new = _const_numpy(value)
-            arr_old = _const_numpy(existing)
+            arr_new = _value_const_numpy(value)
+            arr_old = _value_const_numpy(existing)
             if arr_new is not None and arr_old is not None:
                 # Normalize dtype for fair comparison: onnx_ir tensors may
                 # materialize as float64 via numpy bridge.
@@ -289,21 +287,7 @@ class IRBuilder:
             # Enforce duplicate policy: identical → reuse; different → error.
             existing = self.graph.initializers[name]
 
-            def _const_numpy(v: ir.Value) -> Optional[np.ndarray]:
-                for attr in ("const_value", "_const_value", "value", "data", "numpy"):
-                    payload = getattr(v, attr, None)
-                    if payload is None:
-                        continue
-                    try:
-                        return np.asarray(payload)
-                    except Exception:
-                        try:
-                            return np.asarray(payload())
-                        except Exception:
-                            continue
-                return None
-
-            arr_existing = _const_numpy(existing)
+            arr_existing = _value_const_numpy(existing)
             arr_new = np.asarray(value)
             # Respect dtype downcast policy for floats when comparing
             if not self.enable_double_precision and np.issubdtype(
