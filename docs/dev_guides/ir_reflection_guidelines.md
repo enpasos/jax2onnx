@@ -14,6 +14,7 @@ Document ONNX proto shims that still require reflection (`plugins/_post_check_on
 
 - **Typed APIs first** — Treat `ir.Attr`, `ir.Value`, and `ir.Graph` as immutable, typed objects. Avoid `getattr`, private field mutation, or redundant `None` guards; rely on the documented accessors instead.
 - **Use built-in graph iterators** — Iterate via `graph.nodes`, `graph.all_nodes()`, `value.consumers()`, `value.producer()`, and `ir.convenience.replace_all_uses_with` instead of constructing custom maps.
+- When working with `onnx_ir` graphs, prefer `graph.all_nodes()` so nested functions and control-flow subgraphs are traversed with the typed iterator. Only fall back to the ONNX proto mirrors (`function.node`) when you truly need the raw proto objects.
 - **Reuse shape & dtype helpers** — Use `onnx_ir.Shape.is_unknown_dim`, `ir.Shape(...)`, and `value.dtype` rather than cloning dtype/shape logic manually.
 - **Prefer existing passes** — Before adding bespoke optimizations, check the available ONNX Script passes (e.g., `fold_constants.FoldConstantsPass`, `LiftConstantsToInitializersPass`) and the IR optimizer docs.
 - **Keep helpers focused & typed** — Provide clear function signatures (e.g., `_attribute_iter(node: ir.Node) -> Iterable[ir.Attr]`) and avoid over-engineered utilities. Document non-obvious helpers.

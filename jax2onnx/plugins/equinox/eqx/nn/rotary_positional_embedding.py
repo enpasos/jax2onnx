@@ -207,7 +207,7 @@ def lower_rotary_application(
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
     ],
-    since="v0.9.1",
+    since="v0.10.0",
     context="primitives.eqx",
     component="rotary_positional_embedding",
     testcases=[

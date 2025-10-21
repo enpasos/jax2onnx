@@ -335,7 +335,7 @@ def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
         },
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
     ],
-    since="v0.9.1",
+    since="v0.10.0",
     context="primitives.eqx",
     component="multihead_attention",
     testcases=[
