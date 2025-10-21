@@ -143,6 +143,7 @@ to_onnx(
   * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
   * Gather support enhanced
   * ONNX function nodes stay named after the original callable while domains handle per-instance uniqueness
+  * Added namespace-aware @onnx_function reuse
   * IR builder refactor: live graph proxies plus a reusable `clone_graph` helper keep function/loop subgraphs detached and eliminate cross-graph ownership errors
 
 
