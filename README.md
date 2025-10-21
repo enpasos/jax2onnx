@@ -24,9 +24,18 @@
 
 - **Netron-friendly outputs**  
   Generated graphs carry shape/type annotations and a clean hierarchy, so tools like Netron stay easy to read.
+
+
+
 ---
 
 ## 🚀 Quickstart
+
+Install and export your first model in minutes:
+
+```bash
+pip install jax2onnx
+```
 
 Convert your JAX callable to ONNX in just a few lines:
 
@@ -99,6 +108,23 @@ to_onnx(
 
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/model_with_function.onnx)
 
+  
+---
+
+## 🧩 Coverage & Examples (Interactive)
+
+> [!TIP]
+> **JAX · Flax · Equinox** — explore everything that’s supported **and** see it in action.
+>
+> - ✅ **Support matrix**: status per component
+> - 🧪 **Exact regression testcase** for each entry
+> - 🔍 **One-click Netron** graph to inspect nodes, shapes, attributes
+> - 🧩 **Examples that compose multiple components** (Conv→Norm→Activation→Pool, MLP w/ LayerNorm+Dropout, `reshape/transpose/concat`, `scan`/`while_loop`, `gather`/`scatter`, …)
+>
+> **Links:** [Open support matrix ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components) ·
+> [Browse examples ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples)
+
+
 ---
 
 ## 📅 Roadmap and Releases
@@ -156,39 +182,6 @@ If conversion doesn't work out of the box, it could be due to:
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](https://enpasos.github.io/jax2onnx/design#plugin-op-specific) to handle the unsupported function (this is straightforward!).
 
-  
----
-
-## 🧩 Coverage & Examples (Interactive)
-
-> [!TIP]
-> **JAX · Flax · Equinox** — explore everything that’s supported **and** see it in action.
->
-> - ✅ **Support matrix**: status per component
-> - 🧪 **Exact regression testcase** for each entry
-> - 🔍 **One-click Netron** graph to inspect nodes, shapes, attributes
-> - 🧩 **Examples that compose multiple components** (Conv→Norm→Activation→Pool, MLP w/ LayerNorm+Dropout, `reshape/transpose/concat`, `scan`/`while_loop`, `gather`/`scatter`, …)
->
-> **Links:** [Open support matrix ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components) ·
-> [Browse examples ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples)
-
----
-
-
-## 📌 Dependencies
-
-**Latest supported version of major dependencies:**
-
-| Library       | Versions |  
-|:--------------|:---------| 
-| `JAX`         | 0.8.0    | 
-| `Flax`        | 0.12.0   | 
-| `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.11   | 
-| `onnx`        | 1.19.1   |  
-| `onnxruntime` | 1.23.1   |  
-
-*For exact pins and extras, see `pyproject.toml`.*
 
 
 ---
@@ -211,15 +204,25 @@ We warmly welcome contributions!
   a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
  
+
+
 ---
 
-## 💾 Installation
 
-Install from PyPI:
+## 📌 Dependencies
 
-```bash
-pip install jax2onnx  
-```
+**Latest supported version of major dependencies:**
+
+| Library       | Versions |  
+|:--------------|:---------| 
+| `JAX`         | 0.8.0    | 
+| `Flax`        | 0.12.0   | 
+| `Equinox`     | 0.13.2   | 
+| `onnx-ir`     | 0.1.11   | 
+| `onnx`        | 1.19.1   |  
+| `onnxruntime` | 1.23.1   |  
+
+*For exact pins and extras, see `pyproject.toml`.*
 
 
 ---
@@ -227,6 +230,8 @@ pip install jax2onnx
 ## 📜 License
 
 This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](./LICENSE) for details.
+
+
 
 ---
 
