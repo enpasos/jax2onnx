@@ -24,7 +24,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-# --- Model code from https://github.com/clementpoiret/Equimo ---
+# --- Model code derived from https://github.com/clementpoiret/Equimo ---
 
 
 def _apply_pointwise(module, x: Array) -> Array:

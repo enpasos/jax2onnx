@@ -22,7 +22,9 @@
 ## Progress Log (Completed)
 - Pretrained export: CLI script `scripts/export_dinov3_pretrained.py` now produces ONNX directly via IR. Added runtime shims (RoPE cache freezing, deterministic dropout paths, GELU activation) so Equimo’s `dinov3_vits16_pretrain_lvd1689m` checkpoint exports successfully and deterministically.
 - Added `tests/examples/test_eqx_dino_pretrained_runtime.py` – optional ONNX Runtime smoke test comparing the exported graph against the patched JAX model when `DINO_EQX_ONNX` (and optionally `DINO_EQX_WEIGHTS`) are provided.
-- Added `scripts/map_equimo_dino_weights.py` to lift Equimo checkpoints into the simplified `examples.eqx_dino` VisionTransformer (`.eqx` serialisation output). The mapper currently bails out when register tokens are present because the plain example architecture does not model them yet.
+- Added `scripts/map_equimo_dino_weights.py` to lift Equimo checkpoints into the simplified `examples.eqx_dino` VisionTransformer (`.eqx` serialisation output). Mapper now supports `--strip-register-tokens` to ignore Equimo’s register/storage tokens so weights can be applied while keeping the exact example graph structure (semantics may differ from full Equimo in configs that rely on registers).
+- Added `scripts/export_eqx_dino_example_with_mapped_weights.py` to export ONNX from the simplified example model using mapped weights, preserving the exact operator layout used in the example testcases (supports static or dynamic batch).
+- Added `jax2onnx/sandbox/dino_01.py` to run an ONNX DINO model on an image, save CLS/pooled features, print SHA256 checksums, and optionally compare against saved references.
 - PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
 - Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
 - Attention + RoPE:
@@ -61,3 +63,104 @@
 - Pretrained flow:
   - Reused the Equimo conversion script (mirroring `models/dinov3.py`) so Meta’s `.pth` checkpoints can be converted—or downloaded directly from the Equimo HF hub—and consumed via `load_pretrained_dinov3`.
   - Added `scripts/generate_dinov3_reference.py` plus `tests/examples/test_eqx_dino_pretrained.py` so real weights can be smoke-tested against a reference activation when env vars point to cached inputs/outputs.
+  - New exact-structure path: map Equimo → example `.eqx` (optionally `--strip-register-tokens`) then export ONNX from the example to ensure the graph matches the testcases exactly.
+
+## Exact Example Graph with Pretrained Weights
+
+Goal: bake pretrained weights into ONNX while preserving the exact operator structure from `jax2onnx/plugins/examples/eqx/dino.py` testcases.
+
+1) Map Equimo weights into the simplified example model
+
+```bash
+poetry run python scripts/map_equimo_dino_weights.py \
+  --variant dinov3_vits16_pretrain_lvd1689m \
+  --weights ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m.tar.lz4 \
+  --output  ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx \
+  --strip-register-tokens
+```
+
+Notes:
+- `--strip-register-tokens` keeps the example graph identical to the testcases by ignoring Equimo register tokens (semantics may deviate from the full Equimo model that uses registers).
+
+2) Export ONNX with identical example structure
+
+```bash
+# Dynamic batch (matches example dynamic onnx in coverage table)
+poetry run python scripts/export_eqx_dino_example_with_mapped_weights.py \
+  --eqx ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx \
+  --output ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16_dynamic.onnx \
+  --img-size 224 \
+  --dynamic-b
+
+# Static batch (B=1)
+poetry run python scripts/export_eqx_dino_example_with_mapped_weights.py \
+  --eqx ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx \
+  --output ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
+  --img-size 224
+```
+
+If config inference from filename fails, pass explicit flags:
+`--patch-size 16 --embed-dim 384 --depth 12 --num-heads 6`.
+
+3) Run on a known image and save vectors
+
+```bash
+# COCO validation example
+curl -L -o /tmp/coco_39769.jpg \
+  http://images.cocodataset.org/val2017/000000039769.jpg
+
+poetry run python jax2onnx/sandbox/dino_01.py \
+  --model ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
+  --image /tmp/coco_39769.jpg \
+  --out-cls /tmp/coco_cls.npy \
+  --out-pooled /tmp/coco_pooled.npy \
+  --print-checksum
+```
+
+4) Compare runs (regression)
+
+```bash
+poetry run python jax2onnx/sandbox/dino_01.py \
+  --model ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
+  --image /tmp/coco_39769.jpg \
+  --out-cls /tmp/coco_cls_new.npy \
+  --out-pooled /tmp/coco_pooled_new.npy \
+  --ref-cls /tmp/coco_cls.npy \
+  --ref-pooled /tmp/coco_pooled.npy \
+  --rtol 1e-4 --atol 1e-6 --print-checksum
+```
+
+5) Optional: JAX vs ONNX equivalence
+
+Use `jax2onnx.allclose` to compare the ONNX output to the mapped example model in JAX. This verifies the export rather than the full Equimo model.
+
+```python
+from pathlib import Path
+import numpy as np
+from PIL import Image
+import equinox as eqx
+import jax, jax.numpy as jnp
+from jax2onnx import allclose
+from jax2onnx.plugins.examples.eqx.dino import VisionTransformer
+
+def preprocess(path, size=224):
+    img = Image.open(path).convert("RGB")
+    w, h = img.size; s = min(w, h)
+    img = img.crop(((w-s)//2,(h-s)//2,(w+s)//2,(h+s)//2)).resize((size,size), Image.BICUBIC)
+    x = (np.asarray(img).astype("float32")/255.0)
+    mean = np.array([0.485,0.456,0.406], dtype=np.float32)
+    std  = np.array([0.229,0.224,0.225], dtype=np.float32)
+    x = (x-mean)/std
+    return np.transpose(x,(2,0,1))[None,...]
+
+eqx_path = Path("~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx").expanduser()
+onnx_path = str(Path("~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx").expanduser())
+like = VisionTransformer(img_size=224, patch_size=16, embed_dim=384, depth=12, num_heads=6, key=jax.random.PRNGKey(0))
+model = eqx.tree_deserialise_leaves(eqx_path, like)
+fn = lambda x: model(x)
+x = preprocess("/tmp/coco_39769.jpg", 224).astype(np.float32)
+ok, msg = allclose(fn, onnx_path, [x], rtol=1e-4, atol=1e-6)
+print(ok, msg)
+```
+
+If `--strip-register-tokens` was used during mapping, expect numerical differences versus the full Equimo runtime with registers; the example export remains self-consistent (JAX example ⇔ ONNX example).

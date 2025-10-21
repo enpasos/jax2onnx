@@ -68,16 +68,16 @@ def _flatten_blocks(equimo_blocks: Sequence) -> list:
     return [blk for chunk in equimo_blocks for blk in chunk.blocks]
 
 
-def _build_example_from_equimo(equimo_model):
+def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = False):
     """Create a VisionTransformer with parameters mapped from the Equimo checkpoint."""
 
     if getattr(equimo_model, "num_reg_tokens", 0):
-        raise NotImplementedError(
-            "examples.eqx_dino.VisionTransformer does not model register tokens yet. "
-            f"Variant exposes {equimo_model.num_reg_tokens} reg tokens—extend the "
-            "example modules (or teach the mapper how to project them away) before "
-            "attempting to lift the weights."
-        )
+        if not strip_register_tokens:
+            raise NotImplementedError(
+                "examples.eqx_dino.VisionTransformer does not model register tokens yet. "
+                f"Variant exposes {equimo_model.num_reg_tokens} reg tokens—either extend the "
+                "example modules or re-run with --strip-register-tokens to ignore them during mapping."
+            )
 
     config = {
         "img_size": int(equimo_model.patch_embed.img_size[0]),
@@ -175,12 +175,17 @@ def _build_example_from_equimo(equimo_model):
 
         new_blocks.append(dst_block)
 
-    example = eqx.tree_at(lambda m: tuple(m.blocks), example, tuple(new_blocks))
-    example.blocks = list(example.blocks)  # keep list semantics
+    example = eqx.tree_at(lambda m: m.blocks, example, list(new_blocks))
     return example
 
 
-def map_weights(variant: str, weights_path: Path, output: Path) -> None:
+def map_weights(
+    variant: str,
+    weights_path: Path,
+    output: Path,
+    *,
+    strip_register_tokens: bool = False,
+) -> None:
     equimo = load_pretrained_dinov3(
         variant=variant,
         weights_path=weights_path,
@@ -194,7 +199,9 @@ def map_weights(variant: str, weights_path: Path, output: Path) -> None:
     _disable_random_split()
     _force_gelu_activation(equimo)
 
-    mapped = _build_example_from_equimo(equimo)
+    mapped = _build_example_from_equimo(
+        equimo, strip_register_tokens=strip_register_tokens
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     eqx.tree_serialise_leaves(output, mapped)
 
@@ -218,12 +225,25 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Destination .eqx file where the remapped model will be stored.",
     )
+    parser.add_argument(
+        "--strip-register-tokens",
+        action="store_true",
+        help=(
+            "Ignore register/storage tokens present in Equimo checkpoints while mapping. "
+            "This preserves the simplified example structure but may change semantics."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    map_weights(args.variant, args.weights.expanduser(), args.output.expanduser())
+    map_weights(
+        args.variant,
+        args.weights.expanduser(),
+        args.output.expanduser(),
+        strip_register_tokens=args.strip_register_tokens,
+    )
     print(f"Wrote remapped weights to {args.output}")
     return 0
 
