@@ -90,5 +90,8 @@ def test_function_node_names_are_human_friendly():
     assert {fn.name for fn in functions} == {"_SimpleBlock"}
     domains = {fn.domain for fn in functions}
     assert len(domains) == 2
-    assert any(domain == "custom" for domain in domains)
+    assert domains == {
+        "custom._SimpleBlock.1",
+        "custom._SimpleBlock.2",
+    }
     assert any(domain.startswith("custom.") for domain in domains)
