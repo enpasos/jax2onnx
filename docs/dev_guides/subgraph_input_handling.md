@@ -20,3 +20,9 @@ The ONNX `If` node accepts a single boolean input. Both `then_branch` and `else_
 - `IRContext.get_value_for_var` is responsible for materialising captured tensors. Keep its literal handling consistent with these rules.
 - When authoring tests, prefer `expect_graph` assertions on body graphs to ensure input/output arity matches the spec.
 - If ONNX adjusts the schemas, update the converter code and this guide together so plugin authors retain a single source of truth.
+
+## Constants inside subgraphs (no initializers)
+- ONNX Functions and control‑flow subgraphs must not contain graph initializers. All constants inside `Loop`/`Scan` bodies or Function graphs are emitted as `Constant` nodes.
+- Our converter enforces this by running subgraph construction in “function mode”, which makes builder initializer helpers produce `Constant` nodes instead of registering initializers on the body graph.
+- Plugin authors should always use `ctx.builder.add_initializer_from_*` or `ctx.bind_const_for_var(...)` for constants so the correct form is emitted automatically in subgraphs. Avoid writing to any `_initializers` lists directly.
+- Post‑processing loosens shapes inside subgraphs: value shapes in Loop/Scan bodies are set to rank‑only (all dims unknown) to reduce schema friction and improve portability. Structural tests assert this behaviour.

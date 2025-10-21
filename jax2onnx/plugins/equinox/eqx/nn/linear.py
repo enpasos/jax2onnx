@@ -106,24 +106,13 @@ def _inline_scalar_bias(ctx, bias_val: ir.Value, out_features: int) -> ir.Value:
     else:
         new_type = bias_type
 
-    new_val = ir.Value(
-        name=ctx.fresh_name("linear_bias_inline"),
-        type=new_type,
-        shape=ir.Shape((out_features,)),
+    # Route through builder so function-mode + duplicate policy apply.
+    new_val = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name("linear_bias_inline"), array=np.asarray(broadcast)
     )
-    _set_value_const_payload(new_val, broadcast)
-
-    try:
-        inits = getattr(ctx, "_initializers", None)
-        if isinstance(inits, list):
-            inits.append(new_val)
-        else:
-            ctx.builder.initializers.append(new_val)
-    except Exception:
-        try:
-            ctx.builder.initializers.append(new_val)
-        except Exception:
-            pass
+    # Preserve the desired dtype metadata if available
+    if new_type is not None:
+        new_val.type = new_type
 
     try:
         mapping = getattr(ctx.builder, "_var2val", None)
