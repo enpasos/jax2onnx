@@ -256,6 +256,27 @@ def expect_graph(
 # ---------------- Implementation ----------------
 
 _SHAPE_SEP: Final[Pattern[str]] = re.compile(r"\s*[x×]\s*")
+_NUMERIC_SUFFIX: Final[Pattern[str]] = re.compile(r"_[0-9]+$")
+
+
+def _strip_numeric_suffix(op: str) -> str:
+    return _NUMERIC_SUFFIX.sub("", op)
+
+
+def _op_matches(expected: str, actual: str) -> bool:
+    if expected == actual:
+        return True
+    return _strip_numeric_suffix(expected) == _strip_numeric_suffix(actual)
+
+
+def _sanitize_graph_selector(name: str) -> str:
+    if not name:
+        return name
+    parts = name.split(":")
+    if not parts:
+        return name
+    parts[-1] = _strip_numeric_suffix(parts[-1])
+    return ":".join(parts)
 
 
 def _parse_shape(s: str) -> Tuple:
@@ -338,7 +359,8 @@ class _GraphView:
             for idx, n in enumerate(nodes):
                 if live is not None and idx not in live:
                     continue
-                if getattr(n, "op_type", "") == op_type:
+                current = getattr(n, "op_type", "")
+                if _op_matches(op_type, current):
                     c += 1
         return c
 
@@ -359,7 +381,8 @@ class _GraphView:
             for idx, n in enumerate(nodes):
                 if live is not None and idx not in live:
                     continue
-                if getattr(n, "op_type", "") == op_type:
+                current = getattr(n, "op_type", "")
+                if _op_matches(op_type, current):
                     out.append((gname, idx))
         return out
 
@@ -599,20 +622,28 @@ def _normalize_graph_filter(graph_filter: Any) -> Optional[Set[str]]:
             items = [str(graph_filter)]
 
     normalized: Set[str] = set()
+
+    def _add_entry(entry: str):
+        if not entry:
+            return
+        normalized.add(entry)
+        sanitized = _sanitize_graph_selector(entry)
+        normalized.add(sanitized)
+
     for item in items:
         if not isinstance(item, str):
             continue
         if item == "top":
-            normalized.add("top")
+            _add_entry("top")
             continue
         if item.startswith("fn:"):
-            normalized.add(item)
+            _add_entry(item)
             trimmed = item[3:]
             if trimmed:
-                normalized.add(trimmed)
+                _add_entry(trimmed)
         else:
-            normalized.add(item)
-            normalized.add(f"fn:{item}")
+            _add_entry(item)
+            _add_entry(f"fn:{item}")
     return normalized if normalized else None
 
 
@@ -819,16 +850,11 @@ def _match_path_on_graph(
 ) -> Tuple[bool, str, List[int]]:
     nodes = _nodes(g)
     consumer_map = _build_consumer_map(nodes)
-    # op index
-    index: Dict[str, List[int]] = {}
-    for i, n in enumerate(nodes):
-        index.setdefault(n.op_type, []).append(i)
-
     # Try all starting candidates
     start_op = steps[0][0]
-    starts = index.get(start_op, [])
+    starts = [i for i, n in enumerate(nodes) if _op_matches(start_op, n.op_type)]
     if not starts:
-        present = sorted(set(n.op_type for n in nodes))
+        present = sorted({_strip_numeric_suffix(n.op_type) for n in nodes})
         show = ", ".join(present[:10])
         return (
             False,
@@ -868,7 +894,7 @@ def _path_from(
 ) -> Tuple[bool, str]:
     matched_local: List[int] = []
     i = i0
-    if nodes[i].op_type != steps[0][0]:
+    if not _op_matches(steps[0][0], nodes[i].op_type):
         return False, "start mismatch"
     matched_local.append(i)
 
@@ -1464,8 +1490,8 @@ def _walk_to_op(
 
     # Prioritise direct matches before broader search.
     for cand in candidates:
-        if nodes[cand].op_type == target_op:
-            return cand, [target_op]
+        if _op_matches(target_op, nodes[cand].op_type):
+            return cand, [nodes[cand].op_type]
 
     queue: deque[Tuple[int, List[str]]] = deque()
     visited: Set[int] = set()
@@ -1486,7 +1512,7 @@ def _walk_to_op(
         for nxt in _consumer_indices(nodes, idx, consumer_map):
             op = nodes[nxt].op_type
             new_trace = trace + [op]
-            if op == target_op:
+            if _op_matches(target_op, op):
                 return nxt, new_trace
             if op in passthrough_ops and nxt not in visited:
                 visited.add(nxt)

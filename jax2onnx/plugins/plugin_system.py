@@ -591,10 +591,16 @@ class FunctionPlugin(PrimitivePlugin):
     def get_handler(self, converter: Any) -> Callable:
         return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
 
-    def _allocate_friendly_name(self, ctx) -> str:
+    def _allocate_friendly_name(self, ctx) -> tuple[str, str]:
         """
-        Produce a stable, human-readable FunctionProto name like 'SuperBlock_1'.
-        Keeps a per-context counter per base name.
+        Produce the human-readable FunctionProto identifiers.
+
+        Returns
+        -------
+        tuple[str, str]
+            (op_type, domain) where `op_type` preserves the original callable
+            name and `domain` carries the per-instance suffix to keep the
+            (domain, name) pair unique inside the model.
         """
         base = _sanitize_op_type_name(self._friendly_name_base())
         counters = getattr(ctx, "_func_name_counters", None)
@@ -603,7 +609,11 @@ class FunctionPlugin(PrimitivePlugin):
         idx = counters.get(base, 0) + 1
         counters[base] = idx
         setattr(ctx, "_func_name_counters", counters)
-        return f"{base}_{idx}"
+        if idx == 1:
+            domain = _FUNCTION_DOMAIN
+        else:
+            domain = f"{_FUNCTION_DOMAIN}.{base}_{idx}"
+        return base, domain
 
     def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]):
         # Resolve callee
@@ -804,8 +814,8 @@ class FunctionPlugin(PrimitivePlugin):
         fdef = freg.get(fkey)
         if fdef is None:
             # new child scope
-            fname = self._allocate_friendly_name(ctx)
-            fscope = FunctionScope(ctx, name=fname, domain=_FUNCTION_DOMAIN)
+            fname, fdomain = self._allocate_friendly_name(ctx)
+            fscope = FunctionScope(ctx, name=fname, domain=fdomain)
             # Make the CHILD context see the same function registry as the parent.
             parent_registry = ctx.get_function_registry()
             if parent_registry is not None:
@@ -980,13 +990,30 @@ class FunctionPlugin(PrimitivePlugin):
         base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
         in_vals = base_inputs + param_values
         out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
+        raw_call_name = ctx.builder.fresh_name(fdef.name)
+
+        def _bump_suffix(name: str) -> str:
+            pivot = name.rfind("_")
+            if pivot < 0:
+                return name
+            suffix = name[pivot + 1 :]
+            if not suffix.isdecimal():
+                return name
+            try:
+                bumped = int(suffix) + 1
+            except Exception:
+                return name
+            return f"{name[:pivot]}_{bumped}"
+
+        call_name = _bump_suffix(raw_call_name)
+
         ctx.builder.op_multi_out(
             fdef.name,
             in_vals,
             None,
             outputs=out_vals,
             domain=fdef.domain or "",
-            name=ctx.builder.fresh_name(fdef.name),
+            name=call_name,
         )
 
 

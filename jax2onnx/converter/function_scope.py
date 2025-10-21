@@ -169,6 +169,17 @@ class FunctionScope:
         fn_domain = (self.domain or "").strip()
         if fn_domain:
             opset_imports.setdefault(fn_domain, body_opset)
+        try:
+            nodes_iter = list(body_graph.all_nodes())
+        except AttributeError:
+            try:
+                nodes_iter = list(body_graph.node)
+            except AttributeError:
+                nodes_iter = []
+        for node in nodes_iter:
+            dom = getattr(node, "domain", "") or ""
+            if dom:
+                opset_imports.setdefault(dom, body_opset)
         opset_imports.setdefault("", body_opset)
         body_graph.opset_imports.clear()
         body_graph.opset_imports.update(opset_imports)
