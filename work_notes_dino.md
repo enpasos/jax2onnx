@@ -39,7 +39,8 @@
 - Run `scripts/compare_dinov3_embeddings.py` (see `scripts/compare_dinov3_embeddings.py:1`) with upstream Equimo outputs once the adapter lands, logging the delta here and updating `expect_graph` fixtures if operators shift.
 - 2025-10-22: First parity run with `dinov3_vits16_pretrain_lvd1689m-08c60483.pth` vs `eqx_dinov3_vit_S16.onnx` @ `/tmp/coco_39769.jpg` shows CLS max|Δ|≈1.47 and pooled max|Δ|≈0.71 (rtol=1e-4, atol=1e-6) – still far from parity; expect_graph fixtures unchanged for now. Attempting the shorter filename `dinov3_vits16_pretrain.pth` failed (missing on disk); stick with the hashed Meta archive for now.
 - 2025-10-22: After wiring the on-call caches, parity numbers are unchanged (CLS max|Δ|≈1.47 / pooled≈0.71). Focus shifts to structural gaps rather than rotary plumbing.
-- The existing `.eqx` snapshots no longer deserialize cleanly because `VisionTransformer` now stores rotary caches differently—update `scripts/map_equimo_dino_weights.py` before regenerating mapped checkpoints.
+- 2025-10-22: Regenerated `.eqx` weights with new rotary metadata; Equimo ↔ JAX example drift still sits at ~6.5e-3 (CLS) / 3.6e-3 (patch). ONNX ↔ PyTorch gap unchanged.
+- (`TODO`) teach the mapper to embed the hashable rotary caches explicitly so downstream tooling can deserialize without manual patching.
 
 ## Plan – Match Equimo Features
 1. **Gap audit:** Diff `jax2onnx/plugins/examples/eqx/dino.py` against `equimo/models/vit.py` and `equimo/layers/attention.py` to list missing behaviors (register tokens, untied norms, pooling, rope refresh).
