@@ -665,7 +665,7 @@ class VisionTransformer(eqx.Module):
             return jnp.concatenate([cls, patches], axis=1)
         return tokens
 
-    def _encode(self, x: Array) -> Array:
+    def _encode(self, x: Array, *, capture: bool = False):
         x = self.patch_embed(x)
         cls_tokens = jnp.broadcast_to(self.cls_token, (x.shape[0], 1, x.shape[-1]))
         if self.num_storage_tokens and self.storage_tokens is not None:
@@ -687,8 +687,13 @@ class VisionTransformer(eqx.Module):
             cos=cos,
             prefix_tokens=prefix_tokens,
         )
+        history: list[jax.Array] = []
         for blk in self.blocks:
             x = blk(x, process_heads=process_heads)
+            if capture:
+                history.append(x)
+        if capture:
+            return x, history
         return x
 
     def forward_features(self, x: Array) -> dict[str, Array]:
@@ -712,6 +717,11 @@ class VisionTransformer(eqx.Module):
             "x_norm_patchtokens": patch_norm,
             "x_prenorm": tokens,
         }
+
+    def block_outputs(self, x: Array) -> list[jax.Array]:
+        """Return tokens after each block for debugging."""
+        _, history = self._encode(x, capture=True)
+        return history
 
 
 def _get_test_cases():
