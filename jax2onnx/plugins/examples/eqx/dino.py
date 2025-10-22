@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 from typing import Literal, Optional, Tuple
 
 import equinox as eqx
@@ -168,12 +169,70 @@ class DinoRoPE(eqx.Module):
         return sin, cos
 
 
+def _dino_rope_inference_sincos(
+    rope: DinoRoPE,
+    *,
+    H: int,
+    W: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute DinoRoPE sin/cos caches for inference using NumPy host ops."""
+
+    dtype = np.dtype(rope.dtype)
+
+    if rope.normalize_coords == "max":
+        denom = float(max(H, W))
+        coords_h = np.arange(0.5, H, step=1.0) / denom
+        coords_w = np.arange(0.5, W, step=1.0) / denom
+    elif rope.normalize_coords == "min":
+        denom = float(min(H, W))
+        coords_h = np.arange(0.5, H, step=1.0) / denom
+        coords_w = np.arange(0.5, W, step=1.0) / denom
+    else:
+        coords_h = np.arange(0.5, H, step=1.0) / float(H)
+        coords_w = np.arange(0.5, W, step=1.0) / float(W)
+
+    hh, ww = np.meshgrid(coords_h, coords_w, indexing="ij")
+    coords = np.stack([hh, ww], axis=-1).reshape(H * W, 2)
+    coords = (2.0 * coords - 1.0).astype(dtype)
+
+    periods = np.asarray(rope.periods, dtype=dtype)
+    periods = np.asarray(periods, dtype=dtype)
+    D_head = rope.D_head
+    D_quarter = D_head // 4
+
+    angles = (2.0 * np.pi * coords[:, :, None]) / periods[None, None, :]
+    angles = angles.reshape(angles.shape[0], 2 * D_quarter)
+    angles = np.tile(angles, reps=(1, 2))
+
+    cos = np.cos(angles).astype(dtype, copy=False)
+    sin = np.sin(angles).astype(dtype, copy=False)
+
+    return sin, cos
+
+
 class DinoRotaryProcessHeads(eqx.Module):
     """process_heads adapter that rotates only the patch grid tokens."""
 
-    sin: jax.Array
-    cos: jax.Array
+    _sin_data: bytes = eqx.field(static=True)
+    _cos_data: bytes = eqx.field(static=True)
+    _shape: tuple[int, int] = eqx.field(static=True)
+    _dtype: str = eqx.field(static=True)
     prefix_tokens: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        *,
+        sin: np.ndarray,
+        cos: np.ndarray,
+        prefix_tokens: int,
+    ):
+        sin_arr = np.asarray(sin)
+        cos_arr = np.asarray(cos)
+        self._sin_data = sin_arr.tobytes()
+        self._cos_data = cos_arr.tobytes()
+        self._shape = tuple(int(dim) for dim in sin_arr.shape)
+        self._dtype = str(sin_arr.dtype)
+        self.prefix_tokens = int(prefix_tokens)
 
     def __call__(
         self,
@@ -181,9 +240,9 @@ class DinoRotaryProcessHeads(eqx.Module):
         key_heads: jax.Array,
         value_heads: jax.Array,
     ) -> tuple[jax.Array, jax.Array, jax.Array]:
-        prefix = int(self.prefix_tokens)
-        sin = self.sin.astype(query_heads.dtype)
-        cos = self.cos.astype(query_heads.dtype)
+        prefix = self.prefix_tokens
+        sin = jnp.asarray(self.sin, dtype=query_heads.dtype)
+        cos = jnp.asarray(self.cos, dtype=query_heads.dtype)
         expected_tokens = prefix + sin.shape[0]
         if query_heads.shape[0] != expected_tokens:
             raise ValueError(
@@ -208,18 +267,36 @@ class DinoRotaryProcessHeads(eqx.Module):
         return rotated_q, rotated_k, value_heads
 
     def __hash__(self) -> int:
-        sin_arr = np.asarray(self.sin)
-        cos_arr = np.asarray(self.cos)
-        prefix = int(self.prefix_tokens)
         return hash(
             (
-                sin_arr.shape,
-                sin_arr.dtype.str,
-                sin_arr.tobytes(),
-                cos_arr.tobytes(),
-                prefix,
+                self._shape,
+                self._dtype,
+                self._sin_data,
+                self._cos_data,
+                self.prefix_tokens,
             )
         )
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, DinoRotaryProcessHeads):
+            return False
+        return (
+            self.prefix_tokens == other.prefix_tokens
+            and self._shape == other._shape
+            and self._dtype == other._dtype
+            and self._sin_data == other._sin_data
+            and self._cos_data == other._cos_data
+        )
+
+    @property
+    def sin(self) -> np.ndarray:
+        dtype = np.dtype(self._dtype)
+        return np.frombuffer(self._sin_data, dtype=dtype).reshape(self._shape)
+
+    @property
+    def cos(self) -> np.ndarray:
+        dtype = np.dtype(self._dtype)
+        return np.frombuffer(self._cos_data, dtype=dtype).reshape(self._shape)
 
 
 # --- Model code derived from https://github.com/clementpoiret/Equimo ---
@@ -387,14 +464,21 @@ class Attention(eqx.Module):
         self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=head_dim)
         self.process_heads = process_heads or RotaryProcessHeads(self.rope)
 
-    def __call__(self, x: Array) -> Array:
+    def __call__(
+        self,
+        x: Array,
+        *,
+        process_heads: Optional[eqx.Module] = None,
+    ) -> Array:
+        proc = process_heads or self.process_heads
+
         def _attend(tokens: Array) -> Array:
             return self.core.attn(
                 tokens,
                 tokens,
                 tokens,
                 inference=True,
-                process_heads=self.process_heads,
+                process_heads=proc,
             )
 
         return eqx.filter_vmap(_attend, in_axes=0, out_axes=0)(x)
@@ -474,9 +558,14 @@ class Block(eqx.Module):
         self.ls1 = LayerScale(dim)
         self.ls2 = LayerScale(dim)
 
-    def __call__(self, x: Array) -> Array:
+    def __call__(
+        self,
+        x: Array,
+        *,
+        process_heads: Optional[eqx.Module] = None,
+    ) -> Array:
         attn_in = _apply_pointwise(self.norm1, x)
-        attn_out = self.attn(attn_in)
+        attn_out = self.attn(attn_in, process_heads=process_heads)
         attn_out = _apply_pointwise(self.post_attn_norm, attn_out)
         attn_out = self.ls1(attn_out)
         x = x + attn_out
@@ -522,7 +611,6 @@ class VisionTransformer(eqx.Module):
     norm: eqx.nn.LayerNorm
     num_storage_tokens: int
     dino_rope: DinoRoPE
-    dino_process_heads: DinoRotaryProcessHeads
 
     def __init__(
         self,
@@ -538,7 +626,7 @@ class VisionTransformer(eqx.Module):
         num_storage_tokens = int(num_storage_tokens)
         self.num_storage_tokens = num_storage_tokens
         extra_keys = 1 if num_storage_tokens > 0 else 0
-        total_splits = depth + 3 + extra_keys
+        total_splits = depth + 2 + extra_keys
         keys = jax.random.split(key, total_splits)
         self.patch_embed = PatchEmbed(
             img_size=img_size,
@@ -552,32 +640,17 @@ class VisionTransformer(eqx.Module):
             self.storage_tokens = jax.random.normal(
                 storage_key, (1, num_storage_tokens, embed_dim)
             )
-            rope_key = keys[3]
-            block_keys = keys[4:]
+            block_keys = keys[3:]
         else:
             self.storage_tokens = None
-            rope_key = keys[2]
-            block_keys = keys[3:]
-        grid_size = img_size // patch_size
+            block_keys = keys[2:]
         self.dino_rope = DinoRoPE(dim=embed_dim, num_heads=num_heads)
-        sin, cos = self.dino_rope.get_sincos(
-            H=grid_size,
-            W=grid_size,
-            inference=True,
-            key=rope_key,
-        )
-        prefix_tokens = 1 + num_storage_tokens
-        self.dino_process_heads = DinoRotaryProcessHeads(
-            sin=sin,
-            cos=cos,
-            prefix_tokens=prefix_tokens,
-        )
         self.blocks = [
             Block(
                 dim=embed_dim,
                 num_heads=num_heads,
                 key=k,
-                process_heads=self.dino_process_heads,
+                process_heads=None,
             )
             for k in block_keys
         ]
@@ -593,8 +666,20 @@ class VisionTransformer(eqx.Module):
             x = jnp.concatenate([cls_tokens, storage_tokens, x], axis=1)
         else:
             x = jnp.concatenate([cls_tokens, x], axis=1)
+        grid_size = int(math.isqrt(self.patch_embed.num_patches))
+        sin, cos = _dino_rope_inference_sincos(
+            self.dino_rope,
+            H=grid_size,
+            W=grid_size,
+        )
+        prefix_tokens = 1 + self.num_storage_tokens
+        process_heads = DinoRotaryProcessHeads(
+            sin=sin,
+            cos=cos,
+            prefix_tokens=prefix_tokens,
+        )
         for blk in self.blocks:
-            x = blk(x)
+            x = blk(x, process_heads=process_heads)
         x = _apply_pointwise(self.norm, x)
         if self.num_storage_tokens:
             cls = x[:, :1, :]

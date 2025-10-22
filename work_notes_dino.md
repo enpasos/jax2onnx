@@ -28,7 +28,7 @@
 - PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
 - Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
 - VisionTransformer now models Equimo’s four storage/register tokens end to end; the weight mapper copies them into the example, and the export CLI auto-detects their presence when rebuilding the `VisionTransformer` stub.
-- DinoRoPE integration: ported the 2D rotary helper and selective process-head path (skipping CLS/register tokens), and extended the eqx.MultiheadAttention lowering to accept precomputed sin/cos caches. Example tests now cover the Dino-specific adapter via `DinoRotaryProcessHeads`.
+- DinoRoPE integration: ported the 2D rotary helper, now recompute sin/cos per call, and thread a hashable `DinoRotaryProcessHeads` (with numpy-backed caches) through each block. The eqx.MultiheadAttention lowering pads prefix tokens automatically so the IR path sees the same caches. Example tests cover the Dino-specific adapter end to end.
 - **Plan – DinoRoPE parity (TODO)**
   1. ✅ Swap the rotary handling to match Equimo’s 2D `DinoRoPE`: only the patch grid (HxW) rotates; CLS + register tokens stay unrotated. This likely means porting the `DinoRoPE` helper and wiring a `process_heads` adapter that keeps prefix tokens unchanged.
   2. ✅ Update the multihead-attention lowering so it understands the new adapter (possibly by teaching it to accept the Dino-specific process_heads or by generating equivalent sin/cos caches during export).
@@ -36,7 +36,17 @@
   4. Once parity holds, re-enable the broader test matrix (examples + regression) and document the rotary behavior in `work_notes_dino.md`.
 
 ## Next Steps (DinoRoPE)
-- Run `scripts/compare_dinov3_embeddings.py` with upstream Equimo outputs once the adapter lands, logging the delta here and updating `expect_graph` fixtures if operators shift.
+- Run `scripts/compare_dinov3_embeddings.py` (see `scripts/compare_dinov3_embeddings.py:1`) with upstream Equimo outputs once the adapter lands, logging the delta here and updating `expect_graph` fixtures if operators shift.
+- 2025-10-22: First parity run with `dinov3_vits16_pretrain_lvd1689m-08c60483.pth` vs `eqx_dinov3_vit_S16.onnx` @ `/tmp/coco_39769.jpg` shows CLS max|Δ|≈1.47 and pooled max|Δ|≈0.71 (rtol=1e-4, atol=1e-6) – still far from parity; expect_graph fixtures unchanged for now. Attempting the shorter filename `dinov3_vits16_pretrain.pth` failed (missing on disk); stick with the hashed Meta archive for now.
+- 2025-10-22: After wiring the on-call caches, parity numbers are unchanged (CLS max|Δ|≈1.47 / pooled≈0.71). Focus shifts to structural gaps rather than rotary plumbing.
+- The existing `.eqx` snapshots no longer deserialize cleanly because `VisionTransformer` now stores rotary caches differently—update `scripts/map_equimo_dino_weights.py` before regenerating mapped checkpoints.
+
+## Plan – Match Equimo Features
+1. **Gap audit:** Diff `jax2onnx/plugins/examples/eqx/dino.py` against `equimo/models/vit.py` and `equimo/layers/attention.py` to list missing behaviors (register tokens, untied norms, pooling, rope refresh).
+2. **Prefix/token handling:** Port Equimo’s storage/register-token flow into our `VisionTransformer.__call__`, ensuring CLS/storage tokens follow the same concat/split semantics and that storage tokens propagate through blocks.
+3. **Normalization parity:** Introduce untied norms (cls vs patch) and any optional local-cls norm toggles used by the pretrain checkpoints; gate features behind flags when the simplified example doesn’t exercise them.
+4. **Block internals:** Align block-level attention/MLP ordering with Equimo, including per-block rope cache handling and any dropout/LayerScale nuances still missing.
+5. **Validation & cleanup:** Re-run `scripts/compare_dinov3_embeddings.py` after each milestone, capture deltas here, and refresh expect_graph fixtures/tests once parity settles. Document any intentional deviations.
 - Add a regression that toggles between rotary/no-rotary adapters inside the example attention module to ensure the plugin dispatch stays stable.
 - Restore the broader Dino example/regression test matrix after parity holds and note the verified configuration (weights, image size, tolerances) in this file.
 - Attention + RoPE:
