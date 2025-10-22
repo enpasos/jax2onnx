@@ -27,6 +27,7 @@
 - Added `jax2onnx/sandbox/dino_01.py` to run an ONNX DINO model on an image, save CLS/pooled features, print SHA256 checksums, and optionally compare against saved references.
 - PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
 - Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
+- VisionTransformer now models Equimo’s four storage/register tokens end to end; the weight mapper copies them into the example, and the export CLI auto-detects their presence when rebuilding the `VisionTransformer` stub.
 - Attention + RoPE:
   - Restored the upstream two-argument rotary API and threaded token length explicitly so dynamic batches export cleanly.
   - Refactored `Attention` to reuse an in-module `AttentionCore` and a shared `RotaryProcessHeads` helper; the plugin lowers RoPE alongside the attention primitive, including dynamic batch support.
@@ -75,12 +76,11 @@ Goal: bake pretrained weights into ONNX while preserving the exact operator stru
 poetry run python scripts/map_equimo_dino_weights.py \
   --variant dinov3_vits16_pretrain_lvd1689m \
   --weights ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m.tar.lz4 \
-  --output  ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx \
-  --strip-register-tokens
+  --output  ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx
 ```
 
 Notes:
-- `--strip-register-tokens` keeps the example graph identical to the testcases by ignoring Equimo register tokens (semantics may deviate from the full Equimo model that uses registers).
+- Register tokens are copied into the example by default so the mapped checkpoint matches Meta/Equimo semantics. Pass `--strip-register-tokens` only if you need the legacy no-register graph.
 
 2) Export ONNX with identical example structure
 
@@ -100,7 +100,7 @@ poetry run python scripts/export_eqx_dino_example_with_mapped_weights.py \
 ```
 
 If config inference from filename fails, pass explicit flags:
-`--patch-size 16 --embed-dim 384 --depth 12 --num-heads 6`.
+`--patch-size 16 --embed-dim 384 --depth 12 --num-heads 6`. The CLI auto-detects storage tokens (tries 4 and then 0) or accept `--storage-tokens` for explicit control.
 
 3) Run on a known image and save vectors
 

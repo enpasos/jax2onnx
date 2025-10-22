@@ -35,6 +35,20 @@ def _apply_pointwise(module, x: Array) -> Array:
 
 
 @onnx_function
+class LayerScale(eqx.Module):
+    """Element-wise scaling with learned gamma."""
+
+    gamma: jax.Array
+
+    def __init__(self, dim: int, init_value: float = 1e-5):
+        self.gamma = jnp.ones((dim,), dtype=jnp.float32) * init_value
+
+    def __call__(self, x: Array) -> Array:
+        gamma = jnp.reshape(self.gamma, (1, 1, -1))
+        return x * gamma
+
+
+@onnx_function
 class PatchEmbed(eqx.Module):
     """Image to Patch Embedding."""
 
@@ -218,15 +232,24 @@ class Block(eqx.Module):
 
     norm1: eqx.nn.LayerNorm
     attn: Attention
+    post_attn_norm: eqx.Module
     norm2: eqx.nn.LayerNorm
     mlp: eqx.nn.MLP
+    ls1: eqx.Module
+    ls2: eqx.Module
 
     def __init__(
-        self, dim: int, num_heads: int, mlp_ratio: float = 4.0, *, key: jax.Array
+        self,
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        *,
+        key: jax.Array,
     ):
         keys = jax.random.split(key, 2)
         self.norm1 = eqx.nn.LayerNorm(dim)
         self.attn = Attention(dim, num_heads=num_heads, key=keys[0])
+        self.post_attn_norm = eqx.nn.Identity()
         self.norm2 = eqx.nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = eqx.nn.MLP(
@@ -237,15 +260,20 @@ class Block(eqx.Module):
             activation=jax.nn.gelu,
             key=keys[1],
         )
+        self.ls1 = LayerScale(dim)
+        self.ls2 = LayerScale(dim)
 
     def __call__(self, x: Array) -> Array:
-        norm1_out = _apply_pointwise(self.norm1, x)
-        x = x + self.attn(norm1_out)
+        attn_in = _apply_pointwise(self.norm1, x)
+        attn_out = self.attn(attn_in)
+        attn_out = _apply_pointwise(self.post_attn_norm, attn_out)
+        attn_out = self.ls1(attn_out)
+        x = x + attn_out
 
-        norm2_out = _apply_pointwise(self.norm2, x)
-        mlp_out = _apply_pointwise(self.mlp, norm2_out)
-        x = x + mlp_out
-        return x
+        mlp_in = _apply_pointwise(self.norm2, x)
+        mlp_out = _apply_pointwise(self.mlp, mlp_in)
+        mlp_out = self.ls2(mlp_out)
+        return x + mlp_out
 
 
 register_example(
@@ -278,8 +306,10 @@ class VisionTransformer(eqx.Module):
 
     patch_embed: PatchEmbed
     cls_token: jax.Array
+    storage_tokens: jax.Array | None
     blocks: list[Block]
     norm: eqx.nn.LayerNorm
+    num_storage_tokens: int
 
     def __init__(
         self,
@@ -288,10 +318,15 @@ class VisionTransformer(eqx.Module):
         embed_dim: int,
         depth: int,
         num_heads: int,
+        num_storage_tokens: int = 0,
         *,
         key: jax.Array,
     ):
-        keys = jax.random.split(key, depth + 2)
+        num_storage_tokens = int(num_storage_tokens)
+        self.num_storage_tokens = num_storage_tokens
+        extra_keys = 1 if num_storage_tokens > 0 else 0
+        total_splits = depth + 2 + extra_keys
+        keys = jax.random.split(key, total_splits)
         self.patch_embed = PatchEmbed(
             img_size=img_size,
             patch_size=patch_size,
@@ -299,18 +334,38 @@ class VisionTransformer(eqx.Module):
             key=keys[0],
         )
         self.cls_token = jax.random.normal(keys[1], (1, 1, embed_dim))
+        if num_storage_tokens > 0:
+            storage_key = keys[2]
+            self.storage_tokens = jax.random.normal(
+                storage_key, (1, num_storage_tokens, embed_dim)
+            )
+            block_keys = keys[3:]
+        else:
+            self.storage_tokens = None
+            block_keys = keys[2:]
         self.blocks = [
-            Block(dim=embed_dim, num_heads=num_heads, key=k) for k in keys[2:]
+            Block(dim=embed_dim, num_heads=num_heads, key=k) for k in block_keys
         ]
         self.norm = eqx.nn.LayerNorm(embed_dim)
 
     def __call__(self, x: Array) -> Array:
         x = self.patch_embed(x)
         cls_tokens = jnp.broadcast_to(self.cls_token, (x.shape[0], 1, x.shape[-1]))
-        x = jnp.concatenate([cls_tokens, x], axis=1)
+        if self.num_storage_tokens and self.storage_tokens is not None:
+            storage_tokens = jnp.broadcast_to(
+                self.storage_tokens, (x.shape[0], self.num_storage_tokens, x.shape[-1])
+            )
+            x = jnp.concatenate([cls_tokens, storage_tokens, x], axis=1)
+        else:
+            x = jnp.concatenate([cls_tokens, x], axis=1)
         for blk in self.blocks:
             x = blk(x)
-        return _apply_pointwise(self.norm, x)
+        x = _apply_pointwise(self.norm, x)
+        if self.num_storage_tokens:
+            cls = x[:, :1, :]
+            patches = x[:, 1 + self.num_storage_tokens :, :]
+            return jnp.concatenate([cls, patches], axis=1)
+        return x
 
 
 def _get_test_cases():
@@ -319,10 +374,10 @@ def _get_test_cases():
     img_size = 224
 
     vit_configs = {
-        "Ti14": {"patch": 14, "dim": 192, "heads": 3, "depth": 12},
-        "S14": {"patch": 14, "dim": 384, "heads": 6, "depth": 12},
-        "B14": {"patch": 14, "dim": 768, "heads": 12, "depth": 12},
-        "S16": {"patch": 16, "dim": 384, "heads": 6, "depth": 12},
+        "Ti14": {"patch": 14, "dim": 192, "heads": 3, "depth": 12, "storage": 0},
+        "S14": {"patch": 14, "dim": 384, "heads": 6, "depth": 12, "storage": 0},
+        "B14": {"patch": 14, "dim": 768, "heads": 12, "depth": 12, "storage": 0},
+        "S16": {"patch": 16, "dim": 384, "heads": 6, "depth": 12, "storage": 4},
     }
 
     for idx, (name, config) in enumerate(vit_configs.items()):
@@ -339,6 +394,7 @@ def _get_test_cases():
                     embed_dim=config["dim"],
                     depth=config["depth"],
                     num_heads=config["heads"],
+                    num_storage_tokens=config.get("storage", 0),
                     key=with_prng_key(idx),
                 ),
                 "input_shapes": [("B", 3, img_size, img_size)],

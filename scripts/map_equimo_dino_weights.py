@@ -71,13 +71,11 @@ def _flatten_blocks(equimo_blocks: Sequence) -> list:
 def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = False):
     """Create a VisionTransformer with parameters mapped from the Equimo checkpoint."""
 
-    if getattr(equimo_model, "num_reg_tokens", 0):
-        if not strip_register_tokens:
-            raise NotImplementedError(
-                "examples.eqx_dino.VisionTransformer does not model register tokens yet. "
-                f"Variant exposes {equimo_model.num_reg_tokens} reg tokens—either extend the "
-                "example modules or re-run with --strip-register-tokens to ignore them during mapping."
-            )
+    num_reg_tokens = int(getattr(equimo_model, "num_reg_tokens", 0))
+    if strip_register_tokens:
+        num_storage_tokens = 0
+    else:
+        num_storage_tokens = num_reg_tokens
 
     config = {
         "img_size": int(equimo_model.patch_embed.img_size[0]),
@@ -85,6 +83,7 @@ def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = Fa
         "embed_dim": int(equimo_model.dim),
         "depth": sum(len(chunk.blocks) for chunk in equimo_model.blocks),
         "num_heads": int(equimo_model.blocks[0].blocks[0].attn.num_heads),
+        "num_storage_tokens": num_storage_tokens,
     }
 
     example = VisionTransformer(**config, key=jax.random.PRNGKey(0))
@@ -103,6 +102,11 @@ def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = Fa
         example,
         jnp.asarray(equimo_model.cls_token).reshape(1, 1, -1),
     )
+    if num_storage_tokens:
+        reg_tokens = jnp.asarray(equimo_model.reg_tokens).reshape(
+            1, num_storage_tokens, -1
+        )
+        example = eqx.tree_at(lambda m: m.storage_tokens, example, reg_tokens)
     example = eqx.tree_at(
         lambda m: (m.norm.weight, m.norm.bias),
         example,
@@ -151,27 +155,32 @@ def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = Fa
         )
 
         gamma1 = jnp.asarray(src_block.ls1.gamma)
-        out_weight = jnp.asarray(src_attn.proj.weight) * gamma1[:, None]
-        out_bias = jnp.asarray(src_attn.proj.bias) * gamma1
+        jnp.asarray(src_attn.proj.weight) * gamma1[:, None]
+        jnp.asarray(src_attn.proj.bias) * gamma1
         attn = eqx.tree_at(
             lambda a: a.output_proj,
             attn,
-            _copy_linear(attn.output_proj, out_weight, out_bias),
+            _copy_linear(attn.output_proj, src_attn.proj.weight, src_attn.proj.bias),
         )
         dst_block = eqx.tree_at(lambda b: b.attn.core.attn, dst_block, attn)
+        dst_block = eqx.tree_at(
+            lambda b: b.ls1.gamma, dst_block, jnp.asarray(src_block.ls1.gamma)
+        )
 
-        # MLP (fold the LayerScale into the final projection)
+        # MLP (LayerScale copied separately)
         mlp = dst_block.mlp
         layers = list(mlp.layers)
         layers[0] = _copy_linear(
             layers[0], src_block.mlp.fc1.weight, src_block.mlp.fc1.bias
         )
-        gamma2 = jnp.asarray(src_block.ls2.gamma)
-        fc2_weight = jnp.asarray(src_block.mlp.fc2.weight) * gamma2[:, None]
-        fc2_bias = jnp.asarray(src_block.mlp.fc2.bias) * gamma2
-        layers[1] = _copy_linear(layers[1], fc2_weight, fc2_bias)
+        layers[1] = _copy_linear(
+            layers[1], src_block.mlp.fc2.weight, src_block.mlp.fc2.bias
+        )
         mlp = eqx.tree_at(lambda m: m.layers, mlp, tuple(layers))
         dst_block = eqx.tree_at(lambda b: b.mlp, dst_block, mlp)
+        dst_block = eqx.tree_at(
+            lambda b: b.ls2.gamma, dst_block, jnp.asarray(src_block.ls2.gamma)
+        )
 
         new_blocks.append(dst_block)
 

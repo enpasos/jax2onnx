@@ -70,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth", type=int, help="Transformer depth (blocks)")
     parser.add_argument("--num-heads", type=int, help="Number of attention heads")
     parser.add_argument(
+        "--storage-tokens",
+        type=int,
+        help="Number of storage/register tokens. Defaults to auto-detect.",
+    )
+    parser.add_argument(
         "--seed", type=int, default=0, help="PRNG seed for 'like' model"
     )
     parser.add_argument(
@@ -82,6 +87,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    hint = args.variant or args.eqx.stem  # fall back to filename
+    hint_lower = str(hint).lower()
     # Infer a minimal example config when not fully specified
     ps = args.patch_size
     ed = args.embed_dim
@@ -89,8 +96,6 @@ def main() -> int:
     nh = args.num_heads
     if any(v is None for v in (ps, ed, dp, nh)):
         # Try to infer from variant string/path if provided
-        hint = args.variant or args.eqx.stem  # fall back to filename
-        hint_lower = str(hint).lower()
         # Known small mapping aligned with example variants
         # Ti14: patch=14, dim=192, heads=3, depth=12
         # S14:  patch=14, dim=384, heads=6, depth=12
@@ -117,6 +122,10 @@ def main() -> int:
             nh = nh or 6
             dp = dp or 12
 
+    inferred_storage_tokens = args.storage_tokens
+    if inferred_storage_tokens is None and "dinov3" in hint_lower:
+        inferred_storage_tokens = 4
+
     _pairs = (("patch_size", ps), ("embed_dim", ed), ("depth", dp), ("num_heads", nh))
     missing = [name for name, val in _pairs if val is None]
     if missing:
@@ -128,15 +137,53 @@ def main() -> int:
         )
 
     # Build a 'like' model to guide deserialisation
-    like = VisionTransformer(
-        img_size=int(args.img_size),
-        patch_size=int(ps),
-        embed_dim=int(ed),
-        depth=int(dp),
-        num_heads=int(nh),
-        key=jax.random.PRNGKey(args.seed),
-    )
-    model = eqx.tree_deserialise_leaves(args.eqx.expanduser(), like)
+    def _make_like(storage_tokens: int) -> VisionTransformer:
+        return VisionTransformer(
+            img_size=int(args.img_size),
+            patch_size=int(ps),
+            embed_dim=int(ed),
+            depth=int(dp),
+            num_heads=int(nh),
+            num_storage_tokens=int(storage_tokens),
+            key=jax.random.PRNGKey(args.seed),
+        )
+
+    eqx_path = args.eqx.expanduser()
+    if args.storage_tokens is not None:
+        candidates = [int(args.storage_tokens)]
+    else:
+        candidate_pool = []
+        if inferred_storage_tokens is not None:
+            candidate_pool.append(int(inferred_storage_tokens))
+        candidate_pool.append(0)
+        seen = set()
+        candidates = []
+        for value in candidate_pool:
+            if value not in seen:
+                candidates.append(value)
+                seen.add(value)
+    tried: list[int] = []
+    model = None
+    used_storage_tokens: int | None = None
+    last_error: Exception | None = None
+    for candidate in candidates:
+        if candidate in tried:
+            continue
+        tried.append(candidate)
+        like = _make_like(candidate)
+        try:
+            model = eqx.tree_deserialise_leaves(eqx_path, like)
+            used_storage_tokens = candidate
+            break
+        except (ValueError, TypeError) as exc:
+            last_error = exc
+    if model is None or used_storage_tokens is None:
+        raise SystemExit(
+            "Failed to deserialise the mapped weights. "
+            "Tried storage-token counts: " + ", ".join(str(c) for c in tried)
+        ) from last_error
+    if args.storage_tokens is None and used_storage_tokens:
+        print(f"Detected {used_storage_tokens} storage tokens in mapped weights.")
 
     # Export using the same callable as the example's __call__;
     # this preserves the exact operator layout used in testcases.
