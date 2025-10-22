@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import re
 import importlib
 import inspect
@@ -84,6 +85,21 @@ _PATCH_STATE: dict[tuple[Any, str], dict[str, Any]] = {}
 def _sanitize_op_type_name(name: str) -> str:
     """Make a string safe for ONNX op_type (letters, digits, underscore)."""
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
+
+
+def _normalize_namespace(namespace: str | None) -> str:
+    raw = namespace if namespace is not None else _FUNCTION_DOMAIN
+    if not isinstance(raw, str):
+        raw = str(raw)
+    parts = [part for part in raw.split(".") if part]
+    sanitized_parts: list[str] = []
+    for part in parts:
+        cleaned = _sanitize_op_type_name(part)
+        if cleaned:
+            sanitized_parts.append(cleaned)
+    if not sanitized_parts:
+        return _FUNCTION_DOMAIN
+    return ".".join(sanitized_parts)
 
 
 # Discovery guard (missing before → NameError during test generation)
@@ -396,9 +412,19 @@ class FunctionPlugin(PrimitivePlugin):
     ('onnx_fn::<qualified>') and lower each call to an ONNX Function def + call-site.
     """
 
-    def __init__(self, primitive_name: str, target: Any):
+    def __init__(
+        self,
+        primitive_name: str,
+        target: Any,
+        *,
+        unique: bool = False,
+        namespace: str | None = None,
+    ):
         self.name = primitive_name
         self.target = target
+        self.unique = bool(unique)
+        self.namespace = _normalize_namespace(namespace)
+        self._qualified_target = _qualname_of_target(target)
         self.primitive = Primitive(primitive_name)
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
         self.primitive.def_impl(self._primitive_impl)
@@ -588,22 +614,125 @@ class FunctionPlugin(PrimitivePlugin):
             pass
         return "Function"
 
+    @staticmethod
+    def _value_fingerprint(value: Any) -> tuple[Any, ...]:
+        if value is None:
+            return ("none",)
+        if isinstance(value, (bool, int, float, complex, str, bytes)):
+            literal = value if isinstance(value, (str, bytes)) else repr(value)
+            return ("literal", type(value).__name__, literal)
+        try:
+            arr = np.array(value)
+        except Exception:
+            arr = None
+        if arr is not None and getattr(arr, "dtype", None) is not None:
+            dtype = str(arr.dtype)
+            if arr.dtype != object:
+                shape = tuple(getattr(arr, "shape", ()))
+                try:
+                    data_bytes = arr.tobytes()
+                except Exception:
+                    data_bytes = repr(arr).encode("utf-8", "ignore")
+                digest = hashlib.sha1(data_bytes).hexdigest()
+                return ("array", shape, dtype, digest)
+        return ("object", type(value).__name__, repr(value))
+
+    def _fingerprint_instance_state(self, instance: Any) -> tuple[Any, ...]:
+        if instance is None:
+            return (("instance", "none"),)
+        components: list[tuple[Any, ...]] = []
+        try:
+            leaves, treedef = jtu.tree_flatten(instance)
+        except Exception:
+            leaves = None
+            treedef = None
+        else:
+            components.append(("treedef", repr(treedef)))
+        if leaves:
+            for idx, leaf in enumerate(leaves):
+                components.append(("leaf", idx, self._value_fingerprint(leaf)))
+        else:
+            state = getattr(instance, "__dict__", None)
+            if isinstance(state, dict):
+                for key in sorted(state):
+                    components.append(
+                        ("attr", key, self._value_fingerprint(state[key]))
+                    )
+            else:
+                components.append(("repr", repr(instance)))
+        return tuple(components)
+
+    def _build_unique_signature(
+        self,
+        callee: Any,
+        capture_items: list[tuple[str, tuple[Any, ...]]],
+    ) -> tuple[Any, ...]:
+        signature_parts: list[tuple[Any, ...]] = [
+            ("target", self._qualified_target),
+            ("captures", tuple(capture_items)),
+        ]
+        if inspect.isclass(self.target):
+            inst_type = type(callee)
+            signature_parts.append(
+                (
+                    "instance_type",
+                    f"{inst_type.__module__}.{getattr(inst_type, '__qualname__', inst_type.__name__)}",
+                )
+            )
+            signature_parts.append(
+                ("instance_state", self._fingerprint_instance_state(callee))
+            )
+        else:
+            if callee is None:
+                signature_parts.append(("callable_module", "<unknown>"))
+                signature_parts.append(("callable_name", "<none>"))
+            else:
+                call_ident = getattr(
+                    callee, "__qualname__", getattr(callee, "__name__", repr(callee))
+                )
+                module_name = getattr(callee, "__module__", "<unknown>")
+                signature_parts.append(("callable_module", module_name))
+                signature_parts.append(("callable_name", call_ident))
+        return tuple(signature_parts)
+
     def get_handler(self, converter: Any) -> Callable:
         return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
 
-    def _allocate_friendly_name(self, ctx) -> str:
+    def _allocate_friendly_name(self, ctx) -> tuple[str, str]:
         """
-        Produce a stable, human-readable FunctionProto name like 'SuperBlock_1'.
-        Keeps a per-context counter per base name.
+        Produce the human-readable FunctionProto identifiers.
+
+        Returns
+        -------
+        tuple[str, str]
+            (op_type, domain) where `op_type` preserves the original callable
+            name and `domain` carries the per-instance suffix to keep the
+            (domain, name) pair unique inside the model.
         """
         base = _sanitize_op_type_name(self._friendly_name_base())
+        namespace = self.namespace or _FUNCTION_DOMAIN
+        if self.unique:
+            counters = getattr(ctx, "_func_name_counters", None)
+            if counters is None:
+                counters = {}
+            counter_key = (namespace, base, "unique")
+            idx = counters.get(counter_key, 0) + 1
+            counters[counter_key] = idx
+            setattr(ctx, "_func_name_counters", counters)
+            if idx == 1:
+                domain = f"{namespace}.{base}.unique"
+            else:
+                domain = f"{namespace}.{base}.unique.{idx}"
+            return base, domain
         counters = getattr(ctx, "_func_name_counters", None)
         if counters is None:
             counters = {}
-        idx = counters.get(base, 0) + 1
-        counters[base] = idx
+        counter_key = (namespace, base)
+        idx = counters.get(counter_key, 0) + 1
+        counters[counter_key] = idx
         setattr(ctx, "_func_name_counters", counters)
-        return f"{base}_{idx}"
+        domain = f"{namespace}.{base}.{idx}"
+        return base, domain
 
     def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]):
         # Resolve callee
@@ -796,7 +925,10 @@ class FunctionPlugin(PrimitivePlugin):
                 )
 
         param_values = [entry["ir_value"] for entry in dynamic_entries]
-        capture_sig = (id(callee), tuple(capture_items))
+        if self.unique:
+            capture_sig = self._build_unique_signature(callee, capture_items)
+        else:
+            capture_sig = (id(callee), tuple(capture_items))
         fkey = FunctionKey(
             qualified_name=qualname, input_sig=in_sigs_t, capture_sig=capture_sig
         )
@@ -804,8 +936,8 @@ class FunctionPlugin(PrimitivePlugin):
         fdef = freg.get(fkey)
         if fdef is None:
             # new child scope
-            fname = self._allocate_friendly_name(ctx)
-            fscope = FunctionScope(ctx, name=fname, domain=_FUNCTION_DOMAIN)
+            fname, fdomain = self._allocate_friendly_name(ctx)
+            fscope = FunctionScope(ctx, name=fname, domain=fdomain)
             # Make the CHILD context see the same function registry as the parent.
             parent_registry = ctx.get_function_registry()
             if parent_registry is not None:
@@ -980,13 +1112,30 @@ class FunctionPlugin(PrimitivePlugin):
         base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
         in_vals = base_inputs + param_values
         out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
+        raw_call_name = ctx.builder.fresh_name(fdef.name)
+
+        def _bump_suffix(name: str) -> str:
+            pivot = name.rfind("_")
+            if pivot < 0:
+                return name
+            suffix = name[pivot + 1 :]
+            if not suffix.isdecimal():
+                return name
+            try:
+                bumped = int(suffix) + 1
+            except Exception:
+                return name
+            return f"{name[:pivot]}_{bumped}"
+
+        call_name = _bump_suffix(raw_call_name)
+
         ctx.builder.op_multi_out(
             fdef.name,
             in_vals,
             None,
             outputs=out_vals,
             domain=fdef.domain or "",
-            name=ctx.builder.fresh_name(fdef.name),
+            name=call_name,
         )
 
 
@@ -995,7 +1144,12 @@ class FunctionPlugin(PrimitivePlugin):
 # ------------------------------------------------------------------------------
 
 
-def onnx_function(target: Any):
+def onnx_function(
+    target: Any | None = None,
+    *,
+    unique: bool = False,
+    namespace: str | None = None,
+):
     """
     Mark a class or free function as an ONNX function boundary.
     We do **not** wrap/capture the original callable here to avoid freezing out
@@ -1003,17 +1157,41 @@ def onnx_function(target: Any):
     when plugin activation runs, the patch wrapper (above) intercepts calls,
     records a hit, and binds the function primitive.
     """
-    qual = _qualname_of_target(target)
-    prim_name = f"onnx_fn::{qual}"
-    if prim_name not in PLUGIN_REGISTRY:
-        fp = FunctionPlugin(prim_name, target)
-        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
-        PLUGIN_REGISTRY[prim_name] = fp
-    try:
-        setattr(target, "__j2o_onnx_function__", True)
-    except Exception:
-        pass
-    return target
+
+    def _decorate(actual_target: Any):
+        qual = _qualname_of_target(actual_target)
+        prim_name = f"onnx_fn::{qual}"
+        plugin = PLUGIN_REGISTRY.get(prim_name)
+        normalized_ns = _normalize_namespace(namespace)
+        if plugin is None:
+            fp = FunctionPlugin(
+                prim_name, actual_target, unique=unique, namespace=normalized_ns
+            )
+            ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
+            PLUGIN_REGISTRY[prim_name] = fp
+            plugin = fp
+        elif isinstance(plugin, FunctionPlugin):
+            if normalized_ns and plugin.namespace != normalized_ns:
+                raise ValueError(
+                    f"@onnx_function namespace mismatch for {qual}: "
+                    f"{plugin.namespace} vs {normalized_ns}"
+                )
+            if unique:
+                plugin.unique = True
+        try:
+            setattr(actual_target, "__j2o_onnx_function__", True)
+            if unique:
+                setattr(actual_target, "__j2o_onnx_function_unique__", True)
+            setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_ns)
+        except Exception:
+            pass
+        return actual_target
+
+    if target is None:
+        return _decorate
+    if inspect.isclass(target) or callable(target):
+        return _decorate(target)
+    raise TypeError("@onnx_function expects a class or callable target")
 
 
 def _consume_onnx_function_hits() -> set[str]:

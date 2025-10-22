@@ -74,6 +74,26 @@ Use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` when
 the primitive needs deterministic module construction or RNG split helpers.
 See `jax2onnx/plugins/jax/nn/dot_product_attention.py` for a larger example.
 
+### Function plugin naming invariants
+
+ONNX function plugins now keep the original callable/class name as the **node
+`op_type`**. Uniqueness lives in the call-site metadata instead:
+
+- Call nodes are named `<Callable>_N` (1-indexed) so graphs remain human
+  readable.
+- Each specialization gets a unique domain, e.g. `custom` for the first
+  instance and `custom.Callable_2` for the second. The pair `(op_type, domain)`
+  stays stable across exports and test runs.
+- The converter mirrors every inner domain into the generated `Function`
+  opset imports automatically, so ONNX Runtime receives the same domain the
+  call-site advertises—no manual opset bookkeeping required.
+
+Update structural expectations (`expect_graph`, ORT checks, etc.) to key off the
+`op_type` when you want to match all instances, and fall back to the full
+`node.name` only when a specific call-site matters. Older expectations that
+referenced `Callable_1` continue to pass because the checker strips numeric
+suffixes when comparing `op_type`.
+
 ---
 
 ## 3. Implement `lower`

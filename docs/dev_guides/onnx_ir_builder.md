@@ -178,9 +178,33 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 - **Attribute values of `None`**: build an `ir.Attr` with an explicit `AttributeType`; automatic conversion rejects bare `None`.
 - **Graph ownership**: do not reuse a builder-generated node inside another graph without detaching it first (`graph.remove(node)`), because each node tracks its owning graph.
 
+## Initializer Deduplication
+- Prefer `ctx.builder.add_initializer_from_scalar/array(...)` or `ctx.builder.const_i64(...)` to create constants. Avoid writing directly to `graph.initializers[...]`.
+- The upstream `GraphInitializers.add(value)` overwrites by name. Our builder layer enforces a stricter policy to preserve IR value connections:
+  - Identical duplicate (same name + same data/shape/dtype) → reuse existing initializer; do not replace the object.
+  - Conflicting duplicate (same name + different payload) → raise a `ValueError`.
+  - In function-mode, constants are emitted as `Constant` nodes; graph initializers are not allowed in ONNX Functions.
+
+Example
+```python
+import numpy as np
+
+w1 = builder.add_initializer_from_array("weight", np.array([1.0], dtype=np.float32))
+# Re-adding with identical payload reuses the same Value (no-op):
+w2 = builder.add_initializer_from_array("weight", np.array([1.0], dtype=np.float32))
+assert w1 is w2
+
+# Re-adding with different payload raises:
+builder.add_initializer_from_array("weight", np.array([2.0], dtype=np.float32))  # ValueError
+```
+
+Rationale
+- Preserving object identity prevents subtle mismatches where nodes still reference the old `ir.Value` even though the `graph.initializers` dict now points to a new one. This keeps optimizer passes, cloning, and structural tests stable and predictable.
+
 ## Checklist Before Serializing
 - All graph inputs/outputs are `ir.Value` instances with types and shapes populated (consider using `ir.val` for convenience).
 - Initializers created through the builder are either registered on the target graph or injected via `graph.initializers.add(...)`.
+  - Duplicate policy: attempting to re-add an initializer with the same name and different data raises. Re-adding an identical initializer reuses the existing value without replacing it, preserving value connections.
 - `graph.opset_imports` reflects the versions implied by `builder.used_opsets`.
 - Any node-level metadata (names, doc strings, annotations, overloads) is set on the node objects after creation.
 - Perform optional validation such as `ir.to_proto(model)`, ONNX checker runs, or `onnx_ir.load` round-trips if XY integrates them.
