@@ -17,7 +17,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-@onnx_function
+@onnx_function(unique=True)
 def attention(q, k, v, mask=None, **kwargs):
     """A thin wrapper around nnx.dot_product_attention exposing q, k, v, mask."""
     return nnx.dot_product_attention(q, k, v, mask=mask, **kwargs)

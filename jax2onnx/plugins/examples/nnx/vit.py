@@ -253,8 +253,7 @@ register_example(
 )
 
 
-# @onnx_function(unique=True) # TODO
-@onnx_function
+@onnx_function(unique=True)
 def attention(*args, **kwargs):
     return nnx.dot_product_attention(*args, **kwargs)
 
