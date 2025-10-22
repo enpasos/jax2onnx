@@ -212,7 +212,7 @@ We warmly welcome contributions!
 | `Equinox`     | 0.13.2   | 
 | `onnx-ir`     | 0.1.11   | 
 | `onnx`        | 1.19.1   |  
-| `onnxruntime` | 1.23.1   |  
+| `onnxruntime` | 1.23.2   |  
 
 *For exact pins and extras, see `pyproject.toml`.*
 
