@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional, Tuple
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -22,6 +23,203 @@ from jax2onnx.plugins.plugin_system import (
     register_example,
     with_prng_key,
 )
+
+
+def _rotate_half_last_dim(x: jax.Array) -> jax.Array:
+    """Rotate pairs in the last dimension by 90 degrees."""
+    x.shape[-1] // 2
+    first, second = jnp.split(x, 2, axis=-1)
+    return jnp.concatenate([-second, first], axis=-1)
+
+
+@onnx_function
+class DinoRoPE(eqx.Module):
+    """2D rotary embedding helper mirroring Equimo's DinoRoPE behaviour."""
+
+    D_head: int = eqx.field(static=True)
+    normalize_coords: Literal["min", "max", "separate"] = eqx.field(static=True)
+    shift_coords: Optional[float] = eqx.field(static=True)
+    jitter_coords: Optional[float] = eqx.field(static=True)
+    rescale_coords: Optional[float] = eqx.field(static=True)
+    dtype: jnp.dtype = eqx.field(static=True)
+    periods: jax.Array
+
+    def __init__(
+        self,
+        dim: int,
+        *,
+        num_heads: int,
+        base: Optional[float] = 100.0,
+        min_period: Optional[float] = None,
+        max_period: Optional[float] = None,
+        normalize_coords: Literal["min", "max", "separate"] = "separate",
+        shift_coords: Optional[float] = None,
+        jitter_coords: Optional[float] = None,
+        rescale_coords: Optional[float] = None,
+        periods_dtype: jnp.dtype = jnp.bfloat16,
+        dtype: jnp.dtype = jnp.float32,
+    ):
+        if dim % (4 * num_heads) != 0:
+            raise ValueError("dim must be divisible by 4 * num_heads.")
+        both_periods = (min_period is not None) and (max_period is not None)
+        if (base is None and not both_periods) or (base is not None and both_periods):
+            raise ValueError(
+                "Either `base` or `min_period`+`max_period` must be provided."
+            )
+        if normalize_coords not in ("min", "max", "separate"):
+            raise ValueError(f"Unknown normalize_coords: {normalize_coords}")
+
+        self.normalize_coords = normalize_coords
+        self.shift_coords = shift_coords
+        self.jitter_coords = jitter_coords
+        self.rescale_coords = rescale_coords
+        self.dtype = dtype
+
+        self.D_head = dim // num_heads
+        denom = self.D_head // 2
+        D_quarter = self.D_head // 4
+
+        if base is not None:
+            k = jnp.arange(D_quarter, dtype=periods_dtype)
+            periods = base ** (2.0 * k / float(denom))
+        else:
+            assert min_period is not None and max_period is not None
+            base_ratio = max_period / min_period
+            exponents = jnp.linspace(0.0, 1.0, D_quarter, dtype=periods_dtype)
+            periods = base_ratio**exponents
+            periods = periods / base_ratio
+            periods = periods * max_period
+            periods = periods.astype(periods_dtype)
+
+        self.periods = periods.astype(dtype)
+
+    def _make_coords(self, H: int, W: int) -> jax.Array:
+        dtype = self.dtype
+        if self.normalize_coords == "max":
+            denom = float(max(H, W))
+            coords_h = jnp.arange(0.5, H, step=1.0) / denom
+            coords_w = jnp.arange(0.5, W, step=1.0) / denom
+        elif self.normalize_coords == "min":
+            denom = float(min(H, W))
+            coords_h = jnp.arange(0.5, H, step=1.0) / denom
+            coords_w = jnp.arange(0.5, W, step=1.0) / denom
+        else:
+            coords_h = jnp.arange(0.5, H, step=1.0) / float(H)
+            coords_w = jnp.arange(0.5, W, step=1.0) / float(W)
+
+        hh, ww = jnp.meshgrid(coords_h, coords_w, indexing="ij")
+        coords = jnp.stack([hh, ww], axis=-1).reshape(H * W, 2)
+        coords = 2.0 * coords - 1.0
+        return coords.astype(dtype)
+
+    def get_sincos(
+        self,
+        *,
+        H: int,
+        W: int,
+        key: Optional[jax.Array] = None,
+        inference: Optional[bool] = None,
+    ) -> Tuple[jax.Array, jax.Array]:
+        if key is None:
+            key = jax.random.PRNGKey(0)
+        k_shift, k_jitter, k_rescale = jax.random.split(key, 3)
+
+        dtype = self.dtype
+        D_head = self.D_head
+        D_quarter = D_head // 4
+
+        coords = self._make_coords(H, W)
+
+        if not inference and (self.shift_coords is not None):
+            shift_hw = jax.random.uniform(
+                k_shift, shape=(2,), minval=-self.shift_coords, maxval=self.shift_coords
+            ).astype(dtype)
+            coords = coords + shift_hw[None, :]
+
+        if not inference and (self.jitter_coords is not None):
+            if self.jitter_coords <= 0:
+                raise ValueError("jitter_coords must be > 0.")
+            jitter_max = jnp.log(jnp.asarray(self.jitter_coords, dtype=dtype))
+            jitter_min = -jitter_max
+            jitter_hw = jax.random.uniform(
+                k_jitter, shape=(2,), minval=jitter_min, maxval=jitter_max
+            )
+            jitter_hw = jnp.exp(jitter_hw).astype(dtype)
+            coords = coords * jitter_hw[None, :]
+
+        if not inference and (self.rescale_coords is not None):
+            if self.rescale_coords <= 0:
+                raise ValueError("rescale_coords must be > 0.")
+            rescale_max = jnp.log(jnp.asarray(self.rescale_coords, dtype=dtype))
+            rescale_min = -rescale_max
+            rescale = jax.random.uniform(
+                k_rescale, shape=(1,), minval=rescale_min, maxval=rescale_max
+            )
+            rescale = jnp.exp(rescale).astype(dtype)
+            coords = coords * rescale
+
+        periods = jax.lax.stop_gradient(self.periods).astype(dtype)
+        angles = (2.0 * jnp.pi * coords[:, :, None]) / periods[None, None, :]
+        angles = angles.reshape(angles.shape[0], 2 * D_quarter)
+        angles = jnp.tile(angles, reps=(1, 2))
+
+        cos = jnp.cos(angles).astype(dtype)
+        sin = jnp.sin(angles).astype(dtype)
+        return sin, cos
+
+
+class DinoRotaryProcessHeads(eqx.Module):
+    """process_heads adapter that rotates only the patch grid tokens."""
+
+    sin: jax.Array
+    cos: jax.Array
+    prefix_tokens: int = eqx.field(static=True)
+
+    def __call__(
+        self,
+        query_heads: jax.Array,
+        key_heads: jax.Array,
+        value_heads: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        prefix = int(self.prefix_tokens)
+        sin = self.sin.astype(query_heads.dtype)
+        cos = self.cos.astype(query_heads.dtype)
+        expected_tokens = prefix + sin.shape[0]
+        if query_heads.shape[0] != expected_tokens:
+            raise ValueError(
+                f"Expected sequence length {expected_tokens}, "
+                f"got {query_heads.shape[0]} when applying DinoRoPE."
+            )
+
+        def _apply_rope(x: jax.Array) -> jax.Array:
+            if prefix == 0:
+                x_tail = x
+                x_prefix = jnp.zeros((0,) + x.shape[1:], dtype=x.dtype)
+            else:
+                x_prefix, x_tail = jnp.split(x, [prefix], axis=0)
+            sin_b = sin[:, None, :]
+            cos_b = cos[:, None, :]
+            rotated_tail = _rotate_half_last_dim(x_tail)
+            x_tail = (x_tail * cos_b) + (rotated_tail * sin_b)
+            return jnp.concatenate([x_prefix, x_tail], axis=0)
+
+        rotated_q = _apply_rope(query_heads)
+        rotated_k = _apply_rope(key_heads)
+        return rotated_q, rotated_k, value_heads
+
+    def __hash__(self) -> int:
+        sin_arr = np.asarray(self.sin)
+        cos_arr = np.asarray(self.cos)
+        prefix = int(self.prefix_tokens)
+        return hash(
+            (
+                sin_arr.shape,
+                sin_arr.dtype.str,
+                sin_arr.tobytes(),
+                cos_arr.tobytes(),
+                prefix,
+            )
+        )
 
 
 # --- Model code derived from https://github.com/clementpoiret/Equimo ---
@@ -172,15 +370,22 @@ class Attention(eqx.Module):
 
     core: AttentionCore
     rope: eqx.nn.RotaryPositionalEmbedding
-    process_heads: RotaryProcessHeads
+    process_heads: eqx.Module
     num_heads: int
 
-    def __init__(self, dim: int, num_heads: int, *, key: jax.Array):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        *,
+        key: jax.Array,
+        process_heads: Optional[eqx.Module] = None,
+    ):
         self.num_heads = num_heads
         self.core = AttentionCore(dim=dim, num_heads=num_heads, key=key)
         head_dim = dim // num_heads
         self.rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=head_dim)
-        self.process_heads = RotaryProcessHeads(self.rope)
+        self.process_heads = process_heads or RotaryProcessHeads(self.rope)
 
     def __call__(self, x: Array) -> Array:
         def _attend(tokens: Array) -> Array:
@@ -245,10 +450,16 @@ class Block(eqx.Module):
         mlp_ratio: float = 4.0,
         *,
         key: jax.Array,
+        process_heads: Optional[eqx.Module] = None,
     ):
         keys = jax.random.split(key, 2)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = Attention(dim, num_heads=num_heads, key=keys[0])
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads,
+            key=keys[0],
+            process_heads=process_heads,
+        )
         self.post_attn_norm = eqx.nn.Identity()
         self.norm2 = eqx.nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -310,6 +521,8 @@ class VisionTransformer(eqx.Module):
     blocks: list[Block]
     norm: eqx.nn.LayerNorm
     num_storage_tokens: int
+    dino_rope: DinoRoPE
+    dino_process_heads: DinoRotaryProcessHeads
 
     def __init__(
         self,
@@ -325,7 +538,7 @@ class VisionTransformer(eqx.Module):
         num_storage_tokens = int(num_storage_tokens)
         self.num_storage_tokens = num_storage_tokens
         extra_keys = 1 if num_storage_tokens > 0 else 0
-        total_splits = depth + 2 + extra_keys
+        total_splits = depth + 3 + extra_keys
         keys = jax.random.split(key, total_splits)
         self.patch_embed = PatchEmbed(
             img_size=img_size,
@@ -339,12 +552,34 @@ class VisionTransformer(eqx.Module):
             self.storage_tokens = jax.random.normal(
                 storage_key, (1, num_storage_tokens, embed_dim)
             )
-            block_keys = keys[3:]
+            rope_key = keys[3]
+            block_keys = keys[4:]
         else:
             self.storage_tokens = None
-            block_keys = keys[2:]
+            rope_key = keys[2]
+            block_keys = keys[3:]
+        grid_size = img_size // patch_size
+        self.dino_rope = DinoRoPE(dim=embed_dim, num_heads=num_heads)
+        sin, cos = self.dino_rope.get_sincos(
+            H=grid_size,
+            W=grid_size,
+            inference=True,
+            key=rope_key,
+        )
+        prefix_tokens = 1 + num_storage_tokens
+        self.dino_process_heads = DinoRotaryProcessHeads(
+            sin=sin,
+            cos=cos,
+            prefix_tokens=prefix_tokens,
+        )
         self.blocks = [
-            Block(dim=embed_dim, num_heads=num_heads, key=k) for k in block_keys
+            Block(
+                dim=embed_dim,
+                num_heads=num_heads,
+                key=k,
+                process_heads=self.dino_process_heads,
+            )
+            for k in block_keys
         ]
         self.norm = eqx.nn.LayerNorm(embed_dim)
 

@@ -28,6 +28,17 @@
 - PatchEmbed: introduced `eqx.filter_vmap` wrappers and a batching rule for the custom `jnp.squeeze` primitive so `Test_PatchEmbed::test_patch_embed` passes for both static/dynamic batches.
 - Vision blocks: LayerNorm/MLP now run under `eqx.filter_vmap`, keeping Equimo semantics while satisfying ONNX tracing (fixes the transformer + ViT paths).
 - VisionTransformer now models Equimo’s four storage/register tokens end to end; the weight mapper copies them into the example, and the export CLI auto-detects their presence when rebuilding the `VisionTransformer` stub.
+- DinoRoPE integration: ported the 2D rotary helper and selective process-head path (skipping CLS/register tokens), and extended the eqx.MultiheadAttention lowering to accept precomputed sin/cos caches. Example tests now cover the Dino-specific adapter via `DinoRotaryProcessHeads`.
+- **Plan – DinoRoPE parity (TODO)**
+  1. ✅ Swap the rotary handling to match Equimo’s 2D `DinoRoPE`: only the patch grid (HxW) rotates; CLS + register tokens stay unrotated. This likely means porting the `DinoRoPE` helper and wiring a `process_heads` adapter that keeps prefix tokens unchanged.
+  2. ✅ Update the multihead-attention lowering so it understands the new adapter (possibly by teaching it to accept the Dino-specific process_heads or by generating equivalent sin/cos caches during export).
+  3. Re-run diff checks (`scripts/compare_dinov3_embeddings.py`) until ONNX ↔ PyTorch δ ≈ numerical noise; refresh expect_graph baselines if the operator layout shifts.
+  4. Once parity holds, re-enable the broader test matrix (examples + regression) and document the rotary behavior in `work_notes_dino.md`.
+
+## Next Steps (DinoRoPE)
+- Run `scripts/compare_dinov3_embeddings.py` with upstream Equimo outputs once the adapter lands, logging the delta here and updating `expect_graph` fixtures if operators shift.
+- Add a regression that toggles between rotary/no-rotary adapters inside the example attention module to ensure the plugin dispatch stays stable.
+- Restore the broader Dino example/regression test matrix after parity holds and note the verified configuration (weights, image size, tolerances) in this file.
 - Attention + RoPE:
   - Restored the upstream two-argument rotary API and threaded token length explicitly so dynamic batches export cleanly.
   - Refactored `Attention` to reuse an in-module `AttentionCore` and a shared `RotaryProcessHeads` helper; the plugin lowers RoPE alongside the attention primitive, including dynamic batch support.

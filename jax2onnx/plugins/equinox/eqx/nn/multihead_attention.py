@@ -101,10 +101,6 @@ def _apply_rotary_process_heads_lowering(
     k_seq_static: int | None,
     prefix: str,
 ):
-    if not isinstance(process_heads, RotaryProcessHeads):
-        raise NotImplementedError(
-            "Only RotaryProcessHeads callbacks are supported for process_heads."
-        )
     if q_seq_static is None or k_seq_static is None:
         raise NotImplementedError(
             "Rotary process_heads requires a static sequence length."
@@ -113,10 +109,66 @@ def _apply_rotary_process_heads_lowering(
         raise NotImplementedError(
             "Query and key sequence lengths must match for rotary process_heads."
         )
+
+    def _pad_with_identity(
+        cos_tail: np.ndarray,
+        sin_tail: np.ndarray,
+        prefix_tokens: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        seq_len = prefix_tokens + cos_tail.shape[0]
+        dtype = np.result_type(cos_tail.dtype, sin_tail.dtype)
+        full_cos = np.ones((seq_len, cos_tail.shape[1]), dtype=dtype)
+        full_sin = np.zeros((seq_len, sin_tail.shape[1]), dtype=dtype)
+        if prefix_tokens:
+            full_cos[prefix_tokens:, :] = cos_tail.astype(dtype)
+            full_sin[prefix_tokens:, :] = sin_tail.astype(dtype)
+        else:
+            full_cos[:, :] = cos_tail.astype(dtype)
+            full_sin[:, :] = sin_tail.astype(dtype)
+        return full_cos, full_sin
+
     seq_len = int(q_seq_static)
-    rope_module = process_heads.rope
-    embedding_size = int(rope_module.embedding_size)
-    cos_np, sin_np = compute_rope_caches(rope_module, seq_len)
+    if isinstance(process_heads, RotaryProcessHeads):
+        rope_module = getattr(process_heads, "rope", None)
+        if rope_module is None and not hasattr(process_heads, "sin"):
+            raise NotImplementedError(
+                "RotaryProcessHeads instance missing rope attribute."
+            )
+        if rope_module is not None and not hasattr(process_heads, "sin"):
+            embedding_size = int(rope_module.embedding_size)
+            cos_np, sin_np = compute_rope_caches(rope_module, seq_len)
+        elif hasattr(process_heads, "sin") and hasattr(process_heads, "cos"):
+            sin_arr = np.asarray(process_heads.sin)
+            cos_arr = np.asarray(process_heads.cos)
+            if sin_arr.shape != cos_arr.shape:
+                raise ValueError("sin and cos caches must have matching shapes.")
+            tail_len, embedding_size = sin_arr.shape
+            prefix_tokens = int(getattr(process_heads, "prefix_tokens", 0))
+            if prefix_tokens + tail_len != seq_len:
+                raise NotImplementedError(
+                    "DinoRoPE process_heads length does not match attention sequence."
+                )
+            cos_np, sin_np = _pad_with_identity(cos_arr, sin_arr, prefix_tokens)
+        else:
+            raise NotImplementedError(
+                "Unsupported RotaryProcessHeads subclass without sin/cos caches."
+            )
+    elif hasattr(process_heads, "sin") and hasattr(process_heads, "cos"):
+        sin_arr = np.asarray(process_heads.sin)
+        cos_arr = np.asarray(process_heads.cos)
+        if sin_arr.shape != cos_arr.shape:
+            raise ValueError("sin and cos caches must have matching shapes.")
+        tail_len, embedding_size = sin_arr.shape
+        prefix_tokens = int(getattr(process_heads, "prefix_tokens", 0))
+        if prefix_tokens + tail_len != seq_len:
+            raise NotImplementedError(
+                "DinoRoPE process_heads length does not match attention sequence."
+            )
+        cos_np, sin_np = _pad_with_identity(cos_arr, sin_arr, prefix_tokens)
+    else:
+        raise NotImplementedError(
+            "Only RotaryProcessHeads-style callbacks are supported for process_heads."
+        )
 
     cos_val_q = ctx.bind_const_for_var(object(), cos_np)
     sin_val_q = ctx.bind_const_for_var(object(), sin_np)
@@ -1280,6 +1332,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         if process_heads is None:
             return None
         if isinstance(process_heads, RotaryProcessHeads):
+            return process_heads
+        if hasattr(process_heads, "sin") and hasattr(process_heads, "cos"):
             return process_heads
         raise NotImplementedError(
             "process_heads callable is not supported by the MultiheadAttention lowering."
