@@ -657,6 +657,15 @@ class VisionTransformer(eqx.Module):
         self.norm = eqx.nn.LayerNorm(embed_dim)
 
     def __call__(self, x: Array) -> Array:
+        tokens = self._encode(x)
+        tokens = _apply_pointwise(self.norm, tokens)
+        if self.num_storage_tokens:
+            cls = tokens[:, :1, :]
+            patches = tokens[:, 1 + self.num_storage_tokens :, :]
+            return jnp.concatenate([cls, patches], axis=1)
+        return tokens
+
+    def _encode(self, x: Array) -> Array:
         x = self.patch_embed(x)
         cls_tokens = jnp.broadcast_to(self.cls_token, (x.shape[0], 1, x.shape[-1]))
         if self.num_storage_tokens and self.storage_tokens is not None:
@@ -680,12 +689,29 @@ class VisionTransformer(eqx.Module):
         )
         for blk in self.blocks:
             x = blk(x, process_heads=process_heads)
-        x = _apply_pointwise(self.norm, x)
-        if self.num_storage_tokens:
-            cls = x[:, :1, :]
-            patches = x[:, 1 + self.num_storage_tokens :, :]
-            return jnp.concatenate([cls, patches], axis=1)
         return x
+
+    def forward_features(self, x: Array) -> dict[str, Array]:
+        """Return Equimo-style feature dictionary for analysis."""
+        tokens = self._encode(x)
+        tokens_norm = _apply_pointwise(self.norm, tokens)
+        cls_norm = tokens_norm[:, 0, :]
+        if self.num_storage_tokens:
+            reg_norm = tokens_norm[:, 1 : 1 + self.num_storage_tokens, :]
+            patch_start = 1 + self.num_storage_tokens
+        else:
+            reg_norm = jnp.empty(
+                (tokens.shape[0], 0, tokens.shape[-1]),
+                dtype=tokens_norm.dtype,
+            )
+            patch_start = 1
+        patch_norm = tokens_norm[:, patch_start:, :]
+        return {
+            "x_norm_cls_token": cls_norm,
+            "x_norm_reg_tokens": reg_norm,
+            "x_norm_patchtokens": patch_norm,
+            "x_prenorm": tokens,
+        }
 
 
 def _get_test_cases():

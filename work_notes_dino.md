@@ -42,6 +42,7 @@
 - 2025-10-22: Regenerated `.eqx` weights with new rotary metadata; Equimo ↔ JAX example drift still sits at ~6.5e-3 (CLS) / 3.6e-3 (patch). ONNX ↔ PyTorch gap unchanged.
 - (`TODO`) teach the mapper to embed the hashable rotary caches explicitly so downstream tooling can deserialize without manual patching.
 - Attempted to switch the example MLP to the DINO exact GELU but the ONNX lowering currently lacks an `erf` plugin; keep the approximate GELU for now and track a follow-up to add the primitive support before retrying.
+- Added `VisionTransformer.forward_features` and `_encode` helpers mirroring Equimo’s API so we can compare normalized CLS/storage/patch tokens without re-running the whole export loop.
 
 ## Plan – Match Equimo Features
 1. **Gap audit:** Diff `jax2onnx/plugins/examples/eqx/dino.py` against `equimo/models/vit.py` and `equimo/layers/attention.py` to list missing behaviors (register tokens, untied norms, pooling, rope refresh).
