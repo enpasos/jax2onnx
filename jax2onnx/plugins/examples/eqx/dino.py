@@ -564,16 +564,46 @@ class Block(eqx.Module):
         *,
         process_heads: Optional[eqx.Module] = None,
     ) -> Array:
-        attn_in = _apply_pointwise(self.norm1, x)
-        attn_out = self.attn(attn_in, process_heads=process_heads)
-        attn_out = _apply_pointwise(self.post_attn_norm, attn_out)
-        attn_out = self.ls1(attn_out)
-        x = x + attn_out
+        out, _ = self._forward_internal(x, process_heads=process_heads)
+        return out
 
-        mlp_in = _apply_pointwise(self.norm2, x)
-        mlp_out = _apply_pointwise(self.mlp, mlp_in)
-        mlp_out = self.ls2(mlp_out)
-        return x + mlp_out
+    def forward_debug(
+        self,
+        x: Array,
+        *,
+        process_heads: Optional[eqx.Module] = None,
+    ) -> tuple[Array, dict[str, Array]]:
+        return self._forward_internal(x, process_heads=process_heads)
+
+    def _forward_internal(
+        self,
+        x: Array,
+        *,
+        process_heads: Optional[eqx.Module] = None,
+    ) -> tuple[Array, dict[str, Array]]:
+        attn_in = _apply_pointwise(self.norm1, x)
+        attn_raw = self.attn(attn_in, process_heads=process_heads)
+        attn_norm = _apply_pointwise(self.post_attn_norm, attn_raw)
+        attn_scaled = self.ls1(attn_norm)
+        post_attn = x + attn_scaled
+
+        mlp_in = _apply_pointwise(self.norm2, post_attn)
+        mlp_raw = _apply_pointwise(self.mlp, mlp_in)
+        mlp_scaled = self.ls2(mlp_raw)
+        out = post_attn + mlp_scaled
+
+        debug = {
+            "attn_in": attn_in,
+            "attn_raw": attn_raw,
+            "attn_norm": attn_norm,
+            "attn_scaled": attn_scaled,
+            "post_attn": post_attn,
+            "mlp_in": mlp_in,
+            "mlp_raw": mlp_raw,
+            "mlp_scaled": mlp_scaled,
+            "output": out,
+        }
+        return out, debug
 
 
 register_example(
@@ -722,6 +752,44 @@ class VisionTransformer(eqx.Module):
         """Return tokens after each block for debugging."""
         _, history = self._encode(x, capture=True)
         return history
+
+    def block_debug_outputs(self, x: Array) -> list[dict[str, Array]]:
+        """Return detailed per-block activations (pre/post attention & MLP)."""
+        tokens = self.patch_embed(x)
+        cls_tokens = jnp.broadcast_to(
+            self.cls_token, (tokens.shape[0], 1, tokens.shape[-1])
+        )
+        if self.num_storage_tokens and self.storage_tokens is not None:
+            storage_tokens = jnp.broadcast_to(
+                self.storage_tokens,
+                (tokens.shape[0], self.num_storage_tokens, tokens.shape[-1]),
+            )
+            tokens = jnp.concatenate([cls_tokens, storage_tokens, tokens], axis=1)
+        else:
+            tokens = jnp.concatenate([cls_tokens, tokens], axis=1)
+
+        grid_size = int(math.isqrt(self.patch_embed.num_patches))
+        sin, cos = _dino_rope_inference_sincos(
+            self.dino_rope,
+            H=grid_size,
+            W=grid_size,
+        )
+        prefix_tokens = 1 + self.num_storage_tokens
+        process_heads = DinoRotaryProcessHeads(
+            sin=sin,
+            cos=cos,
+            prefix_tokens=prefix_tokens,
+        )
+
+        debug_infos: list[dict[str, Array]] = []
+        current = tokens
+        for blk in self.blocks:
+            entry: dict[str, Array] = {"input": current}
+            out, dbg = blk.forward_debug(current, process_heads=process_heads)
+            entry.update(dbg)
+            debug_infos.append(entry)
+            current = out
+        return debug_infos
 
 
 def _get_test_cases():

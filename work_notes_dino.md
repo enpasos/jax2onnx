@@ -44,6 +44,7 @@
 - Example MLP still relies on the default approximate GELU until we land a robust ONNX-compatible exact variant.
 - Added `VisionTransformer.forward_features` and `_encode` helpers mirroring Equimo’s API so we can compare normalized CLS/storage/patch tokens without re-running the whole export loop.
 - Exact GELU still leverages the native ONNX Gelu op; we still owe lax-level `erf`/`erfc` lowering so standalone error-function primitives don’t break export (tracked as TODO).
+- Per-block delta vs. Equimo (coco_39769): blocks 0–5 stay ≤1e-2, but after block 6 deltas grow—`mlp_scaled` hits ~0.22 at block 6 and both `attn_scaled`/`mlp_scaled` exceed 0.2 by blocks 10–11. Untied norms and LayerScale handling in later blocks look like the main gap.
 
 ## Plan – Match Equimo Features
 1. **Gap audit:** Diff `jax2onnx/plugins/examples/eqx/dino.py` against `equimo/models/vit.py` and `equimo/layers/attention.py` to list missing behaviors (register tokens, untied norms, pooling, rope refresh).
