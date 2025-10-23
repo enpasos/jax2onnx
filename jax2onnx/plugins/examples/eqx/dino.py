@@ -28,8 +28,8 @@ from jax2onnx.plugins.plugin_system import (
 
 def _rotate_half_last_dim(x: jax.Array) -> jax.Array:
     """Rotate pairs in the last dimension by 90 degrees."""
-    x.shape[-1] // 2
-    first, second = jnp.split(x, 2, axis=-1)
+    half = x.shape[-1] // 2
+    first, second = jnp.split(x, [half], axis=-1)
     return jnp.concatenate([-second, first], axis=-1)
 
 

@@ -41,8 +41,9 @@
 - 2025-10-22: After wiring the on-call caches, parity numbers are unchanged (CLS max|Δ|≈1.47 / pooled≈0.71). Focus shifts to structural gaps rather than rotary plumbing.
 - 2025-10-22: Regenerated `.eqx` weights with new rotary metadata; Equimo ↔ JAX example drift still sits at ~6.5e-3 (CLS) / 3.6e-3 (patch). ONNX ↔ PyTorch gap unchanged.
 - (`TODO`) teach the mapper to embed the hashable rotary caches explicitly so downstream tooling can deserialize without manual patching.
-- Attempted to switch the example MLP to the DINO exact GELU but the ONNX lowering currently lacks an `erf` plugin; keep the approximate GELU for now and track a follow-up to add the primitive support before retrying.
+- Example MLP still relies on the default approximate GELU until we land a robust ONNX-compatible exact variant.
 - Added `VisionTransformer.forward_features` and `_encode` helpers mirroring Equimo’s API so we can compare normalized CLS/storage/patch tokens without re-running the whole export loop.
+- Exact GELU still leverages the native ONNX Gelu op; we still owe lax-level `erf`/`erfc` lowering so standalone error-function primitives don’t break export (tracked as TODO).
 
 ## Plan – Match Equimo Features
 1. **Gap audit:** Diff `jax2onnx/plugins/examples/eqx/dino.py` against `equimo/models/vit.py` and `equimo/layers/attention.py` to list missing behaviors (register tokens, untied norms, pooling, rope refresh).
