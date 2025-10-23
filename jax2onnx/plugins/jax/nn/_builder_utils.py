@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
+from jax.extend.core import Primitive
+from jax.interpreters import batching
+
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -50,3 +53,15 @@ def lower_unary_elementwise(
         _stamp_type_and_shape(result, x_shape)
 
     ctx.bind_value_for_var(y_var, result)
+
+
+def register_unary_elementwise_batch_rule(prim: Primitive) -> None:
+    """Attach a default batching rule for single-input elementwise primitives."""
+
+    def _batch_rule(batched_args, batch_dims, **params):
+        (x,) = batched_args
+        (bd,) = batch_dims
+        out = prim.bind(x, **params)
+        return out, bd
+
+    batching.primitive_batchers[prim] = _batch_rule

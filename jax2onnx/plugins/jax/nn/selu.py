@@ -10,7 +10,10 @@ from jax.extend.core import Primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
+    register_unary_elementwise_batch_rule,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -110,3 +113,6 @@ class SeluPlugin(PrimitiveLeafPlugin):
 @SeluPlugin._PRIM.def_impl
 def _selu_impl(*args, **kwargs):
     return jax.nn.selu(*args, **kwargs)
+
+
+register_unary_elementwise_batch_rule(SeluPlugin._PRIM)
