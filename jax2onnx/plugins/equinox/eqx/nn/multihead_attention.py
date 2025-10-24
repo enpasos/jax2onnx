@@ -1074,7 +1074,14 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             value_seq_static_hint,
         )
 
-        if isinstance(process_heads_param, RotaryProcessHeads):
+        def _is_rotary_like(candidate) -> bool:
+            if candidate is None:
+                return False
+            if isinstance(candidate, RotaryProcessHeads):
+                return True
+            return hasattr(candidate, "sin") and hasattr(candidate, "cos")
+
+        if _is_rotary_like(process_heads_param):
             q_heads, k_heads = _apply_rotary_process_heads_lowering(
                 ctx,
                 builder,

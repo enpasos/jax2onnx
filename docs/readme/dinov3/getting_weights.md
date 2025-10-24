@@ -12,32 +12,53 @@ available.
 
 ## 1. Fetch Meta’s PyTorch checkpoint
 
-Meta publishes DINOv3 weights under the torch hub cache. The examples below use
-the `dinov3_vits16_pretrain_lvd1689m` variant.
+Meta publishes DINOv3 weights on Hugging Face. The commands below download the
+`dinov3_vits16_pretrain_lvd1689m` checkpoint directly into the cache path that
+Equimo-based scripts expect.
 
-```bash
-# Populate torch hub (only needed once per machine).
-poetry run python - <<'PY'
-import torch
-torch.hub.load('facebookresearch/dinov3', 'dinov3_vits16', pretrained=False)
-PY
+1. Visit https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m,
+   accept the model’s license *and* request access to the gated repository. Wait
+   for the approval email—Meta sends presigned download links that remain valid
+   for a limited time.
+2. Use one of the approved links (they start with `https://dinov3.llamameta.net/...`)
+   to fetch the checkpoint directly, for example:
 
-# The checkpoint will appear under ~/.cache/torch/hub/dinov3/weights/
-ls ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m*.pth
-```
+   ```bash
+   mkdir -p ~/.cache/equimo/dinov3
 
-If you already have the `.pth` file, skip the `torch.hub.load` step and place it
-under `~/.cache/torch/hub/dinov3/weights/` (or pass `--weights` in later steps).
+   curl -L "https://dinov3.llamameta.net/dinov3_vits16/dinov3_vits16_pretrain_lvd1689m-08c60483.pth?...Key-Pair-Id=..." \
+     -o ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+   ```
+
+   (Replace the URL above with the exact link from your email; `wget` works too.
+   If you prefer a browser download, save the file and move it into
+   `~/.cache/equimo/dinov3/`.)
+
+3. Verify the file is present:
+
+   ```bash
+   ls ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m-*.pth
+   ```
 
 ## 2. Convert Meta → Equimo (PyTorch → Equinox)
 
 Use the helper script to convert Meta’s checkpoint into an Equinox archive that
 matches the Equimo layout.
 
+> **Prerequisite:** install the optional tooling and make a local clone of
+> Equimo’s conversion utilities (the published wheel omits `models/dinov3.py`):
+>
+> ```bash
+> poetry install --with test
+> git clone https://github.com/clementpoiret/Equimo.git ~/.cache/equimo/repos/Equimo
+> poetry run pip install -e ~/.cache/equimo/repos/Equimo
+> poetry run pip install timm torchmetrics termcolor
+> ```
+
 ```bash
 poetry run python scripts/convert_dinov3_from_equimo.py \
   --variant dinov3_vits16_pretrain_lvd1689m \
-  --weights ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+  --weights ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
   --output ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m
 ```
 
@@ -74,16 +95,21 @@ poetry run python scripts/export_eqx_dino_example_with_mapped_weights.py \
 For the dynamic-batch version, add `--dynamic-batch` to the command above. The
 resulting ONNX files can now be used for inference or comparison.
 
-## 5. Optional sanity check (JAX ⇔ ONNX)
+## 5. Verify against Meta’s release
 
-To confirm the exported ONNX matches the example model, run:
+Use the comparison helper to confirm the ONNX export matches Meta’s PyTorch
+checkpoint (numerical drift should be on the order of 1e-6):
 
 ```bash
-poetry run python jax2onnx/sandbox/dino_01.py \
-  --model ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
+curl -L -o /tmp/coco_39769.jpg \
+  http://images.cocodataset.org/val2017/000000039769.jpg
+
+poetry run python scripts/compare_meta_vs_jax2onnx.py \
   --image /tmp/coco_39769.jpg \
-  --print-checksum
+  --variant dinov3_vits16_pretrain_lvd1689m \
+  --weights ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+  --onnx ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx
 ```
 
-This prints CLS and pooled feature checksums you can compare against the JAX
-example or previous runs.
+Expect cosine similarity close to 1.0 and maximum absolute differences below
+`1e-5` for both CLS and pooled patch features.

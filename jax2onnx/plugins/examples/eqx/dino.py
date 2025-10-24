@@ -481,7 +481,7 @@ register_example(
 
 
 @onnx_function
-class Attention(eqx.Module):
+class MultiHeadAttention(eqx.Module):
     """Multi-Head Self-Attention driven by Equinox primitives."""
 
     core: AttentionCore
@@ -537,7 +537,7 @@ register_example(
         {
             "testcase": "attention",
             "callable": construct_and_call(
-                Attention, dim=384, num_heads=6, key=with_prng_key(0)
+                MultiHeadAttention, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(
@@ -559,7 +559,7 @@ class Block(eqx.Module):
     """Transformer Block."""
 
     norm1: eqx.nn.LayerNorm
-    attn: Attention
+    attn: MultiHeadAttention
     post_attn_norm: Optional[eqx.Module]
     norm2: eqx.nn.LayerNorm
     mlp: eqx.nn.MLP
@@ -577,7 +577,7 @@ class Block(eqx.Module):
     ):
         keys = jax.random.split(key, 2)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = Attention(
+        self.attn = MultiHeadAttention(
             dim,
             num_heads=num_heads,
             key=keys[0],
