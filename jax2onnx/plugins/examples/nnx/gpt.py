@@ -394,7 +394,7 @@ def broadcast_add(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
 
 
 register_example(
-    component="broadcast_add",
+    component="GPT_broadcast_add",
     description="Simple dynamic broadcast + add",
     source="(your patch)",
     since="v0.7.0",
