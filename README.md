@@ -154,31 +154,19 @@ to_onnx(
   * Enhancing support for **physics-based simulations**
 
 
-### **Upcoming Version**
- 
-* **0.10.0**:
-  * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
-  * Equinox DINOv3 support
-  * Gather support enhanced
-  * ONNX function nodes stay named after the original callable while domains handle per-instance uniqueness
-  * Added namespace-aware @onnx_function reuse
-  * IR builder refactor: live graph proxies plus a reusable `clone_graph` helper keep function/loop subgraphs detached and eliminate cross-graph ownership errors
-
-
 ### **Current Productive Version**
- 
-* **0.9.0** *(PyPI)*:
 
-  * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py), slashing peak memory during conversion—especially noticeable on large models.
-  * added a `return_mode` option in `to_onnx`:
+* **0.10.0** *(PyPI)*:
 
-    * `"proto"` (default) → returns an `onnx.ModelProto`
-    * `"ir"` → returns the intermediate `onnx_ir.Model`
-    * `"file"` → serializes directly to disk *(faster than `proto` + external save)*.
-  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.2**, onnx-ir **0.1.10**, onnx **1.19.1**.
+  * Expand Equinox coverage for the DINOv3 exporter with new plugins (`equinox/eqx/nn/conv.py`, `multihead_attention.py`, `rotary_positional_embedding.py`) and an example at `plugins/examples/eqx/dino.py`.
+  * Add lowering helpers and plugins: `_axis0_utils.py`, `_loop_extent_meta.py`, `jax/lax/gather_compile.py`, `jax/lax/gather_helpers.py`, `jax/image/resize.py`, `jax/numpy/outer.py`.
+  * Rewrite and extend existing plugins—especially `jax.lax` control flow and scatter/gather paths (incl. `while_loop`), `jax.numpy` batching ops (`arange`, `reshape`, `split`, `stack`, `tile`, `where`), and `jax.nn` activations/initializers—improving metadata, axis handling, and ONNX parity.
+  * `@onnx_function`: declare once and reuse by passing the optional `unique=True`.
+  * Refactor IR builder: live graph proxies and a reusable `clone_graph` keep function/loop subgraphs detached and eliminate cross-graph ownership errors.
+  * Update major dependencies: JAX **0.8.0**, onnx-ir **0.1.11**.
 
- 
- 
+
+
 ### **Past Versions**
 
 See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
@@ -253,7 +241,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
-✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0) and [@rakadam](https://github.com/rakadam)
+✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam) and [benmacadam64](https://github.com/benmacadam64)
 
 ✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 

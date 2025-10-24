@@ -1,5 +1,6 @@
 # Past Versions
 
+- **0.9.0** migrates from the ONNX proto builder to `onnx_ir`, adds a `return_mode` (`proto` / `ir` / `file`), and updates dependencies to JAX **0.7.2**, Flax **0.12.0**, Equinox **0.13.2**, onnx-ir **0.1.10**, and onnx **1.19.1**.
 - **0.8.1** adds N-D `lax.dynamic_update_slice` with negative-index handling, sharpens grad/VJP paths for `jnp.cumsum`, introduces `lax.add_any` and the `lax.pow`/`jnp.power`/`jnp.pow` family with improved `lax.scan` dtype propagation, and supports `eqx.nn.Linear(use_bias=False)`.
 - **0.8.0** adds initial Equinox support (`eqx.dropout`, `eqx.layer_norm`, `eqx.linear`, plus an `MlpExample`), stabilizes SSA/shape handling across `lax.scan` and `lax.fori_loop` to prevent dtype leaks, improves dtype propagation in `lax.gather` and `lax.concatenate`, and adds plugin support for `lax.pad`.
 - **0.7.5** fixes tests for functions without arguments, adds support for `lax.bitwise_not`, `lax.clamp`, `lax.ge`, `jnp.clip`, `lax.rev`, and enhances support for `nnx.dot_product_attention`, `nnx.conv`, `nnx.batch_norm`, `lax.mul`, `lax.reduce_max`, `lax.scan`, `lax.slice`, `lax.while_loop`, `nn.gelu`, `jnp.arange`, `jnp.cumsum`, `jnp.select`, `jnp.where`, and `jnp.concatenate`.
