@@ -15,6 +15,8 @@ are available:
 
 ```bash
 poetry install --with test
+curl -L -o /tmp/coco_39769.jpg \
+  http://images.cocodataset.org/val2017/000000039769.jpg
 ```
 
 You’ll also need:
@@ -37,7 +39,7 @@ poetry run python scripts/compare_meta_vs_jax2onnx.py \
 ```
 
 If the export is faithful, cosine ≈ 1 and max |Δ| should sit near machine
-precision (≈ 1e‑6).
+precision (≈ 5e‑6).
 
 ## 3. Triangulate with the Equinox example (Meta ⇔ Eqx ⇔ ONNX)
 

@@ -89,6 +89,10 @@ def _load_equimo_dinov3(
             pkg_path.parent / "dinov3.py",
             pkg_path.parents[1] / "models" / "dinov3.py",
             pkg_path.parents[2] / "models" / "dinov3.py",
+            Path("~/.cache/equimo/repos/Equimo/models/dinov3.py").expanduser(),
+            Path(
+                "~/.cache/equimo/repos/Equimo/src/equimo/models/dinov3.py"
+            ).expanduser(),
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -115,7 +119,34 @@ def _load_equimo_dinov3(
             f"Unknown DINOv3 variant '{variant}'. Available options: {available}"
         )
 
-    cfg = equimo_dinov3.dinov3_config | equimo_dinov3.configs[variant]
+    base_cfg_fallback = {
+        "img_size": 224,
+        "in_channels": 3,
+        "patch_size": 16,
+        "num_classes": 0,
+        "use_mask_token": True,
+        "use_rope_pos_embed": True,
+        "reg_tokens": 4,
+        "init_values": 1e-5,
+        "eps": 1e-5,
+        "dynamic_img_size": True,
+        "act_layer": "exactgelu",
+    }
+
+    try:
+        base_cfg = dict(getattr(equimo_dinov3, "dinov3_config"))
+    except Exception:
+        base_cfg = dict(base_cfg_fallback)
+
+    try:
+        variant_cfg = dict(equimo_dinov3.configs[variant])
+    except Exception as exc:
+        raise KeyError(
+            f"Variant '{variant}' not found in Equimo configs. "
+            "Ensure the local Equimo clone is up to date."
+        ) from exc
+
+    cfg = base_cfg | variant_cfg
     key = jax.random.PRNGKey(seed)
     model = VisionTransformer(**cfg, key=key)
 
@@ -133,10 +164,16 @@ def _load_equimo_dinov3(
 
     torch_repo_dir = equimo_dinov3.DIR / "dinov3"
     torch_model_name = "_".join(variant.split("_")[:-2])
+    if torch_repo_dir.exists():
+        torch_repo = str(torch_repo_dir)
+        torch_source = "local"
+    else:
+        torch_repo = "facebookresearch/dinov3:main"
+        torch_source = "github"
     torch_hub_cfg = {
-        "repo_or_dir": str(torch_repo_dir),
+        "repo_or_dir": torch_repo,
         "model": torch_model_name,
-        "source": "local",
+        "source": torch_source,
         "weights": str(weight_path),
     }
 
@@ -155,17 +192,32 @@ def _load_equimo_dinov3(
     torch_whitelist: list[str] = []
     jax_whitelist = ["pos_embed.periods"]
 
-    eq_model, torch_model = convert_torch_to_equinox(
-        model,
-        replace_cfg,
-        expand_cfg,
-        squeeze_cfg,
-        torch_whitelist,
-        jax_whitelist,
-        strict=True,
-        torch_hub_cfg=torch_hub_cfg,
-        return_torch=True,
-    )
+    try:
+        eq_model, torch_model = convert_torch_to_equinox(
+            model,
+            replace_cfg,
+            expand_cfg,
+            squeeze_cfg,
+            torch_whitelist,
+            jax_whitelist,
+            strict=True,
+            torch_hub_cfg=torch_hub_cfg,
+            return_torch=True,
+        )
+    except ImportError as exc:
+        msg = str(exc)
+        lowered = msg.lower()
+        if (
+            "`torch` not available" in msg
+            or "timm" in lowered
+            or "torchmetrics" in lowered
+            or "termcolor" in lowered
+        ):
+            raise ImportError(
+                "The Equimo conversion helpers require additional PyTorch tooling "
+                "(install `timm`, `torchmetrics`, and `termcolor` inside the Poetry environment)."
+            ) from exc
+        raise
     eq_model = eqx.nn.inference_mode(eq_model, True)
 
     if run_check:

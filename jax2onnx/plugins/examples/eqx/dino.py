@@ -304,6 +304,8 @@ class DinoRotaryProcessHeads(eqx.Module):
 
 def _apply_pointwise(module, x: Array) -> Array:
     """Apply an Equinox module independently across batch and sequence axes."""
+    if module is None or isinstance(module, eqx.nn.Identity):
+        return x
     apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)
     apply_batch = eqx.filter_vmap(apply_tokens, in_axes=0, out_axes=0)
     return apply_batch(x)
@@ -479,7 +481,7 @@ register_example(
 
 
 @onnx_function
-class Attention(eqx.Module):
+class MultiHeadAttention(eqx.Module):
     """Multi-Head Self-Attention driven by Equinox primitives."""
 
     core: AttentionCore
@@ -535,7 +537,7 @@ register_example(
         {
             "testcase": "attention",
             "callable": construct_and_call(
-                Attention, dim=384, num_heads=6, key=with_prng_key(0)
+                MultiHeadAttention, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
             "post_check_onnx_graph": EG(
@@ -557,8 +559,8 @@ class Block(eqx.Module):
     """Transformer Block."""
 
     norm1: eqx.nn.LayerNorm
-    attn: Attention
-    post_attn_norm: eqx.Module
+    attn: MultiHeadAttention
+    post_attn_norm: Optional[eqx.Module]
     norm2: eqx.nn.LayerNorm
     mlp: eqx.nn.MLP
     ls1: eqx.Module
@@ -575,13 +577,13 @@ class Block(eqx.Module):
     ):
         keys = jax.random.split(key, 2)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = Attention(
+        self.attn = MultiHeadAttention(
             dim,
             num_heads=num_heads,
             key=keys[0],
             process_heads=process_heads,
         )
-        self.post_attn_norm = eqx.nn.Identity()
+        self.post_attn_norm = None
         self.norm2 = eqx.nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = DinoMlp(dim=dim, hidden_dim=mlp_hidden_dim, key=keys[1])
@@ -653,6 +655,7 @@ register_example(
             "post_check_onnx_graph": EG(
                 ["Block_1:Bx257x384"],
                 symbols={"B": None},
+                must_absent=["Identity"],
             ),
             "run_only_f32_variant": True,
         }

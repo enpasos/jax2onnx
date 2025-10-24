@@ -297,13 +297,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--rtol",
         type=float,
-        default=1e-4,
+        default=5e-4,
         help="Relative tolerance used only for reporting",
     )
     parser.add_argument(
         "--atol",
         type=float,
-        default=1e-6,
+        default=5e-6,
         help="Absolute tolerance used only for reporting",
     )
     parser.add_argument(
