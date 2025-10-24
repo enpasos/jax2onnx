@@ -168,16 +168,26 @@ def _build_example_from_equimo(equimo_model, *, strip_register_tokens: bool = Fa
         )
 
         # MLP (LayerScale copied separately)
-        mlp = dst_block.mlp
-        layers = list(mlp.layers)
-        layers[0] = _copy_linear(
-            layers[0], src_block.mlp.fc1.weight, src_block.mlp.fc1.bias
+        dst_block = eqx.tree_at(
+            lambda b: b.mlp.fc1.weight,
+            dst_block,
+            jnp.asarray(src_block.mlp.fc1.weight),
         )
-        layers[1] = _copy_linear(
-            layers[1], src_block.mlp.fc2.weight, src_block.mlp.fc2.bias
+        dst_block = eqx.tree_at(
+            lambda b: b.mlp.fc1.bias,
+            dst_block,
+            jnp.asarray(src_block.mlp.fc1.bias),
         )
-        mlp = eqx.tree_at(lambda m: m.layers, mlp, tuple(layers))
-        dst_block = eqx.tree_at(lambda b: b.mlp, dst_block, mlp)
+        dst_block = eqx.tree_at(
+            lambda b: b.mlp.fc2.weight,
+            dst_block,
+            jnp.asarray(src_block.mlp.fc2.weight),
+        )
+        dst_block = eqx.tree_at(
+            lambda b: b.mlp.fc2.bias,
+            dst_block,
+            jnp.asarray(src_block.mlp.fc2.bias),
+        )
         dst_block = eqx.tree_at(
             lambda b: b.ls2.gamma, dst_block, jnp.asarray(src_block.ls2.gamma)
         )

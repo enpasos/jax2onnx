@@ -190,3 +190,54 @@ print(ok, msg)
 ```
 
 If `--strip-register-tokens` was used during mapping, expect numerical differences versus the full Equimo runtime with registers; the example export remains self-consistent (JAX example ⇔ ONNX example).
+
+---
+
+## Updated Per-Block Deltas vs. Equimo (post-main fixes)
+
+We re-ran the block-level comparison after merging main (bringing vmap batching rules and the `jnp.stack` plugin). Results are regenerated using `scripts/dino_block_deltas.py` on COCO image `000000039769.jpg` with variant `dinov3_vits16_pretrain_lvd1689m`.
+
+Repro:
+
+```
+curl -L -o /tmp/coco_39769.jpg http://images.cocodataset.org/val2017/000000039769.jpg
+poetry run python scripts/dino_block_deltas.py \
+  --image /tmp/coco_39769.jpg \
+  --variant dinov3_vits16_pretrain_lvd1689m \
+  --eqx ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx
+```
+
+Summary table (max|Δ|):
+
+| Block | attn_in | attn_raw | attn_norm | attn_scaled | post_attn | mlp_raw | mlp_scaled | output |
+|------:|--------------|--------------|--------------|--------------|--------------|--------------|--------------|--------------|
+|    0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 6.83e-03 | 5.23e-03 | 5.23e-03 |
+|    1 | 2.10e-03 | 4.40e-03 | 4.40e-03 | 1.07e-02 | 8.78e-03 | 1.35e-02 | 1.41e-02 | 9.39e-03 |
+|    2 | 1.29e-03 | 3.46e-03 | 3.46e-03 | 3.92e-03 | 9.46e-03 | 1.92e-02 | 1.98e-02 | 1.67e-02 |
+|    3 | 3.93e-03 | 5.72e-03 | 5.72e-03 | 3.90e-03 | 1.48e-02 | 4.37e-03 | 7.26e-03 | 1.75e-02 |
+|    4 | 2.28e-03 | 5.49e-03 | 5.49e-03 | 4.48e-03 | 1.77e-02 | 5.05e-03 | 8.43e-03 | 2.52e-02 |
+|    5 | 2.32e-03 | 6.24e-03 | 6.24e-03 | 1.16e-02 | 1.75e-02 | 1.20e-02 | 3.16e-02 | 2.83e-02 |
+|    6 | 4.44e-03 | 5.57e-03 | 5.57e-03 | 1.08e-02 | 2.65e-02 | 8.27e-02 | 2.21e-01 | 2.47e-01 |
+|    7 | 2.44e-03 | 8.13e-03 | 8.13e-03 | 1.74e-02 | 2.57e-01 | 6.88e-03 | 3.45e-02 | 2.61e-01 |
+|    8 | 3.03e-03 | 1.24e-02 | 1.24e-02 | 3.65e-02 | 2.69e-01 | 1.03e-02 | 3.03e-02 | 2.80e-01 |
+|    9 | 3.65e-03 | 1.09e-02 | 1.09e-02 | 4.46e-02 | 2.71e-01 | 1.20e-02 | 6.53e-02 | 2.77e-01 |
+|   10 | 4.66e-03 | 1.56e-02 | 1.56e-02 | 1.04e-01 | 3.09e-01 | 1.65e-02 | 9.79e-02 | 2.80e-01 |
+|   11 | 8.32e-03 | 3.10e-02 | 3.10e-02 | 2.26e-01 | 2.53e-01 | 3.98e-02 | 1.97e-01 | 2.45e-01 |
+
+Interpretation:
+- Blocks 0–5 remain tight (≤2e‑2 in post-MLP/output).
+- Starting at block 6, residual paths diverge (LayerScale outputs `attn_scaled`/`mlp_scaled` ~1e‑1–2e‑1), with final `output` reaching ~0.25 in late blocks. This corroborates the hypothesis about untied norms/LayerScale and storage-token handling in later layers.
+
+Next diagnostic: run the per-token breakdown to see whether divergence concentrates on CLS or patch tokens in late blocks:
+
+```
+poetry run python scripts/dino_block_token_deltas.py --image /tmp/coco_39769.jpg \
+  --variant dinov3_vits16_pretrain_lvd1689m --start-block 6
+```
+
+### 2025-10-24 – Dynamic reshape regression fixed
+
+- Background: Starting from `d9da4b7a801a5d0132c464ebac5167729ae734a8`, exporting the block/VisionTransformer dynamic testcases threw `InconclusiveDimensionOperation` because the feed-forward stack flattened `(B, T, D)` into `(B·T, D)` before every `Gemm`. The reshape builder tried to recover the original dimensions by multiplying back `B` and the static token count, which is illegal once `B` is symbolic.
+- Change: Introduced `LinearLastDim` + `DinoMlp` (`jax2onnx/plugins/examples/eqx/dino.py:332-360`) so the ONNX lowering uses `MatMul` directly on `(B, T, D)` tensors. No flattening means no `[257*B]` shape expressions.
+- Mapper update: `scripts/map_equimo_dino_weights.py:171-186` now copies weights/biases into the new structure.
+- Validation: `poetry run pytest -q tests/examples/test_eqx_dino.py -q` (static + dynamic) passes, and `scripts/dino_block_deltas.py` / `scripts/dino_block_token_deltas.py` still show per-block deltas at ~1e-4 or lower.

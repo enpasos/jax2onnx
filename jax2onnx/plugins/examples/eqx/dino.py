@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import math
+from pathlib import Path
 from typing import Literal, Optional, Tuple
 
 import equinox as eqx
@@ -309,6 +309,11 @@ def _apply_pointwise(module, x: Array) -> Array:
     return apply_batch(x)
 
 
+def _exact_gelu(x: Array) -> Array:
+    """Exact GELU to mirror Equimo's activation."""
+    return jax.nn.gelu(x, approximate=False)
+
+
 @onnx_function
 class LayerScale(eqx.Module):
     """Element-wise scaling with learned gamma."""
@@ -321,6 +326,38 @@ class LayerScale(eqx.Module):
     def __call__(self, x: Array) -> Array:
         gamma = jnp.reshape(self.gamma, (1, 1, -1))
         return x * gamma
+
+
+@onnx_function
+class LinearLastDim(eqx.Module):
+    weight: jax.Array
+    bias: jax.Array
+
+    def __init__(self, in_dim: int, out_dim: int, *, key: jax.Array):
+        k_w, k_b = jax.random.split(key, 2)
+        self.weight = jax.random.normal(k_w, (out_dim, in_dim))
+        self.bias = jax.random.normal(k_b, (out_dim,))
+
+    def __call__(self, x: Array) -> Array:
+        out = jnp.matmul(x, jnp.transpose(self.weight))
+        out = out + self.bias
+        return out
+
+
+@onnx_function
+class DinoMlp(eqx.Module):
+    fc1: LinearLastDim
+    fc2: LinearLastDim
+
+    def __init__(self, dim: int, hidden_dim: int, *, key: jax.Array):
+        k1, k2 = jax.random.split(key, 2)
+        self.fc1 = LinearLastDim(dim, hidden_dim, key=k1)
+        self.fc2 = LinearLastDim(hidden_dim, dim, key=k2)
+
+    def __call__(self, x: Array) -> Array:
+        hidden = self.fc1(x)
+        hidden = _exact_gelu(hidden)
+        return self.fc2(hidden)
 
 
 @onnx_function
@@ -547,14 +584,7 @@ class Block(eqx.Module):
         self.post_attn_norm = eqx.nn.Identity()
         self.norm2 = eqx.nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = eqx.nn.MLP(
-            in_size=dim,
-            out_size=dim,
-            width_size=mlp_hidden_dim,
-            depth=1,
-            activation=jax.nn.gelu,
-            key=keys[1],
-        )
+        self.mlp = DinoMlp(dim=dim, hidden_dim=mlp_hidden_dim, key=keys[1])
         self.ls1 = LayerScale(dim)
         self.ls2 = LayerScale(dim)
 
@@ -588,7 +618,7 @@ class Block(eqx.Module):
         post_attn = x + attn_scaled
 
         mlp_in = _apply_pointwise(self.norm2, post_attn)
-        mlp_raw = _apply_pointwise(self.mlp, mlp_in)
+        mlp_raw = self.mlp(mlp_in)
         mlp_scaled = self.ls2(mlp_raw)
         out = post_attn + mlp_scaled
 
