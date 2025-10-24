@@ -2,8 +2,10 @@
 
 
 from __future__ import annotations
-from collections.abc import MutableSequence
-from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple, Union, overload
+import os
+import traceback
+from collections.abc import MutableSequence, Sequence
+from typing import Any, Final, Iterable, Iterator, Optional, Tuple, Union, overload
 
 import numpy as np
 import onnx_ir as ir
@@ -11,6 +13,14 @@ from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
 from .ir_clone import clone_graph
+
+
+STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
+_STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
+    "jax2onnx/converter/ir_builder.py",
+    "onnx_ir/_tape.py",
+    "traceback.py",
+)
 
 
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
@@ -203,7 +213,13 @@ class IRBuilder:
     Holds a mapping from jaxpr vars to ir.Values, and accumulates nodes/inputs/outputs.
     """
 
-    def __init__(self, *, opset: int, enable_double_precision: bool):
+    def __init__(
+        self,
+        *,
+        opset: int,
+        enable_double_precision: bool,
+        enable_stacktrace_metadata: bool = False,
+    ):
         self.opset = opset
         self.enable_double_precision = enable_double_precision
         graph = ir.Graph(
@@ -228,6 +244,8 @@ class IRBuilder:
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
+        self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
+        self._stacktrace_rel_base: str = os.getcwd()
 
     @property
     def inputs(self) -> MutableSequence[ir.Value]:
@@ -338,6 +356,7 @@ class IRBuilder:
                 attributes=attributes,
             )
             self.nodes.append(node)
+            self._maybe_attach_stacktrace_to_nodes([node])
             return v
         v = self._tape_builder.initializer(tensor, name=name)
         return v
@@ -401,9 +420,94 @@ class IRBuilder:
             v = self.get_value_for_var(var, name_hint=f"y{i}")
             self.outputs.append(v)
 
+    # ---------- stacktrace helpers ----------
+    def _iter_stacktrace_values(self, obj: Any) -> Iterable[ir.Value]:
+        if isinstance(obj, ir.Value):
+            yield obj
+            return
+        if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
+            for item in obj:
+                yield from self._iter_stacktrace_values(item)
+
+    def _collect_nodes_from_result(self, result: Any) -> list[ir.Node]:
+        nodes: list[ir.Node] = []
+        seen: set[int] = set()
+        for value in self._iter_stacktrace_values(result):
+            producer = getattr(value, "producer", None)
+            if not callable(producer):
+                continue
+            try:
+                node = producer()
+            except Exception:
+                node = None
+            if node is None:
+                continue
+            node_id = id(node)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            nodes.append(node)
+        return nodes
+
+    def _format_stacktrace(self) -> Optional[str]:
+        frames: list[traceback.FrameSummary] = list(traceback.extract_stack())
+        idx = len(frames)
+        while idx > 0:
+            frame = frames[idx - 1]
+            filename = frame.filename.replace("\\", "/")
+            if any(pattern in filename for pattern in _STACKTRACE_IGNORE_PATTERNS):
+                idx -= 1
+                continue
+            break
+        frames = frames[:idx]
+        if not frames:
+            return None
+        formatted: list[str] = []
+        for frame in frames:
+            filename = frame.filename
+            if os.path.isabs(filename):
+                try:
+                    rel = os.path.relpath(filename, self._stacktrace_rel_base)
+                except Exception:
+                    rel = filename
+            else:
+                rel = filename
+            rel = rel.replace("\\", "/")
+            formatted.append(f"{rel}:{frame.lineno} in {frame.name}")
+        return "\n".join(formatted)
+
+    def _maybe_attach_stacktrace_to_nodes(self, nodes: Iterable[ir.Node]) -> None:
+        if not self._stacktrace_metadata_enabled:
+            return
+        nodes_list = list(nodes)
+        if not nodes_list:
+            return
+        stack_str = self._format_stacktrace()
+        if not stack_str:
+            return
+        for node in nodes_list:
+            try:
+                metadata = getattr(node, "metadata_props")
+            except Exception:
+                metadata = None
+            if metadata is None:
+                continue
+            try:
+                if STACKTRACE_METADATA_KEY not in metadata:
+                    metadata[STACKTRACE_METADATA_KEY] = stack_str
+            except Exception:
+                continue
+
+    def _maybe_attach_stacktrace_from_result(self, result: Any) -> None:
+        if not self._stacktrace_metadata_enabled:
+            return
+        nodes = self._collect_nodes_from_result(result)
+        self._maybe_attach_stacktrace_to_nodes(nodes)
+
     # ---------- nodes ----------
     def add_node_obj(self, node: ir.Node) -> None:
         self.nodes.append(node)
+        self._maybe_attach_stacktrace_to_nodes([node])
 
     def add_node(
         self,
@@ -422,6 +526,7 @@ class IRBuilder:
             attributes=(attributes or []),
         )
         self.nodes.append(n)
+        self._maybe_attach_stacktrace_to_nodes([n])
         return n
 
     def __getattr__(self, name: str) -> Any:
@@ -448,6 +553,7 @@ class IRBuilder:
 
             def _wrapped(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
+                self._maybe_attach_stacktrace_from_result(result)
                 return result
 
             return _wrapped

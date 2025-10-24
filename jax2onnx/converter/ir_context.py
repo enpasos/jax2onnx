@@ -13,9 +13,11 @@ from typing import (
     Union,
     Callable,
     cast,
+    Final,
 )
 from typing import overload
 from collections.abc import MutableSequence
+import os
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
@@ -171,6 +173,9 @@ def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
         return None
 
 
+_STACKTRACE_METADATA_ENV: Final[str] = "JAX2ONNX_ENABLE_STACKTRACE_METADATA"
+
+
 class IRContext:
     def __init__(
         self,
@@ -178,10 +183,25 @@ class IRContext:
         opset: int,
         enable_double_precision: bool,
         input_specs: Sequence[Any] | None = None,
+        stacktrace_metadata: Optional[bool] = None,
     ):
+        if stacktrace_metadata is None:
+            env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
+            if env_flag is None:
+                stacktrace_metadata = False
+            else:
+                stacktrace_metadata = env_flag.strip().lower() not in {
+                    "0",
+                    "false",
+                    "no",
+                    "",
+                }
         self.builder: IRBuilder = IRBuilder(
-            opset=opset, enable_double_precision=enable_double_precision
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            enable_stacktrace_metadata=bool(stacktrace_metadata),
         )
+        self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
         self.builder._function_mode = False
         self.dim_expr_lowerer = LowerDimExpr(self)
         self._default_float_dtype = (

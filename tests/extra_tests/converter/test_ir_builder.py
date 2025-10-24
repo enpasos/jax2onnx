@@ -4,7 +4,7 @@ import numpy as np
 import onnx_ir as ir
 import pytest
 
-from jax2onnx.converter.ir_builder import IRBuilder
+from jax2onnx.converter.ir_builder import IRBuilder, STACKTRACE_METADATA_KEY
 
 try:  # pragma: no cover - guarded import for environments without tape builder
     from onnx_ir._tape import Builder as _TapeBuilder
@@ -24,6 +24,34 @@ def test_ir_builder_forwards_tape_ops() -> None:
     assert node.op_type == "Add"
     assert builder.nodes[-1] is node
     assert out.name == "sum"
+
+
+@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
+def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
+    y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
+
+    out = builder.Add(x, y, _outputs=["sum"], _version=18)
+    node = out.producer()
+
+    assert STACKTRACE_METADATA_KEY not in node.metadata_props
+
+
+@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
+def test_ir_builder_stacktrace_metadata_enabled() -> None:
+    builder = IRBuilder(
+        opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
+    )
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
+    y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
+
+    out = builder.Add(x, y, _outputs=["sum"], _version=18)
+    node = out.producer()
+
+    stack_meta = node.metadata_props.get(STACKTRACE_METADATA_KEY)
+    assert isinstance(stack_meta, str)
+    assert "test_ir_builder_stacktrace_metadata_enabled" in stack_meta
 
 
 def test_ir_builder_initializer_registration() -> None:
