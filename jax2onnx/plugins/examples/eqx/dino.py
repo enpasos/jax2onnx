@@ -304,6 +304,8 @@ class DinoRotaryProcessHeads(eqx.Module):
 
 def _apply_pointwise(module, x: Array) -> Array:
     """Apply an Equinox module independently across batch and sequence axes."""
+    if module is None or isinstance(module, eqx.nn.Identity):
+        return x
     apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)
     apply_batch = eqx.filter_vmap(apply_tokens, in_axes=0, out_axes=0)
     return apply_batch(x)
@@ -558,7 +560,7 @@ class Block(eqx.Module):
 
     norm1: eqx.nn.LayerNorm
     attn: Attention
-    post_attn_norm: eqx.Module
+    post_attn_norm: Optional[eqx.Module]
     norm2: eqx.nn.LayerNorm
     mlp: eqx.nn.MLP
     ls1: eqx.Module
@@ -581,7 +583,7 @@ class Block(eqx.Module):
             key=keys[0],
             process_heads=process_heads,
         )
-        self.post_attn_norm = eqx.nn.Identity()
+        self.post_attn_norm = None
         self.norm2 = eqx.nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = DinoMlp(dim=dim, hidden_dim=mlp_hidden_dim, key=keys[1])
@@ -653,6 +655,7 @@ register_example(
             "post_check_onnx_graph": EG(
                 ["Block_1:Bx257x384"],
                 symbols={"B": None},
+                must_absent=["Identity"],
             ),
             "run_only_f32_variant": True,
         }
