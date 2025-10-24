@@ -27,8 +27,7 @@ optional = true
 
 [tool.poetry.group.test.dependencies]
 treescope = ">=0.1.8"
-torchvision = "==0.20.1"
-matplotlib = "==3.10.0"
+torch = "==2.4.0" 
 
 [tool.poetry]
 packages = [

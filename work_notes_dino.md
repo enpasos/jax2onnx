@@ -241,3 +241,15 @@ poetry run python scripts/dino_block_token_deltas.py --image /tmp/coco_39769.jpg
 - Change: Introduced `LinearLastDim` + `DinoMlp` (`jax2onnx/plugins/examples/eqx/dino.py:332-360`) so the ONNX lowering uses `MatMul` directly on `(B, T, D)` tensors. No flattening means no `[257*B]` shape expressions.
 - Mapper update: `scripts/map_equimo_dino_weights.py:171-186` now copies weights/biases into the new structure.
 - Validation: `poetry run pytest -q tests/examples/test_eqx_dino.py -q` (static + dynamic) passes, and `scripts/dino_block_deltas.py` / `scripts/dino_block_token_deltas.py` still show per-block deltas at ~1e-4 or lower.
+
+For quick spot checks against Meta without the Equimo hop, run:
+
+```
+poetry run python scripts/compare_meta_vs_jax2onnx.py \
+  --image /tmp/coco_39769.jpg \
+  --onnx ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
+  --variant dinov3_vits16_pretrain_lvd1689m \
+  --weights ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+```
+
+That prints cosine similarity and max|Δ| for CLS and pooled patch embeddings so we can watch those numbers collapse towards numerical noise as the Meta conversion catches up.
