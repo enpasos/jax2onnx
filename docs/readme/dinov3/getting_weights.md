@@ -2,7 +2,10 @@
 
 This guide walks through the “from scratch” path for bringing Meta’s official
 DINOv3 checkpoints into the IR-only `jax2onnx` example, and how to obtain the
-final ONNX export.
+final ONNX export. The architecture we ship is the Equimo project’s clean-room
+Equinox/JAX reimplementation based on Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104).
+Using Meta’s pretrained weights is optional and subject to the
+[DINOv3 license](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m).
 
 All commands assume you are at the project root with the Poetry environment
 available.

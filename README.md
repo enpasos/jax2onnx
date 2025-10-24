@@ -111,6 +111,25 @@ to_onnx(
   
 ---
 
+## SotA examples 🚀 
+
+- Vision: [DINOv3](https://ai.meta.com/dinov3/)
+  - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104)
+  - Structural graphs:
+    - [eqx_dinov3_vit_Ti14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14.onnx)
+    - [eqx_dinov3_vit_Ti14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14_dynamic.onnx)
+    - [eqx_dinov3_vit_S14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14.onnx)
+    - [eqx_dinov3_vit_S14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14_dynamic.onnx)
+    - [eqx_dinov3_vit_B14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14.onnx)
+    - [eqx_dinov3_vit_B14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14_dynamic.onnx)
+    - [eqx_dinov3_vit_S16 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16.onnx)
+    - [eqx_dinov3_vit_S16_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16_dynamic.onnx)
+  - How-to: [Getting Meta weights into jax2onnx](./docs/readme/dinov3/getting_weights.md)
+  - Equivalence check: [Comparing Meta vs jax2onnx ONNX](./docs/readme/dinov3/compare_meta_vs_jax2onnx.md)
+  - Optional pretrained weights (Meta AI): [facebook/dinov3-vitb16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) — DINOv3 license applies; review before downloading or redistributing.
+
+---
+
 ## 🧩 Coverage & Examples (Interactive)
 
 > [!TIP]
@@ -139,8 +158,7 @@ to_onnx(
  
 * **0.10.0**:
   * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
-  * (draft status) Equinox DINOv3 support end-to-end: new plugins, example modules, and `scripts/export_dinov3_pretrained.py`
-  * (draft status) Optional ORT smoke test + weight remapping utility for the DINO checkpoints
+  * Equinox DINOv3 support
   * Gather support enhanced
   * ONNX function nodes stay named after the original callable while domains handle per-instance uniqueness
   * Added namespace-aware @onnx_function reuse

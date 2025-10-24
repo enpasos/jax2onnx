@@ -2,7 +2,11 @@
 
 After exporting the IR-only DINOv3 model to ONNX, you can quantify how closely
 it matches Meta’s original PyTorch checkpoint. The repository ships a helper
-script that performs the comparison end to end.
+script that performs the comparison end to end. Our ONNX is generated from
+Equimo’s clean-room Equinox/JAX reimplementation of the architecture described
+in Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104); using Meta’s
+pretrained weights remains optional and is governed by the
+[DINOv3 license](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m).
 
 ## 1. Requirements
 
