@@ -4,7 +4,13 @@ import numpy as np
 import onnx_ir as ir
 import pytest
 
-from jax2onnx.converter.ir_builder import IRBuilder, STACKTRACE_METADATA_KEY
+from jax2onnx.converter.ir_builder import (
+    IRBuilder,
+    JAX_CALLSITE_METADATA_KEY,
+    JAX_TRACE_METADATA_KEY,
+    PLUGIN_METADATA_KEY,
+    STACKTRACE_METADATA_KEY,
+)
 
 try:  # pragma: no cover - guarded import for environments without tape builder
     from onnx_ir._tape import Builder as _TapeBuilder
@@ -36,6 +42,8 @@ def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
     node = out.producer()
 
     assert STACKTRACE_METADATA_KEY not in node.metadata_props
+    assert JAX_CALLSITE_METADATA_KEY not in node.metadata_props
+    assert PLUGIN_METADATA_KEY not in node.metadata_props
 
 
 @pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
@@ -43,15 +51,43 @@ def test_ir_builder_stacktrace_metadata_enabled() -> None:
     builder = IRBuilder(
         opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
     )
+    builder.set_stacktrace_mode("minimal")
+    builder.set_current_jax_traceback(
+        "user_code.py:123 (my_fun)\n/home/env/site-packages/jax/_src/foo.py:1 (bar)"
+    )
+    builder.set_current_plugin_identifier("test.module.Plugin.lower")
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
     y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
 
     out = builder.Add(x, y, _outputs=["sum"], _version=18)
     node = out.producer()
 
-    stack_meta = node.metadata_props.get(STACKTRACE_METADATA_KEY)
-    assert isinstance(stack_meta, str)
-    assert "test_ir_builder_stacktrace_metadata_enabled" in stack_meta
+    assert node.metadata_props.get(JAX_CALLSITE_METADATA_KEY) == "my_fun:123"
+    assert node.metadata_props.get(PLUGIN_METADATA_KEY) == "Plugin.lower:123"
+    assert STACKTRACE_METADATA_KEY not in node.metadata_props
+    assert JAX_TRACE_METADATA_KEY not in node.metadata_props
+
+
+@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
+def test_ir_builder_stacktrace_full_mode_includes_detailed_fields() -> None:
+    builder = IRBuilder(
+        opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
+    )
+    builder.set_stacktrace_mode("full")
+    builder.set_current_jax_traceback(
+        "frame_a.py:10 (call)\n/home/env/site-packages/jax/_src/run.py:1 (run)"
+    )
+    builder.set_current_plugin_identifier("mod.Plugin.lower")
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
+    y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[1])
+
+    out = builder.Add(x, y, _outputs=["sum"], _version=18)
+    node = out.producer()
+
+    assert node.metadata_props.get(JAX_CALLSITE_METADATA_KEY) == "call:10"
+    assert node.metadata_props.get(PLUGIN_METADATA_KEY) == "Plugin.lower:10"
+    assert isinstance(node.metadata_props.get(JAX_TRACE_METADATA_KEY), str)
+    assert isinstance(node.metadata_props.get(STACKTRACE_METADATA_KEY), str)
 
 
 def test_ir_builder_initializer_registration() -> None:

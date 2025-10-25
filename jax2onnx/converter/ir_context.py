@@ -202,6 +202,11 @@ class IRContext:
             enable_stacktrace_metadata=bool(stacktrace_metadata),
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
+        if self._stacktrace_metadata_enabled:
+            detail_mode = (
+                os.getenv("JAX2ONNX_STACKTRACE_DETAIL", "minimal").strip().lower()
+            )
+            self.builder.set_stacktrace_mode(detail_mode)
         self.builder._function_mode = False
         self.dim_expr_lowerer = LowerDimExpr(self)
         self._default_float_dtype = (

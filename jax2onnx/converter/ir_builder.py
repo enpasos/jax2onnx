@@ -16,6 +16,9 @@ from .ir_clone import clone_graph
 
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
+JAX_TRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.jax_traceback"
+JAX_CALLSITE_METADATA_KEY: Final[str] = "pkg.jax2onnx.callsite"
+PLUGIN_METADATA_KEY: Final[str] = "pkg.jax2onnx.plugin"
 _STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
     "jax2onnx/converter/ir_builder.py",
     "onnx_ir/_tape.py",
@@ -246,6 +249,10 @@ class IRBuilder:
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
         self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
         self._stacktrace_rel_base: str = os.getcwd()
+        self._current_jax_traceback: Optional[str] = None
+        self._current_plugin_identifier: Optional[str] = None
+        self._current_plugin_line: Optional[str] = None
+        self._stacktrace_detail: str = "minimal"
 
     @property
     def inputs(self) -> MutableSequence[ir.Value]:
@@ -283,6 +290,53 @@ class IRBuilder:
     @initializers.setter
     def initializers(self, values: Iterable[ir.Value]) -> None:
         self._initializers.replace(values)
+
+    @property
+    def stacktrace_metadata_enabled(self) -> bool:
+        return self._stacktrace_metadata_enabled
+
+    @property
+    def current_jax_traceback(self) -> Optional[str]:
+        return self._current_jax_traceback
+
+    @property
+    def current_plugin_identifier(self) -> Optional[str]:
+        return self._current_plugin_identifier
+
+    @property
+    def current_plugin_line(self) -> Optional[str]:
+        return self._current_plugin_line
+
+    def set_current_jax_traceback(self, trace: Optional[str]) -> None:
+        if not self._stacktrace_metadata_enabled:
+            self._current_jax_traceback = None
+            return
+        if trace is None:
+            self._current_jax_traceback = None
+            return
+        cleaned = trace.strip()
+        self._current_jax_traceback = cleaned if cleaned else None
+
+    def set_current_plugin_identifier(
+        self, plugin_id: Optional[str], line: Optional[str] = None
+    ) -> None:
+        if not self._stacktrace_metadata_enabled:
+            self._current_plugin_identifier = None
+            self._current_plugin_line = None
+            return
+        if plugin_id is None:
+            self._current_plugin_identifier = None
+            self._current_plugin_line = None
+            return
+        cleaned = plugin_id.strip()
+        self._current_plugin_identifier = cleaned if cleaned else None
+        line_clean = line.strip() if line and line.strip() else None
+        self._current_plugin_line = line_clean
+
+    def set_stacktrace_mode(self, mode: str) -> None:
+        if mode not in {"minimal", "full"}:
+            mode = "minimal"
+        self._stacktrace_detail = mode
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
@@ -449,7 +503,7 @@ class IRBuilder:
             nodes.append(node)
         return nodes
 
-    def _format_stacktrace(self) -> Optional[str]:
+    def _capture_stack_frames(self) -> list[traceback.FrameSummary]:
         frames: list[traceback.FrameSummary] = list(traceback.extract_stack())
         idx = len(frames)
         while idx > 0:
@@ -459,7 +513,11 @@ class IRBuilder:
                 idx -= 1
                 continue
             break
-        frames = frames[:idx]
+        return frames[:idx]
+
+    def _format_stacktrace(
+        self, frames: Sequence[traceback.FrameSummary]
+    ) -> Optional[str]:
         if not frames:
             return None
         formatted: list[str] = []
@@ -476,14 +534,102 @@ class IRBuilder:
             formatted.append(f"{rel}:{frame.lineno} in {frame.name}")
         return "\n".join(formatted)
 
+    def _parse_callsite_entry(self, entry: str) -> tuple[Optional[str], Optional[str]]:
+        candidate = entry.strip()
+        if not candidate:
+            return None, None
+        file_part, sep, remainder = candidate.partition(":")
+        if not sep:
+            return None, None
+        line_token = ""
+        func_token = ""
+        remainder = remainder.strip()
+        if "(" in remainder and remainder.endswith(")"):
+            before_paren, _, after_paren = remainder.partition("(")
+            line_token = before_paren.strip()
+            func_token = after_paren[:-1].strip()
+        else:
+            line_token = remainder.strip()
+        digits = "".join(ch for ch in line_token if ch.isdigit())
+        line_clean = digits or line_token or None
+        func_clean = func_token or os.path.splitext(os.path.basename(file_part))[0]
+        if not func_clean:
+            func_clean = os.path.basename(file_part)
+        if line_clean:
+            display = f"{func_clean}:{line_clean}"
+        else:
+            display = func_clean
+        return display, line_clean
+
+    def _extract_callsite(
+        self,
+        jax_trace: Optional[str],
+        frames: Sequence[traceback.FrameSummary],
+    ) -> tuple[Optional[str], Optional[str]]:
+        if jax_trace:
+            for line in jax_trace.splitlines():
+                lowered = line.lower()
+                if "site-packages/jax" in lowered or "jax/_src/" in lowered:
+                    continue
+                display, line_no = self._parse_callsite_entry(line)
+                if display:
+                    return display, line_no
+        for frame in reversed(frames):
+            path = frame.filename.replace("\\", "/")
+            lowered = path.lower()
+            if "/site-packages/jax/" in lowered or "jax/_src/" in lowered:
+                continue
+            if "/jax2onnx/" in lowered:
+                continue
+            entry = f"{path}:{frame.lineno} ({frame.name})"
+            display, line_no = self._parse_callsite_entry(entry)
+            if display:
+                return display, line_no
+        return None, None
+
+    def _extract_plugin_site(
+        self, frames: Sequence[traceback.FrameSummary]
+    ) -> tuple[Optional[str], Optional[str]]:
+        for frame in reversed(frames):
+            path = frame.filename.replace("\\", "/")
+            if "/jax2onnx/plugins/" not in path:
+                continue
+            rel = path.split("/jax2onnx/plugins/")[-1]
+            rel = rel.replace(".py", "")
+            module = rel.replace("/", ".")
+            func = frame.name or "lower"
+            return f"{module}.{func}", str(frame.lineno)
+        return None, None
+
     def _maybe_attach_stacktrace_to_nodes(self, nodes: Iterable[ir.Node]) -> None:
         if not self._stacktrace_metadata_enabled:
             return
         nodes_list = list(nodes)
         if not nodes_list:
             return
-        stack_str = self._format_stacktrace()
-        if not stack_str:
+        frames = self._capture_stack_frames()
+        detail = self._stacktrace_detail
+        stack_str = self._format_stacktrace(frames) if detail == "full" else None
+        jax_trace = self._current_jax_traceback
+        callsite, line_no = self._extract_callsite(jax_trace, frames)
+        plugin_site_name, plugin_site_line = self._extract_plugin_site(frames)
+        plugin_id = self._current_plugin_identifier
+        plugin_line = plugin_site_line or self._current_plugin_line or line_no
+        plugin_display: Optional[str] = None
+        if plugin_id:
+            parts = plugin_id.split(".")
+            short_plugin = ".".join(parts[-2:]) if len(parts) >= 2 else plugin_id
+            if plugin_line:
+                plugin_display = f"{short_plugin}:{plugin_line}"
+            else:
+                plugin_display = short_plugin
+        elif plugin_site_name:
+            plugin_display = (
+                f"{plugin_site_name}:{plugin_site_line}"
+                if plugin_site_line
+                else plugin_site_name
+            )
+        if not any([stack_str, jax_trace, callsite, plugin_display]):
             return
         for node in nodes_list:
             try:
@@ -493,8 +639,15 @@ class IRBuilder:
             if metadata is None:
                 continue
             try:
-                if STACKTRACE_METADATA_KEY not in metadata:
-                    metadata[STACKTRACE_METADATA_KEY] = stack_str
+                if callsite and metadata.get(JAX_CALLSITE_METADATA_KEY) is None:
+                    metadata[JAX_CALLSITE_METADATA_KEY] = callsite
+                if plugin_display and metadata.get(PLUGIN_METADATA_KEY) is None:
+                    metadata[PLUGIN_METADATA_KEY] = plugin_display
+                if detail == "full":
+                    if stack_str and STACKTRACE_METADATA_KEY not in metadata:
+                        metadata[STACKTRACE_METADATA_KEY] = stack_str
+                    if jax_trace and JAX_TRACE_METADATA_KEY not in metadata:
+                        metadata[JAX_TRACE_METADATA_KEY] = jax_trace
             except Exception:
                 continue
 

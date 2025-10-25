@@ -171,6 +171,17 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 ## Common Pitfalls and How to Avoid Them
 - **Node metadata via kwargs**: `builder.Add(..., name="foo")` creates an attribute named `name`; it does *not* rename the node. Use `summed.producer().name = "foo"` after creation instead.
 - **Doc strings & metadata props**: assign them on the node object (`node = summed.producer(); node.doc_string = "..."`).
+- **Debug provenance metadata**: setting `JAX2ONNX_ENABLE_STACKTRACE_METADATA=1` (or `stacktrace_metadata=True`) records a concise call-site (`pkg.jax2onnx.callsite`, formatted as `function:line`) plus the plugin invocation site (`pkg.jax2onnx.plugin`, formatted as `Plugin.lower:line` pointing at the builder call) on each node. This is the default reduced payload surfaced in tools like Netron. Set `JAX2ONNX_STACKTRACE_DETAIL=full` when you also need the full Python (`pkg.jax2onnx.stacktrace`) and JAX (`pkg.jax2onnx.jax_traceback`) traces.
+
+  Example (line numbers annotated to mirror the metadata):
+  ```python
+  def wide_fn(x):
+      a = jnp.sin(x)   # wide_fn.py:8
+      b = jnp.cos(x)   # wide_fn.py:9
+      c = jnp.tanh(x)  # wide_fn.py:10
+      d = jnp.exp(x)   # wide_fn.py:11
+      return a + b * c + d  # wide_fn.py:12
+  ```
 - **Output naming**: pass a list (`_outputs=["y"]`), not a bare string.
 - **Initializer naming**: provide a name whenever the tensor lacks one; `Tape.initializer` raises otherwise.
 - **Multiple opset versions**: if two builder calls request different versions for the same domain, detect and reconcile before finishing the graph.
