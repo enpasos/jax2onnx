@@ -5,6 +5,11 @@ import jax.numpy as jnp
 import onnx_ir as ir
 
 from jax2onnx.converter.conversion_api import to_onnx
+from jax2onnx.converter.ir_builder import (
+    JAX_CALLSITE_METADATA_KEY,
+    PLUGIN_METADATA_KEY,
+    STACKTRACE_METADATA_KEY,
+)
 
 
 def _make_symbolic_model():
@@ -50,3 +55,31 @@ def test_value_shapes_and_types_preserved_without_value_info_registry():
     assert add_out.shape.dims == dims
     assert add_out.type is not None
     assert add_out.type.dtype == ir.DataType.FLOAT
+
+
+def test_stacktrace_metadata_includes_jax_traceback(monkeypatch) -> None:
+    monkeypatch.setenv("JAX2ONNX_ENABLE_STACKTRACE_METADATA", "1")
+
+    def fn(x):
+        return x * jnp.sin(x)
+
+    model = to_onnx(
+        fn=fn,
+        inputs=[jax.ShapeDtypeStruct((3,), jnp.float32)],
+        model_name="stacktrace_sample",
+        opset=21,
+        enable_double_precision=False,
+        input_params=None,
+        record_primitive_calls_file=None,
+    )
+    for node in model.graph.all_nodes():
+        meta = getattr(node, "metadata_props", {})
+        callsite = meta.get(JAX_CALLSITE_METADATA_KEY)
+        plugin_id = meta.get(PLUGIN_METADATA_KEY)
+        assert isinstance(callsite, str)
+        assert callsite, "Expected callsite metadata"
+        assert isinstance(plugin_id, str)
+        assert plugin_id.count(":") == 1
+        assert STACKTRACE_METADATA_KEY not in meta
+    # ensure environment cleaned for other tests
+    monkeypatch.delenv("JAX2ONNX_ENABLE_STACKTRACE_METADATA", raising=False)
