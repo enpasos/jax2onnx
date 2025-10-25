@@ -841,27 +841,31 @@ def _get_test_cases():
         num_patches = (img_size // config["patch"]) ** 2
         output_shape = f"Bx{num_patches + 1}x{config['dim']}"
 
-        test_cases.append(
-            {
-                "testcase": f"eqx_dinov3_vit_{name}",
-                "callable": construct_and_call(
-                    VisionTransformer,
-                    img_size=img_size,
-                    patch_size=config["patch"],
-                    embed_dim=config["dim"],
-                    depth=config["depth"],
-                    num_heads=config["heads"],
-                    num_storage_tokens=config.get("storage", 0),
-                    key=with_prng_key(idx),
-                ),
-                "input_shapes": [("B", 3, img_size, img_size)],
-                "post_check_onnx_graph": EG(
-                    [f"VisionTransformer_1:{output_shape}"],
-                    symbols={"B": None},
-                ),
-                "run_only_f32_variant": True,
-            }
-        )
+        base_case = {
+            "testcase": f"eqx_dinov3_vit_{name}",
+            "callable": construct_and_call(
+                VisionTransformer,
+                img_size=img_size,
+                patch_size=config["patch"],
+                embed_dim=config["dim"],
+                depth=config["depth"],
+                num_heads=config["heads"],
+                num_storage_tokens=config.get("storage", 0),
+                key=with_prng_key(idx),
+            ),
+            "input_shapes": [("B", 3, img_size, img_size)],
+            "post_check_onnx_graph": EG(
+                [f"VisionTransformer_1:{output_shape}"],
+                symbols={"B": None},
+            ),
+            "run_only_f32_variant": True,
+        }
+        test_cases.append(base_case)
+
+        opset23_case = dict(base_case)
+        opset23_case["testcase"] = f"eqx_dinov3_vit_{name}_opset23"
+        opset23_case["opset_version"] = 23
+        test_cases.append(opset23_case)
 
     return test_cases
 
