@@ -746,6 +746,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 if idx >= num_carry and aval_shape:
                     first_dim = aval_shape[0]
                     first_dim_resolved: Union[int, str]
+                    builder_stacktrace_enabled = False
+                    builder_obj = getattr(ctx, "builder", None)
+                    if builder_obj is not None:
+                        stacktrace_flag = getattr(
+                            builder_obj, "stacktrace_metadata_enabled", None
+                        )
+                        if callable(stacktrace_flag):
+                            builder_stacktrace_enabled = bool(stacktrace_flag())
                     if (
                         num_consts == 0
                         and not has_dynamic_inputs
@@ -758,6 +766,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         and isinstance(length, (int, np.integer))
                     ):
                         first_dim_resolved = int(length)
+                    elif (
+                        isinstance(first_dim, (int, np.integer))
+                        and builder_stacktrace_enabled
+                    ):
+                        first_dim_resolved = int(first_dim)
                     else:
                         first_dim_resolved = _DYNAMIC_DIM_SENTINEL
                     desired_shape = (first_dim_resolved,) + aval_shape[1:]
@@ -1098,10 +1111,50 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
                 )
 
+        body_seq_outvars = list(jaxpr.outvars[num_carry:])
+        seq_axis_overrides: list[int | None] = []
+        ctx_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
+        for body_out_var in body_seq_outvars:
+            aval = getattr(body_out_var, "aval", None)
+            axis0_extent = None
+            if aval is not None:
+                shape = getattr(aval, "shape", ())
+                if (
+                    isinstance(shape, tuple)
+                    and shape
+                    and isinstance(shape[0], (int, np.integer))
+                    and int(shape[0]) > 1
+                ):
+                    axis0_extent = int(shape[0])
+            if (
+                axis0_extent is None
+                and isinstance(ctx_override_extent, (int, np.integer))
+                and int(ctx_override_extent) > 1
+            ):
+                axis0_extent = int(ctx_override_extent)
+            seq_axis_overrides.append(axis0_extent)
+
         for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
             top_val = ctx.get_value_for_var(
                 out_var, name_hint=ctx.fresh_name("loop_out")
             )
+            override_extent = (
+                seq_axis_overrides[rel_idx]
+                if rel_idx < len(seq_axis_overrides)
+                else None
+            )
+            if (
+                isinstance(override_extent, (int, np.integer))
+                and int(override_extent) > 1
+            ):
+                override_int = int(override_extent)
+                set_axis0_override(top_val, override_int)
+                aval_shape = getattr(getattr(out_var, "aval", None), "shape", None)
+                if isinstance(aval_shape, tuple):
+                    aval_shape_tuple = aval_shape
+                else:
+                    aval_shape_tuple = None
+                _restamp_axis0(top_val, override_int, aval_shape_tuple)
             expected_enum = _dtype_enum_for_var(out_var, allow_double_outputs)
             if expected_enum is None:
                 expected_enum = getattr(
@@ -1145,6 +1198,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
             loop_results = (loop_results,)
 
         for template, produced in zip(node_outputs, loop_results):
+            tmpl_meta = getattr(template, "meta", None)
+            prod_meta = getattr(produced, "meta", None)
+            if tmpl_meta is not None and prod_meta is not None:
+                for key, value in tmpl_meta.items():
+                    prod_meta[key] = value
             tmpl_type = getattr(template, "type", None)
             if tmpl_type is not None:
                 produced.type = tmpl_type
@@ -1181,6 +1239,30 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
             if rel_idx >= len(value_results):
                 break
+            override_extent = (
+                seq_axis_overrides[rel_idx]
+                if rel_idx < len(seq_axis_overrides)
+                else None
+            )
+            if (
+                override_extent is None
+                and isinstance(ctx_override_extent, (int, np.integer))
+                and int(ctx_override_extent) > 1
+            ):
+                override_extent = int(ctx_override_extent)
+            if (
+                isinstance(override_extent, (int, np.integer))
+                and int(override_extent) > 1
+            ):
+                override_int = int(override_extent)
+                set_axis0_override(value_results[rel_idx], override_int)
+                aval_shape = getattr(
+                    getattr(eqn.outvars[num_carry + rel_idx], "aval", None),
+                    "shape",
+                    None,
+                )
+                aval_shape_tuple = aval_shape if isinstance(aval_shape, tuple) else None
+                _restamp_axis0(value_results[rel_idx], override_int, aval_shape_tuple)
             ctx.bind_value_for_var(out_var, value_results[rel_idx])
 
         return list(loop_results)
@@ -1627,6 +1709,29 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 )
 
         seq_body_start = carry_body_start + num_carry
+        body_seq_outvars = list(jaxpr.outvars[num_carry:])
+        seq_axis_overrides: list[int | None] = []
+        ctx_override_extent = getattr(loop_ctx, "_static_loop_extent_axis0", None)
+        for body_out_var in body_seq_outvars:
+            aval = getattr(body_out_var, "aval", None)
+            axis0_extent = None
+            if aval is not None:
+                shape = getattr(aval, "shape", ())
+                if (
+                    isinstance(shape, tuple)
+                    and shape
+                    and isinstance(shape[0], (int, np.integer))
+                    and int(shape[0]) > 1
+                ):
+                    axis0_extent = int(shape[0])
+            if (
+                axis0_extent is None
+                and isinstance(ctx_override_extent, (int, np.integer))
+                and int(ctx_override_extent) > 1
+            ):
+                axis0_extent = int(ctx_override_extent)
+            seq_axis_overrides.append(axis0_extent)
+
         for seq_idx in range(num_scan):
             body_out = body_outputs[seq_body_start + seq_idx]
             node_outputs.append(
@@ -1642,6 +1747,26 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 out_var, name_hint=ctx.fresh_name("loop_out")
             )
             body_out = body_outputs[seq_body_start + num_scan + rel_idx]
+            override_extent = (
+                seq_axis_overrides[rel_idx]
+                if rel_idx < len(seq_axis_overrides)
+                else None
+            )
+            if (
+                override_extent is None
+                and isinstance(ctx_override_extent, (int, np.integer))
+                and int(ctx_override_extent) > 1
+            ):
+                override_extent = int(ctx_override_extent)
+            if (
+                isinstance(override_extent, (int, np.integer))
+                and int(override_extent) > 1
+            ):
+                override_int = int(override_extent)
+                set_axis0_override(top_val, override_int)
+                aval_shape = getattr(getattr(out_var, "aval", None), "shape", None)
+                aval_shape_tuple = aval_shape if isinstance(aval_shape, tuple) else None
+                _restamp_axis0(top_val, override_int, aval_shape_tuple)
             expected_enum = _dtype_enum_for_var(
                 out_var, ctx.builder.enable_double_precision
             )
@@ -1679,6 +1804,11 @@ class ScanPlugin(PrimitiveLeafPlugin):
             loop_results = (loop_results,)
 
         for template, produced in zip(node_outputs, loop_results):
+            tmpl_meta = getattr(template, "meta", None)
+            prod_meta = getattr(produced, "meta", None)
+            if tmpl_meta is not None and prod_meta is not None:
+                for key, value in tmpl_meta.items():
+                    prod_meta[key] = value
             tmpl_type = getattr(template, "type", None)
             if tmpl_type is not None:
                 produced.type = tmpl_type
@@ -1715,9 +1845,57 @@ class ScanPlugin(PrimitiveLeafPlugin):
         for rel_idx, out_var in enumerate(eqn.outvars[num_carry:]):
             if rel_idx >= len(value_results):
                 break
+            override_extent = (
+                seq_axis_overrides[rel_idx]
+                if rel_idx < len(seq_axis_overrides)
+                else None
+            )
+            if (
+                override_extent is None
+                and isinstance(ctx_override_extent, (int, np.integer))
+                and int(ctx_override_extent) > 1
+            ):
+                override_extent = int(ctx_override_extent)
+            if (
+                isinstance(override_extent, (int, np.integer))
+                and int(override_extent) > 1
+            ):
+                override_int = int(override_extent)
+                set_axis0_override(value_results[rel_idx], override_int)
+                aval_shape = getattr(
+                    getattr(eqn.outvars[num_carry + rel_idx], "aval", None),
+                    "shape",
+                    None,
+                )
+                aval_shape_tuple = aval_shape if isinstance(aval_shape, tuple) else None
+                _restamp_axis0(value_results[rel_idx], override_int, aval_shape_tuple)
             ctx.bind_value_for_var(out_var, value_results[rel_idx])
 
         return list(loop_results)
 
 
 _DYNAMIC_DIM_SENTINEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
+
+
+def _restamp_axis0(
+    value: ir.Value, override: int | None, aval_shape: tuple | None
+) -> None:
+    if not isinstance(override, (int, np.integer)) or int(override) <= 1:
+        return
+    override_int = int(override)
+    shape_obj = getattr(value, "shape", None)
+    dims: list[object] = []
+    if isinstance(shape_obj, ir.Shape):
+        dims = list(shape_obj.dims)
+    elif isinstance(shape_obj, (tuple, list)):
+        dims = list(shape_obj)
+    if not dims:
+        if isinstance(aval_shape, tuple) and aval_shape:
+            dims = list(aval_shape)
+    if not dims:
+        return
+    if len(dims) == 0:
+        dims = [None]
+    dims = list(dims)
+    dims[0] = override_int
+    _stamp_type_and_shape(value, tuple(dims))

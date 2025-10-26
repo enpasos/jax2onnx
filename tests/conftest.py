@@ -6,8 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from jax2onnx.quickstart import export_quickstart_model
-from jax2onnx.quickstart_functions import export_quickstart_functions_model
+try:
+    from jax2onnx.quickstart import export_quickstart_model
+    from jax2onnx.quickstart_functions import export_quickstart_functions_model
+except ImportError:  # pragma: no cover - optional dependency
+    export_quickstart_model = None
+    export_quickstart_functions_model = None
 
 _DOCS_ONNX_DIR = Path(__file__).resolve().parents[1] / "docs" / "onnx"
 
@@ -15,6 +19,8 @@ _DOCS_ONNX_DIR = Path(__file__).resolve().parents[1] / "docs" / "onnx"
 @pytest.fixture(scope="session", autouse=True)
 def ensure_docs_quickstart_models() -> None:
     """Regenerate quickstart ONNX artifacts if a developer removed them locally."""
+    if export_quickstart_model is None or export_quickstart_functions_model is None:
+        return
     _DOCS_ONNX_DIR.mkdir(parents=True, exist_ok=True)
     my_callable = _DOCS_ONNX_DIR / "my_callable.onnx"
     if not my_callable.exists():

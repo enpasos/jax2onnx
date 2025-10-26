@@ -17,7 +17,7 @@ from jax2onnx.plugins._ir_shapes import (
     _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
-from jax2onnx.plugins._axis0_utils import ensure_axis0_extent
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _static_dim_as_int
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
@@ -407,12 +407,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         if (
             isinstance(meta_override_axis0, (int, np.integer))
             and meta_override_axis0 > 0
-            and out_shape
         ):
             meta_override_axis0 = int(meta_override_axis0)
-            if out_axis0_static is not None and out_axis0_static > 1:
-                meta_override_axis0 = min(meta_override_axis0, out_axis0_static)
-            out_shape = (meta_override_axis0,) + out_shape[1:]
+            if out_shape:
+                out_shape = (meta_override_axis0,) + out_shape[1:]
             target_shape_dims[0] = meta_override_axis0
         debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
@@ -634,11 +632,33 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             if getattr(x_val, "type", None) is not None:
                 reshaped_val.type = x_val.type
             _ensure_value_metadata(ctx, reshaped_val)
+            reshape_override = next(
+                (
+                    int(val)
+                    for val in (
+                        get_axis0_override(x_val),
+                        get_axis0_override(reshaped_val),
+                        meta_override_axis0,
+                    )
+                    if isinstance(val, (int, np.integer)) and int(val) > 0
+                ),
+                None,
+            )
+            if reshape_override is not None:
+                set_axis0_override(reshaped_val, reshape_override)
             expand_input = reshaped_val
         else:
             expand_input = x_val  # scalar or already aligned
 
         # Final expanded tensor should match the outvar's jax aval.
+        if meta_override_axis0 is None:
+            input_override = get_axis0_override(expand_input)
+            if (
+                isinstance(input_override, (int, np.integer))
+                and int(input_override) > 0
+            ):
+                meta_override_axis0 = int(input_override)
+
         if meta_override_axis0 is None:
             fallback_override = next(
                 (
@@ -694,6 +714,11 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             expanded_out.type = ir.TensorType(final_dtype)
         _stamp_type_and_shape(expanded_out, out_shape)
         _ensure_value_metadata(ctx, expanded_out)
+        if meta_override_axis0 is None and target_shape_dims:
+            first_dim = target_shape_dims[0]
+            first_dim_int = _static_dim_as_int(first_dim)
+            if isinstance(first_dim_int, int) and first_dim_int > 1:
+                meta_override_axis0 = first_dim_int
         if (
             isinstance(meta_override_axis0, (int, np.integer))
             and int(meta_override_axis0) >= 0

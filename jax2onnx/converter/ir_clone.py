@@ -34,6 +34,10 @@ def clone_graph(graph: ir.Graph) -> ir.Graph:
             const_value=value.const_value,
             metadata_props=metadata_props or None,
         )
+        try:
+            cloned.meta.update(getattr(value, "meta", {}))
+        except Exception:
+            pass
         value_map[value] = cloned
         return cloned
 

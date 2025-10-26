@@ -13,7 +13,7 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
@@ -116,6 +116,7 @@ class SlicePlugin(PrimitiveLeafPlugin):
         out_tensor = ctx.builder.Slice(*inputs, _outputs=[out_name])
         if dtype is not None:
             out_tensor.type = ir.TensorType(dtype)
+        _ensure_value_metadata(ctx, out_tensor)
 
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
         axis0_extent = None
@@ -168,8 +169,7 @@ class SlicePlugin(PrimitiveLeafPlugin):
             )
         if expanded_target:
             _stamp_type_and_shape(out_tensor, expanded_target)
+        propagate_axis0_override(x_val, out_tensor)
         if axis0_override is not None:
             set_axis0_override(out_tensor, axis0_override)
-        else:
-            propagate_axis0_override(x_val, out_tensor)
         ctx.bind_value_for_var(out_var, out_tensor)
