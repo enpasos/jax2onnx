@@ -6,7 +6,7 @@ import pytest
 
 from typing import Callable, Optional
 
-from jax2onnx.sandbox import issue52_scatter_payload_repro as repro
+from ..helpers import issue52_scatter_payload_fixture as repro
 
 AXIS_META_KEY = "loop_axis0_override"
 STACK_WIDTH = 5
