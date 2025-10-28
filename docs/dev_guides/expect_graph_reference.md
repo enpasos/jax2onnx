@@ -126,6 +126,28 @@ specific call-site needs to be distinguished by name.
   pattern on the surrounding operators and rely on `counts` to constrain the
   totals.
 
+
+## Maintaining Coverage
+
+- Every plugin/example should ship an `expect_graph(...)` snippet alongside tests; rerun `python scripts/emit_expect_graph.py <testcase>` whenever behaviour changes.
+- Regenerate and update this guide after each sweep so metadata and documentation stay in sync.
+- When new fixtures land, add them to the coverage snapshot and verify the relevant pytest target before updating this doc.
+
+## Workflow Checklist
+
+1. Identify the next uncovered component (scan for missing `register_example` / `register_primitive` entries if needed).
+2. Capture the snippet via `poetry run python scripts/emit_expect_graph.py <testcase>`.
+3. Update metadata/tests with the snippet, run the focused pytest target, then expand to the broader suite if applicable.
+4. Refresh this guide (and coverage tables) with the new snippet.
+5. Before wrapping, ensure everything is documented and guardrails (RNG helpers, ONNX-IR boundaries, attention normalisation) are respected.
+
+## Guardrails
+
+- Converter/plugins must remain ONNX-IR only (no protobuf imports).
+- Use `construct_and_call(...).with_requested_dtype()` and `with_rng_seed(...)`; split PRNG keys before reuse.
+- Attention plugins must retain masked-weight normalisation; expect_graph snippets should reflect the normalised path.
+- Run core tooling (`poetry run pytest -q`, `poetry run ruff check .`, `poetry run mypy src`) for larger sweeps.
+
 ## Where to use it
 
 `post_check_onnx_graph` entries appear inside example/plugin test metadata (see
