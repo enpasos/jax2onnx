@@ -48,3 +48,50 @@ def test_onnx_function_consumes_call_time_param():
         no_unused_function_inputs=True,
     )
     assert check(model)
+
+
+@onnx_function
+class _SimpleBlock(nnx.Module):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs):
+        self.linear = nnx.Linear(dim, dim, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return self.linear(x)
+
+
+class _SimpleStack(nnx.Module):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs):
+        self.block1 = _SimpleBlock(dim, rngs=rngs)
+        self.block2 = _SimpleBlock(dim, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return self.block2(self.block1(x))
+
+
+def test_function_node_names_are_human_friendly():
+    model = _SimpleStack(8, rngs=nnx.Rngs(0))
+    onnx_model = to_onnx(
+        model,
+        inputs=[jax.ShapeDtypeStruct((2, 8), jnp.float32)],
+        return_mode="proto",
+        model_name="simple_stack",
+    )
+
+    fn_nodes = [
+        node
+        for node in onnx_model.graph.node
+        if node.domain.startswith("custom") and node.op_type == "_SimpleBlock"
+    ]
+    assert [node.op_type for node in fn_nodes] == ["_SimpleBlock", "_SimpleBlock"]
+    assert [node.name for node in fn_nodes] == ["_SimpleBlock_1", "_SimpleBlock_2"]
+
+    functions = list(getattr(onnx_model, "functions", []))
+    assert len(functions) == 2
+    assert {fn.name for fn in functions} == {"_SimpleBlock"}
+    domains = {fn.domain for fn in functions}
+    assert len(domains) == 2
+    assert domains == {
+        "custom._SimpleBlock.1",
+        "custom._SimpleBlock.2",
+    }
+    assert any(domain.startswith("custom.") for domain in domains)

@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.interpreters import batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -256,6 +257,34 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         ]
 
 
+def _stack_batch_rule(batched_args, batch_dims, *, axis=0):
+    mapped = [
+        (arg, bd)
+        for arg, bd in zip(batched_args, batch_dims)
+        if bd is not batching.not_mapped
+    ]
+
+    if not mapped:
+        out = JnpStackPlugin._PRIM.bind(*batched_args, axis=axis)
+        return out, batching.not_mapped
+
+    sample_arg, sample_bd = mapped[0]
+    batch_size = sample_arg.shape[sample_bd]
+
+    canonical_args = [
+        batching.bdim_at_front(arg, bd, batch_size)
+        for arg, bd in zip(batched_args, batch_dims)
+    ]
+
+    data_rank = canonical_args[0].ndim - 1
+    axis_norm = axis if axis >= 0 else axis + (data_rank + 1)
+    stack_axis = axis_norm + 1
+
+    expanded = [jnp.expand_dims(arg, axis=stack_axis) for arg in canonical_args]
+    stacked = jnp.concatenate(expanded, axis=stack_axis)
+    return stacked, 0
+
+
 @JnpStackPlugin._PRIM.def_impl
 def _stack_impl(arrays, *, axis=0):
     orig = get_orig_impl(JnpStackPlugin._PRIM, JnpStackPlugin._FUNC_NAME)
@@ -263,3 +292,6 @@ def _stack_impl(arrays, *, axis=0):
 
 
 JnpStackPlugin._PRIM.def_abstract_eval(JnpStackPlugin.abstract_eval)
+
+
+batching.primitive_batchers[JnpStackPlugin._PRIM] = _stack_batch_rule

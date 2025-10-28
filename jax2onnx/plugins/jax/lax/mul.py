@@ -3,6 +3,14 @@
 from typing import TYPE_CHECKING, Optional
 import jax
 import numpy as np
+from jax2onnx.plugins._loop_extent_meta import (
+    propagate_axis0_override,
+    set_axis0_override,
+)
+from jax2onnx.plugins._axis0_utils import (
+    maybe_expand_binary_axis0,
+    stamp_axis0_binary_result,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -68,6 +76,35 @@ if TYPE_CHECKING:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "mul_complex128",
+            "callable": lambda x, y: x * y,
+            "input_values": [
+                np.array([1.0 + 2.0j, -3.5 + 0.25j], dtype=np.complex128),
+                np.array([0.5 - 1.0j, 2.0 + 3.0j], dtype=np.complex128),
+            ],
+            "expected_output_dtypes": [np.complex128],
+            "run_only_f64_variant": True,
+            "skip_numeric_validation": True,  # current ORT build lacks complex kernel support
+            "post_check_onnx_graph": EG(
+                ["Mul:2"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "mul_complex64",
+            "callable": lambda x, y: x * y,
+            "input_values": [
+                np.array([1.0 + 0.5j, -0.75 + 1.25j], dtype=np.complex64),
+                np.array([0.5 - 2.0j, 1.5 + 0.25j], dtype=np.complex64),
+            ],
+            "expected_output_dtypes": [np.complex64],
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                ["Mul:2"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class MulPlugin(PrimitiveLeafPlugin):
@@ -83,7 +120,16 @@ class MulPlugin(PrimitiveLeafPlugin):
             y_var, name_hint=ctx.fresh_name("mul_rhs"), prefer_np_dtype=prefer_dt
         )
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mul_out"))
+        a_val, b_val, override = maybe_expand_binary_axis0(
+            ctx, a_val, b_val, out_spec, out_var
+        )
+
         result = ctx.builder.Mul(a_val, b_val, _outputs=[out_spec.name])
-        result.type = out_spec.type
-        result.shape = out_spec.shape
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        stamp_axis0_binary_result(result, out_var, out_spec, override)
+        if override is not None:
+            set_axis0_override(result, override)
+        propagate_axis0_override(a_val, result)
+        propagate_axis0_override(b_val, result)
         ctx.bind_value_for_var(out_var, result)

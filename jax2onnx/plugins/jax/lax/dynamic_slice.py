@@ -3,10 +3,17 @@
 from typing import TYPE_CHECKING, Any, Dict
 
 import jax
+import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._axis0_utils import _axis0_debug
+from jax2onnx.plugins._loop_extent_meta import (
+    get_axis0_override,
+    propagate_axis0_override,
+    set_axis0_override,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -240,4 +247,31 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         if result_dtype is not None:
             result.type = ir.TensorType(result_dtype)
         _ensure_value_metadata(ctx, result)
+
+        x_override = get_axis0_override(operand_val)
+        spec_override = get_axis0_override(out_spec)
+        ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        override_sources = (x_override, spec_override, ctx_override)
+        _axis0_debug(
+            "dynamic_slice override sources "
+            f"value={getattr(result, 'name', None)} "
+            f"sources={override_sources} "
+            f"x={getattr(operand_val, 'name', None)} "
+            f"spec={getattr(out_spec, 'name', None)}"
+        )
+        override_candidates = [
+            int(candidate)
+            for candidate in override_sources
+            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+        ]
+        _axis0_debug(
+            "dynamic_slice override candidates "
+            f"value={getattr(result, 'name', None)} "
+            f"candidates={override_candidates}"
+        )
+        axis0_override = max(override_candidates, default=None)
+        propagate_axis0_override(operand_val, result)
+        if axis0_override is not None:
+            set_axis0_override(result, axis0_override)
+        ctx.bind_value_for_var(out_var, result)
         ctx.bind_value_for_var(out_var, result)

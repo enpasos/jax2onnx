@@ -9,10 +9,16 @@ from jax import lax
 from jax._src.export.shape_poly import _DimExpr as DimExpr
 
 import onnx_ir as ir
+from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
+)
+from jax2onnx.plugins._loop_extent_meta import (
+    get_axis0_override,
+    propagate_axis0_override,
+    set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -22,17 +28,13 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
+    """Emit an INT64 constant via the builder to centralize initializer policy."""
     arr = np.asarray(values, dtype=np.int64)
     if arr.ndim == 0:
         arr = arr.reshape(1)
-    val = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=ir.TensorType(ir.DataType.INT64),
-        shape=ir.Shape((arr.size,)),
-        const_value=ir.tensor(arr),
-    )
-    ctx._initializers.append(val)
-    return val
+    name = ctx.fresh_name(name_hint)
+    # Route through builder so function-mode and duplicate policies apply.
+    return ctx.builder.const_i64(name, arr.tolist())
 
 
 def _dim_const_value(dim) -> int | None:
@@ -198,15 +200,54 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         if getattr(x_val, "type", None) and isinstance(x_val.type, ir.TensorType):
             result.type = ir.TensorType(x_val.type.dtype)
 
+        x_override = get_axis0_override(x_val)
+        spec_override = get_axis0_override(out_spec)
+        ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        override_sources = (x_override, spec_override, ctx_override)
+        _axis0_debug(
+            "squeeze override sources "
+            f"value={getattr(result, 'name', None)} "
+            f"sources={override_sources} "
+            f"x={getattr(x_val, 'name', None)} "
+            f"spec={getattr(out_spec, 'name', None)}"
+        )
+        override_candidates = [
+            int(candidate)
+            for candidate in override_sources
+            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+        ]
+        _axis0_debug(
+            "squeeze override candidates "
+            f"value={getattr(result, 'name', None)} "
+            f"candidates={override_candidates}"
+        )
+        axis0_override = max(override_candidates, default=None)
+        axis0_removed = 0 in axes
+        _axis0_debug(
+            "squeeze axis0 state "
+            f"value={getattr(result, 'name', None)} "
+            f"override={axis0_override} removed={axis0_removed}"
+        )
+        if not axis0_removed:
+            result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
+
         if x_shape:
             out_dims = [d for i, d in enumerate(x_shape) if i not in axes]
+            if axis0_override is not None and out_dims and not axis0_removed:
+                out_dims = list(out_dims)
+                out_dims[0] = axis0_override
             _stamp_type_and_shape(
                 result, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
             )
         else:
-            _stamp_type_and_shape(
-                result, tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
-            )
+            target_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+            if axis0_override is not None and target_shape and not axis0_removed:
+                target_shape = (axis0_override,) + target_shape[1:]
+            _stamp_type_and_shape(result, target_shape)
 
         _ensure_value_metadata(ctx, result)
+        if axis0_removed and axis0_override is not None:
+            set_axis0_override(out_spec, axis0_override)
+        elif not axis0_removed:
+            propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(y_var, result)

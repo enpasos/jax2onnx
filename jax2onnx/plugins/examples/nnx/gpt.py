@@ -17,7 +17,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-@onnx_function
+@onnx_function(unique=True)
 def attention(q, k, v, mask=None, **kwargs):
     """A thin wrapper around nnx.dot_product_attention exposing q, k, v, mask."""
     return nnx.dot_product_attention(q, k, v, mask=mask, **kwargs)
@@ -118,7 +118,7 @@ register_example(
     children=["MultiHeadAttention"],
     testcases=[
         {
-            "testcase": "causal_self_attention",
+            "testcase": "gpt_causal_self_attention",
             "callable": construct_and_call(
                 CausalSelfAttention,
                 n_head=12,
@@ -265,7 +265,7 @@ register_example(
     children=["nnx.Embed"],
     testcases=[
         {
-            "testcase": "token_embedding",
+            "testcase": "gpt_token_embedding",
             "callable": construct_and_call(
                 TokenEmbedding,
                 vocab_size=3144,
@@ -306,7 +306,7 @@ register_example(
     children=["nnx.Embed"],
     testcases=[
         {
-            "testcase": "position_embedding",
+            "testcase": "gpt_position_embedding",
             "callable": construct_and_call(
                 PositionEmbedding,
                 block_size=1024,
@@ -365,7 +365,7 @@ register_example(
     children=["Block"],
     testcases=[
         {
-            "testcase": "transformer_stack",
+            "testcase": "gpt_transformer_stack",
             "callable": construct_and_call(
                 GPTTransformerStack,
                 n_layer=2,
@@ -394,14 +394,14 @@ def broadcast_add(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
 
 
 register_example(
-    component="broadcast_add",
+    component="GPT_broadcast_add",
     description="Simple dynamic broadcast + add",
     source="(your patch)",
     since="v0.7.0",
     context="examples.gpt",
     testcases=[
         {
-            "testcase": "broadcast_add_dynamic",
+            "testcase": "gpt_broadcast_add_dynamic",
             "callable": broadcast_add,
             "input_shapes": [("B", 4, 5), (1, 4, 5)],
             "expected_output_shape": ("B", 4, 5),
@@ -594,7 +594,7 @@ register_example(
             "post_check_onnx_graph": expect_graph(
                 [
                     {
-                        "graph": "custom:PositionEmbedding_1",
+                        "graph": "custom.PositionEmbedding.1:PositionEmbedding",
                         "path": "Range -> Unsqueeze -> Expand -> Gather",
                         "must_absent": ["Cast"],
                     }

@@ -12,8 +12,9 @@ three common flavours:
 Whichever flavour you choose, the contract is identical:
 
 1. register metadata so the test generator knows how to rebuild the callable,
-2. implement a lowering that emits ONNX IR via the shared builder helpers, and
-3. add an `expect_graph` snippet so structural regressions stay locked down.
+2. implement a lowering that emits ONNX IR via the shared builder helpers,
+3. register a batching rule so `vmap` tracing succeeds before we ever reach ONNX,
+4. add an `expect_graph` snippet so structural regressions stay locked down.
 
 The walkthrough below uses a **low-level primitive** (`abs`) because it is the
 smallest template. For high-level or example plugins, follow the same steps and
@@ -76,7 +77,46 @@ See `jax2onnx/plugins/jax/nn/dot_product_attention.py` for a larger example.
 
 ---
 
-## 3. Implement `lower`
+## 3. Register a Batching Rule
+
+Every primitive plugin must register a batching rule—JAX errors out during
+`vmap` tracing long before the converter runs its lowering hooks otherwise.
+
+- For unary, elementwise activations (ReLU, sigmoid, CELU, etc.) call
+  `register_unary_elementwise_batch_rule(<Primitive>)` once the class is defined.
+  The helper lives in `jax2onnx/plugins/jax/nn/_builder_utils.py` and mirrors the
+  legacy batching behaviour JAX ships internally.
+- For more complex primitives, add an explicit rule to
+  `jax.interpreters.batching.primitive_batchers[...]` near the plugin definition.
+  Look at `jax2onnx/plugins/jax/numpy/stack.py` for a pattern that remaps batch
+  axes before delegating to pure JAX ops.
+
+Only after batching is in place should you run the converter tests—the helper
+keeps day-to-day plugins concise while still enforcing the guardrail.
+
+### Function plugin naming invariants
+
+ONNX function plugins now keep the original callable/class name as the **node
+`op_type`**. Uniqueness lives in the call-site metadata instead:
+
+- Call nodes are named `<Callable>_N` (1-indexed) so graphs remain human
+  readable.
+- Each specialization gets a unique domain, e.g. `custom` for the first
+  instance and `custom.Callable_2` for the second. The pair `(op_type, domain)`
+  stays stable across exports and test runs.
+- The converter mirrors every inner domain into the generated `Function`
+  opset imports automatically, so ONNX Runtime receives the same domain the
+  call-site advertises—no manual opset bookkeeping required.
+
+Update structural expectations (`expect_graph`, ORT checks, etc.) to key off the
+`op_type` when you want to match all instances, and fall back to the full
+`node.name` only when a specific call-site matters. Older expectations that
+referenced `Callable_1` continue to pass because the checker strips numeric
+suffixes when comparing `op_type`.
+
+---
+
+## 4. Implement `lower`
 
 Fetch inputs and pre-allocated outputs via the lowering context, then emit the
 ONNX op through `ctx.builder`:
@@ -115,7 +155,7 @@ the automated checks.
 
 ---
 
-## 4. Add a Structural Assertion
+## 5. Add a Structural Assertion
 
 The `post_check_onnx_graph` entry in the testcase calls the structural checker
 (`expect_graph`). Use `scripts/emit_expect_graph.py` to capture the snippet:
@@ -132,7 +172,7 @@ For more involved graphs, consult
 
 ---
 
-## 5. Run the Tests
+## 6. Run the Tests
 
 At minimum:
 
@@ -147,7 +187,7 @@ feedback loop tight.
 
 ---
 
-## 6. Submit the PR
+## 7. Submit the PR
 
 Include the plugin file and the updated tests. Reference the example you copied
 from in your PR description so reviewers know the baseline.

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import core
+from jax.interpreters import batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -275,3 +277,63 @@ def _split_impl(a, indices_or_sections, axis=0):
 
 
 JnpSplitPlugin._PRIM.def_abstract_eval(JnpSplitPlugin.abstract_eval)
+
+
+def _split_batch_rule(
+    batched_args,
+    batch_dims,
+    *,
+    indices_or_sections,
+    axis=0,
+):
+    (arr,) = batched_args
+    (arr_bdim,) = batch_dims
+    axis_int = int(axis)
+
+    try:
+        orig = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.split
+
+    outputs = orig(arr, indices_or_sections, axis=axis_int)
+    if isinstance(outputs, list):
+        outputs = tuple(outputs)
+    if arr_bdim is batching.not_mapped:
+        return outputs, tuple(batching.not_mapped for _ in outputs)
+
+    axis_size = None
+    arr_shape = getattr(arr, "shape", None)
+    if arr_shape is not None and arr_bdim < len(arr_shape):
+        axis_size = arr_shape[arr_bdim]
+
+    arr_front = batching.bdim_at_front(arr, arr_bdim, axis_size)
+
+    if arr_bdim == axis_int:
+        inner_axis = axis_int
+    elif arr_bdim < axis_int:
+        inner_axis = axis_int - 1
+    else:
+        inner_axis = axis_int
+
+    try:
+        orig_impl = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig_impl = jnp.split
+
+    def _split_single(x):
+        parts = orig_impl(x, indices_or_sections, axis=inner_axis)
+        if isinstance(parts, list):
+            parts = tuple(parts)
+        return parts
+
+    vmapped = jax.vmap(_split_single)(arr_front)
+
+    results = []
+    for part in vmapped:
+        if arr_bdim != 0:
+            part = jnp.moveaxis(part, 0, arr_bdim)
+        results.append(part)
+    return tuple(results), tuple(arr_bdim for _ in results)
+
+
+batching.primitive_batchers[JnpSplitPlugin._PRIM] = _split_batch_rule

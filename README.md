@@ -24,9 +24,18 @@
 
 - **Netron-friendly outputs**  
   Generated graphs carry shape/type annotations and a clean hierarchy, so tools like Netron stay easy to read.
+
+
+
 ---
 
 ## 🚀 Quickstart
+
+Install and export your first model in minutes:
+
+```bash
+pip install jax2onnx
+```
 
 Convert your JAX callable to ONNX in just a few lines:
 
@@ -99,6 +108,42 @@ to_onnx(
 
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/model_with_function.onnx)
 
+  
+---
+
+## SotA examples 🚀 
+
+- Vision: [DINOv3](https://ai.meta.com/dinov3/)
+  - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104)
+  - Structural graphs:
+    - [eqx_dinov3_vit_Ti14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14.onnx)
+    - [eqx_dinov3_vit_Ti14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14_dynamic.onnx)
+    - [eqx_dinov3_vit_S14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14.onnx)
+    - [eqx_dinov3_vit_S14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14_dynamic.onnx)
+    - [eqx_dinov3_vit_B14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14.onnx)
+    - [eqx_dinov3_vit_B14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14_dynamic.onnx)
+    - [eqx_dinov3_vit_S16 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16.onnx)
+    - [eqx_dinov3_vit_S16_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16_dynamic.onnx)
+  - How-to: [Getting Meta weights into jax2onnx](./docs/readme/dinov3/getting_weights.md)
+  - Equivalence check: [Comparing Meta vs jax2onnx ONNX](./docs/readme/dinov3/compare_meta_vs_jax2onnx.md)
+  - Optional pretrained weights (Meta AI): [facebook/dinov3-vitb16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) (other variants live under the same namespace) — DINOv3 license applies; review before downloading or redistributing.
+
+---
+
+## 🧩 Coverage & Examples (Interactive)
+
+> [!TIP]
+> **JAX · Flax · Equinox** — explore everything that’s supported **and** see it in action.
+>
+> - ✅ **Support matrix**: status per component
+> - 🧪 **Exact regression testcase** for each entry
+> - 🔍 **One-click Netron** graph to inspect nodes, shapes, attributes
+> - 🧩 **Examples that compose multiple components** (Conv→Norm→Activation→Pool, MLP w/ LayerNorm+Dropout, `reshape/transpose/concat`, `scan`/`while_loop`, `gather`/`scatter`, …)
+>
+> **Links:** [Open support matrix ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components) ·
+> [Browse examples ↗](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples)
+
+
 ---
 
 ## 📅 Roadmap and Releases
@@ -107,29 +152,29 @@ to_onnx(
 
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
-  * Advanced ONNX function support, including function reuse, and improved variable naming
-
 
 ### **Upcoming Version**
- 
-* **0.9.1**:
-  * updated major supported dependencies: JAX **0.8.0**, onnx-ir **0.1.11**
+
+* **0.10.1**:
+
+    * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
+    * `lax.dot_general`: add `Einsum` fallback 
+    * **Complex numbers (initial support):** keep `complex64/complex128` natively across conversion; new helpers `pack_native_complex` / `unpack_to_native_complex` / `ensure_complex_dtype`; initial coverage for `lax.add`, `lax.mul`, and a prototype `lax.fft` via ONNX `DFT` (docs: `docs/dev_guides/complex_numbers.md`).
 
 
 ### **Current Productive Version**
- 
-* **0.9.0** *(PyPI)*:
 
-  * migrated internally from a [prototype-based ONNX representation](https://github.com/onnx/onnx) to an [IR-based one](https://github.com/onnx/ir-py), slashing peak memory during conversion—especially noticeable on large models.
-  * added a `return_mode` option in `to_onnx`:
+* **0.10.0** *(PyPI)*:
 
-    * `"proto"` (default) → returns an `onnx.ModelProto`
-    * `"ir"` → returns the intermediate `onnx_ir.Model`
-    * `"file"` → serializes directly to disk *(faster than `proto` + external save)*.
-  * updated dependencies: JAX **0.7.2**, Flax **0.12.0** *(requires Python ≥3.11)*, Equinox **0.13.2**, onnx-ir **0.1.10**, onnx **1.19.1**.
+  * Expand Equinox coverage for the DINOv3 exporter with new plugins (`equinox/eqx/nn/conv.py`, `multihead_attention.py`, `rotary_positional_embedding.py`) and an example at `plugins/examples/eqx/dino.py`.
+  * Add lowering helpers and plugins: `_axis0_utils.py`, `_loop_extent_meta.py`, `jax/lax/gather_compile.py`, `jax/lax/gather_helpers.py`, `jax/image/resize.py`, `jax/numpy/outer.py`.
+  * Rewrite and extend existing plugins—especially `jax.lax` control flow and scatter/gather paths (incl. `while_loop`), `jax.numpy` batching ops (`arange`, `reshape`, `split`, `stack`, `tile`, `where`), and `jax.nn` activations/initializers—improving metadata, axis handling, and ONNX parity.
+  * `@onnx_function`: declare once and reuse by passing the optional `unique=True`.
+  * Refactor IR builder: live graph proxies and a reusable `clone_graph` keep function/loop subgraphs detached and eliminate cross-graph ownership errors.
+  * Update major dependencies: JAX **0.8.0**, onnx-ir **0.1.11**.
 
- 
- 
+
+
 ### **Past Versions**
 
 See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
@@ -151,43 +196,8 @@ If conversion doesn't work out of the box, it could be due to:
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](https://enpasos.github.io/jax2onnx/design#plugin-op-specific) to handle the unsupported function (this is straightforward!).
 
----
+Looking for provenance details while debugging? Check out the new [Stacktrace Metadata guide](docs/readme/stacktrace_metadata.md).
 
-## 🧩 Supported JAX/ONNX Components
-
-
-See [`supported-jaxonnx-components`](https://enpasos.github.io/jax2onnx/readme/coverage_tables#supported-jaxonnx-components) for the full autogenerated support matrix, including links to every regression testcase.
-
----
-
-## 🎯 Examples
-
-See [`examples`](https://enpasos.github.io/jax2onnx/readme/coverage_tables#examples) for the autogenerated examples catalog.
-
----
-
-## 📌 Dependencies
-
-**Latest supported version of major dependencies:**
-
-| Library       | Versions |  
-|:--------------|:---------| 
-| `JAX`         | 0.8.0    | 
-| `Flax`        | 0.12.0   | 
-| `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.11   | 
-| `onnx`        | 1.19.1   |  
-| `onnxruntime` | 1.23.1   |  
-
-*For exact pins and extras, see `pyproject.toml`.*
-
-
----
-
-## ⚠️ Limitations
-
-- Currently not all JAX/Flax or Equinox components are supported (you can easily help expand this coverage!).
-- Function references need dynamic resolution at call-time.
 
 
 ---
@@ -201,16 +211,26 @@ We warmly welcome contributions!
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](./jax2onnx/plugins):
   a primitive or an example. The [Plugin Quickstart](https://enpasos.github.io/jax2onnx/dev_guides/plugin_quickstart) walks through the process step-by-step.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
+ 
+
 
 ---
 
-## 💾 Installation
 
-Install from PyPI:
+## 📌 Dependencies
 
-```bash
-pip install jax2onnx  
-```
+**Latest supported version of major dependencies:**
+
+| Library       | Versions |  
+|:--------------|:---------| 
+| `JAX`         | 0.8.0    | 
+| `Flax`        | 0.12.0   | 
+| `Equinox`     | 0.13.2   | 
+| `onnx-ir`     | 0.1.11   | 
+| `onnx`        | 1.19.1   |  
+| `onnxruntime` | 1.23.2   |  
+
+*For exact pins and extras, see `pyproject.toml`.*
 
 
 ---
@@ -219,15 +239,19 @@ pip install jax2onnx
 
 This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](./LICENSE) for details.
 
+
+
 ---
 
 ## 🌟 Special Thanks
+
+✨ Special thanks to [@clementpoiret](https://github.com/clementpoiret) for initiating Equinox support and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox.
 
 ✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
-✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret) and [@Clouder0](https://github.com/Clouder0)
+✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam) and [benmacadam64](https://github.com/benmacadam64)
 
 ✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 

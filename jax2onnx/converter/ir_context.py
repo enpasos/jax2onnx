@@ -11,10 +11,13 @@ from typing import (
     Iterable,
     Iterator,
     Union,
+    Callable,
     cast,
+    Final,
 )
 from typing import overload
 from collections.abc import MutableSequence
+import os
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
@@ -22,6 +25,7 @@ from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from jax.extend import core as jcore_ext
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .conversion_api import FunctionRegistry
@@ -33,7 +37,7 @@ class _InitializerProxy(MutableSequence[ir.Value]):
     def __init__(self, ctx: "IRContext") -> None:
         self._ctx = ctx
         self._storage = ctx.builder.initializers
-    
+
     def append(self, value: ir.Value) -> None:
         self._ctx._handle_initializer_append(value)
 
@@ -169,6 +173,9 @@ def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
         return None
 
 
+_STACKTRACE_METADATA_ENV: Final[str] = "JAX2ONNX_ENABLE_STACKTRACE_METADATA"
+
+
 class IRContext:
     def __init__(
         self,
@@ -176,10 +183,30 @@ class IRContext:
         opset: int,
         enable_double_precision: bool,
         input_specs: Sequence[Any] | None = None,
+        stacktrace_metadata: Optional[bool] = None,
     ):
+        if stacktrace_metadata is None:
+            env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
+            if env_flag is None:
+                stacktrace_metadata = False
+            else:
+                stacktrace_metadata = env_flag.strip().lower() not in {
+                    "0",
+                    "false",
+                    "no",
+                    "",
+                }
         self.builder: IRBuilder = IRBuilder(
-            opset=opset, enable_double_precision=enable_double_precision
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            enable_stacktrace_metadata=bool(stacktrace_metadata),
         )
+        self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
+        if self._stacktrace_metadata_enabled:
+            detail_mode = (
+                os.getenv("JAX2ONNX_STACKTRACE_DETAIL", "minimal").strip().lower()
+            )
+            self.builder.set_stacktrace_mode(detail_mode)
         self.builder._function_mode = False
         self.dim_expr_lowerer = LowerDimExpr(self)
         self._default_float_dtype = (
@@ -211,8 +238,30 @@ class IRContext:
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
 
-    def try_evaluate_const(self, var, handler):
-        return self._const_folder.try_evaluate(var, handler)
+    def register_constant_evaluator(
+        self, primitive: Any, handler: Callable[..., Any] | None = None
+    ) -> None:
+        if isinstance(primitive, str):
+            prim_name: str = primitive
+        else:
+            prim_name_obj = getattr(primitive, "name", None)
+            if not isinstance(prim_name_obj, str):
+                raise TypeError(
+                    "register_constant_evaluator expects a primitive or primitive name"
+                )
+            prim_name = prim_name_obj
+        if handler is None:
+            bind = getattr(primitive, "bind", None)
+            if not callable(bind):
+                raise TypeError(
+                    "register_constant_evaluator requires a handler when primitive has no 'bind'"
+                )
+            handler = cast(Callable[..., Any], bind)
+        self._const_folder.register_handler(prim_name, handler)
+
+    def try_evaluate_const(self, var: Any) -> Optional[NDArray[np.generic]]:
+        result = self._const_folder.try_evaluate(var)
+        return cast(Optional[NDArray[np.generic]], result)
 
     @property
     def opset(self) -> int:

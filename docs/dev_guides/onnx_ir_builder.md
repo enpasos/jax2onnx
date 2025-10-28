@@ -148,6 +148,10 @@ then_out, else_out = values
 - Tensor attributes should be created with `ir.tensor(...)` to guarantee dtype/shape correctness.
 - Graph-typed attributes must be wrapped with `ir.AttrGraph` or `ir.AttrGraphs`.
 
+## Graph Ownership & Cloning
+- `IRBuilder` now keeps its `inputs`, `outputs`, and nodes in sync with the underlying `onnx_ir.Graph` via proxy setters. Reassigning `builder.inputs = [...]` (or `.outputs`/`.nodes`) clears and repopulates the graph-side containers, while `builder.initializers` remains a list-like shim that delegates to `graph.initializers`. Prefer mutating these sequences in place, but reassignment is safe when you need to reset them.
+- When exporting a staged graph—either to an `ir.Model` or into ONNX graph-typed attributes—clone it first using `jax2onnx.converter.ir_clone.clone_graph`. The helper copies values, initializers, metadata, and nested graphs so the detached graph can be owned by another model/function without triggering “Value … is already owned by a different graph” errors. Function scopes and control-flow plugins (`cond`, `fori_loop`, `scan`, `while_loop`) already adopt this pattern; follow suit for any new subgraph emission.
+
 ## Integrating with Existing Graphs or Functions
 ```python
 graph = ir.Graph(inputs=[X], outputs=[Z], nodes=[])
@@ -167,6 +171,17 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 ## Common Pitfalls and How to Avoid Them
 - **Node metadata via kwargs**: `builder.Add(..., name="foo")` creates an attribute named `name`; it does *not* rename the node. Use `summed.producer().name = "foo"` after creation instead.
 - **Doc strings & metadata props**: assign them on the node object (`node = summed.producer(); node.doc_string = "..."`).
+- **Debug provenance metadata**: setting `JAX2ONNX_ENABLE_STACKTRACE_METADATA=1` (or `stacktrace_metadata=True`) records a concise call-site (`pkg.jax2onnx.callsite`, formatted as `function:line`) plus the plugin invocation site (`pkg.jax2onnx.plugin`, formatted as `Plugin.lower:line` pointing at the builder call) on each node. This is the default reduced payload surfaced in tools like Netron. Set `JAX2ONNX_STACKTRACE_DETAIL=full` when you also need the full Python (`pkg.jax2onnx.stacktrace`) and JAX (`pkg.jax2onnx.jax_traceback`) traces.
+
+  Example (line numbers annotated to mirror the metadata):
+  ```python
+  def wide_fn(x):
+      a = jnp.sin(x)   # wide_fn.py:8
+      b = jnp.cos(x)   # wide_fn.py:9
+      c = jnp.tanh(x)  # wide_fn.py:10
+      d = jnp.exp(x)   # wide_fn.py:11
+      return a + b * c + d  # wide_fn.py:12
+  ```
 - **Output naming**: pass a list (`_outputs=["y"]`), not a bare string.
 - **Initializer naming**: provide a name whenever the tensor lacks one; `Tape.initializer` raises otherwise.
 - **Multiple opset versions**: if two builder calls request different versions for the same domain, detect and reconcile before finishing the graph.
@@ -174,9 +189,33 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 - **Attribute values of `None`**: build an `ir.Attr` with an explicit `AttributeType`; automatic conversion rejects bare `None`.
 - **Graph ownership**: do not reuse a builder-generated node inside another graph without detaching it first (`graph.remove(node)`), because each node tracks its owning graph.
 
+## Initializer Deduplication
+- Prefer `ctx.builder.add_initializer_from_scalar/array(...)` or `ctx.builder.const_i64(...)` to create constants. Avoid writing directly to `graph.initializers[...]`.
+- The upstream `GraphInitializers.add(value)` overwrites by name. Our builder layer enforces a stricter policy to preserve IR value connections:
+  - Identical duplicate (same name + same data/shape/dtype) → reuse existing initializer; do not replace the object.
+  - Conflicting duplicate (same name + different payload) → raise a `ValueError`.
+  - In function-mode, constants are emitted as `Constant` nodes; graph initializers are not allowed in ONNX Functions.
+
+Example
+```python
+import numpy as np
+
+w1 = builder.add_initializer_from_array("weight", np.array([1.0], dtype=np.float32))
+# Re-adding with identical payload reuses the same Value (no-op):
+w2 = builder.add_initializer_from_array("weight", np.array([1.0], dtype=np.float32))
+assert w1 is w2
+
+# Re-adding with different payload raises:
+builder.add_initializer_from_array("weight", np.array([2.0], dtype=np.float32))  # ValueError
+```
+
+Rationale
+- Preserving object identity prevents subtle mismatches where nodes still reference the old `ir.Value` even though the `graph.initializers` dict now points to a new one. This keeps optimizer passes, cloning, and structural tests stable and predictable.
+
 ## Checklist Before Serializing
 - All graph inputs/outputs are `ir.Value` instances with types and shapes populated (consider using `ir.val` for convenience).
 - Initializers created through the builder are either registered on the target graph or injected via `graph.initializers.add(...)`.
+  - Duplicate policy: attempting to re-add an initializer with the same name and different data raises. Re-adding an identical initializer reuses the existing value without replacing it, preserving value connections.
 - `graph.opset_imports` reflects the versions implied by `builder.used_opsets`.
 - Any node-level metadata (names, doc strings, annotations, overloads) is set on the node objects after creation.
 - Perform optional validation such as `ir.to_proto(model)`, ONNX checker runs, or `onnx_ir.load` round-trips if XY integrates them.

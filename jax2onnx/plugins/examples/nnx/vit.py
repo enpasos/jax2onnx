@@ -1,5 +1,6 @@
 # jax2onnx/plugins/examples/nnx/vit.py
 
+from functools import wraps
 from typing import Sequence
 
 import jax
@@ -85,7 +86,7 @@ register_example(
     children=["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
     testcases=[
         {
-            "testcase": "patch_embedding",
+            "testcase": "vit_patch_embedding",
             "callable": construct_and_call(
                 PatchEmbedding,
                 height=28,
@@ -185,7 +186,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "mnist_conv_embedding",
+            "testcase": "vit_mnist_conv_embedding",
             "callable": construct_and_call(
                 ConvEmbedding,
                 embed_dims=[32, 64, 128],
@@ -232,7 +233,7 @@ register_example(
     children=["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
     testcases=[
         {
-            "testcase": "feed_forward",
+            "testcase": "vit_feed_forward",
             "callable": construct_and_call(
                 FeedForward,
                 num_hiddens=256,
@@ -252,9 +253,14 @@ register_example(
 )
 
 
-@onnx_function
+@onnx_function(unique=True)
 def attention(*args, **kwargs):
     return nnx.dot_product_attention(*args, **kwargs)
+
+
+@wraps(attention)
+def _call_attention(*args, **kwargs):
+    return attention(*args, **kwargs)
 
 
 @onnx_function
@@ -272,7 +278,7 @@ class MultiHeadAttention(nnx.Module):
             qkv_features=num_hiddens,
             out_features=num_hiddens,
             in_features=num_hiddens,
-            attention_fn=attention,
+            attention_fn=_call_attention,
             rngs=rngs,
             decode=False,
         )
@@ -330,7 +336,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "transformer_block",
+            "testcase": "vit_transformer_block",
             "callable": construct_and_call(
                 TransformerBlock,
                 num_hiddens=256,
@@ -397,7 +403,7 @@ register_example(
     children=["TransformerBlock"],
     testcases=[
         {
-            "testcase": "transformer_stack",
+            "testcase": "vit_transformer_stack",
             "callable": construct_and_call(
                 TransformerStack,
                 num_hiddens=256,
@@ -436,13 +442,20 @@ register_example(
     children=[],
     testcases=[
         {
-            "testcase": "get_token",
+            "testcase": "vit_get_token",
             "callable": get_first_token,
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["GatherND", "Slice -> Squeeze"],
+                [
+                    "Slice -> Squeeze",
+                    {
+                        "path": "Transpose:50xBx256 -> Gather:Bx256",
+                        "inputs": {1: {"const": 0.0}},
+                    },
+                ],
                 mode="any",
+                symbols={"B": None},
                 no_unused_inputs=True,
             ),
         },
@@ -479,7 +492,7 @@ register_example(
     children=["flax.nnx.LayerNorm", "flax.nnx.Linear", "flax.nnx.log_softmax"],
     testcases=[
         {
-            "testcase": "classification_head",
+            "testcase": "vit_classification_head",
             "callable": construct_and_call(
                 ClassificationHead,
                 num_hiddens=256,
@@ -527,7 +540,7 @@ register_example(
     children=["flax.nnx.Param", "jax.numpy.tile", "jax.numpy.concatenate"],
     testcases=[
         {
-            "testcase": "concat_cls_token",
+            "testcase": "vit_concat_cls_token",
             "callable": construct_and_call(
                 ConcatClsToken,
                 num_hiddens=256,
@@ -570,7 +583,7 @@ register_example(
     children=["flax.nnx.Param"],
     testcases=[
         {
-            "testcase": "positional_embedding",
+            "testcase": "vit_positional_embedding",
             "callable": construct_and_call(
                 PositionalEmbedding,
                 num_patches=49,

@@ -413,23 +413,65 @@ def to_onnx(
                 raise NotImplementedError(
                     f"[converter] No plugins registered for primitive '{prim_name}'"
                 )
-            if hasattr(plugin_ref, "lower"):
-                lower = plugin_ref.lower
+            builder = ctx.builder
+            prev_jax_trace = builder.current_jax_traceback
+            prev_plugin_id = builder.current_plugin_identifier
+            prev_plugin_line = builder.current_plugin_line
+            jax_trace: Optional[str] = None
+            plugin_identifier: Optional[str] = None
+            plugin_line: Optional[str] = None
+            if builder.stacktrace_metadata_enabled:
+                source_info = getattr(eqn, "source_info", None)
+                if source_info is not None:
+                    tb = getattr(source_info, "traceback", None)
+                    if tb is not None:
+                        try:
+                            jax_trace = str(tb)
+                        except Exception:
+                            jax_trace = None
                 try:
-                    has_params = "params" in _ins.signature(lower).parameters
+                    if hasattr(plugin_ref, "lower"):
+                        lower_fn = getattr(plugin_ref, "lower")
+                        plugin_identifier = (
+                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
+                            f"{getattr(lower_fn, '__name__', 'lower')}"
+                        )
+                        try:
+                            _, start_line = _ins.getsourcelines(lower_fn)
+                            plugin_line = str(start_line)
+                        except (OSError, TypeError):
+                            plugin_line = None
+                    elif hasattr(plugin_ref, "__class__"):
+                        plugin_identifier = (
+                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
+                        )
+                    else:
+                        plugin_identifier = prim_name
                 except Exception:
-                    has_params = False
-                if has_params:
-                    lower(ctx, eqn, eqn.params)
+                    plugin_identifier = prim_name
+            builder.set_current_jax_traceback(jax_trace)
+            builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
+            try:
+                if hasattr(plugin_ref, "lower"):
+                    lower = plugin_ref.lower
+                    try:
+                        has_params = "params" in _ins.signature(lower).parameters
+                    except Exception:
+                        has_params = False
+                    if has_params:
+                        lower(ctx, eqn, eqn.params)
+                    else:
+                        lower(ctx, eqn)
+                elif hasattr(plugin_ref, "get_handler"):
+                    handler = plugin_ref.get_handler(converter)
+                    handler(converter, eqn, eqn.params)
                 else:
-                    lower(ctx, eqn)
-            elif hasattr(plugin_ref, "get_handler"):
-                handler = plugin_ref.get_handler(converter)
-                handler(converter, eqn, eqn.params)
-            else:
-                raise NotImplementedError(
-                    f"[converter] Unsupported plugin type for '{prim_name}'"
-                )
+                    raise NotImplementedError(
+                        f"[converter] Unsupported plugin type for '{prim_name}'"
+                    )
+            finally:
+                builder.set_current_jax_traceback(prev_jax_trace)
+                builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
 
         # Outputs
         ctx.add_outputs_from_vars(jpr.outvars)

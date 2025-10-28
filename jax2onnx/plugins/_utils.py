@@ -98,11 +98,11 @@ def inline_reshape_initializer(
         return val  # not a constant → caller must insert a Reshape node
 
     np_arr = np.asarray(arr).reshape(new_shape)
-    reshaped = ir.Value(
-        name=ctx.fresh_name(name_hint),
-        type=val.type,  # keep dtype
-        shape=ir.Shape(tuple(int(s) for s in new_shape)),
-        const_value=ir.tensor(np_arr),
+    # Preserve dtype from the original value when available
+    target_dtype = val.dtype
+    if target_dtype is not None and target_dtype in _IR_TO_NP_DTYPE:
+        np_arr = np_arr.astype(_IR_TO_NP_DTYPE[target_dtype], copy=False)
+
+    return ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(name_hint), array=np_arr
     )
-    ctx._initializers.append(reshaped)
-    return reshaped

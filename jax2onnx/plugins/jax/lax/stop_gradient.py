@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
-import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
@@ -64,13 +63,11 @@ class StopGradientPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("Identity")
 
         result = ctx.builder.Identity(inp_val, _outputs=[desired_name])
-
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
             result.type = getattr(inp_val, "type", None)
-        result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

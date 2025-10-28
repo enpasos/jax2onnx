@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import jax
@@ -11,8 +12,10 @@ import onnx_ir as ir
 from jax import tree_util
 from jax.extend.core import Primitive
 
+from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
@@ -24,6 +27,11 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
     relax_value_to_rank_only,
+)
+from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64, _unsqueeze_scalar
+from jax2onnx.plugins.jax.lax.scan import (
+    _jaxpr_contains_scatter,
+    _static_scatter_extent,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -65,6 +73,8 @@ def _build_body_graph(
     )
 
     jaxpr = closed_jaxpr.jaxpr
+    has_scatter = _jaxpr_contains_scatter(jaxpr)
+    scatter_extent = _static_scatter_extent(jaxpr) if has_scatter else None
 
     # Bind constants inside the loop body context.
     for const_var, const_value in zip(
@@ -115,7 +125,37 @@ def _build_body_graph(
         state_input.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(state_input, shape_tuple)
         _ensure_value_metadata(body_ctx, state_input)
+        if isinstance(scatter_extent, (int, np.integer)) and int(scatter_extent) > 1:
+            set_axis0_override(state_input, int(scatter_extent))
         relax_value_to_rank_only(state_input)
+
+    # Enable scatter-aware loop extent hints so inner ops can recover axis-0 shape.
+    if has_scatter:
+        setattr(body_ctx, "_loop_extent_hints_enabled", True)
+        extent_hints = getattr(body_ctx, "_loop_extent_hints", None)
+        if not isinstance(extent_hints, dict):
+            extent_hints = {}
+            setattr(body_ctx, "_loop_extent_hints", extent_hints)
+        if isinstance(scatter_extent, (int, np.integer)) and int(scatter_extent) > 1:
+            extent_int = int(scatter_extent)
+            setattr(body_ctx, "_force_loop_extent_axis0", True)
+            setattr(body_ctx, "_static_loop_extent_axis0", extent_int)
+            if os.environ.get("J2O_DEBUG_LOOP_HINTS") == "1":
+                print("[fori_loop_hint]", extent_int, flush=True)
+            override_scalar = _scalar_i64(
+                body_ctx,
+                extent_int,
+                "fori_loop_extent_override",
+            )
+            override_vec = _unsqueeze_scalar(
+                body_ctx,
+                override_scalar,
+                0,
+                "fori_loop_extent_override_vec",
+            )
+            axis_hints = extent_hints.setdefault(0, [])
+            axis_hints.clear()
+            axis_hints.append(override_vec)
 
     # Lower body equations inside the nested context.
     lower_jaxpr_eqns(body_ctx, jaxpr)
@@ -136,6 +176,8 @@ def _build_body_graph(
             out_val.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(out_val, out_shape)
         _ensure_value_metadata(body_ctx, out_val)
+        if isinstance(scatter_extent, (int, np.integer)) and int(scatter_extent) > 1:
+            set_axis0_override(out_val, int(scatter_extent))
         relax_value_to_rank_only(out_val)
         loop_outputs.append(out_val)
 
@@ -151,14 +193,14 @@ def _build_body_graph(
 
     body_ctx.builder.outputs = [cond_out, *loop_outputs]
 
-    return ir.Graph(
-        inputs=list(body_ctx.builder.inputs),
-        outputs=list(body_ctx.builder.outputs),
-        nodes=list(body_ctx.builder.nodes),
-        initializers=list(body_ctx.builder.initializers),
-        name=parent_ctx.fresh_name("fori_body"),
-        opset_imports={"": getattr(parent_ctx.builder, "opset", 21)},
-    )
+    body_graph = clone_graph(body_ctx.builder.graph)
+    body_graph.name = parent_ctx.fresh_name("fori_body")
+    opset_version = getattr(parent_ctx.builder, "opset", 21)
+    opset_imports = dict(body_graph.opset_imports)
+    opset_imports.setdefault("", opset_version)
+    body_graph.opset_imports.clear()
+    body_graph.opset_imports.update(opset_imports)
+    return body_graph
 
 
 @register_primitive(

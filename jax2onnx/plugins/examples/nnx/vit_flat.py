@@ -77,7 +77,7 @@ register_example(
     children=["flax.nnx.Linear", "jax.numpy.Transpose", "jax.numpy.Reshape"],
     testcases=[
         {
-            "testcase": "patch_embedding_flat",
+            "testcase": "vit_patch_embedding_flat",
             "callable": construct_and_call(
                 PatchEmbedding,
                 height=28,
@@ -183,7 +183,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "mnist_conv_embedding_flat",
+            "testcase": "vit_mnist_conv_embedding_flat",
             "callable": construct_and_call(
                 ConvEmbedding,
                 embed_dims=[32, 64, 128],
@@ -241,7 +241,7 @@ register_example(
     children=["flax.nnx.Linear", "flax.nnx.Dropout", "flax.nnx.gelu"],
     testcases=[
         {
-            "testcase": "feed_forward_flat",
+            "testcase": "vit_feed_forward_flat",
             "callable": construct_and_call(
                 FeedForward,
                 num_hiddens=256,
@@ -346,7 +346,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "transformer_block_flat",
+            "testcase": "vit_transformer_block_flat",
             "callable": construct_and_call(
                 TransformerBlock,
                 num_hiddens=256,
@@ -412,7 +412,7 @@ register_example(
     children=["TransformerBlock"],
     testcases=[
         {
-            "testcase": "transformer_stack_flat",
+            "testcase": "vit_transformer_stack_flat",
             "callable": construct_and_call(
                 TransformerStack,
                 num_hiddens=256,
@@ -454,13 +454,20 @@ register_example(
     children=[],
     testcases=[
         {
-            "testcase": "get_token_flat",
+            "testcase": "vit_get_token_flat",
             "callable": lambda x: get_token(x, 0),
             "input_shapes": [("B", 50, 256)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["GatherND", "Slice -> Squeeze"],
+                [
+                    "Slice -> Squeeze",
+                    {
+                        "path": "Transpose:50xBx256 -> Gather:Bx256",
+                        "inputs": {1: {"const": 0.0}},
+                    },
+                ],
                 mode="any",
+                symbols={"B": None},
                 no_unused_inputs=True,
             ),
         },
@@ -495,7 +502,7 @@ register_example(
     children=["flax.nnx.LayerNorm", "flax.nnx.Linear", "flax.nnx.log_softmax"],
     testcases=[
         {
-            "testcase": "classification_head_flat",
+            "testcase": "vit_classification_head_flat",
             "callable": construct_and_call(
                 ClassificationHead,
                 num_hiddens=256,
@@ -542,7 +549,7 @@ register_example(
     children=["flax.nnx.Param", "jax.numpy.tile", "jax.numpy.concatenate"],
     testcases=[
         {
-            "testcase": "concat_cls_token_flat",
+            "testcase": "vit_concat_cls_token_flat",
             "callable": construct_and_call(
                 ConcatClsToken,
                 num_hiddens=256,
@@ -584,7 +591,7 @@ register_example(
     children=["flax.nnx.Param"],
     testcases=[
         {
-            "testcase": "positional_embedding_flat",
+            "testcase": "vit_positional_embedding_flat",
             "callable": construct_and_call(
                 PositionalEmbedding,
                 num_patches=49,

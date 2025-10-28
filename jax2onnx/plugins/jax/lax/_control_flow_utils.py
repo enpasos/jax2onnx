@@ -117,16 +117,14 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
     )
     child_ctx._function_mode = True
     child_ctx._inside_function_scope = True
-    if hasattr(parent_ctx, "_keep_function_float32"):
-        child_ctx._keep_function_float32 = getattr(
-            parent_ctx, "_keep_function_float32", False
-        )
-
+    # Ensure builder emits constants as nodes (Functions/subgraphs cannot have initializers)
+    child_ctx.builder._function_mode = True
+    child_ctx._keep_function_float32 = getattr(
+        parent_ctx, "_keep_function_float32", False
+    )
     # Inherit known symbolic dimension origins so nested graphs can resolve them.
-    if hasattr(parent_ctx, "_sym_origin"):
-        child_ctx._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
-    if hasattr(parent_ctx, "_sym_origin_str"):
-        child_ctx._sym_origin_str = dict(getattr(parent_ctx, "_sym_origin_str", {}))
+    child_ctx._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
+    child_ctx._sym_origin_str = dict(getattr(parent_ctx, "_sym_origin_str", {}))
 
     # Prefix all fresh names so nested graphs remain unique.
     prefix_base = parent_ctx.fresh_name(prefix)

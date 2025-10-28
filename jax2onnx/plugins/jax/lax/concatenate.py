@@ -11,6 +11,11 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._loop_extent_meta import (
+    get_axis0_override,
+    propagate_axis0_override,
+    set_axis0_override,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -161,4 +166,19 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
+        for inp in inputs:
+            propagate_axis0_override(inp, result)
+        if norm_axis == 0:
+            override = next(
+                (
+                    int(val)
+                    for val in (
+                        get_axis0_override(inp) for inp in inputs  # type: ignore[arg-type]
+                    )
+                    if isinstance(val, (int, np.integer)) and int(val) > 1
+                ),
+                None,
+            )
+            if override is not None:
+                set_axis0_override(result, override)
         ctx.bind_value_for_var(out_var, result)

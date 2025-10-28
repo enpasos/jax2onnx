@@ -27,6 +27,8 @@ class GRUCellWrapper(nnx.Module):
             in_features=in_feat,
             hidden_features=hid_feat,
             activation_fn=tanh,
+            # Avoid SciPy-backed orthogonal init so generation works in minimal envs.
+            recurrent_kernel_init=nnx.initializers.lecun_normal(),
             rngs=rngs,
         )
 

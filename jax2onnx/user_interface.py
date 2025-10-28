@@ -333,7 +333,12 @@ def to_onnx(
     return model_proto
 
 
-def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
+def onnx_function(
+    target: Optional[Union[Callable, type]] = None,
+    *,
+    unique: bool = False,
+    namespace: Optional[str] = None,
+) -> Union[Callable, type]:
     """
     Decorator to mark a function or class as an ONNX function.
 
@@ -342,7 +347,12 @@ def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
     and exported as a reusable component with its own namespace in the ONNX graph.
 
     Args:
-        target: The target function or class to decorate.
+        target: The target function or class to decorate. When omitted, the decorator
+            must be called with parentheses.
+        unique: If True, reuse a single ONNX Function definition for all call sites
+            that share the same callable type and captured parameters.
+        namespace: Custom domain prefix for the emitted FunctionProto. Defaults to
+            ``"custom"`` when omitted.
 
     Returns:
         The decorated function or class with ONNX function capabilities.
@@ -361,7 +371,7 @@ def onnx_function(target: Union[Callable, type]) -> Union[Callable, type]:
         >>>         return self.activation(self.dense(x))
     """
 
-    return onnx_function_impl(target)
+    return onnx_function_impl(target, unique=unique, namespace=namespace)
 
 
 def allclose(
