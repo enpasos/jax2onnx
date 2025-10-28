@@ -2,8 +2,10 @@
 
 
 from __future__ import annotations
-from collections.abc import MutableSequence
-from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple, Union, overload
+import os
+import traceback
+from collections.abc import MutableSequence, Sequence
+from typing import Any, Final, Iterable, Iterator, Optional, Tuple, Union, overload
 
 import numpy as np
 import onnx_ir as ir
@@ -11,6 +13,17 @@ from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
 from .ir_clone import clone_graph
+
+
+STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
+JAX_TRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.jax_traceback"
+JAX_CALLSITE_METADATA_KEY: Final[str] = "pkg.jax2onnx.callsite"
+PLUGIN_METADATA_KEY: Final[str] = "pkg.jax2onnx.plugin"
+_STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
+    "jax2onnx/converter/ir_builder.py",
+    "onnx_ir/_tape.py",
+    "traceback.py",
+)
 
 
 def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
@@ -203,7 +216,13 @@ class IRBuilder:
     Holds a mapping from jaxpr vars to ir.Values, and accumulates nodes/inputs/outputs.
     """
 
-    def __init__(self, *, opset: int, enable_double_precision: bool):
+    def __init__(
+        self,
+        *,
+        opset: int,
+        enable_double_precision: bool,
+        enable_stacktrace_metadata: bool = False,
+    ):
         self.opset = opset
         self.enable_double_precision = enable_double_precision
         graph = ir.Graph(
@@ -228,6 +247,12 @@ class IRBuilder:
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
+        self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
+        self._stacktrace_rel_base: str = os.getcwd()
+        self._current_jax_traceback: Optional[str] = None
+        self._current_plugin_identifier: Optional[str] = None
+        self._current_plugin_line: Optional[str] = None
+        self._stacktrace_detail: str = "minimal"
 
     @property
     def inputs(self) -> MutableSequence[ir.Value]:
@@ -265,6 +290,53 @@ class IRBuilder:
     @initializers.setter
     def initializers(self, values: Iterable[ir.Value]) -> None:
         self._initializers.replace(values)
+
+    @property
+    def stacktrace_metadata_enabled(self) -> bool:
+        return self._stacktrace_metadata_enabled
+
+    @property
+    def current_jax_traceback(self) -> Optional[str]:
+        return self._current_jax_traceback
+
+    @property
+    def current_plugin_identifier(self) -> Optional[str]:
+        return self._current_plugin_identifier
+
+    @property
+    def current_plugin_line(self) -> Optional[str]:
+        return self._current_plugin_line
+
+    def set_current_jax_traceback(self, trace: Optional[str]) -> None:
+        if not self._stacktrace_metadata_enabled:
+            self._current_jax_traceback = None
+            return
+        if trace is None:
+            self._current_jax_traceback = None
+            return
+        cleaned = trace.strip()
+        self._current_jax_traceback = cleaned if cleaned else None
+
+    def set_current_plugin_identifier(
+        self, plugin_id: Optional[str], line: Optional[str] = None
+    ) -> None:
+        if not self._stacktrace_metadata_enabled:
+            self._current_plugin_identifier = None
+            self._current_plugin_line = None
+            return
+        if plugin_id is None:
+            self._current_plugin_identifier = None
+            self._current_plugin_line = None
+            return
+        cleaned = plugin_id.strip()
+        self._current_plugin_identifier = cleaned if cleaned else None
+        line_clean = line.strip() if line and line.strip() else None
+        self._current_plugin_line = line_clean
+
+    def set_stacktrace_mode(self, mode: str) -> None:
+        if mode not in {"minimal", "full"}:
+            mode = "minimal"
+        self._stacktrace_detail = mode
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
@@ -338,6 +410,7 @@ class IRBuilder:
                 attributes=attributes,
             )
             self.nodes.append(node)
+            self._maybe_attach_stacktrace_to_nodes([node])
             return v
         v = self._tape_builder.initializer(tensor, name=name)
         return v
@@ -401,9 +474,193 @@ class IRBuilder:
             v = self.get_value_for_var(var, name_hint=f"y{i}")
             self.outputs.append(v)
 
+    # ---------- stacktrace helpers ----------
+    def _iter_stacktrace_values(self, obj: Any) -> Iterable[ir.Value]:
+        if isinstance(obj, ir.Value):
+            yield obj
+            return
+        if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
+            for item in obj:
+                yield from self._iter_stacktrace_values(item)
+
+    def _collect_nodes_from_result(self, result: Any) -> list[ir.Node]:
+        nodes: list[ir.Node] = []
+        seen: set[int] = set()
+        for value in self._iter_stacktrace_values(result):
+            producer = getattr(value, "producer", None)
+            if not callable(producer):
+                continue
+            try:
+                node = producer()
+            except Exception:
+                node = None
+            if node is None:
+                continue
+            node_id = id(node)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            nodes.append(node)
+        return nodes
+
+    def _capture_stack_frames(self) -> list[traceback.FrameSummary]:
+        frames: list[traceback.FrameSummary] = list(traceback.extract_stack())
+        idx = len(frames)
+        while idx > 0:
+            frame = frames[idx - 1]
+            filename = frame.filename.replace("\\", "/")
+            if any(pattern in filename for pattern in _STACKTRACE_IGNORE_PATTERNS):
+                idx -= 1
+                continue
+            break
+        return frames[:idx]
+
+    def _format_stacktrace(
+        self, frames: Sequence[traceback.FrameSummary]
+    ) -> Optional[str]:
+        if not frames:
+            return None
+        formatted: list[str] = []
+        for frame in frames:
+            filename = frame.filename
+            if os.path.isabs(filename):
+                try:
+                    rel = os.path.relpath(filename, self._stacktrace_rel_base)
+                except Exception:
+                    rel = filename
+            else:
+                rel = filename
+            rel = rel.replace("\\", "/")
+            formatted.append(f"{rel}:{frame.lineno} in {frame.name}")
+        return "\n".join(formatted)
+
+    def _parse_callsite_entry(self, entry: str) -> tuple[Optional[str], Optional[str]]:
+        candidate = entry.strip()
+        if not candidate:
+            return None, None
+        file_part, sep, remainder = candidate.partition(":")
+        if not sep:
+            return None, None
+        line_token = ""
+        func_token = ""
+        remainder = remainder.strip()
+        if "(" in remainder and remainder.endswith(")"):
+            before_paren, _, after_paren = remainder.partition("(")
+            line_token = before_paren.strip()
+            func_token = after_paren[:-1].strip()
+        else:
+            line_token = remainder.strip()
+        digits = "".join(ch for ch in line_token if ch.isdigit())
+        line_clean = digits or line_token or None
+        func_clean = func_token or os.path.splitext(os.path.basename(file_part))[0]
+        if not func_clean:
+            func_clean = os.path.basename(file_part)
+        if line_clean:
+            display = f"{func_clean}:{line_clean}"
+        else:
+            display = func_clean
+        return display, line_clean
+
+    def _extract_callsite(
+        self,
+        jax_trace: Optional[str],
+        frames: Sequence[traceback.FrameSummary],
+    ) -> tuple[Optional[str], Optional[str]]:
+        if jax_trace:
+            for line in jax_trace.splitlines():
+                lowered = line.lower()
+                if "site-packages/jax" in lowered or "jax/_src/" in lowered:
+                    continue
+                display, line_no = self._parse_callsite_entry(line)
+                if display:
+                    return display, line_no
+        for frame in reversed(frames):
+            path = frame.filename.replace("\\", "/")
+            lowered = path.lower()
+            if "/site-packages/jax/" in lowered or "jax/_src/" in lowered:
+                continue
+            if "/jax2onnx/" in lowered:
+                continue
+            entry = f"{path}:{frame.lineno} ({frame.name})"
+            display, line_no = self._parse_callsite_entry(entry)
+            if display:
+                return display, line_no
+        return None, None
+
+    def _extract_plugin_site(
+        self, frames: Sequence[traceback.FrameSummary]
+    ) -> tuple[Optional[str], Optional[str]]:
+        for frame in reversed(frames):
+            path = frame.filename.replace("\\", "/")
+            if "/jax2onnx/plugins/" not in path:
+                continue
+            rel = path.split("/jax2onnx/plugins/")[-1]
+            rel = rel.replace(".py", "")
+            module = rel.replace("/", ".")
+            func = frame.name or "lower"
+            return f"{module}.{func}", str(frame.lineno)
+        return None, None
+
+    def _maybe_attach_stacktrace_to_nodes(self, nodes: Iterable[ir.Node]) -> None:
+        if not self._stacktrace_metadata_enabled:
+            return
+        nodes_list = list(nodes)
+        if not nodes_list:
+            return
+        frames = self._capture_stack_frames()
+        detail = self._stacktrace_detail
+        stack_str = self._format_stacktrace(frames) if detail == "full" else None
+        jax_trace = self._current_jax_traceback
+        callsite, line_no = self._extract_callsite(jax_trace, frames)
+        plugin_site_name, plugin_site_line = self._extract_plugin_site(frames)
+        plugin_id = self._current_plugin_identifier
+        plugin_line = plugin_site_line or self._current_plugin_line or line_no
+        plugin_display: Optional[str] = None
+        if plugin_id:
+            parts = plugin_id.split(".")
+            short_plugin = ".".join(parts[-2:]) if len(parts) >= 2 else plugin_id
+            if plugin_line:
+                plugin_display = f"{short_plugin}:{plugin_line}"
+            else:
+                plugin_display = short_plugin
+        elif plugin_site_name:
+            plugin_display = (
+                f"{plugin_site_name}:{plugin_site_line}"
+                if plugin_site_line
+                else plugin_site_name
+            )
+        if not any([stack_str, jax_trace, callsite, plugin_display]):
+            return
+        for node in nodes_list:
+            try:
+                metadata = getattr(node, "metadata_props")
+            except Exception:
+                metadata = None
+            if metadata is None:
+                continue
+            try:
+                if callsite and metadata.get(JAX_CALLSITE_METADATA_KEY) is None:
+                    metadata[JAX_CALLSITE_METADATA_KEY] = callsite
+                if plugin_display and metadata.get(PLUGIN_METADATA_KEY) is None:
+                    metadata[PLUGIN_METADATA_KEY] = plugin_display
+                if detail == "full":
+                    if stack_str and STACKTRACE_METADATA_KEY not in metadata:
+                        metadata[STACKTRACE_METADATA_KEY] = stack_str
+                    if jax_trace and JAX_TRACE_METADATA_KEY not in metadata:
+                        metadata[JAX_TRACE_METADATA_KEY] = jax_trace
+            except Exception:
+                continue
+
+    def _maybe_attach_stacktrace_from_result(self, result: Any) -> None:
+        if not self._stacktrace_metadata_enabled:
+            return
+        nodes = self._collect_nodes_from_result(result)
+        self._maybe_attach_stacktrace_to_nodes(nodes)
+
     # ---------- nodes ----------
     def add_node_obj(self, node: ir.Node) -> None:
         self.nodes.append(node)
+        self._maybe_attach_stacktrace_to_nodes([node])
 
     def add_node(
         self,
@@ -422,6 +679,7 @@ class IRBuilder:
             attributes=(attributes or []),
         )
         self.nodes.append(n)
+        self._maybe_attach_stacktrace_to_nodes([n])
         return n
 
     def __getattr__(self, name: str) -> Any:
@@ -448,6 +706,7 @@ class IRBuilder:
 
             def _wrapped(*args: Any, **kwargs: Any) -> Any:
                 result = attr(*args, **kwargs)
+                self._maybe_attach_stacktrace_from_result(result)
                 return result
 
             return _wrapped

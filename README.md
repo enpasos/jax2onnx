@@ -153,6 +153,11 @@ to_onnx(
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
 
+### **Upcoming Version**
+
+* **0.10.1**:
+
+    * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
 
 ### **Current Productive Version**
 
@@ -187,6 +192,8 @@ If conversion doesn't work out of the box, it could be due to:
 - **Unsupported primitives:**  
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](https://enpasos.github.io/jax2onnx/design#plugin-op-specific) to handle the unsupported function (this is straightforward!).
+
+Looking for provenance details while debugging? Check out the new [Stacktrace Metadata guide](docs/readme/stacktrace_metadata.md).
 
 
 
