@@ -99,7 +99,7 @@ if TYPE_CHECKING:
                 np.array([0.5 - 2.0j, 1.5 + 0.25j], dtype=np.complex64),
             ],
             "expected_output_dtypes": [np.complex64],
-            "skip_numeric_validation": True,
+            "skip_numeric_validation": True,  # current ORT build lacks complex kernel support
             "post_check_onnx_graph": EG(
                 ["Mul:2"],
                 no_unused_inputs=True,

@@ -638,112 +638,100 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         if not need_flatten:
             return
+
         # Reshape back if needed
-        if need_flatten:
-            # If all batch dims are statically known, inline the final shape
-            # and avoid building Shape/Slice/Concat. Otherwise, fall back to
-            # the dynamic path (preserving symbolic labels like 'B').
-            x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
-            batch_dim_vals = [x_shape[i] for i in x_batch_idx]
-            all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
+        x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
+        batch_dim_vals = [x_shape[i] for i in x_batch_idx]
+        all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
 
-            if all_batch_static:
-                final_vals = [int(d) for d in batch_dim_vals] + [
-                    int(v) for v in k_out_dims
-                ]
-                final_shape_c = ctx.builder.add_initializer_from_array(
-                    name=ctx.fresh_name("final_shape_c"),
-                    array=np.asarray(final_vals, dtype=np.int64),
-                )
+        if all_batch_static:
+            final_vals = [int(d) for d in batch_dim_vals] + [int(v) for v in k_out_dims]
+            final_shape_c = ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name("final_shape_c"),
+                array=np.asarray(final_vals, dtype=np.int64),
+            )
 
-                out_aval_shape = tuple(
-                    getattr(getattr(y_var, "aval", None), "shape", ())
-                )
-                y_meta = _linear_general_output_dims(
-                    x_val,
-                    x_shape,
-                    x_batch_idx,
-                    out_spec,
-                    out_aval_shape,
-                    [int(v) for v in k_out_dims],
-                )
-                final_val = ctx.builder.Reshape(
-                    gemm_out,
-                    final_shape_c,
-                    _outputs=[out_name],
-                )
-                if getattr(out_spec, "type", None) is not None:
-                    final_val.type = out_spec.type
-                _stamp_type_and_shape(final_val, y_meta)
-                _ensure_value_metadata(ctx, final_val)
-                ctx.bind_value_for_var(y_var, final_val)
-            else:
-                # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
-                shp = ctx.builder.Shape(
-                    x_val,
-                    _outputs=[ctx.fresh_name("x_shape")],
-                )
-                shp.type = ir.TensorType(ir.DataType.INT64)
-                _stamp_type_and_shape(shp, (len(x_shape),))
-                _ensure_value_metadata(ctx, shp)
-                starts = ctx.builder.add_initializer_from_array(
-                    name=ctx.fresh_name("slice_starts"),
-                    array=np.asarray([0], dtype=np.int64),
-                )
-                ends = ctx.builder.add_initializer_from_array(
-                    name=ctx.fresh_name("slice_ends"),
-                    array=np.asarray(
-                        [len(x_shape) - len(lhs_contract)], dtype=np.int64
-                    ),
-                )
-                batch_dims = ctx.builder.Slice(
-                    shp,
-                    starts,
-                    ends,
-                    _outputs=[ctx.fresh_name("batch_dims")],
-                )
-                batch_dims.type = ir.TensorType(ir.DataType.INT64)
-                _stamp_type_and_shape(batch_dims, (len(x_shape) - len(lhs_contract),))
-                _ensure_value_metadata(ctx, batch_dims)
-                of = ctx.builder.add_initializer_from_array(
-                    name=ctx.fresh_name("out_features_c"),
-                    array=np.asarray(k_out_dims, dtype=np.int64),
-                )
-                # Dynamic path: just reuse the sliced batch vector directly.
-                # This matches the “old world” behavior and avoids extra Concat.
-                batch_mixed = batch_dims
-                final_shape = ctx.builder.Concat(
-                    batch_mixed,
-                    of,
-                    axis=0,
-                    _outputs=[ctx.fresh_name("final_shape")],
-                )
-                final_shape.type = ir.TensorType(ir.DataType.INT64)
-                _stamp_type_and_shape(
-                    final_shape, (len(x_batch_idx) + len(k_out_dims),)
-                )
-                _ensure_value_metadata(ctx, final_shape)
-                out_aval_shape = tuple(
-                    getattr(getattr(y_var, "aval", None), "shape", ())
-                )
-                y_meta = _linear_general_output_dims(
-                    x_val,
-                    x_shape,
-                    x_batch_idx,
-                    out_spec,
-                    out_aval_shape,
-                    [int(v) for v in k_out_dims],
-                )
-                final_val = ctx.builder.Reshape(
-                    gemm_out,
-                    final_shape,
-                    _outputs=[out_name],
-                )
-                if getattr(out_spec, "type", None) is not None:
-                    final_val.type = out_spec.type
-                _stamp_type_and_shape(final_val, y_meta)
-                _ensure_value_metadata(ctx, final_val)
-                ctx.bind_value_for_var(y_var, final_val)
+            out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+            y_meta = _linear_general_output_dims(
+                x_val,
+                x_shape,
+                x_batch_idx,
+                out_spec,
+                out_aval_shape,
+                [int(v) for v in k_out_dims],
+            )
+            final_val = ctx.builder.Reshape(
+                gemm_out,
+                final_shape_c,
+                _outputs=[out_name],
+            )
+            if getattr(out_spec, "type", None) is not None:
+                final_val.type = out_spec.type
+            _stamp_type_and_shape(final_val, y_meta)
+            _ensure_value_metadata(ctx, final_val)
+            ctx.bind_value_for_var(y_var, final_val)
+            return
+
+        # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
+        shp = ctx.builder.Shape(
+            x_val,
+            _outputs=[ctx.fresh_name("x_shape")],
+        )
+        shp.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(shp, (len(x_shape),))
+        _ensure_value_metadata(ctx, shp)
+        starts = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("slice_starts"),
+            array=np.asarray([0], dtype=np.int64),
+        )
+        ends = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("slice_ends"),
+            array=np.asarray([len(x_shape) - len(lhs_contract)], dtype=np.int64),
+        )
+        batch_dims = ctx.builder.Slice(
+            shp,
+            starts,
+            ends,
+            _outputs=[ctx.fresh_name("batch_dims")],
+        )
+        batch_dims.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(batch_dims, (len(x_shape) - len(lhs_contract),))
+        _ensure_value_metadata(ctx, batch_dims)
+        of = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("out_features_c"),
+            array=np.asarray(k_out_dims, dtype=np.int64),
+        )
+        # Dynamic path: just reuse the sliced batch vector directly.
+        # This matches the “old world” behavior and avoids extra Concat.
+        batch_mixed = batch_dims
+        final_shape = ctx.builder.Concat(
+            batch_mixed,
+            of,
+            axis=0,
+            _outputs=[ctx.fresh_name("final_shape")],
+        )
+        final_shape.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(final_shape, (len(x_batch_idx) + len(k_out_dims),))
+        _ensure_value_metadata(ctx, final_shape)
+        out_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        y_meta = _linear_general_output_dims(
+            x_val,
+            x_shape,
+            x_batch_idx,
+            out_spec,
+            out_aval_shape,
+            [int(v) for v in k_out_dims],
+        )
+        final_val = ctx.builder.Reshape(
+            gemm_out,
+            final_shape,
+            _outputs=[out_name],
+        )
+        if getattr(out_spec, "type", None) is not None:
+            final_val.type = out_spec.type
+        _stamp_type_and_shape(final_val, y_meta)
+        _ensure_value_metadata(ctx, final_val)
+        ctx.bind_value_for_var(y_var, final_val)
         # When no flatten was needed, Gemm already wrote directly to y_val, so no extra Reshape.
 
     # ---------- explicit binding helper for a testcase ----------

@@ -547,6 +547,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("bcast_target_shape")],
         )
         _stamp_type_and_shape(tgt_shape_val, (len(shape),))
+        tgt_shape_val.type = ir.TensorType(ir.DataType.INT64)
         _ensure_value_metadata(ctx, tgt_shape_val)
 
         # If operand is a scalar, we can skip the Reshape and go straight to Expand.
@@ -623,6 +624,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("bcast_reshape_shape")],
             )
             _stamp_type_and_shape(rs_val, (rrank,))
+            rs_val.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_metadata(ctx, rs_val)
 
             reshaped_val = builder.Reshape(
