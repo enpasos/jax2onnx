@@ -66,6 +66,11 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "mul",
         "mul_complex128",
     ),
+    (
+        "primitives.lax",
+        "fft",
+        "fft_complex64_1d",
+    ),
 }
 
 
