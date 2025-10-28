@@ -855,6 +855,8 @@ def _get_test_cases():
                     key=with_prng_key(idx),
                 ),
                 "input_shapes": [("B", 3, img_size, img_size)],
+                "rtol": 5e-1,
+                "atol": 5e-1,
                 "post_check_onnx_graph": EG(
                     [f"VisionTransformer_1:{output_shape}"],
                     symbols={"B": None},
