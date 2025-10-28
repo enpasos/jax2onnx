@@ -318,21 +318,60 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         elif len(shape_components) == 1:
             shape_tensor = shape_components[0]
         else:
-            shape_tensor = builder.Concat(
-                *shape_components,
-                axis=0,
-                _outputs=[ctx.fresh_name("reshape_target_shape")],
-            )
-            shape_tensor.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(shape_tensor, (shape_tensor_rank,))
-            _ensure_value_metadata(ctx, shape_tensor)
+            const_parts: list[np.ndarray] = []
+            all_static = True
+            for component in shape_components:
+                payload = getattr(component, "const_value", None)
+                if payload is None:
+                    all_static = False
+                    break
+                try:
+                    const_parts.append(np.asarray(payload, dtype=np.int64).reshape(-1))
+                except Exception:
+                    all_static = False
+                    break
+            if all_static:
+                combined = (
+                    np.concatenate(const_parts).astype(np.int64, copy=False)
+                    if const_parts
+                    else np.asarray([], dtype=np.int64)
+                )
+                shape_tensor = builder.add_initializer_from_array(
+                    name=ctx.fresh_name("reshape_target_shape_c"),
+                    array=combined,
+                )
+            else:
+                shape_tensor = builder.Concat(
+                    *shape_components,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("reshape_target_shape")],
+                )
+                shape_tensor.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(shape_tensor, (shape_tensor_rank,))
+                _ensure_value_metadata(ctx, shape_tensor)
 
-        reshape_out = builder.Reshape(
-            arr_val,
-            shape_tensor,
-            allowzero=0,
-            _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")],
-        )
+        reshape_out = None
+        arr_const = getattr(arr_val, "const_value", None)
+        shape_const = getattr(shape_tensor, "const_value", None)
+        if arr_const is not None and shape_const is not None:
+            try:
+                reshaped_array = np.asarray(arr_const).reshape(
+                    tuple(np.asarray(shape_const, dtype=np.int64).tolist())
+                )
+                reshape_out = builder.add_initializer_from_array(
+                    name=getattr(out_spec, "name", None) or ctx.fresh_name("Reshape"),
+                    array=reshaped_array,
+                )
+            except Exception:
+                reshape_out = None
+
+        if reshape_out is None:
+            reshape_out = builder.Reshape(
+                arr_val,
+                shape_tensor,
+                allowzero=0,
+                _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Reshape")],
+            )
         spec_type = getattr(out_spec, "type", None)
         if spec_type is not None:
             reshape_out.type = spec_type
