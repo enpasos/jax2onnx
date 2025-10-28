@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jax2onnx.sandbox import issue52_broadcast_bug as repro
+from ..helpers import issue52_broadcast_fixture as repro
 
 
 @pytest.mark.filterwarnings("ignore:.*Removing initializer.*:UserWarning")

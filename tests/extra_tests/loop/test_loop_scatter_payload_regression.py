@@ -9,11 +9,11 @@ import onnx
 from onnx import numpy_helper
 import pytest
 
-from jax2onnx.sandbox.issue52_scatter_payload_repro import (
+from jax2onnx.user_interface import to_onnx
+from ..helpers.issue52_scatter_payload_fixture import (
     _feed_forward_fn,
     _load_payload,
 )
-from jax2onnx.user_interface import to_onnx
 
 
 def _export_issue52_model(fn, prim0, initial_time, time_step):

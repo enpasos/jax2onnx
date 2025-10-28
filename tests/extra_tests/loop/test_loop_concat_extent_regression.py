@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jax2onnx.sandbox import issue52_loop_concat_bug as repro
+from ..helpers import issue52_loop_concat_fixture as repro
 
 
 @pytest.mark.filterwarnings("ignore:.*Removing initializer.*:UserWarning")
