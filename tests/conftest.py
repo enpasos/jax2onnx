@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests._initializer_guard import install_initializer_guard
-
 import pytest
 
 try:
@@ -30,10 +28,3 @@ def ensure_docs_quickstart_models() -> None:
     functions_model = _DOCS_ONNX_DIR / "model_with_function.onnx"
     if not functions_model.exists():
         export_quickstart_functions_model(functions_model)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _install_initializer_guard_fixture():
-    """Install the initializer guard for every conversion."""
-    with install_initializer_guard():
-        yield

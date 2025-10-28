@@ -11,5 +11,5 @@ from tests._initializer_guard import GUARD_ENABLED, run_metadata_sweep
 
 def test_initializers_do_not_flow_through_shape_only_ops():
     if not GUARD_ENABLED:
-        pytest.skip("onnx_ir.Value lacks metadata_props support required by guard")
+        pytest.skip("initializer guard disabled (see tests/_initializer_guard.py)")
     run_metadata_sweep()

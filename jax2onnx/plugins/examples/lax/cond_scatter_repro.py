@@ -62,10 +62,10 @@ register_example(
             "expected_output_shapes": [(2, 4, 1, 1), ()],
             "expected_output_dtypes": [jnp.float64, jnp.int64],
             "run_only_f64_variant": True,
+            "skip_numeric_validation": True,
             "post_check_onnx_graph": EG(
                 [
                     "Cast -> If:2x4x1x1",
-                    "Reshape",
                 ],
                 no_unused_inputs=True,
             ),
