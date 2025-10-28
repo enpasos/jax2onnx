@@ -726,7 +726,7 @@ register_example(
     ],
     testcases=[
         {
-            "testcase": "vit_conv_embedding_flat",
+            "testcase": "vit_model_conv_embedding_flat",
             "callable": construct_and_call(
                 VisionTransformer,
                 height=28,
@@ -751,7 +751,7 @@ register_example(
             ),
         },
         {
-            "testcase": "vit_patch_embedding_flat",
+            "testcase": "vit_model_patch_embedding_flat",
             "callable": construct_and_call(
                 VisionTransformer,
                 height=28,
