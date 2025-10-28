@@ -12,28 +12,27 @@ Attach auto-generated `expect_graph` structural assertions to every plugin and e
 - Latest sweep covered the next ten plugins in queue: `primitives.nn` (`mish`, `relu`, `selu`, `sigmoid`, `soft_sign`, `softmax`, `softplus`) and `primitives.jnp` (`add`, `arange`, `clip`) now emit expect_graph checks for every testcase.
 - Follow-on sweep landed expect_graph coverage for `primitives.jnp` (`concatenate`, `cumsum`, `einsum`, `linspace`, `matmul`, `pow`, `power`, `prod`, `reshape`, `select`), including dynamic/constant fallbacks and symbolic dimension handling.
 - Most recent pass knocked out another ten: `primitives.jnp` (`shape`, `sort`, `split`, `squeeze`, `stack`, `take`, `tile`, `transpose`, `unstack`, `where`) now assert their lowering graphs across static, broadcasted, and symbolic scenarios.
+- Attention/GPU fixtures revalidated: `examples.nnx.multi_head_attention` and `examples.eqx_dino` variants now have fresh snippets (no drift; DINOv3 expectations trimmed to `VisionTransformer:*` with `no_unused_inputs=True`).
 
 ### Remaining
-- Sweep any straggling examples (e.g., attention/GPU fixtures) and confirm snippets stay current as tests evolve.
-- Double-check rarely used lax primitives (`lax.or`, `lax.bitwise_or`) once tests exist.
+- Sweep any newly added examples (e.g., future attention/GPU fixtures) as they land and confirm snippets stay current.
+- Track future rare lax primitives (e.g., `lax.bitwise_xor`) when tests appear.
 - Refresh `docs/dev_guides/expect_graph_reference.md` with the latest expect_graph snippets.
 
 ## Active Focus
 - `docs/dev_guides/expect_graph_reference.md`
-  - Fold the latest expect_graph additions (scatter updates, GRU cell, Issue 18 loops) into the docs tables.
-  - Regenerate the Markdown via the documented script to keep guidance in sync.
-  - While regenerating, capture staged specs with `poetry run python scripts/emit_expect_graph.py <testcase>` (use `--keep` when diffing the emitted ONNX for doc screenshots).
-  - Spot-check the rendered output once refreshed.
-  - Highlight the AGENTS 2025-10-02 reminders on using `with_rng_seed(...)` for nnx samples and preserving attention mask normalisation when narrating examples.
+  - ✅ 2025-10-28: Folded the scatter refresh, Issue 18 loop snippets, and GRU cell update into the reference section with regenerated expect_graph code blocks.
+  - Regenerated snippets with `JAX_ENABLE_X64=1 poetry run python scripts/emit_expect_graph.py …` and cross-checked output before editing the doc.
+  - Highlighted the AGENTS 2025-10-02 reminders (rng seeding + attention mask normalisation) in the refreshed section.
 
 ## Session TODO
 - [x] Land expect_graph coverage for the next ten plugins in the queue (broadcast_in_dim through leaky_relu) and verify their targeted pytest suites.
-- [ ] Regenerate expect_graph specs for the scatter refresh, GRU cell, and Issue 18 loop fixtures via `poetry run python scripts/emit_expect_graph.py <testcase>` and merge them into `docs/dev_guides/expect_graph_reference.md` with context notes.
-  - scatter coverage (`scatter_add_*`, `scatter_mul_*`, `scatter_max_*`, `scatter_min_*`, `scatter_set_*`, `scatter_window_update_*`, `cond_scatter_*`) ✅ captured 2025-10-14; pending doc sync.
-  - nnx coverage: `gru_cell_basic` (float32) - confirm whether a float64 variant should exist before freezing the snippet.
-  - issue 18 loops: `fori_loop_fn`, `while_loop_fn`, `scan_fn` (and re-emit `where_fn` once the bool-mask tweaks merge).
+- [x] Regenerate expect_graph specs for the scatter refresh, GRU cell, and Issue 18 loop fixtures via `poetry run python scripts/emit_expect_graph.py <testcase>` and merge them into `docs/dev_guides/expect_graph_reference.md` with context notes.
+  - scatter coverage (`scatter_add_*`, `scatter_mul_*`, `scatter_max_*`, `scatter_min_*`, `scatter_set_*`, `scatter_window_update_*`, `cond_scatter_*`) ✅ captured 2025-10-14; doc synced 2025-10-28.
+  - nnx coverage: `gru_cell_basic` (float32) ✅ snippet refreshed; evaluate need for a float64 variant separately.
+  - issue 18 loops: `fori_loop_fn`, `while_loop_fn`, `scan_fn`, `where_fn` ✅ regenerated and documented.
   - Emit large batches in chunks (`poetry run python scripts/emit_expect_graph.py scatter_add_vector scatter_add_scalar`) so review diffs stay readable.
-- [ ] Preview the Markdown (or run the doc build) after editing to verify formatting.
+- [x] Preview the Markdown (or run the doc build) after editing to verify formatting.
 - [x] Re-read the AGENTS guardrails (2025-10-02 update covers RNG helpers and attention mask normalisation) before touching plugin metadata to keep IR-only boundaries and key handling compliant.
 
 ## Latest Captures (2025-10-14)
@@ -48,6 +47,10 @@ Attach auto-generated `expect_graph` structural assertions to every plugin and e
   - `while_loop_fn` still emits `Less -> Loop` with large int guard.
   - `scan_fn` now shows `['Loop:B']` with `symbols={'B': None}` — update docs to mention the symbol.
 - `gru_cell_basic` emit shows two chained `Add` segments (no explicit `Tanh`); kept ONNX at `tmp/expect/gru_cell_basic.onnx` for inspection before refreshing the metadata entry / docs.
+- Reference doc now captures the fused-Add path so metadata/doc parity is restored.
+- Attention fixture spot-checks (2025-10-28):
+  - `multihead_attention_nn`, `multihead_attention_nnx`, `multihead_attention_2_nnx` regenerated; snippets unchanged (still pass with `search_functions=True` in metadata).
+  - `eqx_dinov3_vit_*` variants regenerated; metadata now matches emitted `VisionTransformer:*` paths and asserts `no_unused_inputs=True`.
 - Plugin sweep (2025-10-14):
   - `primitives.core.jit_inline` → `jit_identity` now asserts inline `Add`.
   - `primitives.nnx.layer_norm` → `layer_norm_bias_scale`, `layer_norm_multiaxis`.

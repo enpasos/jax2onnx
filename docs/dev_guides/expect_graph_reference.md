@@ -137,3 +137,69 @@ any object that produces an ONNX IR graph compatible with
 When adding new metadata entries, seed them with a minimal structural check,
 run the example once to capture the intended op sequence, and then layer on
 shape assertions and counts to guard against regressions.
+
+## Reference snippets (Oct 2025 refresh)
+
+> **NNX reminder:** follow the Oct 2025 AGENTS note—seed nnx fixtures via
+> `with_rng_seed(...)` (no inline lambdas) so callables stay hashable under JAX
+> 0.7. Attention plugins must keep masked-weight normalisation enabled; retain
+> the helper path when updating metadata or docs.
+
+### Scatter add sweep (`primitives.lax.scatter_add`)
+
+The converter now anchors the full regression matrix on `ScatterND`. These
+snippets were regenerated with `JAX_ENABLE_X64=1` to keep f64 parity.
+
+```python
+EG(['ScatterND:4'], no_unused_inputs=True)  # scatter_add_vector
+EG([{'path': 'ScatterND:6', 'inputs': {2: {'const': 5.0}}}], no_unused_inputs=True)  # scatter_add_scalar
+EG(['ScatterND:5'], no_unused_inputs=True)  # scatter_add_simple_1d / scatter_add_batch_updates_1d_operand
+EG(['ScatterND:2x3'], no_unused_inputs=True)  # scatter_add_window_2d_operand_1d_indices
+EG(['ScatterND:5x208x1x1'], no_unused_inputs=True)  # scatter_add_mismatched_window_dims_from_user_report
+```
+
+Additional user-report variants (`report2`, `report3`, fluids pattern, depth
+helpers) share the same `ScatterND:<shape>` signature and reuse the wrapper
+helpers documented in `jax2onnx/plugins/jax/lax/scatter_add.py`.
+
+### Issue 18 loop fixtures (`examples.jnp.issue18`)
+
+Regenerated loop traces now expose the control-flow helpers and the loop-carried
+symbol. Remember to pass `search_functions=True` when validating subgraph bodies.
+
+```python
+EG([{'path': 'Loop', 'inputs': {0: {'const': 5.0}, 1: {'const_bool': True}}}],
+   search_functions=True, no_unused_inputs=True)  # fori_loop_fn
+EG([{'path': 'Less -> Loop', 'inputs': {0: {'const': 9.223372036854776e18}, 3: {'const': 0.0}}}],
+   no_unused_inputs=True)  # while_loop_fn
+EG(['Loop:B'], symbols={'B': None}, search_functions=True, no_unused_inputs=True)  # scan_fn
+EG(['Greater:3 -> Where:3'], no_unused_inputs=True)  # where_fn
+```
+
+### Flax/NNX GRU cell (`examples.nnx.gru_cell_basic`)
+
+The ONNX lowering now fuses the `Tanh` stage, resulting in twin `Add` paths off
+the Sigmoid gate outputs. Regenerate the snippet after adjusting module wiring,
+and keep the RNG helpers in place so the sample stays deterministic.
+
+```python
+EG(
+    [
+        "Gemm:2x12 -> Split:2x4 -> Add:2x4 -> Sigmoid:2x4 -> Sub:2x4 -> Mul:2x4 -> Add:2x4",
+        "Gemm:2x12 -> Split:2x4 -> Add:2x4 -> Sigmoid:2x4 -> Sub:2x4 -> Mul:2x4 -> Add:2x4 -> Add:2x4",
+    ],
+    no_unused_inputs=True,
+)
+```
+
+### Equinox DINOv3 vision transformer (`examples.eqx_dino`)
+
+Use the bundled helper to emit snippets for each variant (`eqx_dinov3_vit_Ti14`,
+`_S14`, `_B14`, `_S16`). All of them collapse into a single `VisionTransformer`
+node with the expected patch/token layout. Ensure `no_unused_inputs=True` stays
+set so cached weights or mask inputs do not linger.
+
+```python
+EG(['VisionTransformer:Bx257x192'], symbols={'B': None}, no_unused_inputs=True)
+# S16/S14/B14 variants only differ in the trailing dimension (384/768) and the token count.
+```
