@@ -7,7 +7,6 @@ from typing import Dict, Iterable, List, Optional
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import onnx
 import onnx_ir as ir
 from onnx import AttributeProto
@@ -113,7 +112,9 @@ def _value_info_map(model: onnx.ModelProto) -> Dict[str, onnx.ValueInfoProto]:
     return mapping
 
 
-def _dims_for(name: str, vi_map: Dict[str, onnx.ValueInfoProto]) -> List[int | str | None]:
+def _dims_for(
+    name: str, vi_map: Dict[str, onnx.ValueInfoProto]
+) -> List[int | str | None]:
     vi = vi_map.get(name)
     if vi is None or not vi.type.HasField("tensor_type"):
         return []

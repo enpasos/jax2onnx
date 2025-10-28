@@ -52,7 +52,9 @@ def _import_module(module_name: str):
 def _deserialize_aval(desc: Dict[str, Any]) -> core.AbstractValue:
     if desc["type"] == "ShapedArray":
         dtype = None if desc["dtype"] is None else np.dtype(desc["dtype"])
-        return core.ShapedArray(tuple(desc["shape"]), dtype, desc.get("weak_type", False))
+        return core.ShapedArray(
+            tuple(desc["shape"]), dtype, desc.get("weak_type", False)
+        )
     if desc["type"] == "AbstractToken":
         return core.AbstractToken()
     raise TypeError(f"Unsupported aval description: {desc}")

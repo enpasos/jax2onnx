@@ -353,7 +353,8 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         reshape_out = None
         arr_const = getattr(arr_val, "const_value", None)
         shape_const = getattr(shape_tensor, "const_value", None)
-        if arr_const is not None and shape_const is not None:
+        inline_allowed = getattr(ctx, "_inside_function_scope", False)
+        if inline_allowed and arr_const is not None and shape_const is not None:
             try:
                 reshaped_array = np.asarray(arr_const).reshape(
                     tuple(np.asarray(shape_const, dtype=np.int64).tolist())

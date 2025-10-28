@@ -409,7 +409,9 @@ def _replace_everywhere(
     """
     if old_v is not None:
         ir_convenience.replace_all_uses_with(old_v, new_v)
-        return
+        if old_name is None:
+            old_name = _v_name(old_v)
+    new_name = _v_name(new_v)
     for m in nodes:
         ins = _node_inputs(m)
         changed = False
@@ -420,11 +422,93 @@ def _replace_everywhere(
                 ins[i] = new_v
                 changed = True
             elif isinstance(iv, str) and old_name and iv == old_name:
-                new_name = _v_name(new_v)
                 ins[i] = new_name if new_name is not None else ""
                 changed = True
         if changed:
             _set_node_inputs(m, ins)
+        if old_name and new_name and old_name != new_name:
+            _propagate_value_name_to_subgraphs(m, old_name, new_name)
+
+
+def _propagate_value_name_to_subgraphs(
+    node: ir.Node, old_name: str, new_name: str
+) -> None:
+    """
+    Ensure nested Graph/Graphs attributes no longer reference ``old_name``.
+
+    When upstream rewrites replace a producer with a different value, we need
+    to mirror that rename inside control-flow/function subgraphs.  Those
+    subgraphs hold independent ``ir.Value`` clones that only stay connected to
+    the parent graph via shared symbol names.
+    """
+
+    def _maybe_rename(val: object) -> None:
+        if isinstance(val, ir.Value) and _v_name(val) == old_name:
+            try:
+                val.name = new_name
+            except Exception:
+                pass
+
+    def _walk_graph(graph: Optional[ir.Graph], seen: Set[int]) -> None:
+        if graph is None:
+            return
+        gid = id(graph)
+        if gid in seen:
+            return
+        seen.add(gid)
+
+        for g_in in _graph_inputs_list(graph):
+            _maybe_rename(g_in)
+        for g_out in _graph_outputs_list(graph):
+            _maybe_rename(g_out)
+
+        init_container = graph.initializers
+        if isinstance(init_container, Mapping):
+            init_values = init_container.values()
+        else:
+            init_values = init_container or []
+        for init in init_values:
+            if isinstance(init, ir.Value):
+                _maybe_rename(init)
+
+        sub_nodes, _ = _get_node_seq_and_setter(graph)
+        for sub_node in sub_nodes:
+            for iv in _node_inputs(sub_node):
+                _maybe_rename(iv)
+            for ov in _node_outputs(sub_node):
+                _maybe_rename(ov)
+            for attr in _iter_node_attrs(sub_node):
+                kind = _attr_kind(attr)
+                if kind == "GRAPH":
+                    try:
+                        sub_graph = attr.as_graph()
+                    except Exception:
+                        sub_graph = None
+                    _walk_graph(sub_graph, seen)
+                elif kind == "GRAPHS":
+                    try:
+                        sub_graphs = tuple(attr.as_graphs())
+                    except Exception:
+                        sub_graphs = ()
+                    for sub_graph in sub_graphs:
+                        _walk_graph(sub_graph, seen)
+
+    seen_graphs: Set[int] = set()
+    for attr in _iter_node_attrs(node):
+        kind = _attr_kind(attr)
+        if kind == "GRAPH":
+            try:
+                sub = attr.as_graph()
+            except Exception:
+                sub = None
+            _walk_graph(sub, seen_graphs)
+        elif kind == "GRAPHS":
+            try:
+                subs = tuple(attr.as_graphs())
+            except Exception:
+                subs = ()
+            for sub in subs:
+                _walk_graph(sub, seen_graphs)
 
 
 def _replace_in_graph_outputs(
