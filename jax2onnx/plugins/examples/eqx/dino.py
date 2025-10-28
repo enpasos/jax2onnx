@@ -858,8 +858,9 @@ def _get_test_cases():
                 "rtol": 5e-1,
                 "atol": 5e-1,
                 "post_check_onnx_graph": EG(
-                    [f"VisionTransformer_1:{output_shape}"],
+                    [f"VisionTransformer:{output_shape}"],
                     symbols={"B": None},
+                    no_unused_inputs=True,
                 ),
                 "run_only_f32_variant": True,
             }
