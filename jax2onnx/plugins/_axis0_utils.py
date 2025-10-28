@@ -24,6 +24,8 @@ _IR_TO_NP_DTYPE: dict[ir.DataType | None, np.dtype[Any]] = {
     getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
     ir.DataType.FLOAT: np.float32,
     getattr(ir.DataType, "DOUBLE", None): np.float64,
+    getattr(ir.DataType, "COMPLEX64", None): np.complex64,
+    getattr(ir.DataType, "COMPLEX128", None): np.complex128,
     ir.DataType.INT8: np.int8,
     ir.DataType.INT16: np.int16,
     ir.DataType.INT32: np.int32,

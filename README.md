@@ -159,6 +159,7 @@ to_onnx(
 
     * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
     * `lax.dot_general`: add `Einsum` fallback 
+    * **Complex numbers (initial support):** keep `complex64/complex128` natively across conversion; new helpers `pack_native_complex` / `unpack_to_native_complex` / `ensure_complex_dtype`; initial coverage for `lax.add`, `lax.mul`, and a prototype `lax.fft` via ONNX `DFT` (docs: `docs/dev_guides/complex_numbers.md`).
 
 
 ### **Current Productive Version**

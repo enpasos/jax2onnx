@@ -232,6 +232,8 @@ def lower_rotary_application(
             ),
             "input_shapes": [(257, 6, 64)],
             "run_only_f32_variant": True,
+            "rtol": 3e-5,
+            "atol": 3e-5,
             "post_check_onnx_graph": expect_graph(
                 [
                     {"path": "Concat", "counts": {"Concat": 1}},

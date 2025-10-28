@@ -81,6 +81,20 @@ def lower_add(ctx, eqn) -> None:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "add_complex64",
+            "callable": lambda x, y: x + y,
+            "input_values": [
+                np.array([1.0 + 2.0j, 3.0 - 4.0j], dtype=np.complex64),
+                np.array([-1.5 + 0.5j, 2.0 + 1.25j], dtype=np.complex64),
+            ],
+            "expected_output_dtypes": [np.complex64],
+            "skip_numeric_validation": True,  # ORT CPU build lacks native complex arithmetic
+            "post_check_onnx_graph": EG(
+                ["Add:2"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class AddPlugin(PrimitiveLeafPlugin):
