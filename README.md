@@ -158,6 +158,8 @@ to_onnx(
 * **0.10.1**:
 
     * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
+    * `lax.dot_general`: add `Einsum` fallback 
+
 
 ### **Current Productive Version**
 
