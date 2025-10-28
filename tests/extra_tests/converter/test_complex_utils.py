@@ -71,7 +71,9 @@ def test_pack_native_complex_complex64_uses_float_channels() -> None:
 def test_ensure_complex_dtype_inserts_cast_when_needed() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     complex_vals = np.asarray([1 + 2j], dtype=np.complex64)
-    complex_init = ctx.builder.add_initializer_from_array("complex_cast_src", complex_vals)
+    complex_init = ctx.builder.add_initializer_from_array(
+        "complex_cast_src", complex_vals
+    )
 
     promoted = ensure_complex_dtype(ctx, complex_init, ir.DataType.COMPLEX128)
 

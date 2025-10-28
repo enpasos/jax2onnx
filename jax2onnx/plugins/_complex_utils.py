@@ -52,13 +52,19 @@ def _complex_dtype_for_base(dtype: ir.DataType) -> ir.DataType:
 
 
 def ensure_complex_dtype(
-    ctx: "IRContext", value: ir.Value, target_dtype: ir.DataType, *, name_hint: str = "complex_cast"
+    ctx: "IRContext",
+    value: ir.Value,
+    target_dtype: ir.DataType,
+    *,
+    name_hint: str = "complex_cast",
 ) -> ir.Value:
     """
     Ensure `value` carries `target_dtype`, inserting a Cast node when needed.
     """
     if target_dtype not in _COMPLEX_PAIR:
-        raise ValueError(f"Target dtype must be complex64/complex128, got {target_dtype}")
+        raise ValueError(
+            f"Target dtype must be complex64/complex128, got {target_dtype}"
+        )
 
     current_dtype = value.dtype
     if current_dtype == target_dtype:
@@ -97,12 +103,8 @@ def pack_native_complex(
     dims = _shape_tuple(tensor)
     axis_index = len(dims)
 
-    real_part = ctx.builder.Real(
-        tensor, _outputs=[ctx.fresh_name(f"{name_hint}_real")]
-    )
-    imag_part = ctx.builder.Imag(
-        tensor, _outputs=[ctx.fresh_name(f"{name_hint}_imag")]
-    )
+    real_part = ctx.builder.Real(tensor, _outputs=[ctx.fresh_name(f"{name_hint}_real")])
+    imag_part = ctx.builder.Imag(tensor, _outputs=[ctx.fresh_name(f"{name_hint}_imag")])
     for part in (real_part, imag_part):
         part.type = ir.TensorType(base_dtype)
         _stamp_type_and_shape(part, dims)

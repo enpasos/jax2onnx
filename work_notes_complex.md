@@ -25,6 +25,7 @@ Build end-to-end complex number coverage so JAX lax primitives (`complex`, `real
 - ✅ `ensure_complex_dtype(ctx, value, target_dtype)` implemented; inserts Cast when a value’s dtype needs promotion to complex.
 - 🧪 Coverage: `tests/converter/test_complex_utils.py` exercises pack/unpack round-trips, complex64 vs complex128 channel layouts, ensure_complex_dtype casting, and error paths for non-complex inputs.
 - ⚠️ Raised tolerances for Equinox DINO example regressions (`rtol`/`atol` → `5e-1`) and rotary embedding heads test (`rtol`=`atol`=`3e-5`) to reflect current ONNX/JAX drift while the helper integration is still pending; revisit once native complex plumbing lands.
+- ✅ Updated lax `Add`/`Mul` plugins to carry complex testcases (complex64 & complex128), including axis0 padding dtype fixes; ORT numeric checks are skipped for now because the bundled CPU build lacks complex kernels.
 - 🔜 Integrate these helpers into lax FFT/complex primitive lowering and add expect_graph snapshots or regression cases once converters call them.
 
 ## Reply Talking Points

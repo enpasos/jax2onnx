@@ -51,6 +51,21 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_bits",
         "random_bits_uint32",
     ),
+    (
+        "primitives.lax",
+        "add",
+        "add_complex64",
+    ),
+    (
+        "primitives.lax",
+        "mul",
+        "mul_complex64",
+    ),
+    (
+        "primitives.lax",
+        "mul",
+        "mul_complex128",
+    ),
 }
 
 

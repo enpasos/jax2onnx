@@ -76,6 +76,35 @@ if TYPE_CHECKING:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "mul_complex128",
+            "callable": lambda x, y: x * y,
+            "input_values": [
+                np.array([1.0 + 2.0j, -3.5 + 0.25j], dtype=np.complex128),
+                np.array([0.5 - 1.0j, 2.0 + 3.0j], dtype=np.complex128),
+            ],
+            "expected_output_dtypes": [np.complex128],
+            "run_only_f64_variant": True,
+            "skip_numeric_validation": True,  # current ORT build lacks complex kernel support
+            "post_check_onnx_graph": EG(
+                ["Mul:2"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "mul_complex64",
+            "callable": lambda x, y: x * y,
+            "input_values": [
+                np.array([1.0 + 0.5j, -0.75 + 1.25j], dtype=np.complex64),
+                np.array([0.5 - 2.0j, 1.5 + 0.25j], dtype=np.complex64),
+            ],
+            "expected_output_dtypes": [np.complex64],
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                ["Mul:2"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class MulPlugin(PrimitiveLeafPlugin):
