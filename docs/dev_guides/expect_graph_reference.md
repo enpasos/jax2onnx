@@ -192,6 +192,27 @@ EG(
 )
 ```
 
+### NNX Multi-head attention (`examples.nnx.multi_head_attention`)
+
+Both the pure JAX (`multihead_attention_nn`) and nnx-driven (`multihead_attention_nnx`,
+`multihead_attention_2_nnx`) variants emit the same core chain after reshaping
+queries/keys/values. Symbols capture the batch size; `search_functions=True`
+keeps subgraph rewrites under the function export.
+
+```python
+EG(
+    [
+        "Reshape:?x256 -> Gemm:?x256 -> Reshape:Bx4x8x32 -> "
+        "Transpose:Bx8x4x32 -> MatMul:Bx8x4x4 -> Mul:Bx8x4x4 -> "
+        "Softmax:Bx8x4x4 -> MatMul:Bx8x4x32 -> Transpose:Bx4x8x32 -> "
+        "Reshape:?x256 -> Gemm:?x256 -> Reshape:Bx4x256"
+    ],
+    symbols={"B": None},
+    search_functions=True,
+    no_unused_inputs=True,
+)
+```
+
 ### Equinox DINOv3 vision transformer (`examples.eqx_dino`)
 
 Use the bundled helper to emit snippets for each variant (`eqx_dinov3_vit_Ti14`,
@@ -202,4 +223,102 @@ set so cached weights or mask inputs do not linger.
 ```python
 EG(['VisionTransformer:Bx257x192'], symbols={'B': None}, no_unused_inputs=True)
 # S16/S14/B14 variants only differ in the trailing dimension (384/768) and the token count.
+```
+
+### Equinox DINO building blocks
+
+While covering the DINO stack, keep these helpers in sync:
+
+```python
+EG(['PatchEmbed_1:1x256x384'], no_unused_inputs=True)  # PatchEmbed
+EG([{'path': 'Gemm', 'counts': {'Gemm': 4}},
+    {'path': 'MatMul', 'counts': {'MatMul': 2}},
+    {'path': 'Softmax', 'counts': {'Softmax': 1}}],
+   symbols={'B': None}, search_functions=True, no_unused_inputs=True)  # AttentionCore
+EG([{'path': 'MatMul', 'counts': {'MatMul': 2}}, 'Softmax'],
+   symbols={'B': None}, search_functions=True)  # Attention
+EG(['Block_1:Bx257x384'], symbols={'B': None}, must_absent=['Identity'])  # Block
+```
+### GPT components (`examples.gpt`)
+
+`GPT_Attention` and `GPT_CausalSelfAttention` rely on the shared `_no_cast_where`
+helper, which fails the test if any `Cast -> Where` chain appears in the exported
+graph (and reruns with diagnostics to surface the offending path). The rest of
+the GPT stack leans on compact structural checks:
+
+```python
+EG(['MLP_1:Bx1024x768'], symbols={'B': None}, no_unused_inputs=True)  # GPT_MLP
+EG(['Block_1:Bx1024x768'], symbols={'B': None}, no_unused_inputs=True)  # GPT_TransformerBlock
+EG(['TokenEmbedding_1:Bx1024x768'], symbols={'B': None}, no_unused_inputs=True)  # GPT_TokenEmbedding
+EG(['PositionEmbedding_1:1x1024x768'], no_unused_inputs=True)  # GPT_PositionEmbedding
+EG(['GPTTransformerStack_1:Bx1024x768'], symbols={'B': None}, no_unused_inputs=True)  # GPT_TransformerStack
+EG(['GPTEmbeddings_1:Bx1024x768'], symbols={'B': None}, no_unused_inputs=True)  # GPT_Embeddings
+EG(['GPTHead_1:Bx1024x3144'], symbols={'B': None}, no_unused_inputs=True)  # GPT_Head
+EG(['Add:Bx4x5'], symbols={'B': None}, no_unused_inputs=True)  # GPT_broadcast_add
+EG(
+    [{'graph': 'custom.PositionEmbedding.1:PositionEmbedding',
+      'path': 'Range -> Unsqueeze -> Expand -> Gather',
+      'must_absent': ['Cast']}],
+    no_unused_inputs=True,
+    no_unused_function_inputs=True,
+    search_functions=True,
+)  # GPT
+```
+
+### Vision Transformer components (`examples.vit`, `examples.vit_flat`)
+
+Patch/conv embeddings and the final classifier keep the ViT snippets compact.
+When working on the flattened variants, keep the reshape/transposes anchored so
+the sequence length stays guarded.
+
+```python
+EG(['PatchEmbedding_1:Bx49x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['ConvEmbedding_1:Bx49x128'], symbols={'B': None}, no_unused_inputs=True)
+EG(['FeedForward_1:Bx10x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['TransformerBlock_1:Bx10x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['TransformerStack_1:Bx10x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['ConcatClsToken_1:Bx50x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['PositionalEmbedding_1:Bx50x256'], symbols={'B': None}, no_unused_inputs=True)
+EG(['VisionTransformer_1:Bx10'], symbols={'B': None}, no_unused_inputs=True)  # conv embedding model
+EG(['VisionTransformer_1:2x10'], no_unused_inputs=True)  # patch embedding model
+EG(['LayerNormalization -> Gemm -> LogSoftmax'], symbols={'B': None}, no_unused_inputs=True)  # flattened ViT heads
+EG(
+    [
+        "Reshape:Bx7x4x7x4x1 -> Transpose:Bx7x7x4x4x1 -> "
+        "Reshape:Bx49x16 -> Reshape:?x16 -> Gemm:?x256 -> Reshape:Bx49x256"
+    ],
+    symbols={'B': None},
+    no_unused_inputs=True,
+)  # PatchEmbeddingFlatten
+EG(
+    ['Slice -> Squeeze', {'path': 'Transpose:50xBx256 -> Gather:Bx256', 'inputs': {1: {'const': 0.0}}}],
+    mode='any',
+    symbols={'B': None},
+    no_unused_inputs=True,
+)  # GetToken
+EG(['ClassificationHead_1:Bx10'], symbols={'B': None}, no_unused_inputs=True)
+```
+
+### Transformer decoder variants (`examples.nnx.transformer_decoder_*`)
+
+Both decoder flavours share the same residual-add/LayerNorm cadence; the
+sequential version also has a dynamic-shape testcase.
+
+```python
+EG(
+    ["Add:2x8x16 -> LayerNormalization:2x8x16 -> Add:2x8x16 -> LayerNormalization:2x8x16 -> Add:2x8x16 -> LayerNormalization:2x8x16"],
+    search_functions=True,
+    no_unused_inputs=True,
+)  # TransformerDecoderWithSequential (static shapes)
+EG(
+    ["Add:BxHx16 -> LayerNormalization:BxHx16 -> Add:BxHx16 -> LayerNormalization:BxHx16 -> Add:BxHx16 -> LayerNormalization:BxHx16"],
+    search_functions=True,
+    symbols={'B': None, 'H': None},
+    no_unused_inputs=True,
+)  # TransformerDecoderWithSequential (dynamic shapes)
+EG(
+    ["Add:Bx8x16 -> LayerNormalization:Bx8x16 -> Add:Bx8x16 -> LayerNormalization:Bx8x16 -> Add:Bx8x16 -> LayerNormalization:Bx8x16"],
+    symbols={'B': 2},
+    no_unused_inputs=True,
+)  # TransformerDecoderWithoutSequential
 ```
