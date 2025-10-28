@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import jax
 
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
     propagate_axis0_override,
@@ -78,9 +79,15 @@ class SquarePlugin(PrimitiveLeafPlugin):
         result = ctx.builder.Mul(x_val, x_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
+
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        if axis0_override is not None and target_shape:
+            target_shape = (axis0_override,) + target_shape[1:]
+        if target_shape:
+            _stamp_type_and_shape(result, target_shape)
+        _ensure_value_metadata(ctx, result)
+        propagate_axis0_override(x_val, result)
         if axis0_override is not None:
             set_axis0_override(result, axis0_override)
-        propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(out_var, result)

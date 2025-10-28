@@ -1212,9 +1212,6 @@ def _lower_scatter_window_full(
     axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
     if axis0_extent and axis0_extent > 1:
         set_axis0_override(out_val, axis0_extent)
-    axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
-    if axis0_extent and axis0_extent > 1:
-        set_axis0_override(out_val, axis0_extent)
     return True
 
 
@@ -1270,7 +1267,7 @@ def lower_scatter_elementwise(
         raise ValueError(f"unsupported scatter reduction '{reduction}'")
 
     attr_map = {"reduction": reduction_norm} if reduction_norm != "none" else None
-    _builder_op(
+    produced = _builder_op(
         ctx,
         "ScatterND",
         [operand_val, indices_ordered, updates_prepared],
@@ -1285,6 +1282,10 @@ def lower_scatter_elementwise(
     out_val.type = ir.TensorType(operand_val.type.dtype)
     out_val.dtype = operand_val.type.dtype
     _ensure_value_metadata(ctx, out_val)
+    axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
+    if axis0_extent and axis0_extent > 1:
+        set_axis0_override(out_val, axis0_extent)
+        set_axis0_override(produced, axis0_extent)
 
 
 def ensure_supported_mode(mode: Any) -> None:

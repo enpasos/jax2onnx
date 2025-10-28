@@ -1392,6 +1392,15 @@ def _graph_outputs_list(graph: ir.Graph) -> List["ir.Value"]:
 
 
 def remove_dead_nodes_ir(graph) -> None:
+    debug_metadata_flag = os.getenv("JAX2ONNX_ENABLE_STACKTRACE_METADATA", "")
+    if debug_metadata_flag and debug_metadata_flag.strip().lower() not in (
+        "0",
+        "false",
+        "off",
+    ):
+        # Keep the graph intact when stacktrace metadata is requested so downstream
+        # tooling (e.g. sandbox repros) can inspect unused nodes.
+        return
     nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
