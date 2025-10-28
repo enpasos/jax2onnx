@@ -32,7 +32,8 @@ def test_pack_native_complex_inserts_expected_nodes() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     complex_vals = np.asarray([1 + 2j, 3 + 4j], dtype=np.complex128)
     complex_init = ctx.builder.add_initializer_from_array(
-        "complex_source", complex_vals
+        name="complex_source",
+        array=complex_vals,
     )
 
     packed = pack_native_complex(ctx, complex_init, name_hint="fft")
@@ -45,7 +46,10 @@ def test_pack_native_complex_inserts_expected_nodes() -> None:
 def test_unpack_to_native_complex_restores_shape_and_dtype() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     complex_vals = np.asarray([[1 + 2j, 3 + 4j]], dtype=np.complex128)
-    complex_init = ctx.builder.add_initializer_from_array("complex_input", complex_vals)
+    complex_init = ctx.builder.add_initializer_from_array(
+        name="complex_input",
+        array=complex_vals,
+    )
     packed = pack_native_complex(ctx, complex_init, name_hint="fft")
 
     restored = unpack_to_native_complex(ctx, packed, name_hint="ifft")
@@ -59,7 +63,8 @@ def test_pack_native_complex_complex64_uses_float_channels() -> None:
     ctx = IRContext(opset=18, enable_double_precision=False)
     complex_vals = np.asarray([[1 + 2j]], dtype=np.complex64)
     complex_init = ctx.builder.add_initializer_from_array(
-        "complex64_input", complex_vals
+        name="complex64_input",
+        array=complex_vals,
     )
 
     packed = pack_native_complex(ctx, complex_init, name_hint="fft32")
@@ -72,7 +77,8 @@ def test_ensure_complex_dtype_inserts_cast_when_needed() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     complex_vals = np.asarray([1 + 2j], dtype=np.complex64)
     complex_init = ctx.builder.add_initializer_from_array(
-        "complex_cast_src", complex_vals
+        name="complex_cast_src",
+        array=complex_vals,
     )
 
     promoted = ensure_complex_dtype(ctx, complex_init, ir.DataType.COMPLEX128)
@@ -84,7 +90,10 @@ def test_ensure_complex_dtype_inserts_cast_when_needed() -> None:
 def test_pack_native_complex_rejects_non_complex_inputs() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     real_vals = np.asarray([1.0, 2.0], dtype=np.float32)
-    real_init = ctx.builder.add_initializer_from_array("real", real_vals)
+    real_init = ctx.builder.add_initializer_from_array(
+        name="real",
+        array=real_vals,
+    )
 
     with pytest.raises(ValueError):
         pack_native_complex(ctx, real_init, name_hint="bad")

@@ -174,7 +174,9 @@ def _materialize_constant_array(ctx, value, seen: Optional[Set[object]] = None):
 
 
 def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape):
-    const_arr = _materialize_constant_array(ctx, x_val)
+    const_arr = ctx.try_evaluate_const(x_val)
+    if const_arr is None:
+        const_arr = _materialize_constant_array(ctx, x_val)
     if const_arr is None:
         return False
 
@@ -370,6 +372,12 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             else None
         )
 
+        rrank = len(shape)
+        reshape_dims: list[object] = [1] * rrank
+        for i, r_axis in enumerate(bdims):
+            dim = op_shape[i] if i < len(op_shape) else 1
+            reshape_dims[r_axis] = dim
+
         if _maybe_inline_constant_broadcast(
             ctx, out_var, x_val, shape, bdims, op_shape
         ):
@@ -546,12 +554,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
         if need_reshape:
             # Build reshape_shape by placing operand dims into their mapped result axes, 1 elsewhere.
-            rrank = len(shape)
-            reshape_dims: list[object] = [1] * rrank
-            for i, r_axis in enumerate(bdims):
-                dim = op_shape[i] if i < len(op_shape) else 1
-                reshape_dims[r_axis] = dim
-
             reshape_dim_pieces: list[ir.Value] = []
             for axis, dim in enumerate(reshape_dims):
                 axis_hint_allowed = not (

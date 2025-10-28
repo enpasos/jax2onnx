@@ -47,7 +47,10 @@ def _transform_axis(packed_dims: Sequence[object]) -> int:
             "testcase": "fft_complex64_1d",
             "callable": lambda x: lax.fft(x, lax.FftType.FFT, (4,)),
             "input_values": [
-                np.array([1.0 + 0.0j, 0.0 + 1.0j, -1.0 + 0.0j, 0.0 - 1.0j], dtype=np.complex64)
+                np.array(
+                    [1.0 + 0.0j, 0.0 + 1.0j, -1.0 + 0.0j, 0.0 - 1.0j],
+                    dtype=np.complex64,
+                )
             ],
             "expected_output_dtypes": [np.complex64],
             "skip_numeric_validation": True,  # ORT CPU lacks Real/Imag kernels for complex inputs
@@ -72,16 +75,24 @@ class FFTPlugin(PrimitiveLeafPlugin):
         fft_lengths = _normalize_fft_lengths(eqn.params.get("fft_lengths"))
 
         if fft_type is not lax.FftType.FFT:
-            raise NotImplementedError("Only complex-to-complex FFT is supported currently.")
+            raise NotImplementedError(
+                "Only complex-to-complex FFT is supported currently."
+            )
         if len(fft_lengths) not in (0, 1):
-            raise NotImplementedError("Only 1D FFT with a single length is supported currently.")
+            raise NotImplementedError(
+                "Only 1D FFT with a single length is supported currently."
+            )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("fft_input"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("fft_output"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("fft_output")
+        )
 
         input_dtype = x_val.dtype
         if input_dtype not in (ir.DataType.COMPLEX64, ir.DataType.COMPLEX128):
-            raise NotImplementedError("FFT plugin currently supports complex inputs only.")
+            raise NotImplementedError(
+                "FFT plugin currently supports complex inputs only."
+            )
 
         packed = pack_native_complex(ctx, x_val, name_hint="fft")
         packed_dims = _shape_tuple(packed)
