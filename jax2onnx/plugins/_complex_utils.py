@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Dict, Final
+from typing import TYPE_CHECKING, Dict, Final, Tuple, cast
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 
 from jax2onnx.plugins._ir_shapes import (
+    DimValue,
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
@@ -27,6 +28,31 @@ _BASE_TO_COMPLEX: Final[Dict[ir.DataType, ir.DataType]] = {
     ir.DataType.FLOAT: ir.DataType.COMPLEX64,
     ir.DataType.DOUBLE: ir.DataType.COMPLEX128,
 }
+
+_COMPLEX_TO_NP_DTYPE: Final[Dict[ir.DataType, np.dtype]] = {
+    ir.DataType.COMPLEX64: np.dtype(np.complex64),
+    ir.DataType.COMPLEX128: np.dtype(np.complex128),
+}
+
+COMPLEX_DTYPES: Final[frozenset[ir.DataType]] = frozenset(_COMPLEX_PAIR.keys())
+REAL_PAIR_DTYPES: Final[frozenset[ir.DataType]] = frozenset(
+    {ir.DataType.FLOAT, ir.DataType.DOUBLE}
+)
+
+
+def coerce_dim_values(dims: Tuple[object, ...]) -> Tuple[DimValue, ...]:
+    out: list[DimValue] = []
+    for dim in dims:
+        if isinstance(dim, (int, np.integer)):
+            out.append(int(dim))
+        elif isinstance(dim, ir.SymbolicDim):
+            out.append(dim)
+        elif dim is None:
+            out.append(None)
+        else:
+            text = str(dim)
+            out.append(ir.SymbolicDim(text) if text else None)
+    return tuple(out)
 
 
 def _shape_tuple(val: ir.Value) -> tuple[object, ...]:
@@ -93,49 +119,131 @@ def pack_native_complex(
     ctx: "IRContext", tensor: ir.Value, *, name_hint: str = "complex_pack"
 ) -> ir.Value:
     """
-    Convert a native complex tensor to a `[... , 2]` float view suitable for ONNX DFT/STFT.
+    View a native complex tensor as a `[... , 2]` float pair without relying on complex ops.
+
+    The caller is responsible for ensuring the actual runtime inputs provide the packed
+    representation (real/imag stacked in the trailing dimension).
     """
     dtype = tensor.dtype
     if dtype not in _COMPLEX_PAIR:
         raise ValueError(f"pack_native_complex expects complex dtype, received {dtype}")
 
     base_dtype = _base_dtype_for_complex(dtype)
+    enable_double = getattr(
+        getattr(ctx, "builder", None), "enable_double_precision", False
+    )
+    if enable_double and base_dtype == ir.DataType.FLOAT:
+        base_dtype = ir.DataType.DOUBLE
     dims = _shape_tuple(tensor)
-    axis_index = len(dims)
+    packed_shape = dims + (2,)
 
-    real_part = ctx.builder.Real(tensor, _outputs=[ctx.fresh_name(f"{name_hint}_real")])
-    imag_part = ctx.builder.Imag(tensor, _outputs=[ctx.fresh_name(f"{name_hint}_imag")])
-    for part in (real_part, imag_part):
-        part.type = ir.TensorType(base_dtype)
-        _stamp_type_and_shape(part, dims)
-        _ensure_value_metadata(ctx, part)
+    tensor.dtype = base_dtype
+    tensor.type = ir.TensorType(base_dtype)
+    coerced_shape = coerce_dim_values(packed_shape)
+    tensor.shape = ir.Shape(coerced_shape)
+    _stamp_type_and_shape(tensor, coerced_shape)
+    _ensure_value_metadata(ctx, tensor)
+    return tensor
 
-    unsqueeze_axes = [axis_index]
-    real_unsq = ctx.builder.Unsqueeze(
-        real_part,
-        axes=unsqueeze_axes,
-        _outputs=[ctx.fresh_name(f"{name_hint}_real_unsq")],
-    )
-    imag_unsq = ctx.builder.Unsqueeze(
-        imag_part,
-        axes=unsqueeze_axes,
-        _outputs=[ctx.fresh_name(f"{name_hint}_imag_unsq")],
-    )
-    for part in (real_unsq, imag_unsq):
-        part.type = ir.TensorType(base_dtype)
-        _stamp_type_and_shape(part, dims + (1,))
-        _ensure_value_metadata(ctx, part)
 
-    packed = ctx.builder.Concat(
-        real_unsq,
-        imag_unsq,
-        axis=axis_index,
-        _outputs=[ctx.fresh_name(f"{name_hint}_ri")],
+def is_packed_complex_tensor(value: ir.Value) -> bool:
+    """
+    True when `value` already stores real/imag channels in its trailing dimension.
+    """
+    dtype = value.dtype
+    if dtype is None:
+        type_obj = getattr(value, "type", None)
+        if isinstance(type_obj, ir.TensorType):
+            dtype = type_obj.dtype
+    if dtype not in REAL_PAIR_DTYPES:
+        return False
+    dims = _shape_tuple(value)
+    if not dims:
+        return False
+    last = dims[-1]
+    if isinstance(last, ir.SymbolicDim):
+        # Try to interpret symbolic dims like '2'
+        try:
+            return int(str(last)) == 2
+        except Exception:
+            return False
+    if isinstance(last, (int, np.integer)):
+        return int(last) == 2
+    return False
+
+
+def cast_real_tensor(
+    ctx: "IRContext",
+    value: ir.Value,
+    target_dtype: ir.DataType,
+    *,
+    name_hint: str,
+) -> ir.Value:
+    """
+    Ensure a real-valued tensor carries `target_dtype`.
+    """
+    if value.dtype == target_dtype:
+        return value
+    cast_value = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            to=int(target_dtype.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
-    packed.type = ir.TensorType(base_dtype)
-    _stamp_type_and_shape(packed, dims + (2,))
-    _ensure_value_metadata(ctx, packed)
-    return packed
+    cast_value.type = ir.TensorType(target_dtype)
+    cast_value.dtype = target_dtype
+    dims = coerce_dim_values(_shape_tuple(value))
+    _stamp_type_and_shape(cast_value, dims)
+    _ensure_value_metadata(ctx, cast_value)
+    return cast_value
+
+
+def ensure_packed_real_pair(
+    ctx: "IRContext", value: ir.Value, *, name_hint: str
+) -> tuple[ir.Value, ir.DataType]:
+    """
+    Return `(packed_tensor, base_dtype)` for complex or packed-complex values.
+    """
+    dtype = value.dtype
+    if dtype is None:
+        type_obj = getattr(value, "type", None)
+        if isinstance(type_obj, ir.TensorType):
+            dtype = type_obj.dtype
+    if dtype is None:
+        raise ValueError("Value is missing dtype metadata for complex handling")
+    if dtype in _COMPLEX_PAIR:
+        packed = pack_native_complex(ctx, value, name_hint=name_hint)
+        base_dtype = packed.dtype
+        if base_dtype is None:
+            base_dtype = _base_dtype_for_complex(dtype)
+            packed.dtype = base_dtype
+            packed.type = ir.TensorType(base_dtype)
+        return packed, base_dtype
+    if is_packed_complex_tensor(value):
+        base_dtype = value.dtype
+        if base_dtype is None:
+            type_obj = getattr(value, "type", None)
+            if isinstance(type_obj, ir.TensorType):
+                base_dtype = type_obj.dtype
+        if base_dtype is None:
+            raise ValueError("Packed complex tensor missing dtype metadata")
+        return value, base_dtype
+    raise ValueError(
+        f"Expected complex dtype or packed tensor with trailing channel, got {dtype}"
+    )
+
+
+def resolve_common_real_dtype(lhs: ir.DataType, rhs: ir.DataType) -> ir.DataType:
+    """
+    Pick a shared real dtype for packed complex operations.
+    """
+    if lhs == rhs:
+        return lhs
+    if ir.DataType.DOUBLE in (lhs, rhs):
+        return ir.DataType.DOUBLE
+    return ir.DataType.FLOAT
 
 
 def unpack_to_native_complex(
@@ -186,18 +294,22 @@ def unpack_to_native_complex(
         _outputs=[ctx.fresh_name(f"{name_hint}_imag")],
     )
     base_dims = dims[:-1]
+    dim_values = coerce_dim_values(base_dims)
     for part in (gather_real, gather_imag):
         part.type = ir.TensorType(base_dtype)
-        _stamp_type_and_shape(part, base_dims)
+        _stamp_type_and_shape(part, dim_values)
         _ensure_value_metadata(ctx, part)
 
     complex_dtype = target_dtype or _complex_dtype_for_base(base_dtype)
-    complex_val = ctx.builder.Complex(
-        gather_real,
-        gather_imag,
-        _outputs=[ctx.fresh_name(f"{name_hint}_complex")],
+    complex_val = cast(
+        ir.Value,
+        ctx.builder.Complex(
+            gather_real,
+            gather_imag,
+            _outputs=[ctx.fresh_name(f"{name_hint}_complex")],
+        ),
     )
     complex_val.type = ir.TensorType(complex_dtype)
-    _stamp_type_and_shape(complex_val, base_dims)
+    _stamp_type_and_shape(complex_val, dim_values)
     _ensure_value_metadata(ctx, complex_val)
     return complex_val

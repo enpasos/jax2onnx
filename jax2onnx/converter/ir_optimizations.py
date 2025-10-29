@@ -408,7 +408,11 @@ def _replace_everywhere(
       string in the input list.
     """
     if old_v is not None:
-        ir_convenience.replace_all_uses_with(old_v, new_v)
+        ir_convenience.replace_all_uses_with(
+            old_v,
+            new_v,
+            replace_graph_outputs=True,
+        )
         if old_name is None:
             old_name = _v_name(old_v)
     new_name = _v_name(new_v)
