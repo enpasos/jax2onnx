@@ -28,7 +28,7 @@ def _ops(ctx: IRContext) -> list[str]:
     return [node.op_type for node in ctx.builder.graph]
 
 
-def test_pack_native_complex_inserts_expected_nodes() -> None:
+def test_pack_native_complex_reinterprets_to_float_pairs() -> None:
     ctx = IRContext(opset=18, enable_double_precision=True)
     complex_vals = np.asarray([1 + 2j, 3 + 4j], dtype=np.complex128)
     complex_init = ctx.builder.add_initializer_from_array(
@@ -40,7 +40,7 @@ def test_pack_native_complex_inserts_expected_nodes() -> None:
 
     assert packed.dtype == ir.DataType.DOUBLE
     assert _dims(packed) == (2, 2)
-    assert _ops(ctx) == ["Real", "Imag", "Unsqueeze", "Unsqueeze", "Concat"]
+    assert _ops(ctx) == []
 
 
 def test_unpack_to_native_complex_restores_shape_and_dtype() -> None:

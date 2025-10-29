@@ -633,6 +633,17 @@ class IRContext:
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)
+            if np_dtype is not None and np.issubdtype(np_dtype, np.complexfloating):
+                base_np_dtype = np.float64 if np_dtype == np.complex128 else np.float32
+                target_enum = _dtype_to_ir(
+                    np.dtype(base_np_dtype), self.builder.enable_double_precision
+                )
+                dims = list(_maybe_shape(aval) or ())
+                dims.append(2)
+                v.type = ir.TensorType(target_enum)
+                v.shape = _to_ir_shape(tuple(dims))
+                self.builder.outputs.append(v)
+                continue
             if np_dtype is not None:
                 target_enum = _dtype_to_ir(
                     np_dtype, self.builder.enable_double_precision

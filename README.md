@@ -159,6 +159,7 @@ to_onnx(
 
     * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
     * `lax.dot_general`: add `Einsum` fallback 
+    * **Complex numbers:** packed-real helper stack (`pack_native_complex`, `ensure_packed_real_pair`, `resolve_common_real_dtype`), plugin coverage for `lax.add/sub/mul/div`, and ONNX `DFT` lowering shared by `lax.fft` and `jnp.fft` (see `docs/dev_guides/complex_numbers.md`).
     * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
 
 
@@ -226,7 +227,7 @@ We warmly welcome contributions!
 | `JAX`         | 0.8.0    | 
 | `Flax`        | 0.12.0   | 
 | `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.11   | 
+| `onnx-ir`     | 0.1.12   | 
 | `onnx`        | 1.19.1   |  
 | `onnxruntime` | 1.23.2   |  
 
