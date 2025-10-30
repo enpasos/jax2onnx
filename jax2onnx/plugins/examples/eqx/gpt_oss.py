@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import lax, nn
+from jax import nn
 import jax.core as jax_core
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -69,34 +69,22 @@ def _build_causal_mask(
     return mask.astype(dtype)
 
 
+def _apply_pointwise(module, x: jnp.ndarray) -> jnp.ndarray:
+    """Apply an Equinox module independently across batch and sequence axes."""
+
+    if module is None or isinstance(module, eqx.nn.Identity):
+        return x
+    apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)
+    apply_batch = eqx.filter_vmap(apply_tokens, in_axes=0, out_axes=0)
+    return apply_batch(x)
+
+
 def _apply_linear_nd(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
     """Apply an Equinox linear module across the leading dimensions of ``x``."""
 
     apply_seq = eqx.filter_vmap(linear, in_axes=0, out_axes=0)
     apply_batch = eqx.filter_vmap(apply_seq, in_axes=0, out_axes=0)
     return apply_batch(x)
-
-
-@onnx_function
-class RMSNorm(eqx.Module):
-    """Root mean square normalisation with learned scale."""
-
-    num_features: int = eqx.field(static=True)
-    eps: float = eqx.field(static=True)
-    scale: jnp.ndarray
-
-    def __init__(self, num_features: int, eps: float = 1e-5):
-        self.num_features = int(num_features)
-        self.eps = float(eps)
-        self.scale = jnp.ones((num_features,), dtype=jnp.float32)
-
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x32 = x.astype(jnp.float32)
-        mean_square = jnp.mean(lax.square(x32), axis=-1, keepdims=True)
-        sqrt = jnp.sqrt(mean_square + self.eps)
-        inv_rms = jnp.reciprocal(sqrt)
-        normalised = x32 * inv_rms * self.scale
-        return normalised.astype(x.dtype)
 
 
 @onnx_function
@@ -231,7 +219,7 @@ class AttentionBlock(eqx.Module):
     sm_scale: float = eqx.field(static=True)
     param_dtype: jnp.dtype = eqx.field(static=True)
 
-    norm: RMSNorm
+    norm: eqx.nn.RMSNorm
     rope: RotaryEmbedding
     qkv: eqx.nn.Linear
     out: eqx.nn.Linear
@@ -263,7 +251,7 @@ class AttentionBlock(eqx.Module):
             self.num_attention_heads + 2 * self.num_key_value_heads
         )
         keys = jax.random.split(key, 3)
-        self.norm = RMSNorm(config.hidden_size)
+        self.norm = eqx.nn.RMSNorm(config.hidden_size)
         self.rope = RotaryEmbedding(config, dtype=jnp.float32)
         self.qkv = eqx.nn.Linear(
             config.hidden_size,
@@ -299,7 +287,7 @@ class AttentionBlock(eqx.Module):
             "AttentionBlock requires a static sequence length.",
         )
 
-        normed = self.norm(x)
+        normed = _apply_pointwise(self.norm, x)
         qkv = _apply_linear_nd(self.qkv, normed)
         qkv = qkv.astype(jnp.float32)
 
@@ -401,7 +389,7 @@ class MLPBlock(eqx.Module):
     intermediate_size: int = eqx.field(static=True)
     param_dtype: jnp.dtype = eqx.field(static=True)
 
-    norm: RMSNorm
+    norm: eqx.nn.RMSNorm
     gate: eqx.nn.Linear
     mlp1_weight: jnp.ndarray
     mlp1_bias: jnp.ndarray
@@ -424,7 +412,7 @@ class MLPBlock(eqx.Module):
         self.param_dtype = param_dtype
 
         keys = jax.random.split(key, 4)
-        self.norm = RMSNorm(self.hidden_size)
+        self.norm = eqx.nn.RMSNorm(self.hidden_size)
         self.gate = eqx.nn.Linear(
             self.hidden_size,
             self.num_experts,
@@ -477,7 +465,7 @@ class MLPBlock(eqx.Module):
                 f"Hidden size mismatch: expected {self.hidden_size}, got {x.shape[-1]}."
             )
 
-        normed = self.norm(x).astype(jnp.float32)
+        normed = _apply_pointwise(self.norm, x).astype(jnp.float32)
         gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
         sorted_indices = jnp.argsort(gate_logits, axis=-1)
         expert_indices = sorted_indices[..., -self.experts_per_token :]
@@ -547,7 +535,7 @@ class Transformer(eqx.Module):
     param_dtype: jnp.dtype = eqx.field(static=True)
     embedding: eqx.nn.Embedding
     blocks: Sequence[TransformerBlock]
-    norm: RMSNorm
+    norm: eqx.nn.RMSNorm
     unembedding: eqx.nn.Linear
 
     def __init__(
@@ -578,7 +566,7 @@ class Transformer(eqx.Module):
             )
             for i in range(num_blocks)
         )
-        self.norm = RMSNorm(config.hidden_size)
+        self.norm = eqx.nn.RMSNorm(config.hidden_size)
         self.unembedding = eqx.nn.Linear(
             config.hidden_size,
             config.vocab_size,
@@ -600,7 +588,7 @@ class Transformer(eqx.Module):
         x = embedded.astype(jnp.float32)
         for block in self.blocks:
             x = block(x)
-        x = self.norm(x)
+        x = _apply_pointwise(self.norm, x)
         logits = _apply_linear_nd(self.unembedding, x).astype(jnp.float32)
         if squeeze_batch:
             return logits[0]
@@ -639,15 +627,24 @@ register_example(
         {
             "testcase": "gpt_oss_rmsnorm",
             "callable": construct_and_call(
-                RMSNorm,
-                num_features=_TEST_CONFIG.hidden_size,
+                lambda: eqx.filter_vmap(
+                    eqx.nn.RMSNorm(_TEST_CONFIG.hidden_size),
+                    in_axes=0,
+                    out_axes=0,
+                )
             ),
             "input_shapes": [("B", _TEST_CONFIG.hidden_size)],
             "post_check_onnx_graph": EG(
-                [f"RMSNorm:Bx{_TEST_CONFIG.hidden_size}"],
+                [
+                    (
+                        "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul -> Add",
+                        {"counts": {"ReduceMean": 1}},
+                    )
+                ],
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+            "run_only_f32_variant": True,
         }
     ],
 )

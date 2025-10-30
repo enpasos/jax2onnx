@@ -11,6 +11,7 @@
 - Recent fixes:
   - Replaced `lax.rsqrt` in `RMSNorm` with `jnp.sqrt`/`jnp.reciprocal` so the ONNX pipeline has matching primitive coverage.
   - Sequenced rotary/mask logic now enforces concrete sequence lengths via `jax.core.concrete_or_error`, avoiding dynamic-dim sentinels when tracing the examples.
+- Added shared `eqx.nn.RMSNorm` plugin plus GPT-OSS integration via `_apply_pointwise`; example metadata now instantiates the Equinox module directly so future work can focus on parity testing.
 
 ## GPT-OSS Architecture Notes
 
