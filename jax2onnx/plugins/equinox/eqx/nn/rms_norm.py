@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import ClassVar
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -181,30 +180,29 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         affine.type = ir.TensorType(getattr(x_val.type, "dtype", None))
         _stamp_type_and_shape(affine, x_shape)
 
-        if result_dtype != np.dtype(
-            getattr(getattr(x_val.type, "dtype", None), "name", x_np_dtype)
-        ):
+        if result_dtype != x_np_dtype:
             exemplar = ctx.bind_const_for_var(
                 object(), np.zeros((), dtype=result_dtype)
             )
-            result = ctx.cast_like(
-                affine,
-                exemplar,
-                name_hint="rms_cast",
-            )
+            result = cast_param_like(ctx, affine, exemplar, name_hint="rms_cast")
         else:
             result = affine
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("RMSNorm")
-        result.name = desired_name
-        _ensure_value_metadata(ctx, result)
 
         stamped_dims = []
         for idx, dim in enumerate(x_shape):
             label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
             stamped_dims.append(label if label is not None else dim)
-        _stamp_type_and_shape(result, tuple(stamped_dims))
+        stamped_shape = tuple(stamped_dims)
 
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("RMSNorm")
+        if getattr(result, "name", None) != desired_name:
+            prior_type = getattr(result, "type", None)
+            result = builder.Identity(result, _outputs=[desired_name])
+            if prior_type is not None:
+                result.type = prior_type
+
+        _stamp_type_and_shape(result, stamped_shape)
+        _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
@@ -283,28 +281,14 @@ def _rms_norm_batch_rule(batched_args, batch_dims, *, epsilon, result_dtype):
     x_bdim, scale_bdim, bias_bdim = batch_dims
     if scale_bdim is not None or bias_bdim is not None:
         raise NotImplementedError("Batching over RMSNorm parameters is not supported.")
-    if x_bdim is None:
-        return (
-            RMSNormPlugin._PRIM.bind(
-                x,
-                scale,
-                bias,
-                epsilon=epsilon,
-                result_dtype=result_dtype,
-            ),
-            None,
-        )
-
-    def _apply(v):
-        return RMSNormPlugin._PRIM.bind(
-            v,
-            scale,
-            bias,
-            epsilon=epsilon,
-            result_dtype=result_dtype,
-        )
-
-    return jax.vmap(_apply, in_axes=x_bdim)(x), x_bdim
+    result = RMSNormPlugin._PRIM.bind(
+        x,
+        scale,
+        bias,
+        epsilon=epsilon,
+        result_dtype=result_dtype,
+    )
+    return result, x_bdim
 
 
 batching.primitive_batchers[RMSNormPlugin._PRIM] = _rms_norm_batch_rule

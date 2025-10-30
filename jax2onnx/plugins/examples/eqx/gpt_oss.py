@@ -10,11 +10,13 @@ from typing import Optional, Sequence
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import nn
+import numpy as np
+from jax import nn, lax
 import jax.core as jax_core
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
     construct_and_call,
     onnx_function,
     register_example,
@@ -57,16 +59,16 @@ def _build_causal_mask(
     seq_len: int, *, sliding_window: int, dtype: jnp.dtype = jnp.float32
 ) -> jnp.ndarray:
     """Return a causal + optional sliding-window mask suitable for attention logits."""
-
-    indices = jnp.arange(seq_len, dtype=jnp.int32)
-    upper = jnp.triu(jnp.ones((seq_len, seq_len), dtype=bool), k=1)
-    mask = jnp.where(upper, -jnp.inf, 0.0)
+    seq_len_int = int(seq_len)
+    mask = np.triu(np.full((seq_len_int, seq_len_int), -np.inf, dtype=np.float32), k=1)
     if sliding_window > 0:
-        distance = indices[:, None] - indices[None, :]
-        too_old = distance > sliding_window
-        mask = mask + jnp.where(too_old, -jnp.inf, 0.0)
-    mask = mask.reshape(1, 1, 1, seq_len, seq_len)
-    return mask.astype(dtype)
+        lower = np.tril(
+            np.full((seq_len_int, seq_len_int), -np.inf, dtype=np.float32),
+            k=-sliding_window,
+        )
+        mask = mask + lower
+    mask = mask.reshape(1, 1, 1, seq_len_int, seq_len_int)
+    return jnp.asarray(mask, dtype=dtype)
 
 
 def _apply_pointwise(module, x: jnp.ndarray) -> jnp.ndarray:
@@ -77,6 +79,25 @@ def _apply_pointwise(module, x: jnp.ndarray) -> jnp.ndarray:
     apply_tokens = eqx.filter_vmap(module, in_axes=0, out_axes=0)
     apply_batch = eqx.filter_vmap(apply_tokens, in_axes=0, out_axes=0)
     return apply_batch(x)
+
+
+def _resolve_seq_length(length, query: jnp.ndarray) -> int:
+    if isinstance(length, (int, np.integer)):
+        return int(length)
+    try:
+        return int(np.asarray(length).item())
+    except Exception:
+        pass
+
+    shape = getattr(query, "shape", None)
+    if shape is not None and len(shape) > 1 and isinstance(shape[1], (int, np.integer)):
+        return int(shape[1])
+
+    return jax_core.concrete_or_error(
+        int,
+        length,
+        "RotaryEmbedding requires a static sequence length.",
+    )
 
 
 def _apply_linear_nd(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
@@ -98,6 +119,12 @@ class RotaryEmbedding(eqx.Module):
     scaling_factor: float = eqx.field(static=True)
     ntk_alpha: float = eqx.field(static=True)
     ntk_beta: float = eqx.field(static=True)
+    _concentration: np.ndarray = eqx.field(static=True)
+    _inv_freq: np.ndarray = eqx.field(static=True)
+    _cos_cache: np.ndarray = eqx.field(static=True)
+    _sin_cache: np.ndarray = eqx.field(static=True)
+    _concentration: jnp.ndarray
+    _inv_freq: jnp.ndarray
 
     def __init__(self, config: GPTOSSConfig, dtype: jnp.dtype = jnp.float32):
         self.head_dim = int(config.head_dim)
@@ -108,56 +135,71 @@ class RotaryEmbedding(eqx.Module):
         self.ntk_alpha = float(config.rope_ntk_alpha)
         self.ntk_beta = float(config.rope_ntk_beta)
 
-    def _compute_concentration_and_inv_freq(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         head_dim = self.head_dim
-        base = jnp.float32(self.base)
-        steps = jnp.arange(0, head_dim, 2, dtype=jnp.float32)
-        freq = jnp.power(base, steps / jnp.float32(head_dim))
+        base = np.float32(self.base)
+        steps = np.arange(0, head_dim, 2, dtype=np.float32)
+        freq = np.power(base, steps / np.float32(head_dim))
         if self.scaling_factor > 1.0:
             concentration = (
-                jnp.float32(0.1) * jnp.log(jnp.float32(self.scaling_factor)) + 1.0
+                np.float32(0.1) * np.log(np.float32(self.scaling_factor)) + 1.0
             )
-            d_half = jnp.float32(head_dim / 2.0)
-            log_base = jnp.log(base)
+            d_half = np.float32(head_dim / 2.0)
+            log_base = np.log(base)
             low = (
                 d_half
-                * jnp.log(
-                    jnp.float32(self.initial_context_length)
-                    / (jnp.float32(self.ntk_beta) * jnp.float32(2.0 * jnp.pi))
+                * np.log(
+                    np.float32(self.initial_context_length)
+                    / (np.float32(self.ntk_beta) * np.float32(2.0 * np.pi))
                 )
                 / log_base
             )
             high = (
                 d_half
-                * jnp.log(
-                    jnp.float32(self.initial_context_length)
-                    / (jnp.float32(self.ntk_alpha) * jnp.float32(2.0 * jnp.pi))
+                * np.log(
+                    np.float32(self.initial_context_length)
+                    / (np.float32(self.ntk_alpha) * np.float32(2.0 * np.pi))
                 )
                 / log_base
             )
-            ramp = (jnp.arange(head_dim // 2, dtype=jnp.float32) - low) / (high - low)
-            mask = 1.0 - jnp.clip(ramp, 0.0, 1.0)
-            interpolation = 1.0 / (jnp.float32(self.scaling_factor) * freq)
+            ramp = (np.arange(head_dim // 2, dtype=np.float32) - low) / (high - low)
+            mask = 1.0 - np.clip(ramp, 0.0, 1.0)
+            interpolation = 1.0 / (np.float32(self.scaling_factor) * freq)
             extrapolation = 1.0 / freq
             inv_freq = interpolation * (1.0 - mask) + extrapolation * mask
         else:
-            concentration = jnp.float32(1.0)
+            concentration = np.float32(1.0)
             inv_freq = 1.0 / freq
-        return concentration, inv_freq
+
+        self._concentration = concentration.astype(np.float32)
+        self._inv_freq = inv_freq.astype(np.float32)
+
+        max_len = int(self.initial_context_length)
+        positions = np.arange(max_len, dtype=np.float32)
+        freqs = np.einsum("i,j->ij", positions, self._inv_freq)
+        self._cos_cache = np.cos(freqs) * self._concentration
+        self._sin_cache = np.sin(freqs) * self._concentration
 
     def compute_sin_cos(self, seq_len: int) -> tuple[jnp.ndarray, jnp.ndarray]:
-        concentration, inv_freq = self._compute_concentration_and_inv_freq()
-        positions = jnp.arange(seq_len, dtype=jnp.float32)
-        freqs = jnp.einsum("i,j->ij", positions, inv_freq)
-        cos = jnp.cos(freqs) * concentration
-        sin = jnp.sin(freqs) * concentration
-        return cos.astype(self.dtype), sin.astype(self.dtype)
+        try:
+            seq_len_int = int(seq_len)
+        except TypeError:
+            seq_len_int = jax_core.concrete_or_error(
+                int,
+                seq_len,
+                "RotaryEmbedding requires a static sequence length.",
+            )
+
+        cos = jnp.asarray(self._cos_cache[:seq_len_int], dtype=self.dtype)
+        sin = jnp.asarray(self._sin_cache[:seq_len_int], dtype=self.dtype)
+        return cos, sin
 
     @staticmethod
     def _broadcast_cache(cache: jnp.ndarray, target_ndim: int) -> jnp.ndarray:
-        seq_len, half = cache.shape
-        broadcast_shape = (1, seq_len) + (1,) * (target_ndim - 3) + (half,)
-        return cache.reshape(broadcast_shape)
+        seq_len = int(cache.shape[0])
+        half = int(cache.shape[1])
+        target_shape = (1, seq_len) + (1,) * max(target_ndim - 3, 0) + (half,)
+        broadcast_dims = (1, len(target_shape) - 1)
+        return lax.broadcast_in_dim(cache, target_shape, broadcast_dims)
 
     @staticmethod
     def _apply_rotary(
@@ -179,21 +221,8 @@ class RotaryEmbedding(eqx.Module):
         *,
         seq_len: Optional[int] = None,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        if seq_len is None:
-            if query.ndim < 2:
-                raise ValueError("Query must have sequence dimension.")
-            seq_len_dim = query.shape[1]
-            seq_len = jax_core.concrete_or_error(
-                int,
-                seq_len_dim,
-                "RotaryEmbedding requires a static sequence length.",
-            )
-        else:
-            seq_len = jax_core.concrete_or_error(
-                int,
-                seq_len,
-                "RotaryEmbedding requires a static sequence length.",
-            )
+        seq_len_candidate = seq_len if seq_len is not None else query.shape[1]
+        seq_len = _resolve_seq_length(seq_len_candidate, query)
 
         cos, sin = self.compute_sin_cos(seq_len)
         cos_q = self._broadcast_cache(cos, query.ndim).astype(query.dtype)
@@ -203,6 +232,11 @@ class RotaryEmbedding(eqx.Module):
         rotated_query = self._apply_rotary(query, cos_q, sin_q)
         rotated_key = self._apply_rotary(key, cos_k, sin_k)
         return rotated_query, rotated_key
+
+
+PLUGIN_REGISTRY[
+    "onnx_fn::jax2onnx.plugins.examples.eqx.gpt_oss.RotaryEmbedding"
+].primitive.multiple_results = True
 
 
 @onnx_function
@@ -281,11 +315,7 @@ class AttentionBlock(eqx.Module):
             raise ValueError(
                 f"Hidden size mismatch: expected {self.config.hidden_size}, got {hidden}."
             )
-        seq_len = jax_core.concrete_or_error(
-            int,
-            seq_len_dim,
-            "AttentionBlock requires a static sequence length.",
-        )
+        seq_len = _resolve_seq_length(seq_len_dim, x)
 
         normed = _apply_pointwise(self.norm, x)
         qkv = _apply_linear_nd(self.qkv, normed)
@@ -467,9 +497,9 @@ class MLPBlock(eqx.Module):
 
         normed = _apply_pointwise(self.norm, x).astype(jnp.float32)
         gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
-        sorted_indices = jnp.argsort(gate_logits, axis=-1)
-        expert_indices = sorted_indices[..., -self.experts_per_token :]
-        expert_scores = jnp.take_along_axis(gate_logits, expert_indices, axis=-1)
+        expert_scores, expert_indices = jax.lax.top_k(
+            gate_logits, self.experts_per_token
+        )
         expert_weights = nn.softmax(expert_scores, axis=-1)
 
         mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
@@ -668,7 +698,7 @@ register_example(
                 param_dtype=jnp.float32,
             ),
             "input_shapes": [
-                ("B", _TEST_SEQ_LEN, _TEST_CONFIG.hidden_size),
+                (3, _TEST_SEQ_LEN, _TEST_CONFIG.hidden_size),
             ],
             "post_check_onnx_graph": EG(
                 [f"AttentionBlock:Bx{_TEST_SEQ_LEN}x{_TEST_CONFIG.hidden_size}"],
@@ -698,7 +728,7 @@ register_example(
                 param_dtype=jnp.float32,
             ),
             "input_shapes": [
-                ("B", _TEST_SEQ_LEN, _TEST_CONFIG.hidden_size),
+                (3, _TEST_SEQ_LEN, _TEST_CONFIG.hidden_size),
             ],
             "post_check_onnx_graph": EG(
                 [f"MLPBlock:Bx{_TEST_SEQ_LEN}x{_TEST_CONFIG.hidden_size}"],
@@ -758,7 +788,7 @@ register_example(
                 key=with_prng_key(3),
                 param_dtype=jnp.float32,
             ),
-            "input_shapes": [("B", _TEST_SEQ_LEN)],
+            "input_shapes": [(3, _TEST_SEQ_LEN)],
             "post_check_onnx_graph": EG(
                 [f"Transformer:Bx{_TEST_SEQ_LEN}x{_TEST_CONFIG.vocab_size}"],
                 symbols={"B": None},
