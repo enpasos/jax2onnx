@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional, Sequence
+from pathlib import Path
+from typing import Any, Optional, Sequence
 
 import equinox as eqx
 import jax
@@ -623,6 +624,226 @@ class Transformer(eqx.Module):
         if squeeze_batch:
             return logits[0]
         return logits
+
+
+def _config_from_torch_transformer(torch_model: Any) -> GPTOSSConfig:
+    """Derive a GPTOSSConfig from a torch-based Transformer instance."""
+
+    if not hasattr(torch_model, "block") or len(torch_model.block) == 0:
+        raise ValueError("Torch Transformer has no blocks to inspect.")
+    first_block = torch_model.block[0]
+    if not hasattr(first_block, "attn") or not hasattr(first_block, "mlp"):
+        raise ValueError("Torch Transformer blocks must expose attn and mlp modules.")
+
+    rope = getattr(first_block.attn, "rope", None)
+    default_config = GPTOSSConfig()
+    vocab_size, hidden_size = torch_model.embedding.weight.shape
+    intermediate_size = first_block.mlp.mlp1_weight.shape[1] // 2
+
+    return GPTOSSConfig(
+        num_hidden_layers=len(torch_model.block),
+        num_experts=int(first_block.mlp.num_experts),
+        experts_per_token=int(first_block.mlp.experts_per_token),
+        vocab_size=int(vocab_size),
+        hidden_size=int(hidden_size),
+        intermediate_size=int(intermediate_size),
+        swiglu_limit=float(first_block.mlp.swiglu_limit),
+        head_dim=int(first_block.attn.head_dim),
+        num_attention_heads=int(first_block.attn.num_attention_heads),
+        num_key_value_heads=int(first_block.attn.num_key_value_heads),
+        sliding_window=int(first_block.attn.sliding_window),
+        initial_context_length=(
+            int(
+                getattr(
+                    rope,
+                    "initial_context_length",
+                    default_config.initial_context_length,
+                )
+            )
+            if rope is not None
+            else default_config.initial_context_length
+        ),
+        rope_theta=(
+            float(getattr(rope, "base", default_config.rope_theta))
+            if rope is not None
+            else default_config.rope_theta
+        ),
+        rope_scaling_factor=(
+            float(getattr(rope, "scaling_factor", default_config.rope_scaling_factor))
+            if rope is not None
+            else default_config.rope_scaling_factor
+        ),
+        rope_ntk_alpha=(
+            float(getattr(rope, "ntk_alpha", default_config.rope_ntk_alpha))
+            if rope is not None
+            else default_config.rope_ntk_alpha
+        ),
+        rope_ntk_beta=(
+            float(getattr(rope, "ntk_beta", default_config.rope_ntk_beta))
+            if rope is not None
+            else default_config.rope_ntk_beta
+        ),
+    )
+
+
+def _torch_tensor_to_jax(tensor: Any, *, dtype: jnp.dtype | None) -> jnp.ndarray:
+    """Convert a torch tensor into a JAX array without mutating the source."""
+
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - defensive, should not happen
+        raise ImportError("torch must be installed to map GPT-OSS weights.") from exc
+
+    array = tensor.detach()
+    if hasattr(array, "dtype") and getattr(array.dtype, "is_floating_point", False):
+        array = array.to(torch.float32)
+    array = array.cpu().numpy()
+    result = jnp.asarray(array)
+    if dtype is not None:
+        result = result.astype(dtype)
+    return result
+
+
+def _populate_eqx_from_torch(
+    torch_model: Any,
+    eqx_model: Transformer,
+    *,
+    param_dtype: jnp.dtype,
+) -> Transformer:
+    """Copy parameters from the torch Transformer into the Equinox example."""
+
+    eqx_model = eqx.tree_at(
+        lambda m: m.embedding.weight,
+        eqx_model,
+        _torch_tensor_to_jax(torch_model.embedding.weight, dtype=param_dtype),
+    )
+
+    for idx, torch_block in enumerate(torch_model.block):
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.sinks,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.sinks, dtype=jnp.float32),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.norm.scale, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.qkv.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.qkv.weight, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.qkv.bias,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.qkv.bias, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.out.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.out.weight, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.out.bias,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.out.bias, dtype=param_dtype),
+        )
+
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.norm.scale, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.gate.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.gate.weight, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.gate.bias,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.gate.bias, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp1_weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.mlp1_weight, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp1_bias,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.mlp1_bias, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp2_weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.mlp2_weight, dtype=param_dtype),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp2_bias,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.mlp2_bias, dtype=param_dtype),
+        )
+
+    eqx_model = eqx.tree_at(
+        lambda m: m.norm.weight,
+        eqx_model,
+        _torch_tensor_to_jax(torch_model.norm.scale, dtype=param_dtype),
+    )
+    eqx_model = eqx.tree_at(
+        lambda m: m.unembedding.weight,
+        eqx_model,
+        _torch_tensor_to_jax(torch_model.unembedding.weight, dtype=param_dtype),
+    )
+    return eqx_model
+
+
+def load_pretrained_gpt_oss(
+    checkpoint: str | Path,
+    *,
+    device: Any = "cpu",
+    param_dtype: jnp.dtype = jnp.bfloat16,
+    seed: int = 0,
+) -> Transformer:
+    """Load a GPT-OSS checkpoint and mirror it into the Equinox example."""
+
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "Loading GPT-OSS checkpoints requires `torch`. "
+            "Install it via `pip install torch --index-url https://download.pytorch.org/whl/cpu`."
+        ) from exc
+
+    try:
+        from gpt_oss.torch.model import Transformer as TorchTransformer
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "Loading GPT-OSS checkpoints requires the `gpt-oss` package. "
+            "Install it with `pip install gpt-oss`."
+        ) from exc
+
+    checkpoint_path = Path(checkpoint).expanduser()
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint path does not exist: {checkpoint_path}")
+    if not checkpoint_path.is_dir():
+        raise FileNotFoundError(
+            f"Expected a directory containing .safetensors files: {checkpoint_path}"
+        )
+
+    torch_device = torch.device(device)
+    torch_model = TorchTransformer.from_checkpoint(
+        str(checkpoint_path), device=torch_device
+    )
+    # Move to CPU for deterministic numpy extraction irrespective of source device.
+    torch_model = torch_model.to(torch.device("cpu"))
+    torch_model.eval()
+
+    config = _config_from_torch_transformer(torch_model)
+    key = jax.random.PRNGKey(int(seed))
+    eqx_model = Transformer(config=config, key=key, param_dtype=param_dtype)
+    return _populate_eqx_from_torch(torch_model, eqx_model, param_dtype=param_dtype)
 
 
 _TEST_CONFIG: GPTOSSConfig = GPTOSSConfig(
