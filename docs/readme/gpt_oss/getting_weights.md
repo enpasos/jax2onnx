@@ -32,11 +32,35 @@ commands below fetch the original shard layout expected by
 
 ```bash
 mkdir -p ~/.cache/gpt_oss/gpt-oss-20b
-huggingface-cli download openai/gpt-oss-20b original \
+poetry run huggingface-cli download openai/gpt-oss-20b original \
   --repo-type model \
   --local-dir ~/.cache/gpt_oss/gpt-oss-20b \
   --local-dir-use-symlinks False
 ```
+
+> `huggingface_hub` ≥1.0 no longer installs the `huggingface-cli` entry point by
+> default, and recent releases ignore `--local-dir-use-symlinks`. If the command
+> above fails with “command not found” or you prefer to stay within Python,
+> download the checkpoint folder directly via `snapshot_download`:
+
+```bash
+poetry run python - <<'PY'
+from pathlib import Path
+
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="openai/gpt-oss-20b",
+    repo_type="model",
+    allow_patterns=["original/*"],
+    local_dir=Path("~/.cache/gpt_oss/gpt-oss-20b").expanduser(),
+)
+PY
+```
+
+This grabs the `original/` shard set expected by
+`Transformer.from_checkpoint`. Omit `allow_patterns` if you want the full repo
+contents (tokenizer, chat template, etc.).
 
 After the download finishes you should have a directory containing `config.json`
 and a set of `*.safetensors` shards.
