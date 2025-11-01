@@ -707,8 +707,18 @@ class IRContext:
         elif hasattr(self.builder, "add_opset_import"):
             self.builder.add_opset_import(domain, version)
 
-    def to_model_proto(self, *, name: str, ir_version: int = 10) -> ir.Model:
-        return self.builder.to_ir_model(name=name, ir_version=ir_version)
+    def to_model_proto(
+        self,
+        *,
+        name: str,
+        ir_version: int = 10,
+        protective_clone: bool = True,
+    ) -> ir.Model:
+        return self.builder.to_ir_model(
+            name=name,
+            ir_version=ir_version,
+            protective_clone=protective_clone,
+        )
 
 
 EMPTY_SHAPE: Tuple[Any, ...] = ()

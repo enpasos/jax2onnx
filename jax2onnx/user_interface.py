@@ -263,6 +263,7 @@ def to_onnx(
         opset=opset,
         enable_double_precision=enable_double_precision,
         record_primitive_calls_file=record_primitive_calls_file,
+        protective_clone=(normalized_mode == "ir"),
     )
 
     def _attach_input_params(model_proto: onnx.ModelProto) -> None:

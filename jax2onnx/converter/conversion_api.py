@@ -316,6 +316,7 @@ def to_onnx(
     opset: int,
     enable_double_precision: bool,
     record_primitive_calls_file: Optional[str],
+    protective_clone: bool = True,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -478,7 +479,9 @@ def to_onnx(
 
         # Build IR model
         ir_model = ctx.builder.to_ir_model(
-            name=model_name, ir_version=_ORT_SAFE_IR_VERSION
+            name=model_name,
+            ir_version=_ORT_SAFE_IR_VERSION,
+            protective_clone=protective_clone,
         )
 
         # Attach any native ir.Functions collected on ctx

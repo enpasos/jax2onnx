@@ -719,8 +719,14 @@ class IRBuilder:
     def get_symbolic_dim_origin(self, sym: str) -> Optional[tuple[ir.Value, int]]:
         return self._sym_origin.get(sym)
 
-    def to_ir_model(self, *, name: str, ir_version: int = 11) -> ir.Model:
-        graph = clone_graph(self.graph)
+    def to_ir_model(
+        self,
+        *,
+        name: str,
+        ir_version: int = 11,
+        protective_clone: bool = True,
+    ) -> ir.Model:
+        graph = clone_graph(self.graph) if protective_clone else self.graph
         if name:
             graph.name = name
         return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")

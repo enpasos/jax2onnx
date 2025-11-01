@@ -69,21 +69,35 @@ and a set of `*.safetensors` shards.
 
 Use the helper script to load the checkpoint, mirror it into the IR-only Equinox
 modules, and emit an ONNX graph. The script preserves the exact callable used by
-our tests so structural expectations continue to hold.
+our tests so structural expectations continue to hold. On memory constrained
+systems it helps to run the export in two stages:
+
+1. **Stage the Equinox weights** (reads SafeTensors → writes `.eqx`, no ONNX yet):
+
+   ```bash
+   poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
+     --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+     --save-eqx ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.eqx \
+     --seq-len 256 \
+     --dynamic-b \
+     --skip-onnx
+   ```
+
+2. **Convert the cached Equinox model to ONNX** (no PyTorch in memory):
 
 ```bash
 poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
-  --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --eqx ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.eqx \
   --output ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.onnx \
-  --seq-len 512 \
-  --dynamic-b \
-  --save-eqx ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.eqx
+  --seq-len 256 \
+  --dynamic-b 
 ```
 
 - `--dynamic-b` emits a symbolic batch axis (`B`) that matches the example tests.
 - Omit `--dynamic-b` and/or add `--dynamic-seq` to tailor the exported shapes.
-- `--save-eqx` is optional but handy when you want to keep the mapped Equinox
-  parameters around for future exports.
+- `--save-eqx` keeps the mapped Equinox parameters around for future exports.
+- Pass a higher `--seq-len` (e.g. 512) once the 256-token run succeeds; longer
+  sequences raise memory pressure while tracing the attention blocks.
 
 ## 3. Validate parity (optional)
 

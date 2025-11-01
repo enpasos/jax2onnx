@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
+import json
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -691,17 +693,205 @@ def _torch_tensor_to_jax(tensor: Any, *, dtype: jnp.dtype | None) -> jnp.ndarray
 
     try:
         import torch
+        import jax.dlpack as jdlpack
     except ImportError as exc:  # pragma: no cover - defensive, should not happen
         raise ImportError("torch must be installed to map GPT-OSS weights.") from exc
 
     array = tensor.detach()
-    if hasattr(array, "dtype") and getattr(array.dtype, "is_floating_point", False):
-        array = array.to(torch.float32)
-    array = array.cpu().numpy()
-    result = jnp.asarray(array)
+
+    target_torch_dtype: torch.dtype | None = None
     if dtype is not None:
-        result = result.astype(dtype)
-    return result
+        if dtype == jnp.bfloat16:
+            target_torch_dtype = torch.bfloat16
+        elif dtype == jnp.float32:
+            target_torch_dtype = torch.float32
+    elif hasattr(array, "dtype") and getattr(array.dtype, "is_floating_point", False):
+        target_torch_dtype = torch.float32
+
+    if target_torch_dtype is not None and array.dtype != target_torch_dtype:
+        array = array.to(target_torch_dtype)
+
+    if array.device.type != "cpu":
+        array = array.cpu()
+
+    # Use DLPack to share memory without materialising an intermediate NumPy array.
+    result = jdlpack.from_dlpack(array.contiguous())
+    return result if dtype is None else result.astype(dtype)
+
+
+def _tensor_from_checkpoint(
+    checkpoint: Any,
+    name: str,
+    *,
+    dtype: jnp.dtype | None,
+) -> jnp.ndarray:
+    """Helper to fetch a tensor from a GPT-OSS checkpoint and convert to JAX."""
+
+    tensor = checkpoint.get(name)
+    try:
+        return _torch_tensor_to_jax(tensor, dtype=dtype)
+    finally:
+        del tensor
+        gc.collect()
+
+
+def _populate_eqx_from_checkpoint(
+    checkpoint: Any,
+    eqx_model: Transformer,
+    *,
+    param_dtype: jnp.dtype,
+) -> Transformer:
+    """Copy parameters from a GPT-OSS checkpoint into the Equinox model."""
+
+    eqx_model = eqx.tree_at(
+        lambda m: m.embedding.weight,
+        eqx_model,
+        _tensor_from_checkpoint(
+            checkpoint,
+            "embedding.weight",
+            dtype=param_dtype,
+        ),
+    )
+
+    for idx, _ in enumerate(eqx_model.blocks):
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.sinks,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.sinks",
+                dtype=jnp.float32,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.norm.scale",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.qkv.weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.qkv.weight",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.qkv.bias,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.qkv.bias",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.out.weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.out.weight",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].attn.out.bias,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.attn.out.bias",
+                dtype=param_dtype,
+            ),
+        )
+
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.norm.scale",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.gate.weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.gate.weight",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.gate.bias,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.gate.bias",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp1_weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.mlp1_weight",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp1_bias,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.mlp1_bias",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp2_weight,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.mlp2_weight",
+                dtype=param_dtype,
+            ),
+        )
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.mlp2_bias,
+            eqx_model,
+            _tensor_from_checkpoint(
+                checkpoint,
+                f"block.{idx}.mlp.mlp2_bias",
+                dtype=param_dtype,
+            ),
+        )
+
+    eqx_model = eqx.tree_at(
+        lambda m: m.norm.weight,
+        eqx_model,
+        _tensor_from_checkpoint(
+            checkpoint,
+            "norm.scale",
+            dtype=param_dtype,
+        ),
+    )
+    eqx_model = eqx.tree_at(
+        lambda m: m.unembedding.weight,
+        eqx_model,
+        _tensor_from_checkpoint(
+            checkpoint,
+            "unembedding.weight",
+            dtype=param_dtype,
+        ),
+    )
+    return eqx_model
 
 
 def _populate_eqx_from_torch(
@@ -710,7 +900,7 @@ def _populate_eqx_from_torch(
     *,
     param_dtype: jnp.dtype,
 ) -> Transformer:
-    """Copy parameters from the torch Transformer into the Equinox example."""
+    """Back-compat helper used by tests to copy from an in-memory torch model."""
 
     eqx_model = eqx.tree_at(
         lambda m: m.embedding.weight,
@@ -817,7 +1007,7 @@ def load_pretrained_gpt_oss(
         ) from exc
 
     try:
-        from gpt_oss.torch.model import Transformer as TorchTransformer
+        from gpt_oss.torch.weights import Checkpoint
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             "Loading GPT-OSS checkpoints requires the `gpt-oss` package. "
@@ -833,17 +1023,23 @@ def load_pretrained_gpt_oss(
         )
 
     torch_device = torch.device(device)
-    torch_model = TorchTransformer.from_checkpoint(
-        str(checkpoint_path), device=torch_device
-    )
-    # Move to CPU for deterministic numpy extraction irrespective of source device.
-    torch_model = torch_model.to(torch.device("cpu"))
-    torch_model.eval()
-
-    config = _config_from_torch_transformer(torch_model)
+    config_json = json.loads((checkpoint_path / "config.json").read_text())
+    config_kwargs = {
+        field.name: config_json[field.name]
+        for field in dataclasses.fields(GPTOSSConfig)
+        if field.name in config_json
+    }
+    config = GPTOSSConfig(**config_kwargs)
     key = jax.random.PRNGKey(int(seed))
     eqx_model = Transformer(config=config, key=key, param_dtype=param_dtype)
-    return _populate_eqx_from_torch(torch_model, eqx_model, param_dtype=param_dtype)
+    checkpoint_reader = Checkpoint(str(checkpoint_path), torch_device)
+    eqx_model = _populate_eqx_from_checkpoint(
+        checkpoint_reader,
+        eqx_model,
+        param_dtype=param_dtype,
+    )
+    gc.collect()
+    return eqx_model
 
 
 _TEST_CONFIG: GPTOSSConfig = GPTOSSConfig(
