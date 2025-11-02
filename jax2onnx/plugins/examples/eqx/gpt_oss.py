@@ -693,30 +693,17 @@ def _torch_tensor_to_jax(tensor: Any, *, dtype: jnp.dtype | None) -> jnp.ndarray
 
     try:
         import torch
-        import jax.dlpack as jdlpack
     except ImportError as exc:  # pragma: no cover - defensive, should not happen
         raise ImportError("torch must be installed to map GPT-OSS weights.") from exc
 
     array = tensor.detach()
-
-    target_torch_dtype: torch.dtype | None = None
+    if hasattr(array, "dtype") and getattr(array.dtype, "is_floating_point", False):
+        array = array.to(torch.float32)
+    array = array.cpu().numpy()
+    result = jnp.asarray(array)
     if dtype is not None:
-        if dtype == jnp.bfloat16:
-            target_torch_dtype = torch.bfloat16
-        elif dtype == jnp.float32:
-            target_torch_dtype = torch.float32
-    elif hasattr(array, "dtype") and getattr(array.dtype, "is_floating_point", False):
-        target_torch_dtype = torch.float32
-
-    if target_torch_dtype is not None and array.dtype != target_torch_dtype:
-        array = array.to(target_torch_dtype)
-
-    if array.device.type != "cpu":
-        array = array.cpu()
-
-    # Use DLPack to share memory without materialising an intermediate NumPy array.
-    result = jdlpack.from_dlpack(array.contiguous())
-    return result if dtype is None else result.astype(dtype)
+        result = result.astype(dtype)
+    return result
 
 
 def _tensor_from_checkpoint(
@@ -900,7 +887,7 @@ def _populate_eqx_from_torch(
     *,
     param_dtype: jnp.dtype,
 ) -> Transformer:
-    """Back-compat helper used by tests to copy from an in-memory torch model."""
+    """Copy parameters from the torch Transformer into the Equinox example."""
 
     eqx_model = eqx.tree_at(
         lambda m: m.embedding.weight,
@@ -1022,7 +1009,6 @@ def load_pretrained_gpt_oss(
             f"Expected a directory containing .safetensors files: {checkpoint_path}"
         )
 
-    torch_device = torch.device(device)
     config_json = json.loads((checkpoint_path / "config.json").read_text())
     config_kwargs = {
         field.name: config_json[field.name]
@@ -1032,7 +1018,7 @@ def load_pretrained_gpt_oss(
     config = GPTOSSConfig(**config_kwargs)
     key = jax.random.PRNGKey(int(seed))
     eqx_model = Transformer(config=config, key=key, param_dtype=param_dtype)
-    checkpoint_reader = Checkpoint(str(checkpoint_path), torch_device)
+    checkpoint_reader = Checkpoint(str(checkpoint_path), torch.device(device))
     eqx_model = _populate_eqx_from_checkpoint(
         checkpoint_reader,
         eqx_model,
