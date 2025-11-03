@@ -161,6 +161,7 @@ to_onnx(
     * `lax.dot_general`: add `Einsum` fallback 
     * **Complex numbers:** packed-real helper stack (`pack_native_complex`, `ensure_packed_real_pair`, `resolve_common_real_dtype`), plugin coverage for `lax.add/sub/mul/div`, and ONNX `DFT` lowering shared by `lax.fft` and `jnp.fft` (see `docs/dev_guides/complex_numbers.md`).
     * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
+    * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
 
 
 ### **Current Productive Version**
