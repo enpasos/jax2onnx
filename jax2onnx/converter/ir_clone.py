@@ -4,25 +4,14 @@ from __future__ import annotations
 
 from typing import Dict
 
-import inspect
-
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType, RefAttr
 
-_HAS_VALUE_METADATA: bool = "metadata_props" in inspect.signature(ir.Value).parameters
-_HAS_NODE_METADATA: bool = "metadata_props" in inspect.signature(ir.Node).parameters
-_HAS_GRAPH_METADATA: bool = "metadata_props" in inspect.signature(ir.Graph).parameters
-
 
 def _assign_metadata(
-    kwargs: Dict[str, object], metadata: dict[str, str], *, kind: str
+    kwargs: Dict[str, object], metadata: dict[str, str]
 ) -> Dict[str, object]:
-    if kind == "value" and _HAS_VALUE_METADATA:
-        kwargs["metadata_props"] = metadata or None
-    elif kind == "node" and _HAS_NODE_METADATA:
-        kwargs["metadata_props"] = metadata or None
-    elif kind == "graph" and _HAS_GRAPH_METADATA:
-        kwargs["metadata_props"] = metadata or None
+    kwargs["metadata_props"] = metadata or None
     return kwargs
 
 
@@ -51,7 +40,7 @@ def clone_graph(graph: ir.Graph) -> ir.Graph:
             doc_string=value.doc_string,
             const_value=value.const_value,
         )
-        cloned = ir.Value(**_assign_metadata(kwargs, metadata_props, kind="value"))
+        cloned = ir.Value(**_assign_metadata(kwargs, metadata_props))
         try:
             cloned.meta.update(getattr(value, "meta", {}))
         except Exception:
@@ -100,8 +89,8 @@ def clone_graph(graph: ir.Graph) -> ir.Graph:
         inputs = [clone_optional_value(val) for val in node.inputs]
         outputs = [clone_value(val) for val in node.outputs]
         attributes = [clone_attr(attr) for attr in node.attributes.values()]
-        metadata_props = dict(getattr(node, "metadata_props", {}))
-        node_kwargs = _assign_metadata({}, metadata_props, kind="node")
+        metadata_props = dict(node.metadata_props)
+        node_kwargs = _assign_metadata({}, metadata_props)
         cloned = ir.Node(
             node.domain,
             node.op_type,
@@ -122,8 +111,8 @@ def clone_graph(graph: ir.Graph) -> ir.Graph:
     output_values = [clone_value(value) for value in graph.outputs]
     cloned_nodes = [clone_node(node) for node in graph]
     initializer_values = [clone_value(value) for value in graph.initializers.values()]
-    metadata_props = dict(getattr(graph, "metadata_props", {}))
-    graph_kwargs = _assign_metadata({}, metadata_props, kind="graph")
+    metadata_props = dict(graph.metadata_props)
+    graph_kwargs = _assign_metadata({}, metadata_props)
     cloned_graph = ir.Graph(
         input_values,  # type: ignore[arg-type]
         output_values,  # type: ignore[arg-type]

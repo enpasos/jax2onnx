@@ -332,14 +332,8 @@ def _instantiate_callable(tp: dict[str, Any], enable_double: bool):
 
 
 def _collect_initializers(graph: ir.Graph) -> tuple[set[int], set[str]]:
-    container = getattr(graph, "initializers", {}) or ()
-    if isinstance(container, dict):
-        values: Iterable[Any] = container.values()
-    else:
-        try:
-            values = tuple(container)
-        except TypeError:
-            values = ()
+    container = graph.initializers
+    values: Iterable[Any] = container.values()
     return (
         {id(value) for value in values},
         {_value_name(value) for value in values},
