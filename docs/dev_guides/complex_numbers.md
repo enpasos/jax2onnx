@@ -1,35 +1,49 @@
-# Complex Number Support
+# Complex Numbers in jax2onnx
 
-The `onnx_ir` pipeline now keeps tensors in native `complex64` / `complex128` throughout lowering. This note captures the helpers, guardrails, and current limitations so plugin authors can wire complex primitives without falling back to real/imag packing.
+This guide explains how `jax2onnx` handles complex tensors while staying within the ONNX specification, and how plugin authors should interact with the shared helper utilities.
 
-## Native Complex Helpers
+## Why we need a strategy
 
-- `pack_native_complex(ctx, tensor)` — unwraps a complex tensor into a `[..., 2]` float view (`[..., 0]=real`, `[..., 1]=imag`). Use immediately before ONNX ops that require packed channels (e.g., `DFT`, `STFT`).
-- `unpack_to_native_complex(ctx, tensor)` — rebuilds a complex tensor from a packed view by gathering the channel pair and emitting `Complex`.
-- `ensure_complex_dtype(ctx, value, target_dtype)` — inserts a `Cast` when the materialized dtype (`COMPLEX64`, `COMPLEX128`) differs from the expected output.
+ONNX (up to opset 21) does not provide native `tensor(complex*)` types for most operators. Arithmetic, shape, and control-flow primitives all expect real-valued tensors. The only complex-aware operator we rely on is `DFT`, which represents complex inputs and outputs as real tensors whose trailing dimension packs the real and imaginary channels (`[..., 2]`).
 
-All helpers live in `jax2onnx/plugins/_complex_utils.py`. They stamp shapes/metadata so downstream passes recognise the new values.
+To stay portable across runtimes we represent every complex tensor as a real tensor with that trailing size-2 channel. Conversion never emits `Real`, `Imag`, or other custom operators—everything is expressed in terms of standard ONNX ops on real tensors.
 
-## Axis-0 Padding
+## Helper surface (`plugins/_complex_utils.py`)
 
-`maybe_expand_binary_axis0` and `ensure_axis0_extent` now map complex IR dtypes to `np.complex64` / `np.complex128`, ensuring zero-padding retains the original dtype instead of truncating to `float32`.
+| Helper | Purpose |
+| --- | --- |
+| `pack_native_complex(ctx, tensor)` | Reinterpret a native `complex64/complex128` value as a packed real tensor (`[..., 2]`). Handles double-precision upgrades automatically when `enable_double_precision=True`.
+| `is_packed_complex_tensor(value)` | Detect whether a value already uses the packed representation.
+| `ensure_packed_real_pair(ctx, value)` | Return `(packed_tensor, base_dtype)` for both native complex inputs and already-packed tensors. Raises if the value is neither.
+| `cast_real_tensor(ctx, value, target_dtype)` | Insert a `Cast` when the packed tensor must move between `FLOAT` and `DOUBLE` representations.
+| `resolve_common_real_dtype(lhs, rhs)` | Pick the shared real dtype (`FLOAT` or `DOUBLE`) for binary complex operations.
+| `coerce_dim_values(dims)` | Normalise shape metadata so `onnx_ir` can stamp symbolic dimensions and integers consistently.
+| `unpack_to_native_complex(...)` | Convert a packed tensor back to a native complex value (used rarely, e.g. when handing results back to JAX in test harnesses).
 
-## Plugin Coverage
+These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookkeeping so individual plugins only need to express the real-valued arithmetic.
 
-- `lax.add` / `lax.mul` metadata include complex64/complex128 testcases. Numeric checks are skipped today because ONNX Runtime CPU builds ship without complex kernels; add the testcase key to `tests/extra_tests/framework/test_do_not_skip_numeric_validation.py` when skip flags are unavoidable.
-- `lax.fft` uses the helpers to wrap ONNX `DFT` (1-D complex FFT). Inputs are packed before the operator and unpacked afterwards. Numeric validation is currently disabled for the same ORT gap as above.
-- `tests/extra_tests/converter/test_complex_utils.py` exercises helper round-trips, dtype promotion, and error handling.
+## Supported operations
 
-## Current Limitations
+- **Elementwise arithmetic** (`lax.add`, `lax.sub`, `lax.mul`, `lax.div`):
+  - Detection logic looks at the JAX avals and value metadata. When a complex value is involved we pack both operands, align their base dtype (`FLOAT` ↔ `DOUBLE`), run the real-valued formulas, and concatenate the real/imag channels.
+  - Outputs inherit the packed representation and expose real metadata (`tensor(float)` / `tensor(double)` with trailing `2`).
 
-1. ONNX Runtime ≤ 1.19 emits `Real`/`Imag` kernels only in CUDA builds. CPU providers reject the op pair with complex inputs. Keep `skip_numeric_validation` in place until upstream support arrives.
-2. The FFT plugin is limited to `FftType.FFT` with a single length (rank-1). Extending to inverse/real transforms will require additional packing rules and output shape handling.
-3. No automated expect-graph snippets yet; regenerate once we finalise numeric coverage.
+- **FFT pipeline** (`lax.fft`, `jnp.fft` for FFT/IFFT/RFFT):
+  - Complex inputs (FFT/IFFT) are packed, reshaped if needed, and lowered to ONNX `DFT` with `inverse` / `onesided` flags. Real inputs (RFFT) receive the trailing channel before invoking `DFT`.
+  - `IRFFT` currently requires explicit `fft_lengths`. The implementation reconstructs the missing half of the spectrum, flips the imaginary channel, and runs a forward packed `DFT` before gathering the real component.
+  - For `jnp.fft`, we register metadata-only primitives that reuse the same lowering when the call matches the canonical 1-D form (`axis=-1`, optional length). `irfft` keeps the original NumPy behaviour until we finish integrating the dtype-safe reconstruction path.
 
-## Contributing Workflow
+- **Tests**: regression coverage lives under `tests/primitives/test_lax.py::Test_fft`, `Test_add`, `Test_sub`, `Test_mul`, `Test_div`, and `tests/primitives/test_jnp.py::Test_fft/ifft/rfft`.
 
-1. Use native complex tensors everywhere except the boundary to ops that demand packed channels.
-2. Call `pack_native_complex` / `unpack_to_native_complex` around those boundaries.
-3. Stamp dtype/shape metadata before binding outputs.
-4. If you must skip numeric validation, document the upstream blocker and add the testcase triple to the skip allowlist.
-5. Re-run `tests/extra_tests/converter/test_complex_utils.py` and any updated primitive suites (`tests/primitives/test_lax.py::Test_*`).
+## Authoring new plugins with complex inputs
+
+1. **Detect complex flows early.** Inspect JAX avals (`var.aval.dtype`) or existing value metadata. If the operand is complex, call `ensure_packed_real_pair(...)` to normalise it.
+2. **Work in real space.** Once packed, treat the tensors as real arrays. Use `resolve_common_real_dtype` and `cast_real_tensor` to reconcile dtypes before running arithmetic.
+3. **Stamp shapes and metadata.** Most helpers already stamp values, but if you build new tensors (e.g., concatenations) remember to call `_stamp_type_and_shape` with `coerce_dim_values(...)` so the ONNX graph carries explicit metadata.
+4. **Return packed outputs.** Results should remain in `[... , 2]` form. Do not attempt to reintroduce native complex ONNX tensors—runtimes will reject them.
+5. **Tests + docs.** Add `expect_graph` snippets alongside the plugin metadata and cover complex variants in the autogenerated test suites.
+
+## Current limitations
+
+- `jnp.fft.irfft` still delegates to the upstream implementation. The packed-real helpers need a dtype-clean reconstruction path before we can reuse the ONNX `DFT` lowering safely; track this separately if IRFFT metadata is required.
+- When new primitives handle complex data (e.g., transcendental ops), follow the same recipe outlined above: convert to packed real tensors, run the pure-real arithmetic, and emit `[... , 2]` outputs.

@@ -466,6 +466,17 @@ def _run_allclose(
         expected_arr = np.asarray(expected)
         got_arr = np.asarray(got)
 
+        if np.issubdtype(expected_arr.dtype, np.complexfloating) and np.issubdtype(
+            got_arr.dtype, np.floating
+        ):
+            if (
+                got_arr.ndim == expected_arr.ndim + 1
+                and got_arr.shape[:-1] == expected_arr.shape
+                and got_arr.shape[-1] == 2
+            ):
+                got_arr = got_arr[..., 0] + 1j * got_arr[..., 1]
+                got_arr = got_arr.astype(expected_arr.dtype, copy=False)
+
         if expected_arr.shape != got_arr.shape:
             return (
                 False,
@@ -547,8 +558,31 @@ def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
             "bool": np.bool_,
         }
         target_dtype = dtype_map.get(dtype_name)
-        if target_dtype is not None and arr.dtype != target_dtype:
-            arr = arr.astype(target_dtype)
+        if target_dtype is not None:
+            if np.issubdtype(arr.dtype, np.complexfloating) and np.issubdtype(
+                target_dtype, np.floating
+            ):
+                expected_shape = getattr(input_meta, "shape", None)
+                if expected_shape is not None and len(expected_shape) == arr.ndim + 1:
+                    last_dim = expected_shape[-1]
+                    last_dim_as_int: int | None
+                    try:
+                        last_dim_as_int = int(last_dim)
+                    except (TypeError, ValueError):
+                        last_dim_as_int = None
+                    if last_dim_as_int is not None and last_dim_as_int != 2:
+                        raise ValueError(
+                            "Expected trailing dimension of size 2 to pack complex input."
+                        )
+                    packed = np.stack([arr.real, arr.imag], axis=-1).astype(
+                        target_dtype
+                    )
+                    return packed
+                raise ValueError(
+                    "Cannot map complex input to expected real tensor without trailing dimension of size 2."
+                )
+            if arr.dtype != target_dtype:
+                arr = arr.astype(target_dtype)
 
     return arr
 
@@ -576,4 +610,6 @@ def _to_numpy_output(value: Any) -> np.ndarray:
 
 
 def _is_floating_dtype(arr: np.ndarray) -> bool:
-    return np.issubdtype(arr.dtype, np.floating)
+    return np.issubdtype(arr.dtype, np.floating) or np.issubdtype(
+        arr.dtype, np.complexfloating
+    )

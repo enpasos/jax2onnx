@@ -47,7 +47,7 @@ ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
 InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
-_ORT_SAFE_IR_VERSION: int = 11
+_ORT_SAFE_IR_VERSION: int = 10
 
 
 def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
