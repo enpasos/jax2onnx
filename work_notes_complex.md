@@ -15,14 +15,15 @@ Deliver ONNX-compatible complex support for all bilinear primitives mentioned in
 
 ## Notes (2025-10-30)
 - Elementwise add/sub/mul/div now share the helper surface (`ensure_packed_real_pair`, `cast_real_tensor`, `split_packed_real_imag`, `pack_real_imag_pair`) so they exercise the canonical four-real flow.
-- FFT (`lax.fft`, `jnp.fft`) relies on `pack_native_complex`; keep its shape stamping consistent with any helper updates.
-- Dev guide mirrors the helper surface today; we’ll expand “Supported operations” after MatMul/Einsum/Conv/Conj land.
+- FFT (`lax.fft`, `jnp.fft`) already uses `pack_native_complex` with consistent shape stamping; no refactor needed beyond keeping metadata helpers aligned.
+- Dev guide updated with the new helper entries and refreshed elementwise flow notes (2025-10-30).
+- MatMul/Einsum lowering now routes through the shared helpers (`dot_general`, `jnp.matmul`) using four-real contractions (`Einsum` / `MatMul` fan-out) with regression coverage added.
 
 ## Implementation Status
-- Shared helper review: in progress — `_complex_utils.py` mapped and new split/pack helpers (`split_packed_real_imag`, `pack_real_imag_pair`) added for reuse.
-- Existing complex ops helper alignment: in progress — `lax.mul`/`lax.div` now use the shared helpers; FFT path still to verify.
-- Complex numbers dev-guide sync: not started.
-- MatMul / Einsum four-real lowering: not started.
+- Shared helper review: completed — `_complex_utils.py` now includes reusable split/pack helpers centralising four-real plumbing.
+- Existing complex ops helper alignment: completed — add/sub/mul/div share the helpers and FFT pipeline verified consistent with packed representation.
+- Complex numbers dev-guide sync: completed — helper table and elementwise flow updated (2025-10-30).
+- MatMul / Einsum four-real lowering: in progress — `jax.lax.dot_general` and `jnp.matmul` now emit four-real graphs via shared helpers; Conv/Transpose variants still pending.
 - Conv / ConvTranspose four-real lowering: not started.
 - Conjugation helper alignment: not started.
 - Plugin functional tests covering broadcast/precision matrix: not started.
