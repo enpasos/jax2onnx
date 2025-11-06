@@ -41,7 +41,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     ],
 )
 class RsqrtPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn) -> None:  # pragma: no cover - exercised via tests
+    def lower(
+        self, ctx: "IRContext", eqn
+    ) -> None:  # pragma: no cover - exercised via tests
         builder = ctx.builder
 
         x_var = eqn.invars[0]

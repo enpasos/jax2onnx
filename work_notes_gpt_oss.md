@@ -1,6 +1,6 @@
 # GPT-OSS Equinox Example
 
-- Goal: add `plugins/examples/eqx/gpt_oss.py` plus companion assets/tests so GPT-OSS exports mirror the existing DINO workflow (IR lowering checks, expect_graph coverage, ONNX vs. JAX parity).
+- Goal (see issue #127): implement GPT-OSS in Equinox/Flax/NNX, import official weights, export to ONNX, and prove numerical parity against the PyTorch reference. Work here tracks the Equinox slice of https://github.com/enpasos/jax2onnx/issues/127.
 - Context: follow `AGENTS.md` guardrails (IR-only in converter/plugins, deterministic module construction, single-use PRNG keys, expect_graph parity). Use `docs/dev_guides/onnx_ir_builder.md` and `docs/readme/dinov3` as structural references.
 - Initial plan:
   1. Audit `plugins/examples/eqx/dino.py` and associated tests/expect_graph snippets to replicate the pattern for GPT-OSS.
@@ -11,7 +11,13 @@
 - Recent fixes:
   - Replaced `lax.rsqrt` in `RMSNorm` with `jnp.sqrt`/`jnp.reciprocal` so the ONNX pipeline has matching primitive coverage.
   - Sequenced rotary/mask logic now enforces concrete sequence lengths via `jax.core.concrete_or_error`, avoiding dynamic-dim sentinels when tracing the examples.
-- Added shared `eqx.nn.RMSNorm` plugin plus GPT-OSS integration via `_apply_pointwise`; example metadata now instantiates the Equinox module directly so future work can focus on parity testing.
+  - Added torch-style BF16 numerics helpers (`_torch_linear_bf16`, `_torch_rms_norm`, `_torch_top_k`) and plumbed `use_torch_gate` through transformer construction so checkpoint loads can flip on PyTorch-compatible rounding without impacting JAX training paths.
+  - RMSNorm scales remain `float32` when mapping checkpoints, matching the torch reference modules.
+  - MLP gating/experts now quantise intermediate matmuls back to bf16 before applying activation/bias to cut parity drift (remaining max δ≈2.5 on logits, float32 pass still off by ~21).
+- Outstanding:
+  - Stage diff now dominated by MoE combine (`proj2` / weighted sum). Torch-aligned bf16 rounding still needs refinement to bring logits <2 diff and to recover float32 parity.
+  - Once RMSNorm is corrected, re-run `/tmp/compare_attention_stage_eqx.py` to confirm QKV/rotary align before analyzing the sink/softmax path.
+  - After attention parity is achieved, re-run `poetry run pytest tests/extra_tests/test_eqx_gpt_oss_parity.py::test_eqx_matches_torch_with_bfloat16_weights -q`, then expand to the float32-parameter variant and revisit MoE helper coverage.
 
 ## GPT-OSS Architecture Notes
 

@@ -111,6 +111,49 @@ def _apply_linear_nd(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
     return apply_batch(x)
 
 
+def _apply_linear_float32_accum(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
+    """Apply a linear layer while accumulating in float32 (Torch bf16 semantics)."""
+
+    weight = jnp.asarray(linear.weight, dtype=jnp.float32)
+    bias = (
+        jnp.asarray(linear.bias, dtype=jnp.float32)
+        if linear.bias is not None
+        else None
+    )
+
+    orig_shape = x.shape[:-1]
+    features_in = weight.shape[1]
+    x_flat = jnp.reshape(x, (-1, features_in)).astype(jnp.float32)
+    y_flat = jnp.matmul(x_flat, weight.T)
+    if bias is not None:
+        y_flat = y_flat + bias
+
+    y = jnp.reshape(y_flat, orig_shape + (weight.shape[0],))
+    target_dtype = getattr(linear.weight, "dtype", None)
+    if target_dtype is not None:
+        y = y.astype(target_dtype)
+    return y
+
+
+@onnx_function
+class RMSNorm(eqx.Module):
+    """RMS normalization that mirrors the GPT-OSS torch implementation."""
+
+    weight: jnp.ndarray
+    eps: float = eqx.field(static=True, default=1e-5)
+
+    def __init__(self, hidden_size: int, *, eps: float = 1e-5):
+        self.weight = jnp.ones((hidden_size,), dtype=jnp.float32)
+        self.eps = float(eps)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x_f32 = x.astype(jnp.float32)
+        rms = jnp.mean(x_f32 * x_f32, axis=-1, keepdims=True)
+        normalized = x_f32 * jax.lax.rsqrt(rms + self.eps)
+        scaled = normalized * self.weight
+        return scaled.astype(x.dtype)
+
+
 @onnx_function
 class RotaryEmbedding(eqx.Module):
     """YaRN rotary embedding used by GPT-OSS attention blocks."""
@@ -208,14 +251,36 @@ class RotaryEmbedding(eqx.Module):
     def _apply_rotary(
         tensor: jnp.ndarray, cos: jnp.ndarray, sin: jnp.ndarray
     ) -> jnp.ndarray:
-        first, second = jnp.split(tensor, 2, axis=-1)
-        return jnp.concatenate(
-            [
-                first * cos - second * sin,
-                second * cos + first * sin,
-            ],
-            axis=-1,
-        )
+        tensor_dtype = tensor.dtype
+        if tensor.ndim < 2:
+            raise ValueError("RotaryEmbedding expects tensors with rank ≥ 2.")
+
+        seq_axis = 0 if tensor.ndim == 2 else 1
+        seq_len = tensor.shape[seq_axis]
+        head_dim = tensor.shape[-1]
+
+        tensor_moved = jnp.moveaxis(tensor, seq_axis, 0)
+        cos_moved = jnp.moveaxis(cos, seq_axis, 0)
+        sin_moved = jnp.moveaxis(sin, seq_axis, 0)
+
+        leading_shape = tensor_moved.shape[1:-1]
+
+        flat = tensor_moved.reshape(seq_len, -1, head_dim)
+        cos_flat = cos_moved.reshape(seq_len, -1, head_dim // 2)
+        sin_flat = sin_moved.reshape(seq_len, -1, head_dim // 2)
+
+        first, second = jnp.split(flat, 2, axis=-1)
+        cos_cast = cos_flat.astype(tensor_dtype)
+        sin_cast = sin_flat.astype(tensor_dtype)
+        first_cast = first.astype(tensor_dtype)
+        second_cast = second.astype(tensor_dtype)
+        out_first = first_cast * cos_cast - second_cast * sin_cast
+        out_second = second_cast * cos_cast + first_cast * sin_cast
+        rotated_flat = jnp.concatenate([out_first, out_second], axis=-1)
+
+        rotated = rotated_flat.reshape((seq_len,) + leading_shape + (head_dim,))
+        rotated = jnp.moveaxis(rotated, 0, seq_axis)
+        return rotated.astype(tensor_dtype)
 
     def __call__(
         self,
@@ -256,7 +321,7 @@ class AttentionBlock(eqx.Module):
     sm_scale: float = eqx.field(static=True)
     param_dtype: jnp.dtype = eqx.field(static=True)
 
-    norm: eqx.nn.RMSNorm
+    norm: RMSNorm
     rope: RotaryEmbedding
     qkv: eqx.nn.Linear
     out: eqx.nn.Linear
@@ -288,7 +353,7 @@ class AttentionBlock(eqx.Module):
             self.num_attention_heads + 2 * self.num_key_value_heads
         )
         keys = jax.random.split(key, 3)
-        self.norm = eqx.nn.RMSNorm(config.hidden_size)
+        self.norm = RMSNorm(config.hidden_size)
         self.rope = RotaryEmbedding(config, dtype=jnp.float32)
         self.qkv = eqx.nn.Linear(
             config.hidden_size,
@@ -305,7 +370,7 @@ class AttentionBlock(eqx.Module):
             dtype=param_dtype,
         )
         self.sinks = jax.random.normal(
-            keys[2], (self.num_attention_heads,), dtype=jnp.float32
+            keys[2], (self.num_attention_heads,), dtype=param_dtype
         )
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -321,8 +386,10 @@ class AttentionBlock(eqx.Module):
         seq_len = _resolve_seq_length(seq_len_dim, x)
 
         normed = _apply_pointwise(self.norm, x)
-        qkv = _apply_linear_nd(self.qkv, normed)
-        qkv = qkv.astype(jnp.float32)
+        if self.param_dtype == jnp.bfloat16:
+            qkv = _apply_linear_float32_accum(self.qkv, normed)
+        else:
+            qkv = _apply_linear_nd(self.qkv, normed)
 
         split_q = self.num_attention_heads * self.head_dim
         split_k = split_q + self.num_key_value_heads * self.head_dim
@@ -341,9 +408,6 @@ class AttentionBlock(eqx.Module):
         v = v.reshape(batch, seq_len, self.num_key_value_heads, self.head_dim)
 
         q, k = self.rope(q, k, seq_len=seq_len)
-        q = q.astype(jnp.float32)
-        k = k.astype(jnp.float32)
-        v = v.astype(jnp.float32)
 
         k_broadcast = jnp.broadcast_to(
             k[..., None, :],
@@ -406,7 +470,11 @@ class AttentionBlock(eqx.Module):
             seq_len,
             self.num_attention_heads * self.head_dim,
         )
-        projected = _apply_linear_nd(self.out, attn).astype(x.dtype)
+        if self.param_dtype == jnp.bfloat16:
+            projected = _apply_linear_float32_accum(self.out, attn)
+        else:
+            projected = _apply_linear_nd(self.out, attn)
+        projected = projected.astype(x.dtype)
         return x + projected
 
 
@@ -422,7 +490,7 @@ class MLPBlock(eqx.Module):
     intermediate_size: int = eqx.field(static=True)
     param_dtype: jnp.dtype = eqx.field(static=True)
 
-    norm: eqx.nn.RMSNorm
+    norm: RMSNorm
     gate: eqx.nn.Linear
     mlp1_weight: jnp.ndarray
     mlp1_bias: jnp.ndarray
@@ -445,7 +513,7 @@ class MLPBlock(eqx.Module):
         self.param_dtype = param_dtype
 
         keys = jax.random.split(key, 4)
-        self.norm = eqx.nn.RMSNorm(self.hidden_size)
+        self.norm = RMSNorm(self.hidden_size)
         self.gate = eqx.nn.Linear(
             self.hidden_size,
             self.num_experts,
@@ -498,7 +566,56 @@ class MLPBlock(eqx.Module):
                 f"Hidden size mismatch: expected {self.hidden_size}, got {x.shape[-1]}."
             )
 
-        normed = _apply_pointwise(self.norm, x).astype(jnp.float32)
+        normed = _apply_pointwise(self.norm, x)
+
+        if self.param_dtype == jnp.bfloat16:
+            gate_logits = _apply_linear_float32_accum(self.gate, normed).astype(
+                self.param_dtype
+            )
+            expert_scores, expert_indices = jax.lax.top_k(
+                gate_logits.astype(jnp.float32), self.experts_per_token
+            )
+            expert_scores = expert_scores.astype(self.param_dtype)
+            expert_weights = nn.softmax(
+                expert_scores.astype(jnp.float32), axis=-1
+            ).astype(self.param_dtype)
+
+            mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
+                jnp.float32
+            )
+            mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(
+                jnp.float32
+            )
+            proj1 = jnp.einsum(
+                "bskoh,bsh->bsko",
+                mlp1_weight,
+                normed.astype(jnp.float32),
+                optimize="optimal",
+            )
+            proj1 = (proj1 + mlp1_bias).astype(self.param_dtype)
+            act = _swiglu(proj1.astype(self.param_dtype), limit=self.swiglu_limit)
+
+            mlp2_weight = jnp.take(self.mlp2_weight, expert_indices, axis=0).astype(
+                self.param_dtype
+            )
+            mlp2_bias = jnp.take(self.mlp2_bias, expert_indices, axis=0).astype(
+                self.param_dtype
+            )
+            proj2 = jnp.einsum(
+                "bskhi,bski->bskh",
+                mlp2_weight,
+                act.astype(self.param_dtype),
+                optimize="optimal",
+            ).astype(self.param_dtype)
+            proj2 = proj2 + mlp2_bias
+            combined = jnp.einsum(
+                "bskh,bsk->bsh",
+                proj2,
+                expert_weights,
+                optimize="optimal",
+            ).astype(self.param_dtype)
+            return x + combined.astype(x.dtype)
+
         gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
         expert_scores, expert_indices = jax.lax.top_k(
             gate_logits, self.experts_per_token
@@ -514,11 +631,15 @@ class MLPBlock(eqx.Module):
         )
         mlp2_bias = jnp.take(self.mlp2_bias, expert_indices, axis=0).astype(jnp.float32)
 
-        proj1 = jnp.einsum("bskoh,bsh->bsko", mlp1_weight, normed, optimize="optimal")
+        proj1 = jnp.einsum(
+            "bskoh,bsh->bsko", mlp1_weight, normed.astype(jnp.float32), optimize="optimal"
+        )
         proj1 = proj1 + mlp1_bias
         act = _swiglu(proj1, limit=self.swiglu_limit)
 
-        proj2 = jnp.einsum("bskhi,bski->bskh", mlp2_weight, act, optimize="optimal")
+        proj2 = jnp.einsum(
+            "bskhi,bski->bskh", mlp2_weight, act, optimize="optimal"
+        )
         proj2 = proj2 + mlp2_bias
         combined = jnp.einsum(
             "bskh,bsk->bsh", proj2, expert_weights, optimize="optimal"
@@ -568,7 +689,7 @@ class Transformer(eqx.Module):
     param_dtype: jnp.dtype = eqx.field(static=True)
     embedding: eqx.nn.Embedding
     blocks: Sequence[TransformerBlock]
-    norm: eqx.nn.RMSNorm
+    norm: RMSNorm
     unembedding: eqx.nn.Linear
 
     def __init__(
@@ -599,7 +720,7 @@ class Transformer(eqx.Module):
             )
             for i in range(num_blocks)
         )
-        self.norm = eqx.nn.RMSNorm(config.hidden_size)
+        self.norm = RMSNorm(config.hidden_size)
         self.unembedding = eqx.nn.Linear(
             config.hidden_size,
             config.vocab_size,
@@ -617,12 +738,14 @@ class Transformer(eqx.Module):
         elif tokens.ndim != 2:
             raise ValueError("Transformer expects token tensors shaped (batch, seq).")
 
-        embedded = jnp.take(self.embedding.weight, tokens, axis=0)
-        x = embedded.astype(jnp.float32)
+        x = jnp.take(self.embedding.weight, tokens, axis=0)
         for block in self.blocks:
             x = block(x)
         x = _apply_pointwise(self.norm, x)
-        logits = _apply_linear_nd(self.unembedding, x).astype(jnp.float32)
+        logits = _apply_linear_nd(self.unembedding, x)
+        if self.param_dtype == jnp.bfloat16:
+            logits = logits.astype(self.param_dtype)
+        logits = logits.astype(jnp.float32)
         if squeeze_batch:
             return logits[0]
         return logits
@@ -747,7 +870,7 @@ def _populate_eqx_from_checkpoint(
             _tensor_from_checkpoint(
                 checkpoint,
                 f"block.{idx}.attn.sinks",
-                dtype=jnp.float32,
+                dtype=param_dtype,
             ),
         )
         eqx_model = eqx.tree_at(
@@ -756,7 +879,7 @@ def _populate_eqx_from_checkpoint(
             _tensor_from_checkpoint(
                 checkpoint,
                 f"block.{idx}.attn.norm.scale",
-                dtype=param_dtype,
+                dtype=jnp.float32,
             ),
         )
         eqx_model = eqx.tree_at(
@@ -802,7 +925,7 @@ def _populate_eqx_from_checkpoint(
             _tensor_from_checkpoint(
                 checkpoint,
                 f"block.{idx}.mlp.norm.scale",
-                dtype=param_dtype,
+                dtype=jnp.float32,
             ),
         )
         eqx_model = eqx.tree_at(
@@ -866,7 +989,7 @@ def _populate_eqx_from_checkpoint(
         _tensor_from_checkpoint(
             checkpoint,
             "norm.scale",
-            dtype=param_dtype,
+            dtype=jnp.float32,
         ),
     )
     eqx_model = eqx.tree_at(
@@ -899,12 +1022,12 @@ def _populate_eqx_from_torch(
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].attn.sinks,
             eqx_model,
-            _torch_tensor_to_jax(torch_block.attn.sinks, dtype=jnp.float32),
+            _torch_tensor_to_jax(torch_block.attn.sinks, dtype=param_dtype),
         )
         eqx_model = eqx.tree_at(
-            lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
-            eqx_model,
-            _torch_tensor_to_jax(torch_block.attn.norm.scale, dtype=param_dtype),
+        lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
+        eqx_model,
+        _torch_tensor_to_jax(torch_block.attn.norm.scale, dtype=jnp.float32),
         )
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].attn.qkv.weight,
@@ -928,9 +1051,9 @@ def _populate_eqx_from_torch(
         )
 
         eqx_model = eqx.tree_at(
-            lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
-            eqx_model,
-            _torch_tensor_to_jax(torch_block.mlp.norm.scale, dtype=param_dtype),
+        lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
+        eqx_model,
+        _torch_tensor_to_jax(torch_block.mlp.norm.scale, dtype=jnp.float32),
         )
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].mlp.gate.weight,
@@ -966,7 +1089,7 @@ def _populate_eqx_from_torch(
     eqx_model = eqx.tree_at(
         lambda m: m.norm.weight,
         eqx_model,
-        _torch_tensor_to_jax(torch_model.norm.scale, dtype=param_dtype),
+        _torch_tensor_to_jax(torch_model.norm.scale, dtype=jnp.float32),
     )
     eqx_model = eqx.tree_at(
         lambda m: m.unembedding.weight,
@@ -1061,7 +1184,7 @@ register_example(
             "testcase": "gpt_oss_rmsnorm",
             "callable": construct_and_call(
                 lambda: eqx.filter_vmap(
-                    eqx.nn.RMSNorm(_TEST_CONFIG.hidden_size),
+                    RMSNorm(_TEST_CONFIG.hidden_size),
                     in_axes=0,
                     out_axes=0,
                 )
