@@ -64,3 +64,13 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 - When new primitives handle complex data (e.g., transcendental ops), follow the same recipe outlined above: convert to packed real tensors, run the pure-real arithmetic, and emit `[... , 2]` outputs.
 - Convolution transpose / deconvolution paths are not yet implemented in `jax2onnx`; once a plugin lands it should reuse the same four-real structure (split, canonicalise layout, regroup, repack).
 - Additional regression coverage (broadcasted shapes, reduced-precision dtypes such as `bfloat16`, and multi-group convolutions) is staged in `work_notes_complex.md` and will be brought online incrementally.
+
+
+## Potential optimizations
+
+- **Gaussian 3-multiply strategy:** at the moment we always lower via the straightforward four-real expansion. The `complex_strategy` knob isn’t wired yet; it could be exposed as (`four_real` by default, `gauss` as an opt-in). The Gauss variant would replace the four real multiplies `[(a_r b_r), (a_i b_i), (a_r b_i), (a_i b_r)]` with three multiplies plus a few adds:  
+  1. `p1 = a_r * b_r`  
+  2. `p2 = a_i * b_i`  
+  3. `p3 = (a_r + a_i) * (b_r + b_i)`  
+     then reconstruct `real = p1 - p2` and `imag = p3 - p1 - p2`.  
+  We’ll evaluate this once we can guarantee backend support and have regression coverage for the numerical trade-offs.
