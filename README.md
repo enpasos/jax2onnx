@@ -159,7 +159,7 @@ to_onnx(
 
     * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
     * `lax.dot_general`: add `Einsum` fallback 
-    * **Complex numbers:** packed-real helper stack (`pack_native_complex`, `ensure_packed_real_pair`, `resolve_common_real_dtype`), plugin coverage for `lax.add/sub/mul/div`, and ONNX `DFT` lowering shared by `lax.fft` and `jnp.fft` (see `docs/dev_guides/complex_numbers.md`).
+    * **Complex numbers:** packed-real helper stack (`pack_native_complex`, `ensure_packed_real_pair`, `split_packed_real_imag`, `pack_real_imag_pair`, `conjugate_packed_tensor`), plugin coverage for elementwise ops, `dot_general` / `jnp.matmul`, `conv_general_dilated`, `lax.conj` / `jnp.conj`, and the shared ONNX `DFT` lowering for FFTs. See `docs/dev_guides/complex_numbers.md` for the full playbook.
     * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
     * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
 
@@ -254,6 +254,8 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
 ✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam) and [benmacadam64](https://github.com/benmacadam64)
+
+✨ Special thanks to [@benmacadam64](https://github.com/benmacadam64) for championing the complex-number handling initiative.
 
 ✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
 

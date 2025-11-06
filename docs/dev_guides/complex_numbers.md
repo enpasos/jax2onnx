@@ -62,3 +62,5 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 
 - `jnp.fft.irfft` still delegates to the upstream implementation. The packed-real helpers need a dtype-clean reconstruction path before we can reuse the ONNX `DFT` lowering safely; track this separately if IRFFT metadata is required.
 - When new primitives handle complex data (e.g., transcendental ops), follow the same recipe outlined above: convert to packed real tensors, run the pure-real arithmetic, and emit `[... , 2]` outputs.
+- Convolution transpose / deconvolution paths are not yet implemented in `jax2onnx`; once a plugin lands it should reuse the same four-real structure (split, canonicalise layout, regroup, repack).
+- Additional regression coverage (broadcasted shapes, reduced-precision dtypes such as `bfloat16`, and multi-group convolutions) is staged in `work_notes_complex.md` and will be brought online incrementally.
