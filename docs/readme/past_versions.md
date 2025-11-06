@@ -1,5 +1,6 @@
 # Past Versions
 
+- **0.10.0**: Expanded Equinox DINO exporter (new `equinox/eqx/nn` plugins and example), introduced shared lowering helpers (`_axis0_utils`, `_loop_extent_meta`, `jax/lax/gather_compile`, `jax/lax/gather_helpers`, `jax/image/resize`, `jax/numpy/outer`), refreshed control-flow and scatter/gather implementations, added `@onnx_function(unique=True)`, refactored the IR builder (`clone_graph`, live proxies), and bumped dependencies to JAX 0.8.0 / onnx-ir 0.1.11.
 - **0.9.0** migrates from the ONNX proto builder to `onnx_ir`, adds a `return_mode` (`proto` / `ir` / `file`), and updates dependencies to JAX **0.7.2**, Flax **0.12.0**, Equinox **0.13.2**, onnx-ir **0.1.10**, and onnx **1.19.1**.
 - **0.8.1** adds N-D `lax.dynamic_update_slice` with negative-index handling, sharpens grad/VJP paths for `jnp.cumsum`, introduces `lax.add_any` and the `lax.pow`/`jnp.power`/`jnp.pow` family with improved `lax.scan` dtype propagation, and supports `eqx.nn.Linear(use_bias=False)`.
 - **0.8.0** adds initial Equinox support (`eqx.dropout`, `eqx.layer_norm`, `eqx.linear`, plus an `MlpExample`), stabilizes SSA/shape handling across `lax.scan` and `lax.fori_loop` to prevent dtype leaks, improves dtype propagation in `lax.gather` and `lax.concatenate`, and adds plugin support for `lax.pad`.

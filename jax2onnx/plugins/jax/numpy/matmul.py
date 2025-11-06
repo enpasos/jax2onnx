@@ -8,7 +8,18 @@ import jax
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax import core
+import numpy as np
 
+from jax2onnx.plugins._complex_utils import (
+    COMPLEX_DTYPES,
+    cast_real_tensor,
+    coerce_dim_values,
+    ensure_packed_real_pair,
+    is_packed_complex_tensor,
+    pack_real_imag_pair,
+    resolve_common_real_dtype,
+    split_packed_real_imag,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -109,6 +120,25 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "matmul_complex64",
+            "callable": lambda a, b: jnp.matmul(a, b),
+            "input_values": [
+                np.array(
+                    [[1.0 + 2.0j, -0.5 + 0.25j], [1.5 - 1.0j, 0.25 + 0.75j]],
+                    dtype=np.complex64,
+                ),
+                np.array(
+                    [[0.75 - 0.5j, -1.0 + 1.5j], [2.0 + 0.5j, -0.25 - 1.0j]],
+                    dtype=np.complex64,
+                ),
+            ],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [{"path": "MatMul", "counts": {"MatMul": 4}}],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class JnpMatmulPlugin(PrimitiveLeafPlugin):
@@ -130,9 +160,22 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("matmul_out")
         )
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for matmul lowering")
+
+        if self._maybe_lower_complex(
+            ctx,
+            a_var,
+            b_var,
+            out_var,
+            a_val,
+            b_val,
+            out_spec,
+            out_shape,
+        ):
+            return
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
         result = builder.MatMul(
@@ -156,6 +199,123 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")
         bind_value(out_var, result)
+
+    def _maybe_lower_complex(
+        self,
+        ctx: "IRContext",
+        a_var,
+        b_var,
+        out_var,
+        a_val: ir.Value,
+        b_val: ir.Value,
+        out_spec,
+        out_shape: tuple[int, ...],
+    ) -> bool:
+        def _is_complex(var) -> bool:
+            aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
+            if aval_dtype is None:
+                return False
+            try:
+                return np.issubdtype(np.dtype(aval_dtype), np.complexfloating)
+            except TypeError:
+                return False
+
+        complex_var_hint = (
+            _is_complex(out_var) or _is_complex(a_var) or _is_complex(b_var)
+        )
+        a_dtype = getattr(a_val, "dtype", None)
+        b_dtype = getattr(b_val, "dtype", None)
+        complex_dtype_hint = a_dtype in COMPLEX_DTYPES or b_dtype in COMPLEX_DTYPES
+        packed_hint = False
+        if complex_var_hint or complex_dtype_hint:
+            packed_hint = is_packed_complex_tensor(a_val) or is_packed_complex_tensor(
+                b_val
+            )
+        if not (complex_var_hint or complex_dtype_hint or packed_hint):
+            return False
+
+        a_packed, a_base = ensure_packed_real_pair(
+            ctx, a_val, name_hint="matmul_a_pack"
+        )
+        b_packed, b_base = ensure_packed_real_pair(
+            ctx, b_val, name_hint="matmul_b_pack"
+        )
+        target_dtype = resolve_common_real_dtype(a_base, b_base)
+
+        a_ready = (
+            a_packed
+            if a_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, a_packed, target_dtype, name_hint="matmul_a_cast"
+            )
+        )
+        b_ready = (
+            b_packed
+            if b_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, b_packed, target_dtype, name_hint="matmul_b_cast"
+            )
+        )
+
+        a_real, a_imag = split_packed_real_imag(
+            ctx, a_ready, target_dtype, prefix="matmul_a"
+        )
+        b_real, b_imag = split_packed_real_imag(
+            ctx, b_ready, target_dtype, prefix="matmul_b"
+        )
+
+        result_dims = coerce_dim_values(out_shape)
+
+        def _matmul(lhs: ir.Value, rhs: ir.Value, name: str) -> ir.Value:
+            value = ctx.builder.MatMul(lhs, rhs, _outputs=[ctx.fresh_name(name)])
+            value.type = ir.TensorType(target_dtype)
+            value.dtype = target_dtype
+            _stamp_type_and_shape(value, result_dims)
+            _ensure_value_metadata(ctx, value)
+            return value
+
+        ar_br = _matmul(a_real, b_real, "matmul_ar_br")
+        ai_bi = _matmul(a_imag, b_imag, "matmul_ai_bi")
+        ar_bi = _matmul(a_real, b_imag, "matmul_ar_bi")
+        ai_br = _matmul(a_imag, b_real, "matmul_ai_br")
+
+        real_part = ctx.builder.Sub(
+            ar_br,
+            ai_bi,
+            _outputs=[ctx.fresh_name("matmul_real_part")],
+        )
+        real_part.type = ir.TensorType(target_dtype)
+        real_part.dtype = target_dtype
+        _stamp_type_and_shape(real_part, result_dims)
+        _ensure_value_metadata(ctx, real_part)
+
+        imag_part = ctx.builder.Add(
+            ar_bi,
+            ai_br,
+            _outputs=[ctx.fresh_name("matmul_imag_part")],
+        )
+        imag_part.type = ir.TensorType(target_dtype)
+        imag_part.dtype = target_dtype
+        _stamp_type_and_shape(imag_part, result_dims)
+        _ensure_value_metadata(ctx, imag_part)
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
+        packed = pack_real_imag_pair(
+            ctx,
+            real_part,
+            imag_part,
+            target_dtype,
+            name_hint="matmul_output",
+            output_name=out_name,
+        )
+
+        out_spec.type = ir.TensorType(target_dtype)
+        out_spec.dtype = target_dtype
+        if getattr(packed, "shape", None) is not None:
+            out_spec.shape = packed.shape
+        _ensure_value_metadata(ctx, packed)
+        ctx.bind_value_for_var(out_var, packed)
+        return True
 
     @classmethod
     def binding_specs(cls):

@@ -270,11 +270,11 @@ def to_onnx(
         if not param_map:
             return
 
-        graph = model_proto.graph
+        graph: onnx.GraphProto = model_proto.graph
         existing_inputs = {vi.name for vi in graph.input}
         provided_names = set(existing_inputs)
         provided_names.update(init.name for init in graph.initializer)
-        sparse_inits = getattr(graph, "sparse_initializer", None)
+        sparse_inits = graph.sparse_initializer
         if sparse_inits is not None:
             provided_names.update(init.name for init in sparse_inits)
 

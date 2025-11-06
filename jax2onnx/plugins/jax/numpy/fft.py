@@ -35,7 +35,7 @@ class _JnpFFTMetadata(PrimitiveLeafPlugin):
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.fft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
-    since="v0.10.2",
+    since="v0.10.1",
     context="primitives.jnp",
     component="fft",
     testcases=[
@@ -85,7 +85,7 @@ class JnpFFTMetadata(_JnpFFTMetadata):
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.ifft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.ifft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
-    since="v0.10.2",
+    since="v0.10.1",
     context="primitives.jnp",
     component="ifft",
     testcases=[
@@ -117,7 +117,7 @@ class JnpIFFTMetadata(_JnpFFTMetadata):
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.rfft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.rfft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
-    since="v0.10.2",
+    since="v0.10.1",
     context="primitives.jnp",
     component="rfft",
     testcases=[

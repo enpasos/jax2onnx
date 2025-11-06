@@ -9,6 +9,16 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._complex_utils import (
+    COMPLEX_DTYPES,
+    cast_real_tensor,
+    ensure_packed_real_pair,
+    is_packed_complex_tensor,
+    pack_real_imag_pair,
+    resolve_common_real_dtype,
+    split_packed_real_imag,
+    coerce_dim_values,
+)
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -143,6 +153,126 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "conv_complex64",
+            "callable": lambda x, w: jax.lax.conv(
+                x, w, window_strides=(1, 1), padding="VALID"
+            ),
+            "input_values": [
+                np.array(
+                    [[[[1.0 + 0.5j, -0.25 + 1.0j], [0.75 - 0.5j, 1.5 + 0.25j]]]],
+                    dtype=np.complex64,
+                ),
+                np.array(
+                    [[[[0.5 - 1.0j, 1.0 + 0.75j], [-0.75 + 0.5j, 0.25 - 1.5j]]]],
+                    dtype=np.complex64,
+                ),
+            ],
+            "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Conv", "counts": {"Conv": 4}},
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_complex64_nhwc",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding="VALID",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_values": [
+                np.array(
+                    [
+                        [
+                            [1.0 + 0.5j, -0.25 + 0.75j],
+                            [0.5 - 1.0j, 1.25 + 0.25j],
+                        ],
+                        [
+                            [-0.5 + 0.5j, 0.75 - 0.25j],
+                            [1.5 + 0.75j, -1.0 + 0.5j],
+                        ],
+                    ],
+                    dtype=np.complex64,
+                ).reshape(1, 2, 2, 2),
+                np.array(
+                    [
+                        0.5 - 0.5j,
+                        0.75 + 0.25j,
+                        1.0 + 0.5j,
+                        -0.25 + 1.0j,
+                    ],
+                    dtype=np.complex64,
+                ).reshape(1, 1, 2, 2),
+            ],
+            "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Conv", "counts": {"Conv": 4}},
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_complex128_grouped",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding="VALID",
+                feature_group_count=2,
+            ),
+            "input_values": [
+                np.array(
+                    [
+                        1.0 + 0.5j,
+                        -0.75 + 0.25j,
+                        0.5 - 1.25j,
+                        1.25 + 0.75j,
+                        0.75 + 0.5j,
+                        -0.25 - 0.5j,
+                        1.0 + 0.25j,
+                        -1.5 + 1.0j,
+                        -0.5 + 1.5j,
+                        0.25 - 0.75j,
+                        0.5 + 0.5j,
+                        -0.25 + 1.0j,
+                        1.5 - 0.5j,
+                        -1.0 + 0.5j,
+                        0.75 + 0.25j,
+                        0.5 - 1.5j,
+                    ],
+                    dtype=np.complex128,
+                ).reshape(1, 4, 2, 2),
+                np.array(
+                    [
+                        0.5 + 0.75j,
+                        -0.25 + 0.5j,
+                        1.0 - 0.5j,
+                        0.75 + 1.0j,
+                        -0.5 + 0.25j,
+                        1.25 - 0.75j,
+                        0.5 + 1.25j,
+                        -0.75 + 0.5j,
+                    ],
+                    dtype=np.complex128,
+                ).reshape(4, 2, 1, 1),
+            ],
+            "expected_output_dtypes": [np.float64],
+            "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Conv", "counts": {"Conv": 4}},
+                ],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
@@ -173,41 +303,6 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-
-        canonical_input = lhs_val
-        if lhs_layout != "NCHW":
-            perm = _perm(lhs_layout, "NCHW")
-            transposed = ctx.builder.Transpose(
-                lhs_val,
-                _outputs=[ctx.fresh_name("conv_lhs_nchw")],
-                perm=perm,
-            )
-            lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
-            if lhs_dtype is not None:
-                transposed.type = ir.TensorType(lhs_dtype)
-            _stamp_type_and_shape(transposed, tuple(lhs_shape[i] for i in perm))
-            _ensure_value_metadata(ctx, transposed)
-            canonical_input = transposed
-
-        canonical_kernel = rhs_val
-        if rhs_layout != "OIHW":
-            perm = _perm(rhs_layout, "OIHW")
-            transposed = ctx.builder.Transpose(
-                rhs_val,
-                _outputs=[ctx.fresh_name("conv_rhs_oihw")],
-                perm=perm,
-            )
-            rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
-            if rhs_dtype is not None:
-                transposed.type = ir.TensorType(rhs_dtype)
-            _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
-            _ensure_value_metadata(ctx, transposed)
-            canonical_kernel = transposed
-
-        need_output_transpose = out_layout != "NCHW"
-        perm_to_nchw: Sequence[int] | None = (
-            _perm(out_layout, "NCHW") if need_output_transpose else None
-        )
 
         conv_kwargs: dict[str, object] = {}
         strides = params.get("window_strides", (1, 1))
@@ -250,6 +345,59 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         groups = params.get("feature_group_count", 1)
         if groups != 1:
             conv_kwargs["group"] = int(groups)
+
+        if self._maybe_lower_complex(
+            ctx,
+            lhs_var,
+            rhs_var,
+            lhs_val,
+            rhs_val,
+            out_var,
+            out_spec,
+            lhs_shape,
+            rhs_shape,
+            out_shape,
+            lhs_layout,
+            rhs_layout,
+            out_layout,
+            conv_kwargs,
+        ):
+            return
+
+        canonical_input = lhs_val
+        if lhs_layout != "NCHW":
+            perm = _perm(lhs_layout, "NCHW")
+            transposed = ctx.builder.Transpose(
+                lhs_val,
+                _outputs=[ctx.fresh_name("conv_lhs_nchw")],
+                perm=perm,
+            )
+            lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
+            if lhs_dtype is not None:
+                transposed.type = ir.TensorType(lhs_dtype)
+            _stamp_type_and_shape(transposed, tuple(lhs_shape[i] for i in perm))
+            _ensure_value_metadata(ctx, transposed)
+            canonical_input = transposed
+
+        canonical_kernel = rhs_val
+        if rhs_layout != "OIHW":
+            perm = _perm(rhs_layout, "OIHW")
+            transposed = ctx.builder.Transpose(
+                rhs_val,
+                _outputs=[ctx.fresh_name("conv_rhs_oihw")],
+                perm=perm,
+            )
+            rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
+            if rhs_dtype is not None:
+                transposed.type = ir.TensorType(rhs_dtype)
+            _stamp_type_and_shape(transposed, tuple(rhs_shape[i] for i in perm))
+            _ensure_value_metadata(ctx, transposed)
+            canonical_kernel = transposed
+
+        need_output_transpose = out_layout != "NCHW"
+        perm_to_nchw: Sequence[int] | None = (
+            _perm(out_layout, "NCHW") if need_output_transpose else None
+        )
 
         conv_output_name = (
             ctx.fresh_name("conv_out_nchw")
@@ -294,3 +442,271 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, final_val)
         else:
             ctx.bind_value_for_var(out_var, conv_result)
+
+    def _maybe_lower_complex(
+        self,
+        ctx: "IRContext",
+        lhs_var,
+        rhs_var,
+        lhs_val: ir.Value,
+        rhs_val: ir.Value,
+        out_var,
+        out_spec: ir.Value,
+        lhs_shape: tuple[int, ...],
+        rhs_shape: tuple[int, ...],
+        out_shape: tuple[int, ...],
+        lhs_layout: str,
+        rhs_layout: str,
+        out_layout: str,
+        conv_kwargs: dict[str, object],
+    ) -> bool:
+        def _is_complex_var(var) -> bool:
+            aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
+            if aval_dtype is None:
+                return False
+            try:
+                return np.issubdtype(np.dtype(aval_dtype), np.complexfloating)
+            except TypeError:
+                return False
+
+        lhs_dtype = getattr(lhs_val, "dtype", None)
+        rhs_dtype = getattr(rhs_val, "dtype", None)
+        complex_hint = (
+            lhs_dtype in COMPLEX_DTYPES
+            or rhs_dtype in COMPLEX_DTYPES
+            or _is_complex_var(lhs_var)
+            or _is_complex_var(rhs_var)
+            or _is_complex_var(out_var)
+        )
+        packed_hint = False
+        if complex_hint:
+            packed_hint = is_packed_complex_tensor(lhs_val) or is_packed_complex_tensor(
+                rhs_val
+            )
+        if not (complex_hint or packed_hint):
+            return False
+
+        lhs_packed, lhs_base = ensure_packed_real_pair(
+            ctx, lhs_val, name_hint="conv_lhs_pack"
+        )
+        rhs_packed, rhs_base = ensure_packed_real_pair(
+            ctx, rhs_val, name_hint="conv_rhs_pack"
+        )
+        target_dtype = resolve_common_real_dtype(lhs_base, rhs_base)
+
+        lhs_ready = (
+            lhs_packed
+            if lhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, lhs_packed, target_dtype, name_hint="conv_lhs_cast"
+            )
+        )
+        rhs_ready = (
+            rhs_packed
+            if rhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, rhs_packed, target_dtype, name_hint="conv_rhs_cast"
+            )
+        )
+
+        lhs_real, lhs_imag = split_packed_real_imag(
+            ctx, lhs_ready, target_dtype, prefix="conv_lhs"
+        )
+        rhs_real, rhs_imag = split_packed_real_imag(
+            ctx, rhs_ready, target_dtype, prefix="conv_rhs"
+        )
+
+        perm_input = _perm(lhs_layout, "NCHW") if lhs_layout != "NCHW" else None
+        perm_kernel = _perm(rhs_layout, "OIHW") if rhs_layout != "OIHW" else None
+        need_output_transpose = out_layout != "NCHW"
+        perm_to_nchw: Sequence[int] | None = (
+            _perm(out_layout, "NCHW") if need_output_transpose else None
+        )
+        perm_back: Sequence[int] | None = (
+            _perm("NCHW", out_layout) if need_output_transpose else None
+        )
+        conv_shape_nchw = (
+            tuple(out_shape[i] for i in perm_to_nchw)
+            if perm_to_nchw is not None
+            else tuple(out_shape)
+        )
+
+        def _transpose_to_layout(
+            value: ir.Value,
+            perm: Sequence[int] | None,
+            shape: tuple[int, ...],
+            name_hint: str,
+        ) -> ir.Value:
+            if not perm:
+                return value
+            transposed = ctx.builder.Transpose(
+                value,
+                _outputs=[ctx.fresh_name(name_hint)],
+                perm=list(perm),
+            )
+            perm_shape = tuple(shape[i] for i in perm)
+            _stamp_type_and_shape(transposed, perm_shape)
+            transposed.type = ir.TensorType(
+                getattr(value, "dtype", None) or target_dtype
+            )
+            _ensure_value_metadata(ctx, transposed)
+            return transposed
+
+        def _cast_value(
+            value: ir.Value,
+            dtype: ir.DataType,
+            name_hint: str,
+            *,
+            fallback_shape: tuple[int, ...],
+        ) -> ir.Value:
+            if getattr(value, "dtype", None) == dtype:
+                return value
+            casted = ctx.builder.Cast(
+                value,
+                to=int(dtype.value),
+                _outputs=[ctx.fresh_name(name_hint)],
+            )
+            casted.type = ir.TensorType(dtype)
+            shape_meta = getattr(value, "shape", None)
+            if isinstance(shape_meta, ir.Shape):
+                dims = coerce_dim_values(tuple(shape_meta.dims))
+            elif isinstance(shape_meta, Sequence):
+                dims = coerce_dim_values(tuple(shape_meta))
+            else:
+                dims = coerce_dim_values(fallback_shape)
+            _stamp_type_and_shape(casted, dims)
+            _ensure_value_metadata(ctx, casted)
+            return casted
+
+        conv_compute_dtype = target_dtype
+        if target_dtype == ir.DataType.DOUBLE:
+            conv_compute_dtype = ir.DataType.FLOAT
+
+        lhs_real_canon = _transpose_to_layout(
+            lhs_real, perm_input, lhs_shape, "conv_lhs_real_nchw"
+        )
+        lhs_imag_canon = _transpose_to_layout(
+            lhs_imag, perm_input, lhs_shape, "conv_lhs_imag_nchw"
+        )
+        rhs_real_canon = _transpose_to_layout(
+            rhs_real, perm_kernel, rhs_shape, "conv_rhs_real_oihw"
+        )
+        rhs_imag_canon = _transpose_to_layout(
+            rhs_imag, perm_kernel, rhs_shape, "conv_rhs_imag_oihw"
+        )
+
+        if conv_compute_dtype != target_dtype:
+            lhs_real_canon = _cast_value(
+                lhs_real_canon,
+                conv_compute_dtype,
+                "conv_lhs_real_cast",
+                fallback_shape=conv_shape_nchw,
+            )
+            lhs_imag_canon = _cast_value(
+                lhs_imag_canon,
+                conv_compute_dtype,
+                "conv_lhs_imag_cast",
+                fallback_shape=conv_shape_nchw,
+            )
+            rhs_real_canon = _cast_value(
+                rhs_real_canon,
+                conv_compute_dtype,
+                "conv_rhs_real_cast",
+                fallback_shape=conv_shape_nchw,
+            )
+            rhs_imag_canon = _cast_value(
+                rhs_imag_canon,
+                conv_compute_dtype,
+                "conv_rhs_imag_cast",
+                fallback_shape=conv_shape_nchw,
+            )
+
+        def _conv_op(lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.Value:
+            conv = ctx.builder.Conv(
+                lhs,
+                rhs,
+                _outputs=[ctx.fresh_name(name_hint)],
+                **conv_kwargs,
+            )
+            conv.type = ir.TensorType(conv_compute_dtype)
+            _stamp_type_and_shape(conv, conv_shape_nchw)
+            _ensure_value_metadata(ctx, conv)
+            return conv
+
+        ar_br = _conv_op(lhs_real_canon, rhs_real_canon, "conv_ar_br")
+        ai_bi = _conv_op(lhs_imag_canon, rhs_imag_canon, "conv_ai_bi")
+        ar_bi = _conv_op(lhs_real_canon, rhs_imag_canon, "conv_ar_bi")
+        ai_br = _conv_op(lhs_imag_canon, rhs_real_canon, "conv_ai_br")
+
+        real_part = ctx.builder.Sub(
+            ar_br,
+            ai_bi,
+            _outputs=[ctx.fresh_name("conv_real_part")],
+        )
+        real_part.type = ir.TensorType(conv_compute_dtype)
+        _stamp_type_and_shape(real_part, conv_shape_nchw)
+        _ensure_value_metadata(ctx, real_part)
+
+        imag_part = ctx.builder.Add(
+            ar_bi,
+            ai_br,
+            _outputs=[ctx.fresh_name("conv_imag_part")],
+        )
+        imag_part.type = ir.TensorType(conv_compute_dtype)
+        _stamp_type_and_shape(imag_part, conv_shape_nchw)
+        _ensure_value_metadata(ctx, imag_part)
+
+        if conv_compute_dtype != target_dtype:
+            real_part = _cast_value(
+                real_part,
+                target_dtype,
+                "conv_real_upcast",
+                fallback_shape=conv_shape_nchw,
+            )
+            imag_part = _cast_value(
+                imag_part,
+                target_dtype,
+                "conv_imag_upcast",
+                fallback_shape=conv_shape_nchw,
+            )
+
+        def _from_nchw(
+            value: ir.Value,
+            perm: Sequence[int] | None,
+            name_hint: str,
+        ) -> ir.Value:
+            if not perm:
+                _stamp_type_and_shape(value, out_shape)
+                value.type = ir.TensorType(target_dtype)
+                _ensure_value_metadata(ctx, value)
+                return value
+            transposed = ctx.builder.Transpose(
+                value,
+                _outputs=[ctx.fresh_name(name_hint)],
+                perm=list(perm),
+            )
+            _stamp_type_and_shape(transposed, out_shape)
+            transposed.type = ir.TensorType(target_dtype)
+            _ensure_value_metadata(ctx, transposed)
+            return transposed
+
+        real_final = _from_nchw(real_part, perm_back, "conv_real_out")
+        imag_final = _from_nchw(imag_part, perm_back, "conv_imag_out")
+
+        output_name = getattr(out_spec, "name", None) or ctx.fresh_name("conv_out")
+        packed = pack_real_imag_pair(
+            ctx,
+            real_final,
+            imag_final,
+            target_dtype,
+            name_hint="conv_output",
+            output_name=output_name,
+        )
+
+        out_spec.type = ir.TensorType(target_dtype)
+        out_spec.dtype = target_dtype
+        if getattr(packed, "shape", None) is not None:
+            out_spec.shape = packed.shape
+        _ensure_value_metadata(ctx, packed)
+        ctx.bind_value_for_var(out_var, packed)
+        return True
