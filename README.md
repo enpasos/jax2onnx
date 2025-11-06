@@ -159,7 +159,7 @@ to_onnx(
 * **0.10.1** *(PyPI)*:
 
     * **Complex numbers:** unified packed layout (`[..., 2]`), helper stack for packing/dtype reconciliation, and the first wave of plugin coverage: elementwise (`lax`/`jnp` add/sub/mul/div), conjugation (`lax.conj`, `jnp.conj`), bilinear ops (`lax.dot_general`, `jnp.matmul`, `lax.conv_general_dilated`), plus FFTs via an ONNX-compliant DFT lowering. See `docs/dev_guides/complex_numbers.md` for the full playbook (helpers, roadmap, future optimizations).
-    * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
+    * Add **stacktrace metadata** toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
     * `lax.dot_general`: add `Einsum` fallback 
     * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
     * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
