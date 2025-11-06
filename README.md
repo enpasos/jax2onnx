@@ -153,33 +153,23 @@ to_onnx(
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
 
-### **Upcoming Version**
-
-* **0.10.1**:
-
-    * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
-    * `lax.dot_general`: add `Einsum` fallback 
-    * **Complex numbers:** unified packed layout (`[..., 2]`), helper stack for packing/dtype reconciliation, and the first wave of plugin coverage: elementwise (`lax`/`jnp` add/sub/mul/div), conjugation (`lax.conj`, `jnp.conj`), bilinear ops (`lax.dot_general`, `jnp.matmul`, `lax.conv_general_dilated`), plus FFTs via an ONNX-compliant DFT lowering. See `docs/dev_guides/complex_numbers.md` for the full playbook (helpers, roadmap, future optimizations).
-    * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
-    * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
-
 
 ### **Current Productive Version**
 
-* **0.10.0** *(PyPI)*:
+* **0.10.1** *(PyPI)*:
 
-  * Expand Equinox coverage for the DINOv3 exporter with new plugins (`equinox/eqx/nn/conv.py`, `multihead_attention.py`, `rotary_positional_embedding.py`) and an example at `plugins/examples/eqx/dino.py`.
-  * Add lowering helpers and plugins: `_axis0_utils.py`, `_loop_extent_meta.py`, `jax/lax/gather_compile.py`, `jax/lax/gather_helpers.py`, `jax/image/resize.py`, `jax/numpy/outer.py`.
-  * Rewrite and extend existing plugins—especially `jax.lax` control flow and scatter/gather paths (incl. `while_loop`), `jax.numpy` batching ops (`arange`, `reshape`, `split`, `stack`, `tile`, `where`), and `jax.nn` activations/initializers—improving metadata, axis handling, and ONNX parity.
-  * `@onnx_function`: declare once and reuse by passing the optional `unique=True`.
-  * Refactor IR builder: live graph proxies and a reusable `clone_graph` keep function/loop subgraphs detached and eliminate cross-graph ownership errors.
-  * Update major dependencies: JAX **0.8.0**, onnx-ir **0.1.11**.
+    * **Complex numbers:** unified packed layout (`[..., 2]`), helper stack for packing/dtype reconciliation, and the first wave of plugin coverage: elementwise (`lax`/`jnp` add/sub/mul/div), conjugation (`lax.conj`, `jnp.conj`), bilinear ops (`lax.dot_general`, `jnp.matmul`, `lax.conv_general_dilated`), plus FFTs via an ONNX-compliant DFT lowering. See `docs/dev_guides/complex_numbers.md` for the full playbook (helpers, roadmap, future optimizations).
+    * Add stacktrace metadata toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
+    * `lax.dot_general`: add `Einsum` fallback 
+    * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
+    * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
 
-
+ 
 
 ### **Past Versions**
 
 See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
+ 
 
 ---
 
