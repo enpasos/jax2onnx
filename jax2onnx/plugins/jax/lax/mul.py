@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/mul.py
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 import jax
 import numpy as np
 import onnx_ir as ir
@@ -13,9 +13,13 @@ from jax2onnx.plugins._axis0_utils import (
     stamp_axis0_binary_result,
 )
 from jax2onnx.plugins._complex_utils import (
-    pack_native_complex,
-    _base_dtype_for_complex,
+    cast_real_tensor,
+    ensure_packed_real_pair,
+    resolve_common_real_dtype,
+    split_packed_real_imag,
+    pack_real_imag_pair,
     _shape_tuple,
+    coerce_dim_values,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -186,189 +190,66 @@ class MulPlugin(PrimitiveLeafPlugin):
         lhs: ir.Value,
         rhs: ir.Value,
     ) -> tuple[ir.Value, ir.DataType]:
-        base_dtype = _base_dtype_for_complex(lhs.dtype)
-        lhs_packed = pack_native_complex(ctx, lhs, name_hint="mul_lhs")
-        rhs_packed = pack_native_complex(ctx, rhs, name_hint="mul_rhs")
-        inferred_dtype = getattr(lhs_packed, "dtype", None)
-        if inferred_dtype is not None:
-            base_dtype = inferred_dtype
+        lhs_packed, lhs_dtype = ensure_packed_real_pair(ctx, lhs, name_hint="mul_lhs")
+        rhs_packed, rhs_dtype = ensure_packed_real_pair(ctx, rhs, name_hint="mul_rhs")
 
+        target_dtype = resolve_common_real_dtype(lhs_dtype, rhs_dtype)
         if (
             getattr(ctx.builder, "enable_double_precision", False)
-            and base_dtype == ir.DataType.FLOAT
+            and target_dtype == ir.DataType.FLOAT
         ):
             target_dtype = ir.DataType.DOUBLE
-            lhs_packed = self._cast_real_tensor(
-                ctx,
-                lhs_packed,
-                target_dtype,
-                name_hint="mul_lhs_cast",
+
+        lhs_ready = (
+            lhs_packed
+            if lhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, lhs_packed, target_dtype, name_hint="mul_lhs_cast"
             )
-            rhs_packed = self._cast_real_tensor(
-                ctx,
-                rhs_packed,
-                target_dtype,
-                name_hint="mul_rhs_cast",
+        )
+        rhs_ready = (
+            rhs_packed
+            if rhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, rhs_packed, target_dtype, name_hint="mul_rhs_cast"
             )
-            base_dtype = target_dtype
-        dims = _shape_tuple(lhs_packed)
-        axis = len(dims) - 1
-        base_dims = dims[:-1]
-
-        idx0 = ctx.builder.add_initializer_from_scalar(
-            name=ctx.fresh_name("mul_idx0"),
-            value=np.asarray(0, dtype=np.int64),
         )
-        idx1 = ctx.builder.add_initializer_from_scalar(
-            name=ctx.fresh_name("mul_idx1"),
-            value=np.asarray(1, dtype=np.int64),
-        )
-        for idx in (idx0, idx1):
-            _stamp_type_and_shape(idx, ())
 
-        def _extract_parts(value: ir.Value, prefix: str) -> tuple[ir.Value, ir.Value]:
-            real = ctx.builder.Gather(
-                value,
-                idx0,
-                axis=axis,
-                _outputs=[ctx.fresh_name(f"{prefix}_real")],
+        base_dims = _shape_tuple(lhs_ready)[:-1]
+        dim_values = coerce_dim_values(base_dims)
+
+        lhs_real, lhs_imag = split_packed_real_imag(
+            ctx, lhs_ready, target_dtype, prefix="mul_lhs"
+        )
+        rhs_real, rhs_imag = split_packed_real_imag(
+            ctx, rhs_ready, target_dtype, prefix="mul_rhs"
+        )
+
+        def _binary(op_name: str, a: ir.Value, b: ir.Value, name: str) -> ir.Value:
+            op = getattr(ctx.builder, op_name)
+            result = cast(
+                ir.Value,
+                op(a, b, _outputs=[ctx.fresh_name(name)]),
             )
-            imag = ctx.builder.Gather(
-                value,
-                idx1,
-                axis=axis,
-                _outputs=[ctx.fresh_name(f"{prefix}_imag")],
-            )
-            for part in (real, imag):
-                part.type = ir.TensorType(base_dtype)
-                part.dtype = base_dtype
-                _stamp_type_and_shape(part, base_dims)
-                _ensure_value_metadata(ctx, part)
-            return real, imag
+            result.type = ir.TensorType(target_dtype)
+            result.dtype = target_dtype
+            _stamp_type_and_shape(result, dim_values)
+            _ensure_value_metadata(ctx, result)
+            return result
 
-        a_real, a_imag = _extract_parts(lhs_packed, "mul_lhs")
-        b_real, b_imag = _extract_parts(rhs_packed, "mul_rhs")
+        ar_br = _binary("Mul", lhs_real, rhs_real, "mul_ar_br")
+        ai_bi = _binary("Mul", lhs_imag, rhs_imag, "mul_ai_bi")
+        real_part = _binary("Sub", ar_br, ai_bi, "mul_real_part")
 
-        ar_br = ctx.builder.Mul(
-            a_real,
-            b_real,
-            _outputs=[ctx.fresh_name("mul_ar_br")],
+        ar_bi = _binary("Mul", lhs_real, rhs_imag, "mul_ar_bi")
+        ai_br = _binary("Mul", lhs_imag, rhs_real, "mul_ai_br")
+        imag_part = _binary("Add", ar_bi, ai_br, "mul_imag_part")
+
+        packed = pack_real_imag_pair(
+            ctx,
+            real_part,
+            imag_part,
+            target_dtype,
+            name_hint="mul_output",
         )
-        ai_bi = ctx.builder.Mul(
-            a_imag,
-            b_imag,
-            _outputs=[ctx.fresh_name("mul_ai_bi")],
-        )
-        ar_br.type = ir.TensorType(base_dtype)
-        ai_bi.type = ir.TensorType(base_dtype)
-        ar_br.dtype = base_dtype
-        ai_bi.dtype = base_dtype
-        _stamp_type_and_shape(ar_br, base_dims)
-        _stamp_type_and_shape(ai_bi, base_dims)
-        _ensure_value_metadata(ctx, ar_br)
-        _ensure_value_metadata(ctx, ai_bi)
-
-        real_part = ctx.builder.Sub(
-            ar_br,
-            ai_bi,
-            _outputs=[ctx.fresh_name("mul_real")],
-        )
-        real_part.type = ir.TensorType(base_dtype)
-        real_part.dtype = base_dtype
-        _stamp_type_and_shape(real_part, base_dims)
-        _ensure_value_metadata(ctx, real_part)
-
-        ar_bi = ctx.builder.Mul(
-            a_real,
-            b_imag,
-            _outputs=[ctx.fresh_name("mul_ar_bi")],
-        )
-        ai_br = ctx.builder.Mul(
-            a_imag,
-            b_real,
-            _outputs=[ctx.fresh_name("mul_ai_br")],
-        )
-        for part in (ar_bi, ai_br):
-            part.type = ir.TensorType(base_dtype)
-            part.dtype = base_dtype
-            _stamp_type_and_shape(part, base_dims)
-            _ensure_value_metadata(ctx, part)
-
-        imag_part = ctx.builder.Add(
-            ar_bi,
-            ai_br,
-            _outputs=[ctx.fresh_name("mul_imag")],
-        )
-        imag_part.type = ir.TensorType(base_dtype)
-        imag_part.dtype = base_dtype
-        _stamp_type_and_shape(imag_part, base_dims)
-        _ensure_value_metadata(ctx, imag_part)
-
-        axis_new = len(base_dims)
-
-        def _add_channel(value: ir.Value, prefix: str) -> ir.Value:
-            target = base_dims + (1,)
-            shape_arr = np.asarray(target, dtype=np.int64)
-            shape_init = ctx.builder.add_initializer_from_array(
-                name=ctx.fresh_name(f"{prefix}_shape"),
-                array=shape_arr,
-            )
-            shape_init.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(shape_init, (len(target),))
-            _ensure_value_metadata(ctx, shape_init)
-            reshaped = ctx.builder.Reshape(
-                value,
-                shape_init,
-                _outputs=[ctx.fresh_name(prefix)],
-            )
-            reshaped.type = ir.TensorType(base_dtype)
-            reshaped.dtype = base_dtype
-            _stamp_type_and_shape(reshaped, target)
-            _ensure_value_metadata(ctx, reshaped)
-            return reshaped
-
-        real_unsq = _add_channel(real_part, "mul_real_unsq")
-        imag_unsq = _add_channel(imag_part, "mul_imag_unsq")
-
-        packed = ctx.builder.Concat(
-            real_unsq,
-            imag_unsq,
-            axis=axis_new,
-            _outputs=[ctx.fresh_name("mul_output")],
-        )
-        packed.type = ir.TensorType(base_dtype)
-        packed.dtype = base_dtype
-        _stamp_type_and_shape(packed, base_dims + (2,))
-        _ensure_value_metadata(ctx, packed)
-        if (
-            getattr(ctx.builder, "enable_double_precision", False)
-            and base_dtype == ir.DataType.FLOAT
-        ):
-            packed = self._cast_real_tensor(
-                ctx,
-                packed,
-                ir.DataType.DOUBLE,
-                name_hint="mul_output_cast",
-            )
-            base_dtype = ir.DataType.DOUBLE
-        return packed, base_dtype
-
-    def _cast_real_tensor(
-        self,
-        ctx: "IRContext",
-        value: ir.Value,
-        target_dtype: ir.DataType,
-        *,
-        name_hint: str,
-    ) -> ir.Value:
-        cast = ctx.builder.Cast(
-            value,
-            to=int(target_dtype.value),
-            _outputs=[ctx.fresh_name(name_hint)],
-        )
-        cast.type = ir.TensorType(target_dtype)
-        cast.dtype = target_dtype
-        dims = _shape_tuple(value)
-        _stamp_type_and_shape(cast, dims)
-        _ensure_value_metadata(ctx, cast)
-        return cast
+        return packed, target_dtype
