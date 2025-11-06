@@ -19,6 +19,7 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 | `resolve_common_real_dtype(lhs, rhs)` | Pick the shared real dtype (`FLOAT` or `DOUBLE`) for binary complex operations.
 | `split_packed_real_imag(ctx, value, base_dtype)` | Gather the trailing real and imaginary channels from a packed tensor, returning two real tensors.
 | `pack_real_imag_pair(ctx, real, imag, base_dtype)` | Unsqueeze matching real/imag tensors and concatenate them back into the packed `[... , 2]` representation.
+| `conjugate_packed_tensor(ctx, value, base_dtype)` | Flip the sign of the imaginary channel while preserving shape metadata, producing the complex conjugate of a packed tensor.
 | `coerce_dim_values(dims)` | Normalise shape metadata so `onnx_ir` can stamp symbolic dimensions and integers consistently.
 | `unpack_to_native_complex(...)` | Convert a packed tensor back to a native complex value (used rarely, e.g. when handing results back to JAX in test harnesses).
 
@@ -39,6 +40,13 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
   - Operands are normalised via `ensure_packed_real_pair` and cast to a shared real dtype. The real/imag channels are split with `split_packed_real_imag`, the real-valued contraction (`Einsum` or `MatMul`) runs four times, and `pack_real_imag_pair` stitches the results back together.
   - For `dot_general`, both the batched MatMul fast-path and general `Einsum` lowering share the same helper plumbing so the trailing complex channel is never part of the contraction labels.
   - For `jnp.matmul`, the four-real flow lowers to four ONNX `MatMul` nodes before recombining; broadcasting and vector/matrix promotion match the real path.
+
+- **Convolutions** (`jax.lax.conv_general_dilated`):
+  - Inputs and kernels flow through `ensure_packed_real_pair`, are cast to a shared dtype, and have the complex channel split before any layout transposes.
+  - Each of the four real-valued paths runs through the existing Conv lowering (after layout canonicalisation). Outputs are optionally transposed back to the requested layout and re-packed with `pack_real_imag_pair`.
+
+- **Conjugation** (`jax.lax.conj`, `jnp.conj`):
+  - Normalise packed/native complex inputs with `ensure_packed_real_pair`, call `conjugate_packed_tensor` to negate the imaginary channel, and return the packed output. Real inputs bypass through an `Identity`.
 
 - **Tests**: regression coverage lives under `tests/primitives/test_lax.py::Test_fft`, `Test_add`, `Test_sub`, `Test_mul`, `Test_div`, and `tests/primitives/test_jnp.py::Test_fft/ifft/rfft`.
 

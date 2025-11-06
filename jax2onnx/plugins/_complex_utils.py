@@ -365,6 +365,42 @@ def pack_real_imag_pair(
     return packed
 
 
+def conjugate_packed_tensor(
+    ctx: "IRContext",
+    value: ir.Value,
+    base_dtype: ir.DataType,
+    *,
+    prefix: str,
+    output_name: str | None = None,
+) -> ir.Value:
+    """
+    Return the conjugate of a `[... , 2]` packed tensor.
+    """
+    real_part, imag_part = split_packed_real_imag(
+        ctx, value, base_dtype, prefix=f"{prefix}_split"
+    )
+    neg_imag = cast(
+        ir.Value,
+        ctx.builder.Neg(
+            imag_part,
+            _outputs=[ctx.fresh_name(f"{prefix}_neg_imag")],
+        ),
+    )
+    neg_imag.type = ir.TensorType(base_dtype)
+    dims = coerce_dim_values(_shape_tuple(imag_part))
+    _stamp_type_and_shape(neg_imag, dims)
+    _ensure_value_metadata(ctx, neg_imag)
+
+    return pack_real_imag_pair(
+        ctx,
+        real_part,
+        neg_imag,
+        base_dtype,
+        name_hint=f"{prefix}_conj",
+        output_name=output_name,
+    )
+
+
 def unpack_to_native_complex(
     ctx: "IRContext",
     tensor: ir.Value,
