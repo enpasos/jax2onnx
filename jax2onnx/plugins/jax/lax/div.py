@@ -21,6 +21,8 @@ from jax2onnx.plugins._complex_utils import (
     is_packed_complex_tensor,
     resolve_common_real_dtype,
     coerce_dim_values,
+    split_packed_real_imag,
+    pack_real_imag_pair,
     _shape_tuple,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -29,88 +31,6 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
-
-
-def _split_real_imag(
-    ctx: "IRContext",
-    value: ir.Value,
-    base_dtype: ir.DataType,
-    *,
-    prefix: str,
-) -> tuple[ir.Value, ir.Value]:
-    dims = _shape_tuple(value)
-    if not dims:
-        raise ValueError("Packed complex tensor must be at least rank-1")
-    axis = len(dims) - 1
-    idx0 = ctx.builder.add_initializer_from_scalar(
-        name=ctx.fresh_name(f"{prefix}_idx0"),
-        value=np.asarray(0, dtype=np.int64),
-    )
-    idx1 = ctx.builder.add_initializer_from_scalar(
-        name=ctx.fresh_name(f"{prefix}_idx1"),
-        value=np.asarray(1, dtype=np.int64),
-    )
-    for idx in (idx0, idx1):
-        _stamp_type_and_shape(idx, ())
-        _ensure_value_metadata(ctx, idx)
-
-    real = cast(
-        ir.Value,
-        ctx.builder.Gather(
-            value,
-            idx0,
-            axis=axis,
-            _outputs=[ctx.fresh_name(f"{prefix}_real")],
-        ),
-    )
-    imag = cast(
-        ir.Value,
-        ctx.builder.Gather(
-            value,
-            idx1,
-            axis=axis,
-            _outputs=[ctx.fresh_name(f"{prefix}_imag")],
-        ),
-    )
-    base_dims = dims[:-1]
-    dim_values = coerce_dim_values(base_dims)
-    for part in (real, imag):
-        part.type = ir.TensorType(base_dtype)
-        part.dtype = base_dtype
-        _stamp_type_and_shape(part, dim_values)
-        _ensure_value_metadata(ctx, part)
-    return real, imag
-
-
-def _unsqueeze_channel(
-    ctx: "IRContext",
-    value: ir.Value,
-    base_dtype: ir.DataType,
-    *,
-    prefix: str,
-) -> ir.Value:
-    dims = _shape_tuple(value)
-    target = dims + (1,)
-    shape_init = ctx.builder.add_initializer_from_array(
-        name=ctx.fresh_name(f"{prefix}_shape"),
-        array=np.asarray(target, dtype=np.int64),
-    )
-    shape_init.type = ir.TensorType(ir.DataType.INT64)
-    _stamp_type_and_shape(shape_init, (len(target),))
-    _ensure_value_metadata(ctx, shape_init)
-    reshaped = cast(
-        ir.Value,
-        ctx.builder.Reshape(
-            value,
-            shape_init,
-            _outputs=[ctx.fresh_name(prefix)],
-        ),
-    )
-    reshaped.type = ir.TensorType(base_dtype)
-    reshaped.dtype = base_dtype
-    _stamp_type_and_shape(reshaped, coerce_dim_values(target))
-    _ensure_value_metadata(ctx, reshaped)
-    return reshaped
 
 
 def _lower_complex_div(
@@ -150,10 +70,10 @@ def _lower_complex_div(
         _ensure_value_metadata(ctx, result)
         return result
 
-    lhs_real, lhs_imag = _split_real_imag(
+    lhs_real, lhs_imag = split_packed_real_imag(
         ctx, lhs_ready, target_dtype, prefix="div_lhs"
     )
-    rhs_real, rhs_imag = _split_real_imag(
+    rhs_real, rhs_imag = split_packed_real_imag(
         ctx, rhs_ready, target_dtype, prefix="div_rhs"
     )
 
@@ -172,23 +92,14 @@ def _lower_complex_div(
     real_part = _binary("Div", real_num, denom, "div_real_part")
     imag_part = _binary("Div", imag_num, denom, "div_imag_part")
 
-    real_unsq = _unsqueeze_channel(ctx, real_part, target_dtype, prefix="div_real_unsq")
-    imag_unsq = _unsqueeze_channel(ctx, imag_part, target_dtype, prefix="div_imag_unsq")
-
-    axis = len(base_dims)
-    packed = cast(
-        ir.Value,
-        ctx.builder.Concat(
-            real_unsq,
-            imag_unsq,
-            axis=axis,
-            _outputs=[output_name],
-        ),
+    packed = pack_real_imag_pair(
+        ctx,
+        real_part,
+        imag_part,
+        target_dtype,
+        name_hint="div_output",
+        output_name=output_name,
     )
-    packed.type = ir.TensorType(target_dtype)
-    packed.dtype = target_dtype
-    _stamp_type_and_shape(packed, coerce_dim_values(base_dims + (2,)))
-    _ensure_value_metadata(ctx, packed)
     return packed, target_dtype
 
 

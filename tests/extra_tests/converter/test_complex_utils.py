@@ -12,6 +12,7 @@ from jax2onnx.plugins._complex_utils import (
     ensure_complex_dtype,
     pack_native_complex,
     unpack_to_native_complex,
+    conjugate_packed_tensor,
 )
 
 
@@ -97,3 +98,25 @@ def test_pack_native_complex_rejects_non_complex_inputs() -> None:
 
     with pytest.raises(ValueError):
         pack_native_complex(ctx, real_init, name_hint="bad")
+
+
+def test_conjugate_packed_tensor_flips_imag_sign() -> None:
+    ctx = IRContext(opset=18, enable_double_precision=False)
+    complex_vals = np.asarray([[[1.0 + 2.0j, 3.0 - 4.0j]]], dtype=np.complex64)
+    complex_init = ctx.builder.add_initializer_from_array(
+        name="conv_input",
+        array=complex_vals,
+    )
+
+    packed = pack_native_complex(ctx, complex_init, name_hint="conv")
+    conj = conjugate_packed_tensor(
+        ctx,
+        packed,
+        ir.DataType.FLOAT,
+        prefix="conv_conj",
+    )
+
+    assert conj.dtype == ir.DataType.FLOAT
+    assert _dims(conj) == (1, 1, 2, 2)
+    # Gather/Gather, Neg, Unsqueeze, Unsqueeze, Concat expected
+    assert "Neg" in _ops(ctx)

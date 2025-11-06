@@ -11,6 +11,16 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.plugins._complex_utils import (
+    COMPLEX_DTYPES,
+    cast_real_tensor,
+    coerce_dim_values,
+    ensure_packed_real_pair,
+    is_packed_complex_tensor,
+    pack_real_imag_pair,
+    resolve_common_real_dtype,
+    split_packed_real_imag,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -153,6 +163,27 @@ if TYPE_CHECKING:  # pragma: no cover
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "dot_general_complex_matmul",
+            "callable": lambda x, y: jax.lax.dot_general(
+                x, y, (((1,), (0,)), ((), ()))
+            ),
+            "input_values": [
+                np.array(
+                    [[1.0 + 2.0j, -1.5 + 0.5j], [0.25 - 0.75j, 2.0 + 1.0j]],
+                    dtype=np.complex64,
+                ),
+                np.array(
+                    [[0.5 - 1.0j, 1.0 + 0.25j], [1.5 + 0.5j, -0.75 + 2.0j]],
+                    dtype=np.complex64,
+                ),
+            ],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [{"path": "Einsum", "counts": {"Einsum": 4}}],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class DotGeneralPlugin(PrimitiveLeafPlugin):
@@ -179,6 +210,24 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
+
+        if self._maybe_lower_complex(
+            ctx,
+            lhs_var,
+            rhs_var,
+            out_var,
+            lhs_val,
+            rhs_val,
+            out_spec,
+            lhs_shape,
+            rhs_shape,
+            out_shape,
+            lhs_contract,
+            rhs_contract,
+            lhs_batch,
+            rhs_batch,
+        ):
+            return
 
         if self._try_lower_matmul(
             ctx,
@@ -214,6 +263,188 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_batch,
             rhs_batch,
         )
+
+    def _maybe_lower_complex(
+        self,
+        ctx: "IRContext",
+        lhs_var,
+        rhs_var,
+        out_var,
+        lhs_val,
+        rhs_val,
+        out_spec,
+        lhs_shape,
+        rhs_shape,
+        out_shape,
+        lhs_contract,
+        rhs_contract,
+        lhs_batch,
+        rhs_batch,
+    ) -> bool:
+        def _is_complex_var(var) -> bool:
+            aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
+            if aval_dtype is None:
+                return False
+            try:
+                return np.issubdtype(np.dtype(aval_dtype), np.complexfloating)
+            except TypeError:
+                return False
+
+        complex_var_hint = (
+            _is_complex_var(out_var)
+            or _is_complex_var(lhs_var)
+            or _is_complex_var(rhs_var)
+        )
+        lhs_dtype = getattr(lhs_val, "dtype", None)
+        rhs_dtype = getattr(rhs_val, "dtype", None)
+        complex_dtype_hint = lhs_dtype in COMPLEX_DTYPES or rhs_dtype in COMPLEX_DTYPES
+        packed_hint = False
+        if complex_var_hint or complex_dtype_hint:
+            packed_hint = is_packed_complex_tensor(lhs_val) or is_packed_complex_tensor(
+                rhs_val
+            )
+        if not (complex_var_hint or complex_dtype_hint or packed_hint):
+            return False
+
+        lhs_packed, lhs_base_dtype = ensure_packed_real_pair(
+            ctx, lhs_val, name_hint="dot_lhs_pack"
+        )
+        rhs_packed, rhs_base_dtype = ensure_packed_real_pair(
+            ctx, rhs_val, name_hint="dot_rhs_pack"
+        )
+        target_dtype = resolve_common_real_dtype(lhs_base_dtype, rhs_base_dtype)
+
+        lhs_ready = (
+            lhs_packed
+            if lhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, lhs_packed, target_dtype, name_hint="dot_lhs_cast"
+            )
+        )
+        rhs_ready = (
+            rhs_packed
+            if rhs_packed.dtype == target_dtype
+            else cast_real_tensor(
+                ctx, rhs_packed, target_dtype, name_hint="dot_rhs_cast"
+            )
+        )
+
+        lhs_real, lhs_imag = split_packed_real_imag(
+            ctx, lhs_ready, target_dtype, prefix="dot_lhs"
+        )
+        rhs_real, rhs_imag = split_packed_real_imag(
+            ctx, rhs_ready, target_dtype, prefix="dot_rhs"
+        )
+
+        target_batch_rank = max(len(lhs_batch), len(rhs_batch))
+
+        lhs_real_prepped, lhs_real_shape, lhs_batch_adj, lhs_contract_adj = (
+            self._prepare_operand_for_einsum(
+                ctx,
+                lhs_real,
+                lhs_shape,
+                lhs_batch,
+                lhs_contract,
+                target_batch_rank,
+                "dot_lhs_real_pad",
+            )
+        )
+        rhs_real_prepped, rhs_real_shape, rhs_batch_adj, rhs_contract_adj = (
+            self._prepare_operand_for_einsum(
+                ctx,
+                rhs_real,
+                rhs_shape,
+                rhs_batch,
+                rhs_contract,
+                target_batch_rank,
+                "dot_rhs_real_pad",
+            )
+        )
+        lhs_imag_prepped, _, _, _ = self._prepare_operand_for_einsum(
+            ctx,
+            lhs_imag,
+            lhs_shape,
+            lhs_batch,
+            lhs_contract,
+            target_batch_rank,
+            "dot_lhs_imag_pad",
+        )
+        rhs_imag_prepped, _, _, _ = self._prepare_operand_for_einsum(
+            ctx,
+            rhs_imag,
+            rhs_shape,
+            rhs_batch,
+            rhs_contract,
+            target_batch_rank,
+            "dot_rhs_imag_pad",
+        )
+
+        lhs_labels, rhs_labels, out_labels = self._compute_einsum_labels(
+            lhs_real_shape,
+            rhs_real_shape,
+            lhs_contract_adj,
+            rhs_contract_adj,
+            lhs_batch_adj,
+            rhs_batch_adj,
+        )
+        equation = f"{lhs_labels},{rhs_labels}->{out_labels}"
+        result_dims = coerce_dim_values(out_shape)
+
+        def _einsum(left: ir.Value, right: ir.Value, name: str) -> ir.Value:
+            value = ctx.builder.Einsum(
+                left,
+                right,
+                equation=equation,
+                _outputs=[ctx.fresh_name(name)],
+            )
+            value.type = ir.TensorType(target_dtype)
+            value.dtype = target_dtype
+            _stamp_type_and_shape(value, result_dims)
+            _ensure_value_metadata(ctx, value)
+            return value
+
+        ar_br = _einsum(lhs_real_prepped, rhs_real_prepped, "dot_ar_br")
+        ai_bi = _einsum(lhs_imag_prepped, rhs_imag_prepped, "dot_ai_bi")
+        ar_bi = _einsum(lhs_real_prepped, rhs_imag_prepped, "dot_ar_bi")
+        ai_br = _einsum(lhs_imag_prepped, rhs_real_prepped, "dot_ai_br")
+
+        real_part = ctx.builder.Sub(
+            ar_br,
+            ai_bi,
+            _outputs=[ctx.fresh_name("dot_real_part")],
+        )
+        real_part.type = ir.TensorType(target_dtype)
+        real_part.dtype = target_dtype
+        _stamp_type_and_shape(real_part, result_dims)
+        _ensure_value_metadata(ctx, real_part)
+
+        imag_part = ctx.builder.Add(
+            ar_bi,
+            ai_br,
+            _outputs=[ctx.fresh_name("dot_imag_part")],
+        )
+        imag_part.type = ir.TensorType(target_dtype)
+        imag_part.dtype = target_dtype
+        _stamp_type_and_shape(imag_part, result_dims)
+        _ensure_value_metadata(ctx, imag_part)
+
+        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dot_out")
+        packed = pack_real_imag_pair(
+            ctx,
+            real_part,
+            imag_part,
+            target_dtype,
+            name_hint="dot_output",
+            output_name=out_name,
+        )
+
+        out_spec.type = ir.TensorType(target_dtype)
+        out_spec.dtype = target_dtype
+        if getattr(packed, "shape", None) is not None:
+            out_spec.shape = packed.shape
+        _ensure_value_metadata(ctx, packed)
+        ctx.bind_value_for_var(out_var, packed)
+        return True
 
     def _try_lower_matmul(
         self,
@@ -389,35 +620,37 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
         target_batch_rank = max(len(lhs_batch), len(rhs_batch))
 
-        if len(lhs_batch) < target_batch_rank:
-            lhs_val, lhs_shape, lhs_batch, lhs_contract = self._pad_operand_front(
+        lhs_val_prepped, lhs_shape_prepped, lhs_batch_adj, lhs_contract_adj = (
+            self._prepare_operand_for_einsum(
                 ctx,
                 lhs_val,
                 lhs_shape,
                 lhs_batch,
                 lhs_contract,
-                target_batch_rank - len(lhs_batch),
+                target_batch_rank,
                 "dot_lhs_batch_pad",
             )
-        if len(rhs_batch) < target_batch_rank:
-            rhs_val, rhs_shape, rhs_batch, rhs_contract = self._pad_operand_front(
+        )
+        rhs_val_prepped, rhs_shape_prepped, rhs_batch_adj, rhs_contract_adj = (
+            self._prepare_operand_for_einsum(
                 ctx,
                 rhs_val,
                 rhs_shape,
                 rhs_batch,
                 rhs_contract,
-                target_batch_rank - len(rhs_batch),
+                target_batch_rank,
                 "dot_rhs_batch_pad",
             )
+        )
 
-        if len(lhs_contract) != len(rhs_contract):
+        if len(lhs_contract_adj) != len(rhs_contract_adj):
             raise TypeError(
                 "dot_general requires equal numbers of contracting dims on LHS/RHS"
             )
 
-        for i, j in zip(lhs_batch, rhs_batch):
-            lhs_dim = lhs_shape[i]
-            rhs_dim = rhs_shape[j]
+        for i, j in zip(lhs_batch_adj, rhs_batch_adj):
+            lhs_dim = lhs_shape_prepped[i]
+            rhs_dim = rhs_shape_prepped[j]
             if (
                 lhs_dim is not None
                 and rhs_dim is not None
@@ -428,14 +661,103 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                     f"Batch dim mismatch: lhs[{i}]={lhs_dim} vs rhs[{j}]={rhs_dim}"
                 )
 
-        for i, j in zip(lhs_contract, rhs_contract):
-            lhs_dim = lhs_shape[i]
-            rhs_dim = rhs_shape[j]
+        for i, j in zip(lhs_contract_adj, rhs_contract_adj):
+            lhs_dim = lhs_shape_prepped[i]
+            rhs_dim = rhs_shape_prepped[j]
             if lhs_dim is not None and rhs_dim is not None and lhs_dim != rhs_dim:
                 raise ValueError(
                     f"Contract dim mismatch: lhs[{i}]={lhs_dim} vs rhs[{j}]={rhs_dim}"
                 )
 
+        lhs_labels, rhs_labels, out_labels = self._compute_einsum_labels(
+            lhs_shape_prepped,
+            rhs_shape_prepped,
+            lhs_contract_adj,
+            rhs_contract_adj,
+            lhs_batch_adj,
+            rhs_batch_adj,
+        )
+        equation = f"{lhs_labels},{rhs_labels}->{out_labels}"
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Einsum")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("Einsum")
+
+        result = ctx.builder.Einsum(
+            lhs_val_prepped,
+            rhs_val_prepped,
+            equation=equation,
+            _outputs=[desired_name],
+        )
+
+        spec_type = getattr(out_spec, "type", None)
+        if spec_type is not None:
+            result.type = spec_type
+        else:
+            aval_dtype = getattr(out_var.aval, "dtype", None)
+            if aval_dtype is not None:
+                result.type = ir.TensorType(
+                    _dtype_to_ir(
+                        np.dtype(aval_dtype), ctx.builder.enable_double_precision
+                    )
+                )
+            else:
+                inferred_dtype = next(
+                    (
+                        getattr(getattr(v, "type", None), "dtype", None)
+                        for v in (lhs_val, rhs_val)
+                        if getattr(getattr(v, "type", None), "dtype", None) is not None
+                    ),
+                    None,
+                )
+                if inferred_dtype is not None:
+                    result.type = ir.TensorType(inferred_dtype)
+
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+
+    def _prepare_operand_for_einsum(
+        self,
+        ctx: "IRContext",
+        value: ir.Value,
+        shape: tuple[int, ...],
+        batch_axes: tuple[int, ...],
+        contract_axes: tuple[int, ...],
+        target_batch_rank: int,
+        name_hint: str,
+    ) -> tuple[ir.Value, tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+        shape = tuple(shape)
+        batch_axes = tuple(batch_axes)
+        contract_axes = tuple(contract_axes)
+        prepared = value
+        prepared_shape = shape
+        prepared_batch = batch_axes
+        prepared_contract = contract_axes
+        if len(batch_axes) < target_batch_rank:
+            prepared, prepared_shape, prepared_batch, prepared_contract = (
+                self._pad_operand_front(
+                    ctx,
+                    prepared,
+                    prepared_shape,
+                    prepared_batch,
+                    prepared_contract,
+                    target_batch_rank - len(batch_axes),
+                    name_hint,
+                )
+            )
+        return prepared, prepared_shape, prepared_batch, prepared_contract
+
+    def _compute_einsum_labels(
+        self,
+        lhs_shape: tuple[int, ...],
+        rhs_shape: tuple[int, ...],
+        lhs_contract: tuple[int, ...],
+        rhs_contract: tuple[int, ...],
+        lhs_batch: tuple[int, ...],
+        rhs_batch: tuple[int, ...],
+    ) -> tuple[str, str, str]:
         lhs_rank = len(lhs_shape)
         rhs_rank = len(rhs_shape)
 
@@ -515,45 +837,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         lhs_labels = "".join(lhs_lbl)
         rhs_labels = "".join(rhs_lbl)
         out_labels = "".join(rhs_out_order)
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Einsum")
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("Einsum")
-
-        result = ctx.builder.Einsum(
-            lhs_val,
-            rhs_val,
-            equation=f"{lhs_labels},{rhs_labels}->{out_labels}",
-            _outputs=[desired_name],
-        )
-
-        spec_type = getattr(out_spec, "type", None)
-        if spec_type is not None:
-            result.type = spec_type
-        else:
-            aval_dtype = getattr(out_var.aval, "dtype", None)
-            if aval_dtype is not None:
-                result.type = ir.TensorType(
-                    _dtype_to_ir(
-                        np.dtype(aval_dtype), ctx.builder.enable_double_precision
-                    )
-                )
-            else:
-                inferred_dtype = next(
-                    (
-                        getattr(getattr(v, "type", None), "dtype", None)
-                        for v in (lhs_val, rhs_val)
-                        if getattr(getattr(v, "type", None), "dtype", None) is not None
-                    ),
-                    None,
-                )
-                if inferred_dtype is not None:
-                    result.type = ir.TensorType(inferred_dtype)
-
-        _stamp_type_and_shape(result, out_shape)
-        _ensure_value_metadata(ctx, result)
-        ctx.bind_value_for_var(out_var, result)
+        return lhs_labels, rhs_labels, out_labels
 
     def _pad_operand_front(
         self,

@@ -246,6 +246,161 @@ def resolve_common_real_dtype(lhs: ir.DataType, rhs: ir.DataType) -> ir.DataType
     return ir.DataType.FLOAT
 
 
+def split_packed_real_imag(
+    ctx: "IRContext",
+    value: ir.Value,
+    base_dtype: ir.DataType,
+    *,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
+    """
+    Extract real and imaginary channels from a packed tensor `[... , 2]`.
+    """
+    dims = _shape_tuple(value)
+    if not dims:
+        raise ValueError("Packed complex tensor must have rank >= 1")
+    trailing = dims[-1]
+    if isinstance(trailing, (int, np.integer)) and int(trailing) != 2:
+        raise ValueError(
+            f"Expected trailing dimension of size 2 for real/imag channels, got {trailing}"
+        )
+    axis = len(dims) - 1
+    base_dims = dims[:-1]
+    dim_values = coerce_dim_values(base_dims)
+
+    idx_vals: list[ir.Value] = []
+    for idx in (0, 1):
+        init = ctx.builder.add_initializer_from_scalar(
+            name=ctx.fresh_name(f"{prefix}_idx{idx}"),
+            value=np.asarray(idx, dtype=np.int64),
+        )
+        init.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(init, ())
+        _ensure_value_metadata(ctx, init)
+        idx_vals.append(init)
+
+    parts: list[ir.Value] = []
+    for idx_val, channel in zip(idx_vals, ("real", "imag"), strict=True):
+        gathered = cast(
+            ir.Value,
+            ctx.builder.Gather(
+                value,
+                idx_val,
+                axis=axis,
+                _outputs=[ctx.fresh_name(f"{prefix}_{channel}")],
+            ),
+        )
+        gathered.type = ir.TensorType(base_dtype)
+        gathered.dtype = base_dtype
+        _stamp_type_and_shape(gathered, dim_values)
+        _ensure_value_metadata(ctx, gathered)
+        parts.append(gathered)
+    real_part, imag_part = parts
+    return real_part, imag_part
+
+
+def pack_real_imag_pair(
+    ctx: "IRContext",
+    real: ir.Value,
+    imag: ir.Value,
+    base_dtype: ir.DataType,
+    *,
+    name_hint: str,
+    output_name: str | None = None,
+) -> ir.Value:
+    """
+    Pack real/imag tensors with identical shapes into a `[... , 2]` tensor.
+    """
+    real_dims = _shape_tuple(real)
+    imag_dims = _shape_tuple(imag)
+    if real_dims != imag_dims:
+        raise ValueError(
+            "Real and imaginary tensors must share the same shape for packing"
+        )
+    axis = len(real_dims)
+    coerce_dim_values(real_dims)
+    axes_arr = np.asarray([axis], dtype=np.int64)
+    axes_init = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_hint}_axes"),
+        array=axes_arr,
+    )
+    axes_init.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(axes_init, (1,))
+    _ensure_value_metadata(ctx, axes_init)
+
+    def _unsqueeze(value: ir.Value, channel: str) -> ir.Value:
+        unsqueezed = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                value,
+                axes_init,
+                _outputs=[ctx.fresh_name(f"{name_hint}_{channel}_unsq")],
+            ),
+        )
+        unsqueezed.type = ir.TensorType(base_dtype)
+        unsqueezed.dtype = base_dtype
+        unsqueezed_dims = coerce_dim_values(real_dims + (1,))
+        _stamp_type_and_shape(unsqueezed, unsqueezed_dims)
+        _ensure_value_metadata(ctx, unsqueezed)
+        return unsqueezed
+
+    real_unsq = _unsqueeze(real, "real")
+    imag_unsq = _unsqueeze(imag, "imag")
+
+    concat_name = output_name or ctx.fresh_name(name_hint)
+    packed = cast(
+        ir.Value,
+        ctx.builder.Concat(
+            real_unsq,
+            imag_unsq,
+            axis=axis,
+            _outputs=[concat_name],
+        ),
+    )
+    packed.type = ir.TensorType(base_dtype)
+    packed.dtype = base_dtype
+    packed_dims = coerce_dim_values(real_dims + (2,))
+    _stamp_type_and_shape(packed, packed_dims)
+    _ensure_value_metadata(ctx, packed)
+    return packed
+
+
+def conjugate_packed_tensor(
+    ctx: "IRContext",
+    value: ir.Value,
+    base_dtype: ir.DataType,
+    *,
+    prefix: str,
+    output_name: str | None = None,
+) -> ir.Value:
+    """
+    Return the conjugate of a `[... , 2]` packed tensor.
+    """
+    real_part, imag_part = split_packed_real_imag(
+        ctx, value, base_dtype, prefix=f"{prefix}_split"
+    )
+    neg_imag = cast(
+        ir.Value,
+        ctx.builder.Neg(
+            imag_part,
+            _outputs=[ctx.fresh_name(f"{prefix}_neg_imag")],
+        ),
+    )
+    neg_imag.type = ir.TensorType(base_dtype)
+    dims = coerce_dim_values(_shape_tuple(imag_part))
+    _stamp_type_and_shape(neg_imag, dims)
+    _ensure_value_metadata(ctx, neg_imag)
+
+    return pack_real_imag_pair(
+        ctx,
+        real_part,
+        neg_imag,
+        base_dtype,
+        name_hint=f"{prefix}_conj",
+        output_name=output_name,
+    )
+
+
 def unpack_to_native_complex(
     ctx: "IRContext",
     tensor: ir.Value,
