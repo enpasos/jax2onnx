@@ -19,6 +19,7 @@ dependencies = [
     "einops>=0.8.1",
     "equinox>=0.13.1",
     "onnx-ir>=0.1.10",
+    "huggingface-hub (>=1.1.2,<2.0.0)",
 ]
 
 [tool.poetry.group.test]
@@ -38,6 +39,7 @@ packages = [
 name = "jax-releases"
 url = "https://storage.googleapis.com/jax-releases/jax_releases.html"
 priority = "supplemental"
+
 
 
 

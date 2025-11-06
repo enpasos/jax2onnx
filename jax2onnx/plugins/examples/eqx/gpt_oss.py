@@ -52,10 +52,11 @@ class GPTOSSConfig:
 def _swiglu(x: jnp.ndarray, *, limit: float, alpha: float = 1.702) -> jnp.ndarray:
     """Compute the SwiGLU activation on the final dimension."""
 
-    x_glu = jnp.clip(x[..., ::2], a_min=None, a_max=limit)
-    x_linear = jnp.clip(x[..., 1::2], a_min=-limit, a_max=limit)
-    out_glu = x_glu * nn.sigmoid(alpha * x_glu)
-    return out_glu * (x_linear + 1.0)
+    dtype = x.dtype
+    x_glu = jnp.clip(x[..., ::2], a_min=None, a_max=limit).astype(dtype)
+    x_linear = jnp.clip(x[..., 1::2], a_min=-limit, a_max=limit).astype(dtype)
+    out_glu = x_glu * nn.sigmoid(alpha * x_glu).astype(dtype)
+    return (out_glu * (x_linear + jnp.asarray(1.0, dtype=dtype))).astype(dtype)
 
 
 def _build_causal_mask(
@@ -124,7 +125,13 @@ def _apply_linear_float32_accum(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.nd
     orig_shape = x.shape[:-1]
     features_in = weight.shape[1]
     x_flat = jnp.reshape(x, (-1, features_in)).astype(jnp.float32)
-    y_flat = jnp.matmul(x_flat, weight.T)
+    y_flat = jax.lax.dot_general(
+        x_flat,
+        weight.T,
+        dimension_numbers=(((1,), (0,)), ((), ())),
+        precision=jax.lax.Precision.HIGHEST,
+        preferred_element_type=jnp.float32,
+    )
     if bias is not None:
         y_flat = y_flat + bias
 
@@ -133,6 +140,69 @@ def _apply_linear_float32_accum(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.nd
     if target_dtype is not None:
         y = y.astype(target_dtype)
     return y
+
+
+def _softmax_torch_approx(logits: jnp.ndarray, axis: int = -1) -> jnp.ndarray:
+    """Run softmax in float32 and cast back once (mirrors torch autocast)."""
+
+    logits_f32 = logits.astype(jnp.float32)
+    probs_f32 = nn.softmax(logits_f32, axis=axis)
+    return probs_f32.astype(logits.dtype)
+
+
+def _sdpa_torch_style(
+    q: jnp.ndarray,
+    k: jnp.ndarray,
+    v: jnp.ndarray,
+    *,
+    sinks: jnp.ndarray,
+    sm_scale: float,
+    sliding_window: int,
+) -> jnp.ndarray:
+    """Replicate the torch GPT-OSS SDPA routine for a single batch element."""
+
+    seq_len, num_kv, q_mult, head_dim = q.shape
+    dtype = q.dtype
+
+    q_f32 = q.astype(jnp.float32)
+    k_f32 = k.astype(jnp.float32)
+    v_f32 = v.astype(jnp.float32)
+
+    k_expanded = jnp.expand_dims(k_f32, axis=2)
+    k_expanded = jnp.broadcast_to(k_expanded, (seq_len, num_kv, q_mult, head_dim))
+
+    logits = jnp.einsum(
+        "qhmd,khmd->hmqk",
+        q_f32,
+        k_expanded,
+        optimize="optimal",
+    )
+    logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
+
+    mask = jnp.triu(jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32), k=1)
+    if sliding_window > 0:
+        mask = mask + jnp.tril(
+            jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32),
+            k=-sliding_window,
+        )
+    logits = logits + mask[None, None, :, :]
+
+    sink_logits = sinks.reshape(num_kv, q_mult, 1, 1).astype(jnp.float32)
+    sink_logits = jnp.broadcast_to(sink_logits, (num_kv, q_mult, seq_len, 1))
+    extended_logits = jnp.concatenate([logits, sink_logits], axis=-1)
+    weights = _softmax_torch_approx(extended_logits)[..., :-1]
+
+    v_expanded = jnp.expand_dims(v_f32, axis=2)
+    v_expanded = jnp.broadcast_to(v_expanded, (seq_len, num_kv, q_mult, head_dim))
+
+    attn = jnp.einsum(
+        "hmqk,khmd->qhmd",
+        weights,
+        v_expanded,
+        optimize="optimal",
+    )
+    attn = attn.reshape(seq_len, num_kv * q_mult * head_dim)
+    return attn.astype(dtype)
 
 
 @onnx_function
@@ -148,7 +218,7 @@ class RMSNorm(eqx.Module):
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x_f32 = x.astype(jnp.float32)
-        rms = jnp.mean(x_f32 * x_f32, axis=-1, keepdims=True)
+        rms = jnp.mean(jnp.power(x_f32, 2.0), axis=-1, keepdims=True)
         normalized = x_f32 * jax.lax.rsqrt(rms + self.eps)
         scaled = normalized * self.weight
         return scaled.astype(x.dtype)
@@ -385,11 +455,14 @@ class AttentionBlock(eqx.Module):
             )
         seq_len = _resolve_seq_length(seq_len_dim, x)
 
-        normed = _apply_pointwise(self.norm, x)
         if self.param_dtype == jnp.bfloat16:
-            qkv = _apply_linear_float32_accum(self.qkv, normed)
+            x_compute = x.astype(jnp.bfloat16)
+            normed = _apply_pointwise(self.norm, x_compute).astype(jnp.bfloat16)
+            qkv = _apply_linear_float32_accum(self.qkv, normed).astype(jnp.bfloat16)
         else:
-            qkv = _apply_linear_nd(self.qkv, normed)
+            x_compute = x.astype(jnp.float32)
+            normed = _apply_pointwise(self.norm, x_compute).astype(jnp.float32)
+            qkv = _apply_linear_nd(self.qkv, normed).astype(jnp.float32)
 
         split_q = self.num_attention_heads * self.head_dim
         split_k = split_q + self.num_key_value_heads * self.head_dim
@@ -409,73 +482,28 @@ class AttentionBlock(eqx.Module):
 
         q, k = self.rope(q, k, seq_len=seq_len)
 
-        k_broadcast = jnp.broadcast_to(
-            k[..., None, :],
-            (
-                batch,
-                seq_len,
-                self.num_key_value_heads,
-                self.query_multiplicity,
-                self.head_dim,
-            ),
-        )
-        v_broadcast = jnp.broadcast_to(
-            v[..., None, :],
-            (
-                batch,
-                seq_len,
-                self.num_key_value_heads,
-                self.query_multiplicity,
-                self.head_dim,
-            ),
-        )
+        sinks = self.sinks.reshape(
+            self.num_key_value_heads, self.query_multiplicity
+        ).astype(q.dtype)
 
-        logits = jnp.einsum(
-            "btmrd,bsmrd->bmrts",
-            q,
-            k_broadcast,
-            optimize="optimal",
-        )
-        logits = logits * self.sm_scale
-        mask = _build_causal_mask(
-            seq_len,
-            sliding_window=self.sliding_window,
-            dtype=logits.dtype,
-        )
-        logits = logits + mask
-
-        sinks = self.sinks.reshape(self.num_key_value_heads, self.query_multiplicity)
-        sink_logits = sinks[:, :, None, None]
-        sink_logits = jnp.broadcast_to(
-            sink_logits,
-            (self.num_key_value_heads, self.query_multiplicity, seq_len, 1),
-        )
-        sink_logits = sink_logits.astype(logits.dtype)
-        sink_logits = jnp.broadcast_to(
-            sink_logits[None, ...],
-            (batch, self.num_key_value_heads, self.query_multiplicity, seq_len, 1),
-        )
-
-        extended_logits = jnp.concatenate([logits, sink_logits], axis=-1)
-        weights = nn.softmax(extended_logits, axis=-1)[..., :-1]
-
-        attn = jnp.einsum(
-            "bmrqk,bkmrd->bqmrd",
-            weights,
-            v_broadcast,
-            optimize="optimal",
-        )
-        attn = attn.reshape(
-            batch,
-            seq_len,
-            self.num_attention_heads * self.head_dim,
-        )
+        attn = jax.vmap(
+            lambda q_s, k_s, v_s: _sdpa_torch_style(
+                q_s,
+                k_s,
+                v_s,
+                sinks=sinks,
+                sm_scale=self.sm_scale,
+                sliding_window=self.sliding_window,
+            )
+        )(q, k, v)
         if self.param_dtype == jnp.bfloat16:
-            projected = _apply_linear_float32_accum(self.out, attn)
+            projected = _apply_linear_float32_accum(
+                self.out, attn.astype(jnp.bfloat16)
+            ).astype(jnp.bfloat16)
         else:
-            projected = _apply_linear_nd(self.out, attn)
-        projected = projected.astype(x.dtype)
-        return x + projected
+            projected = _apply_linear_nd(self.out, attn).astype(jnp.float32)
+        residual = x_compute + projected.astype(x_compute.dtype)
+        return residual.astype(x.dtype)
 
 
 @onnx_function
@@ -566,77 +594,49 @@ class MLPBlock(eqx.Module):
                 f"Hidden size mismatch: expected {self.hidden_size}, got {x.shape[-1]}."
             )
 
-        normed = _apply_pointwise(self.norm, x)
+        x_compute = x.astype(jnp.float32)
+        normed = _apply_pointwise(self.norm, x_compute).astype(jnp.float32)
 
         if self.param_dtype == jnp.bfloat16:
-            gate_logits = _apply_linear_float32_accum(self.gate, normed).astype(
-                self.param_dtype
+            gate_weight = jnp.asarray(self.gate.weight, dtype=jnp.float32)
+            gate_bias = (
+                jnp.asarray(self.gate.bias, dtype=jnp.float32)
+                if self.gate.bias is not None
+                else None
             )
+            gate_logits = jnp.einsum(
+                "bsh,oh->bso", normed, gate_weight, optimize="optimal"
+            )
+            if gate_bias is not None:
+                gate_logits = gate_logits + gate_bias
+            gate_logits = gate_logits.astype(jnp.bfloat16)
             expert_scores, expert_indices = jax.lax.top_k(
-                gate_logits.astype(jnp.float32), self.experts_per_token
+                gate_logits, self.experts_per_token
             )
-            expert_scores = expert_scores.astype(self.param_dtype)
-            expert_weights = nn.softmax(
-                expert_scores.astype(jnp.float32), axis=-1
-            ).astype(self.param_dtype)
-
-            mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
-                jnp.float32
+            expert_weights = _softmax_torch_approx(expert_scores).astype(jnp.float32)
+        else:
+            gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
+            expert_scores, expert_indices = jax.lax.top_k(
+                gate_logits, self.experts_per_token
             )
-            mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(
-                jnp.float32
-            )
-            proj1 = jnp.einsum(
-                "bskoh,bsh->bsko",
-                mlp1_weight,
-                normed.astype(jnp.float32),
-                optimize="optimal",
-            )
-            proj1 = (proj1 + mlp1_bias).astype(self.param_dtype)
-            act = _swiglu(proj1.astype(self.param_dtype), limit=self.swiglu_limit)
-
-            mlp2_weight = jnp.take(self.mlp2_weight, expert_indices, axis=0).astype(
-                self.param_dtype
-            )
-            mlp2_bias = jnp.take(self.mlp2_bias, expert_indices, axis=0).astype(
-                self.param_dtype
-            )
-            proj2 = jnp.einsum(
-                "bskhi,bski->bskh",
-                mlp2_weight,
-                act.astype(self.param_dtype),
-                optimize="optimal",
-            ).astype(self.param_dtype)
-            proj2 = proj2 + mlp2_bias
-            combined = jnp.einsum(
-                "bskh,bsk->bsh",
-                proj2,
-                expert_weights,
-                optimize="optimal",
-            ).astype(self.param_dtype)
-            return x + combined.astype(x.dtype)
-
-        gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
-        expert_scores, expert_indices = jax.lax.top_k(
-            gate_logits, self.experts_per_token
-        )
-        expert_weights = nn.softmax(expert_scores, axis=-1)
+        expert_weights = _softmax_torch_approx(
+            expert_scores, axis=-1
+        ).astype(jnp.float32)
 
         mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
             jnp.float32
         )
         mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(jnp.float32)
+        proj1 = jnp.einsum(
+            "bskoh,bsh->bsko", mlp1_weight, normed, optimize="optimal"
+        )
+        proj1 = proj1 + mlp1_bias
+        act = _swiglu(proj1, limit=self.swiglu_limit).astype(jnp.float32)
+
         mlp2_weight = jnp.take(self.mlp2_weight, expert_indices, axis=0).astype(
             jnp.float32
         )
         mlp2_bias = jnp.take(self.mlp2_bias, expert_indices, axis=0).astype(jnp.float32)
-
-        proj1 = jnp.einsum(
-            "bskoh,bsh->bsko", mlp1_weight, normed.astype(jnp.float32), optimize="optimal"
-        )
-        proj1 = proj1 + mlp1_bias
-        act = _swiglu(proj1, limit=self.swiglu_limit)
-
         proj2 = jnp.einsum(
             "bskhi,bski->bskh", mlp2_weight, act, optimize="optimal"
         )
@@ -644,7 +644,8 @@ class MLPBlock(eqx.Module):
         combined = jnp.einsum(
             "bskh,bsk->bsh", proj2, expert_weights, optimize="optimal"
         )
-        return x + combined.astype(x.dtype)
+        residual = x_compute + combined
+        return residual.astype(x.dtype)
 
 
 @onnx_function

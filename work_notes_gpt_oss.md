@@ -13,11 +13,47 @@
   - Sequenced rotary/mask logic now enforces concrete sequence lengths via `jax.core.concrete_or_error`, avoiding dynamic-dim sentinels when tracing the examples.
   - Added torch-style BF16 numerics helpers (`_torch_linear_bf16`, `_torch_rms_norm`, `_torch_top_k`) and plumbed `use_torch_gate` through transformer construction so checkpoint loads can flip on PyTorch-compatible rounding without impacting JAX training paths.
   - RMSNorm scales remain `float32` when mapping checkpoints, matching the torch reference modules.
-  - MLP gating/experts now quantise intermediate matmuls back to bf16 before applying activation/bias to cut parity drift (remaining max δ≈2.5 on logits, float32 pass still off by ~21).
+- `scripts/probe_eqx_gpt_oss_parity.py` now prints stage-by-stage diffs; with bf16 params attention is down to |Δ|max≈1.0, but MoE combine still carries ~34 of error (float32 path remains ≫10²).
 - Outstanding:
-  - Stage diff now dominated by MoE combine (`proj2` / weighted sum). Torch-aligned bf16 rounding still needs refinement to bring logits <2 diff and to recover float32 parity.
+  - Restore bf16 precision by matching torch’s round-trips inside block0 MLP; script shows attention already within tolerance (|Δ|≈1).
+  - Float32 parity still misses badly (block0 MLP ≈3e2). Need to decide whether to keep torch weights in bf16 when running the float32 Equinox path, or add explicit bf16 casts around matmuls so we mimic torch’s compute story.
   - Once RMSNorm is corrected, re-run `/tmp/compare_attention_stage_eqx.py` to confirm QKV/rotary align before analyzing the sink/softmax path.
   - After attention parity is achieved, re-run `poetry run pytest tests/extra_tests/test_eqx_gpt_oss_parity.py::test_eqx_matches_torch_with_bfloat16_weights -q`, then expand to the float32-parameter variant and revisit MoE helper coverage.
+
+## 20B Real-Weights Parity Plan
+
+Goal: run parity against the released `openai/gpt-oss-20b` checkpoint, using real prompts and the official harmony tokenizer/format, then bring the Equinox port into alignment.
+
+1. **Tokenizer & Harmony Setup**
+   - Vendor in (or add optional dependency on) the GPT-OSS `openai-harmony` package.
+   - Load the harmony-compatible tokenizer (`tokenizer.model`) and chat template.
+   - Encode a README prompt (e.g. “Explain quantum mechanics clearly and concisely.”) into token IDs + attention mask.
+   - Store fixture prompt(s) plus expected harmony conversation metadata so tests stay deterministic.
+
+2. **Torch 20B Reference Loader**
+   - Download `openai/gpt-oss-20b` locally (≈16 GB) and expose a helper that loads the official checkpoint into the Torch reference model.
+   - Confirm the prompt round-trips through the README inference pipeline and yields a coherent harmony response (no random weights).
+
+3. **Equinox Mapping for 20B**
+   - Extend `_config_from_torch_transformer` / `_populate_eqx_from_torch` to ingest the real 20B weights (watch MoE MXFP4 specifics).
+   - Ensure parameter dtype handling copies the released bf16 tensors without mutating them.
+
+4. **Parity Harness Upgrade**
+   - Replace the tiny random probe with a harness that:
+     1. Tokenizes the real prompt.
+     2. Runs Torch 20B forward to produce logits / harmony output.
+     3. Mirrors the same prompt through the Equinox model.
+     4. Compares logits and key intermediate activations (attention, MoE combine).
+   - Keep the tiny random probe around as a fast unit test, but gate the real-weight parity behind an integration flag.
+
+5. **Conformance Testing**
+   - Add pytest cases that call the real-weight parity harness (mark as slow / requires model).
+   - Record acceptable tolerances (target |Δ|max ≲ 1e-3 on logits).
+   - Document hardware expectations (GPU/CPU RAM) and instructions for obtaining the weights.
+
+6. **Before Baseline**
+   - Once parity passes on the real prompt(s), rerun the MoE/attention investigations and update expect_graph metadata.
+   - Capture the verified prompt + output pair in docs so future regressions have a reference.
 
 ## GPT-OSS Architecture Notes
 
