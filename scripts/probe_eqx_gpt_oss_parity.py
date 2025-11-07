@@ -17,11 +17,14 @@ from jax2onnx.plugins.examples.eqx.gpt_oss import (
     _apply_pointwise,
     _config_from_torch_transformer,
     _populate_eqx_from_torch,
+    _sdpa_torch_style,
+    _softmax_torch_approx,
     _swiglu,
 )
 from gpt_oss.torch.model import (
     ModelConfig,
     Transformer as TorchTransformer,
+    sdpa as torch_sdpa,
     swiglu as torch_swiglu,
 )
 
@@ -98,8 +101,10 @@ def _run_torch(model: TorchTransformer, tokens: torch.Tensor) -> Dict[str, np.nd
         x = model.embedding(tokens)
         stages["embed"] = x.detach().to(torch.float32).cpu().numpy()
         for idx, block in enumerate(model.block):
-            attn = block.attn(x)
-            stages[f"block{idx}.attn"] = attn.detach().to(torch.float32).cpu().numpy()
+            attn_debug, attn = _torch_attn_stages(block.attn, x)
+            for name, value in attn_debug.items():
+                stages[f"block{idx}.attn.{name}"] = value.detach().to(torch.float32).cpu().numpy()
+            stages[f"block{idx}.attn"] = stages[f"block{idx}.attn.output"]
             mlp_debug, x = _torch_mlp_stages(block.mlp, attn)
             for name, value in mlp_debug.items():
                 stages[f"block{idx}.mlp.{name}"] = value.detach().to(torch.float32).cpu().numpy()
@@ -121,11 +126,11 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
         gate_logits = _apply_linear_float32_accum(block.gate, normed).astype(jnp.bfloat16)
         stages["gate_logits"] = np.array(gate_logits[0], dtype=np.float32)
         expert_scores, expert_indices = jax.lax.top_k(
-            gate_logits.astype(jnp.float32), block.experts_per_token
+            gate_logits, block.experts_per_token
         )
         stages["expert_scores"] = np.array(expert_scores[0], dtype=np.float32)
         stages["expert_indices"] = np.array(expert_indices[0], dtype=np.float32)
-        expert_weights = jnn.softmax(
+        expert_weights = _softmax_torch_approx(
             expert_scores.astype(jnp.float32), axis=-1
         ).astype(jnp.bfloat16)
         stages["expert_weights"] = np.array(expert_weights[0], dtype=np.float32)
@@ -206,13 +211,117 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
     return stages, output
 
 
+def _torch_attn_stages(block, x: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+    stages: Dict[str, torch.Tensor] = {}
+    stages["input"] = x
+    normed = block.norm(x)
+    stages["norm"] = normed
+    qkv = block.qkv(normed)
+    stages["qkv"] = qkv
+    head_dim = block.head_dim
+    num_q = block.num_attention_heads * head_dim
+    num_k = block.num_key_value_heads * head_dim
+    q = qkv[:, :num_q]
+    k = qkv[:, num_q : num_q + num_k]
+    v = qkv[:, num_q + num_k :]
+    stages["q"] = q
+    stages["k"] = k
+    stages["v"] = v
+    q = q.view(
+        -1,
+        block.num_key_value_heads,
+        block.num_attention_heads // block.num_key_value_heads,
+        head_dim,
+    )
+    k = k.view(-1, block.num_key_value_heads, head_dim)
+    v = v.view(-1, block.num_key_value_heads, head_dim)
+    q_rot, k_rot = block.rope(q, k)
+    stages["q_rot"] = q_rot
+    stages["k_rot"] = k_rot
+    attn_inner = torch_sdpa(
+        q_rot, k_rot, v, block.sinks, block.sm_scale, block.sliding_window
+    )
+    stages["attn_core"] = attn_inner
+    attn = block.out(attn_inner)
+    stages["projected"] = attn
+    output = x + attn
+    stages["output"] = output
+    return stages, output
+
+
+def _eqx_attn_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.ndarray]:
+    stages: Dict[str, np.ndarray] = {}
+    stages["input"] = np.array(x[0], dtype=np.float32)
+    if block.param_dtype == jnp.bfloat16:
+        x_param = x.astype(jnp.bfloat16)
+        normed = _apply_pointwise(block.norm, x_param).astype(jnp.bfloat16)
+        qkv = _apply_linear_float32_accum(block.qkv, normed).astype(jnp.bfloat16)
+    else:
+        x_param = x.astype(jnp.float32)
+        normed = _apply_pointwise(block.norm, x_param).astype(jnp.float32)
+        qkv = _apply_linear_nd(block.qkv, normed).astype(jnp.float32)
+    stages["norm"] = np.array(normed[0], dtype=np.float32)
+    stages["qkv"] = np.array(qkv[0], dtype=np.float32)
+    head_dim = block.head_dim
+    num_q = block.num_attention_heads * head_dim
+    num_k = block.num_key_value_heads * head_dim
+    q = qkv[..., :num_q]
+    k = qkv[..., num_q : num_q + num_k]
+    v = qkv[..., num_q + num_k :]
+    stages["q"] = np.array(q[0], dtype=np.float32)
+    stages["k"] = np.array(k[0], dtype=np.float32)
+    stages["v"] = np.array(v[0], dtype=np.float32)
+    batch, seq_len = x.shape[:2]
+    q = q.reshape(
+        batch,
+        seq_len,
+        block.num_key_value_heads,
+        block.num_attention_heads // block.num_key_value_heads,
+        head_dim,
+    )
+    k = k.reshape(batch, seq_len, block.num_key_value_heads, head_dim)
+    v = v.reshape(batch, seq_len, block.num_key_value_heads, head_dim)
+    q_rot, k_rot = block.rope(q, k, seq_len=seq_len)
+    stages["q_rot"] = np.array(q_rot[0], dtype=np.float32)
+    stages["k_rot"] = np.array(k_rot[0], dtype=np.float32)
+    sinks = block.sinks.reshape(
+        block.num_key_value_heads, block.query_multiplicity
+    ).astype(q_rot.dtype)
+    attn_core = jax.vmap(
+        lambda q_s, k_s, v_s: _sdpa_torch_style(
+            q_s,
+            k_s,
+            v_s,
+            sinks=sinks,
+            sm_scale=block.sm_scale,
+            sliding_window=block.sliding_window,
+        )
+    )(q_rot, k_rot, v)
+    stages["attn_core"] = np.array(attn_core[0], dtype=np.float32)
+    if block.param_dtype == jnp.bfloat16:
+        projected = _apply_linear_float32_accum(
+            block.out, attn_core.astype(jnp.bfloat16)
+        ).astype(jnp.bfloat16)
+        residual = x_param + projected.astype(x_param.dtype)
+        output = residual.astype(x.dtype)
+    else:
+        projected = _apply_linear_nd(block.out, attn_core).astype(jnp.float32)
+        residual = x_param + projected
+        output = residual.astype(x.dtype)
+    stages["projected"] = np.array(projected[0], dtype=np.float32)
+    stages["output"] = np.array(output[0], dtype=np.float32)
+    return stages, output
+
+
 def _run_eqx(model: EqxTransformer, tokens: jnp.ndarray) -> Dict[str, np.ndarray]:
     stages: Dict[str, np.ndarray] = {}
     x = jnp.take(model.embedding.weight, tokens, axis=0)
     stages["embed"] = np.array(x[0], dtype=np.float32)
     for idx, block in enumerate(model.blocks):
-        attn = block.attn(x)
-        stages[f"block{idx}.attn"] = np.array(attn[0], dtype=np.float32)
+        attn_stages, attn = _eqx_attn_stages(block.attn, x)
+        for name, value in attn_stages.items():
+            stages[f"block{idx}.attn.{name}"] = value
+        stages[f"block{idx}.attn"] = attn_stages["output"]
         mlp_stages, x = _eqx_mlp_stages(block.mlp, attn)
         for name, value in mlp_stages.items():
             stages[f"block{idx}.mlp.{name}"] = value
