@@ -37,6 +37,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.typing_support import SymbolicDimOrigin
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 
@@ -806,13 +807,12 @@ class FunctionPlugin(PrimitivePlugin):
             for axis, dim in enumerate(raw_shape):
                 actual_dim = dim
                 if origin_lookup is not None and not isinstance(dim, (int, np.integer)):
-                    origin = origin_lookup(dim) or origin_lookup(str(dim))
+                    origin = SymbolicDimOrigin.resolve(origin_lookup, dim)
                     if origin is not None:
-                        src_val, src_axis = origin
-                        src_shape = getattr(src_val, "shape", None)
+                        src_shape = getattr(origin.value, "shape", None)
                         src_dims = getattr(src_shape, "dims", src_shape)
-                        if src_dims is not None and len(src_dims) > src_axis:
-                            candidate = src_dims[src_axis]
+                        if src_dims is not None and len(src_dims) > origin.axis:
+                            candidate = src_dims[origin.axis]
                             if isinstance(candidate, (int, np.integer)):
                                 actual_dim = int(candidate)
                 resolved_shape.append(actual_dim)

@@ -38,6 +38,7 @@ from .ir_context import IRContext
 from .ir_builder import IRBuilder
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
+from .typing_support import SymbolicDimOrigin
 
 from jax.extend import core as jcore_ext
 
@@ -171,8 +172,8 @@ class _IRBuildContext:
         self._initializers: List[ir.Value] = []
         self._nodes: List[ir.Node] = []
         self._name_counter = 0
-        self._symdim_origin: dict[object, tuple[ir.Value, int]] = {}
-        self._symdim_origin_str: dict[str, tuple[ir.Value, int]] = {}
+        self._symdim_origin: dict[object, SymbolicDimOrigin] = {}
+        self._symdim_origin_str: dict[str, SymbolicDimOrigin] = {}
 
     def fresh_name(self, prefix: str) -> str:
         self._name_counter += 1
@@ -243,11 +244,12 @@ class _IRBuildContext:
         # Track symbolic dim origins
         for ax, d in enumerate(tuple(aval.shape)):
             if not isinstance(d, (int, np.integer)):
-                self._symdim_origin[d] = (val, ax)
-                self._symdim_origin_str[str(d)] = (val, ax)
+                origin = SymbolicDimOrigin(value=val, axis=ax)
+                self._symdim_origin[d] = origin
+                self._symdim_origin_str[str(d)] = origin
         return val
 
-    def get_symbolic_dim_origin(self, dim: object) -> Optional[tuple[ir.Value, int]]:
+    def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
         if dim in self._symdim_origin:
             return self._symdim_origin[dim]
         return self._symdim_origin_str.get(str(dim))

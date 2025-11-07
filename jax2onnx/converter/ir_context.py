@@ -24,6 +24,7 @@ from onnx_ir import Attr, AttributeType
 from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
+from .typing_support import SymbolicDimOrigin
 from jax.extend import core as jcore_ext
 from numpy.typing import NDArray
 
@@ -218,8 +219,8 @@ class IRContext:
         self._nodes = self.builder.nodes
         self._inputs = self.builder.inputs
         # Track where each symbolic dim came from (object if hashable, and always string)
-        self._sym_origin: dict[object, tuple[ir.Value, int]] = {}
-        self._sym_origin_str: dict[str, tuple[ir.Value, int]] = {}
+        self._sym_origin: dict[object, SymbolicDimOrigin] = {}
+        self._sym_origin_str: dict[str, SymbolicDimOrigin] = {}
         # Name counters for fresh_name(); keep a typed attribute so mypy is happy.
         # Using dict[str, int] since we only ever index by the base string.
         self._name_counters: dict[str, int] = {}
@@ -548,13 +549,13 @@ class IRContext:
         for ax, d in enumerate(shp):
             if not isinstance(d, (int, np.integer)):
                 try:
-                    self._sym_origin[d] = (val, ax)  # for hashable DimExprs
+                    self._sym_origin[d] = SymbolicDimOrigin(value=val, axis=ax)
                 except TypeError:
                     pass
-                self._sym_origin_str[str(d)] = (val, ax)
+                self._sym_origin_str[str(d)] = SymbolicDimOrigin(value=val, axis=ax)
         return val
 
-    def get_symbolic_dim_origin(self, dim: object) -> Optional[tuple[ir.Value, int]]:
+    def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
         if dim in self._sym_origin:
             return self._sym_origin[dim]
         return self._sym_origin_str.get(str(dim))

@@ -1,11 +1,15 @@
 # jax2onnx/plugins/jax/lax/dynamic_slice.py
 
-from typing import TYPE_CHECKING, Any, Dict
+from typing import Any, Dict
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    SymbolicDimOrigin,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._axis0_utils import _axis0_debug
@@ -20,9 +24,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _cast_to_i64,
     _infer_rank,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 @register_primitive(
@@ -87,7 +88,7 @@ if TYPE_CHECKING:
     ],
 )
 class DynamicSlicePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn):
         operand_var = eqn.invars[0]
         start_vars = eqn.invars[1:]
         out_var = eqn.outvars[0]
@@ -121,16 +122,13 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     f"Symbolic dimension '{dim_expr}' encountered without origin resolver"
                 )
-            origin = origin_getter(dim_expr)
-            if origin is None:
-                origin = origin_getter(str(dim_expr))
+            origin = SymbolicDimOrigin.resolve(origin_getter, dim_expr)
             if origin is None:
                 raise ValueError(
                     f"Symbolic dimension '{dim_expr}' has no registered origin"
                 )
-            src_val, axis = origin
-            axis = int(axis)
-            shape_vec = _shape_vec_for(src_val, axis)
+            axis = int(origin.axis)
+            shape_vec = _shape_vec_for(origin.value, axis)
             gather_idx = _const_i64(ctx, [axis], f"dyn_slice_size_axis_{idx}")
             gathered = ctx.builder.Gather(
                 shape_vec,

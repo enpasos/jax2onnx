@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +10,10 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    SymbolicDimOrigin,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -21,9 +25,6 @@ try:  # pragma: no cover
     from jax._src.export.shape_poly import _DimExpr as DimExpr
 except Exception:  # pragma: no cover
     DimExpr = ()  # type: ignore[assignment]
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _is_dim_expr(x: object) -> bool:
@@ -218,7 +219,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         out = jax.eval_shape(lambda arr: _ORIG_TILE(arr, repeats), spec)
         return jax.core.ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn):
         input_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         repeats_var = eqn.invars[1] if len(eqn.invars) > 1 else None
@@ -332,7 +333,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _shape_vector(
-        ctx: "IRContext", cache: dict[ir.Value, ir.Value], src: ir.Value
+        ctx: LoweringContextProtocol, cache: dict[ir.Value, ir.Value], src: ir.Value
     ) -> ir.Value:
         cached = cache.get(src)
         if cached is not None:
@@ -345,7 +346,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         cache[src] = shape_val
         return shape_val
 
-    def _build_static_repeats(self, ctx: "IRContext", repeats_param):
+    def _build_static_repeats(self, ctx: LoweringContextProtocol, repeats_param):
         repeats_tuple = (
             (repeats_param,)
             if isinstance(repeats_param, (int, np.integer))
@@ -353,10 +354,8 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
         origin_getter = getattr(ctx, "get_symbolic_dim_origin", None)
 
-        def _origin(dim):
-            if origin_getter is None:
-                return None
-            return origin_getter(dim) or origin_getter(str(dim))
+        def _origin(dim) -> SymbolicDimOrigin | None:
+            return SymbolicDimOrigin.resolve(origin_getter, dim)
 
         shape_cache: dict[ir.Value, ir.Value] = {}
         pieces: list[ir.Value] = []
@@ -367,9 +366,8 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                 origin = _origin(rep)
                 if origin is None:
                     raise ValueError(f"Symbolic repeat '{rep}' has no origin")
-                src_val, axis = origin
-                shape_vec = self._shape_vector(ctx, shape_cache, src_val)
-                gather_idx = _const_i64(ctx, [int(axis)], f"tile_sym_idx_{idx}")
+                shape_vec = self._shape_vector(ctx, shape_cache, origin.value)
+                gather_idx = _const_i64(ctx, [int(origin.axis)], f"tile_sym_idx_{idx}")
                 gathered = ctx.builder.Gather(
                     shape_vec,
                     gather_idx,
@@ -399,7 +397,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
 
     def _align_repeats_rank(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         input_val: ir.Value,
         repeats_val: ir.Value,
         input_shape: tuple,
