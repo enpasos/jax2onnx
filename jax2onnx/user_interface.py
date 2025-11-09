@@ -1,5 +1,7 @@
 # jax2onnx/user_interface.py
 
+import logging
+import os
 from typing import (
     Any,
     Callable,
@@ -16,27 +18,25 @@ from typing import (
     overload,
     runtime_checkable,
 )
-import logging
-import os
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
+import onnx_ir as ir
+import onnxruntime
 from jax import core
 
 from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
     ShapeTupleSpec,
+)
+from jax2onnx.converter.conversion_api import (
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
-from jax2onnx.serde_onnx import ir_to_onnx
-import onnxruntime
-from onnx_ir import Model as IRModel  # type: ignore
-
 
 ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
@@ -144,7 +144,7 @@ def to_onnx(
     record_primitive_calls_file: Optional[str] = ...,
     return_mode: Literal["ir"],
     output_path: Optional[PathLikeStr] = ...,
-) -> IRModel: ...
+) -> ir.Model: ...
 
 
 @overload
@@ -173,7 +173,7 @@ def to_onnx(
     record_primitive_calls_file: Optional[str] = None,
     return_mode: ReturnMode = "proto",
     output_path: Optional[PathLikeStr] = None,
-) -> Union[onnx.ModelProto, IRModel, str]:
+) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
 
@@ -325,7 +325,7 @@ def to_onnx(
     if normalized_mode == "ir":
         return result
 
-    model_proto = ir_to_onnx(result)
+    model_proto = ir.to_proto(result)
     _attach_input_params(model_proto)
     if normalized_mode == "file":
         assert file_path is not None

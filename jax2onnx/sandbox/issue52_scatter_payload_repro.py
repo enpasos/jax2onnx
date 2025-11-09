@@ -16,13 +16,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+import onnx
+import onnx_ir as ir
 import onnxruntime as ort
 from jax._src import core, source_info_util
 from onnxruntime.capi.onnxruntime_pybind11_state import Fail, InvalidArgument
 
 from jax2onnx import to_onnx
-from jax2onnx.serde_onnx import ir_to_onnx
-import onnx
 
 jax.config.update("jax_enable_x64", True)
 
@@ -480,12 +480,8 @@ def _export_to_onnx(
     overrides: Dict[str, int] = {}
     _collect_axis0_overrides(ir_model.graph, overrides)
 
-    model_proto = ir_to_onnx(ir_model)
+    model_proto = ir.to_proto(ir_model)
     _restamp_onnx_axis0(model_proto.graph, overrides)
-    try:
-        model_proto.ir_version = min(model_proto.ir_version, 10)
-    except Exception:
-        pass
     ONNX_PATH.write_bytes(model_proto.SerializeToString())
     print(f"[INFO] ONNX payload written to {ONNX_PATH}")
     return model_proto, ir_model
