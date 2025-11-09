@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import numpy as np
+from typing import List, Optional
 
 import jax
 from jax import core as jax_core
@@ -395,7 +396,11 @@ class MLPBlock(nn.Module):
     sequence_length: int
 
     @nn.compact
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(
+        self,
+        x: jax.Array,
+        capture_routing: Optional[List[dict]] = None,
+    ) -> jax.Array:
         cfg = self.config
         dtype = x.dtype
         normed = RMSNorm(cfg.hidden_size, name="norm")(x)
@@ -428,6 +433,14 @@ class MLPBlock(nn.Module):
         top_weights = jnp.asarray(
             np.tile(base_weights, (n_tokens, 1)), dtype=dtype
         )
+
+        if capture_routing is not None:
+            capture_routing.append(
+                {
+                    "expert_ids": np.array(top_indices),
+                    "gate_weights": np.array(top_weights),
+                }
+            )
 
         mlp1_weight = self.param(
             "mlp1_weight",
@@ -492,7 +505,11 @@ class TransformerBlock(nn.Module):
     mask: jax.Array
 
     @nn.compact
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(
+        self,
+        x: jax.Array,
+        capture_routing: Optional[List[dict]] = None,
+    ) -> jax.Array:
         attn = AttentionBlock(
             config=self.config,
             cos_table=self.cos_table,
@@ -507,7 +524,7 @@ class TransformerBlock(nn.Module):
             sequence_length=self.sequence_length,
         )
         x = attn(x)
-        x = mlp(x)
+        x = mlp(x, capture_routing=capture_routing)
         return x
 
 
