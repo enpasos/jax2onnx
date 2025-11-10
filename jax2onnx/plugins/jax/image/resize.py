@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import ClassVar, Final
 
 import jax
@@ -9,7 +10,9 @@ import jax.image as jimage
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -18,7 +21,7 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _normalized_dim(dim: object) -> object:
+def _normalized_dim(dim: object) -> int | None:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
     return None
@@ -92,7 +95,13 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
     }
 
     @staticmethod
-    def abstract_eval(image, *, shape, method="linear", **params):
+    def abstract_eval(
+        image: core.AbstractValue,
+        *,
+        shape: Sequence[int | np.integer],
+        method: str | jimage.ResizeMethod = "linear",
+        **params: object,
+    ) -> core.ShapedArray:
         if shape is None:
             raise TypeError("resize requires a target shape")
         try:
@@ -104,7 +113,7 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             dtype = image.dtype  # type: ignore[attr-defined]
         return core.ShapedArray(out_shape, dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         image_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -166,15 +175,23 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, resize_out)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jax.image.resize not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(image, shape, method="linear", antialias=True, precision=None):
+            def _patched(
+                image: ArrayLike,
+                shape: Sequence[int | np.integer],
+                method: str | jimage.ResizeMethod = "linear",
+                antialias: bool = True,
+                precision: object = None,
+            ) -> jax.Array:
                 return cls._PRIM.bind(
                     image,
                     shape=tuple(shape),
@@ -202,7 +219,14 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
 
 
 @ImageResizePlugin._PRIM.def_impl
-def _resize_impl(image, *, shape, method="linear", antialias=True, precision=None):
+def _resize_impl(
+    image: ArrayLike,
+    *,
+    shape: Sequence[int | np.integer],
+    method: str | jimage.ResizeMethod = "linear",
+    antialias: bool = True,
+    precision: object = None,
+) -> jax.Array:
     orig = get_orig_impl(ImageResizePlugin._PRIM, ImageResizePlugin._FUNC_NAME)
     return orig(image, shape, method=method, antialias=antialias, precision=precision)
 

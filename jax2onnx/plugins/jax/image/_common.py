@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable, cast
 
 from jax.extend.core import Primitive
+
+
+BoundCallable = Callable[..., Any]
 
 
 def make_image_primitive(name: str) -> Primitive:
@@ -15,9 +18,9 @@ def make_image_primitive(name: str) -> Primitive:
 
 def get_orig_impl(
     prim: Primitive, func_name: str, store_attr: str = "__orig_impl__"
-) -> Callable:
+) -> BoundCallable:
     storage_slot = f"{store_attr}_{func_name}"
-    orig = getattr(prim, storage_slot, None)
+    orig = cast(BoundCallable | None, getattr(prim, storage_slot, None))
     if orig is None:
         raise RuntimeError(
             f"Original implementation for jax.image.{func_name} not captured"
