@@ -210,7 +210,7 @@ def _ir_dtype_from_numpy(dt):
     if dt == np.dtype("float32"):
         return ir.DataType.FLOAT
     if dt == np.dtype("float64"):
-        return getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT)
+        return ir.DataType.DOUBLE
     if dt == np.dtype("int64"):
         return ir.DataType.INT64
     if dt == np.dtype("int32"):

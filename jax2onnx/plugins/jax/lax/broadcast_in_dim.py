@@ -29,20 +29,20 @@ from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 if TYPE_CHECKING:
     pass  # for hints
 
-_IR_TO_NP_DTYPE: Final[dict[ir.DataType | None, np.dtype[Any]]] = {
-    getattr(ir.DataType, "FLOAT16", None): np.float16,
-    getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
-    ir.DataType.FLOAT: np.float32,
-    getattr(ir.DataType, "DOUBLE", None): np.float64,
-    ir.DataType.INT8: np.int8,
-    ir.DataType.INT16: np.int16,
-    ir.DataType.INT32: np.int32,
-    ir.DataType.INT64: np.int64,
-    getattr(ir.DataType, "UINT8", None): np.uint8,
-    getattr(ir.DataType, "UINT16", None): np.uint16,
-    getattr(ir.DataType, "UINT32", None): np.uint32,
-    getattr(ir.DataType, "UINT64", None): np.uint64,
-    ir.DataType.BOOL: np.bool_,
+_IR_TO_NP_DTYPE: Final[dict[ir.DataType, np.dtype[Any]]] = {
+    ir.DataType.FLOAT16: np.dtype(np.float16),
+    ir.DataType.BFLOAT16: np.dtype(getattr(np, "bfloat16", np.float16)),
+    ir.DataType.FLOAT: np.dtype(np.float32),
+    ir.DataType.DOUBLE: np.dtype(np.float64),
+    ir.DataType.INT8: np.dtype(np.int8),
+    ir.DataType.INT16: np.dtype(np.int16),
+    ir.DataType.INT32: np.dtype(np.int32),
+    ir.DataType.INT64: np.dtype(np.int64),
+    ir.DataType.UINT8: np.dtype(np.uint8),
+    ir.DataType.UINT16: np.dtype(np.uint16),
+    ir.DataType.UINT32: np.dtype(np.uint32),
+    ir.DataType.UINT64: np.dtype(np.uint64),
+    ir.DataType.BOOL: np.dtype(np.bool_),
 }
 
 

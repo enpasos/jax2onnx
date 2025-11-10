@@ -22,6 +22,7 @@ from typing import (
     Dict,
     Final,
     Iterator,
+    Mapping,
     Optional,
     Set,
     TYPE_CHECKING,
@@ -89,6 +90,20 @@ EXAMPLE_REGISTRY: Dict[str, dict[str, Any]] = {}
 # Patching state
 _PATCH_STATE: dict[tuple[Any, str], dict[str, Any]] = {}
 
+_RNG_TRACE_REGISTRY: Set[str] = set()
+
+
+def _register_rng_trace(trace: RngTrace) -> None:
+    """Record RNG helpers for CI reporting."""
+
+    _RNG_TRACE_REGISTRY.add(trace.describe())
+
+
+def list_registered_rng_traces() -> list[str]:
+    """Return sorted human-readable RNG helper descriptions."""
+
+    return sorted(_RNG_TRACE_REGISTRY)
+
 
 def _sanitize_op_type_name(name: str) -> str:
     """Make a string safe for ONNX op_type (letters, digits, underscore)."""
@@ -130,6 +145,9 @@ class _FactoryValue:
     ):
         self._fn = fn
         self._metadata = metadata or {}
+        trace = self._metadata.get("rng_trace")
+        if isinstance(trace, RngTrace):
+            _register_rng_trace(trace)
 
     def resolve(self, dtype: Any) -> Any:  # noqa: D401 - tiny helper
         return self._fn(dtype)
@@ -296,7 +314,7 @@ class PrimitivePlugin(ABC):
         raise NotImplementedError
 
 
-class PrimitiveLeafPlugin(PrimitivePlugin):
+class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
     """Base class for concrete primitive lowerings.
 
     Implementations are responsible for wiring the underlying JAX primitive:
@@ -307,7 +325,7 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     """
 
     primitive: str
-    metadata: dict[str, Any]
+    metadata: Mapping[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None
 
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -747,7 +765,7 @@ class FunctionPlugin(PrimitivePlugin):
         counters = getattr(ctx, "_func_name_counters", None)
         if counters is None:
             counters = {}
-        counter_key = (namespace, base)
+        counter_key = (namespace, base, "shared")
         idx = counters.get(counter_key, 0) + 1
         counters[counter_key] = idx
         setattr(ctx, "_func_name_counters", counters)
@@ -876,12 +894,12 @@ class FunctionPlugin(PrimitivePlugin):
                     shape = tuple(arr.shape)
                     dtype_np = arr.dtype
                     dtype_for_capture = dtype_np
-                sds = jax.ShapeDtypeStruct(shape, dtype_np)
+                entry_sds = jax.ShapeDtypeStruct(shape, dtype_np)
                 dynamic_entries.append(
                     {
                         "name": pname,
                         "var": None,
-                        "sds": sds,
+                        "sds": entry_sds,
                         "force_external": True,
                     }
                 )
@@ -966,9 +984,10 @@ class FunctionPlugin(PrimitivePlugin):
                 setattr(fscope.ctx, "_func_name_counters", counters)
             call_param_names_obj = getattr(ctx, "_call_input_param_names", None)
             if isinstance(call_param_names_obj, set):
-                call_param_names_set = cast(Set[Any], call_param_names_obj)
                 setattr(
-                    fscope.ctx, "_call_input_param_names", set(call_param_names_set)
+                    fscope.ctx,
+                    "_call_input_param_names",
+                    set(call_param_names_obj),
                 )
             call_param_literals_obj = getattr(ctx, "_call_input_param_literals", None)
             if isinstance(call_param_literals_obj, dict):
@@ -994,16 +1013,16 @@ class FunctionPlugin(PrimitivePlugin):
                         call_value_map = dict(existing_lookup)
                     else:
                         call_value_map = {}
-                    for entry, child_val in zip(dynamic_entries, child_dynamic_vals):
-                        entry["child_input"] = child_val
-                        call_value_map[entry["name"]] = child_val
+                    for entry, child_input in zip(dynamic_entries, child_dynamic_vals):
+                        entry["child_input"] = cast(Any, child_input)
+                        call_value_map[entry["name"]] = child_input
                     if call_value_map:
                         setattr(fscope.ctx, "_call_param_value_by_name", call_value_map)
 
             # ---- Trace the callee with child input specs and lower into CHILD ctx ----
 
             # Build ShapeDtypeStructs from the *outer* eqn's invars (safer than IR dtypes)
-            sds = []
+            sds: list[jax.ShapeDtypeStruct] = []
             for v in eqn.invars:
                 aval = getattr(v, "aval", None)
                 sds.append(
@@ -1012,7 +1031,9 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 )
 
-            dynamic_sds = [entry["sds"] for entry in dynamic_entries]
+            dynamic_sds: list[jax.ShapeDtypeStruct] = [
+                entry["sds"] for entry in dynamic_entries
+            ]
             base_arg_count = len(sds)
 
             def _wrapped(*all_args):
@@ -1235,7 +1256,7 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     _legacy_register_example_func: Optional[Callable[..., Any]] = None
     _legacy_registry: Optional[dict[str, Any]] = None
     try:  # import under a different name, then assign
-        from jax2onnx.plugins.plugin_system import (  # type: ignore[attr-defined]
+        from jax2onnx.plugins.plugin_system import (
             PLUGIN_REGISTRY as _legacy_registry_ref,
             register_example as _legacy_register_example_ref,
         )

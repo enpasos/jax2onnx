@@ -21,7 +21,7 @@ _DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
     np.dtype(np.int32): ir.DataType.INT32,
     np.dtype(np.int64): ir.DataType.INT64,
     np.dtype(np.float32): ir.DataType.FLOAT,
-    np.dtype(np.float64): getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT),
+    np.dtype(np.float64): ir.DataType.DOUBLE,
     np.dtype(np.bool_): ir.DataType.BOOL,
 }
 
