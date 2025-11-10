@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, Callable, ClassVar
 
 import equinox as eqx
 import jax
@@ -20,6 +20,7 @@ import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
@@ -37,18 +38,24 @@ def _rotate_half(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.concatenate([-x[..., half:], x[..., :half]], axis=-1)
 
 
-def _rope_forward(x, cos_cache, sin_cache, *, embedding_size: int):
+def _rope_forward(
+    x: jax.Array,
+    cos_cache: jax.Array,
+    sin_cache: jax.Array,
+    *,
+    embedding_size: int,
+) -> jax.Array:
     rotated = _rotate_half(x)
     return (x * cos_cache) + (rotated * sin_cache)
 
 
-def _rope_heads(embedding_size: int):
+def _rope_heads(embedding_size: int) -> Callable[[jax.Array], jax.Array]:
     """Apply RotaryPositionalEmbedding across attention heads as in the DINO example."""
 
     rope = eqx.nn.RotaryPositionalEmbedding(embedding_size=embedding_size)
     rotate_heads = eqx.filter_vmap(rope, in_axes=1, out_axes=1)
 
-    def _call(heads):
+    def _call(heads: jax.Array) -> jax.Array:
         return rotate_heads(heads)
 
     return _call
@@ -101,8 +108,8 @@ def _value_dims(value: ir.Value) -> tuple[object, ...]:
 
 
 def lower_rotary_application(
-    ctx,
-    builder,
+    ctx: LoweringContextProtocol,
+    builder: Any,
     x_val: ir.Value,
     cos_val: ir.Value,
     sin_val: ir.Value,
@@ -251,7 +258,13 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, cos_cache, sin_cache, *, embedding_size: int):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        cos_cache: jax_core.AbstractValue,
+        sin_cache: jax_core.AbstractValue,
+        *,
+        embedding_size: int,
+    ) -> jax.core.ShapedArray:
         spec_x = jax.ShapeDtypeStruct(x.shape, x.dtype)
         spec_cos = jax.ShapeDtypeStruct(cos_cache.shape, cos_cache.dtype)
         spec_sin = jax.ShapeDtypeStruct(sin_cache.shape, sin_cache.dtype)
@@ -263,7 +276,7 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
         )
         return jax.core.ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -314,15 +327,22 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, output)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patch(orig):
-            def wrapped(self, x, *, key=None):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patch(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[[eqx.nn.RotaryPositionalEmbedding, jax.Array], jax.Array]:
+            def wrapped(
+                self: eqx.nn.RotaryPositionalEmbedding,
+                x: jax.Array,
+                *,
+                key: jax.Array | None = None,
+            ) -> jax.Array:
                 if key is not None:
                     raise NotImplementedError(
                         "RotaryPositionalEmbedding does not use RNG keys."
@@ -378,11 +398,15 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
 
 
 @RotaryPositionalEmbeddingPlugin._PRIM.def_impl
-def _rope_impl(*args, **params):
+def _rope_impl(*args: Any, **params: Any) -> jax.Array:
     return _rope_forward(*args, **params)
 
 
-def _rope_batch_rule(batched_args, batch_dims, **params):
+def _rope_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
+    **params: Any,
+) -> tuple[jax.Array, int | None]:
     x, cos_cache, sin_cache = batched_args
     x_bdim, cos_bdim, sin_bdim = batch_dims
     if cos_bdim is not None or sin_bdim is not None:

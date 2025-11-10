@@ -5,17 +5,19 @@
 from __future__ import annotations
 
 import math
-from typing import ClassVar
+from typing import Any, Callable, ClassVar
 
 import equinox as eqx
 import jax
 from jax import lax
+import jax.core as jax_core
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
@@ -33,6 +35,10 @@ from jax2onnx.plugins.plugin_system import (
     with_prng_key,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+
+
+HeadsTuple = tuple[jax.Array, jax.Array, jax.Array]
+ProcessHeadsFn = Callable[[jax.Array, jax.Array, jax.Array], HeadsTuple]
 
 
 def _normalized_dim(dim: object) -> object:
@@ -63,7 +69,12 @@ def _first_defined(*values: int | None) -> int | None:
     return None
 
 
-def _apply_process_heads_python(process_heads, q_heads, k_heads, v_heads):
+def _apply_process_heads_python(
+    process_heads: ProcessHeadsFn,
+    q_heads: jax.Array,
+    k_heads: jax.Array,
+    v_heads: jax.Array,
+) -> HeadsTuple:
     if q_heads.ndim <= 3:
         return process_heads(q_heads, k_heads, v_heads)
     leading = q_heads.shape[:-3]
@@ -91,16 +102,16 @@ def _apply_process_heads_python(process_heads, q_heads, k_heads, v_heads):
 
 
 def _apply_rotary_process_heads_lowering(
-    ctx,
-    builder,
-    process_heads,
-    q_heads,
-    k_heads,
+    ctx: LoweringContextProtocol,
+    builder: Any,
+    process_heads: object,
+    q_heads: ir.Value,
+    k_heads: ir.Value,
     *,
     q_seq_static: int | None,
     k_seq_static: int | None,
     prefix: str,
-):
+) -> tuple[ir.Value, ir.Value]:
     if q_seq_static is None or k_seq_static is None:
         raise NotImplementedError(
             "Rotary process_heads requires a static sequence length."
@@ -177,7 +188,9 @@ def _apply_rotary_process_heads_lowering(
     _ensure_value_metadata(ctx, cos_val_q)
     _ensure_value_metadata(ctx, sin_val_q)
 
-    def _reshape_cache(cache_val: ir.Value, dims: tuple[object, ...], tag: str):
+    def _reshape_cache(
+        cache_val: ir.Value, dims: tuple[object, ...], tag: str
+    ) -> ir.Value:
         rank = len(dims)
         if rank <= 2:
             return cache_val
@@ -280,7 +293,13 @@ def _apply_rotary_process_heads_lowering(
     return q_heads, k_heads
 
 
-def _linear_forward(x, weight, bias, *, use_bias: bool):
+def _linear_forward(
+    x: jax.Array,
+    weight: jax.Array,
+    bias: jax.Array,
+    *,
+    use_bias: bool,
+) -> jax.Array:
     orig_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
     out_flat = jnp.dot(x_flat, jnp.swapaxes(weight, -1, -2))
@@ -290,17 +309,17 @@ def _linear_forward(x, weight, bias, *, use_bias: bool):
 
 
 def _mha_forward(
-    query,
-    key,
-    value,
-    q_weight,
-    q_bias,
-    k_weight,
-    k_bias,
-    v_weight,
-    v_bias,
-    o_weight,
-    o_bias,
+    query: jax.Array,
+    key: jax.Array,
+    value: jax.Array,
+    q_weight: jax.Array,
+    q_bias: jax.Array,
+    k_weight: jax.Array,
+    k_bias: jax.Array,
+    v_weight: jax.Array,
+    v_bias: jax.Array,
+    o_weight: jax.Array,
+    o_bias: jax.Array,
     *,
     num_heads: int,
     qk_size: int,
@@ -309,8 +328,8 @@ def _mha_forward(
     use_key_bias: bool,
     use_value_bias: bool,
     use_output_bias: bool,
-    process_heads=None,
-):
+    process_heads: ProcessHeadsFn | None = None,
+) -> jax.Array:
     query_proj = _linear_forward(query, q_weight, q_bias, use_bias=use_query_bias)
     key_proj = _linear_forward(key, k_weight, k_bias, use_bias=use_key_bias)
     value_proj = _linear_forward(value, v_weight, v_bias, use_bias=use_value_bias)
@@ -348,7 +367,9 @@ def _mha_forward(
     return output
 
 
-def _attention_core(dim: int, num_heads: int, *, key: jax.Array):
+def _attention_core(
+    dim: int, num_heads: int, *, key: jax.Array
+) -> Callable[[jax.Array], jax.Array]:
     """Mirror the AttentionCore example (batch of sequences)."""
 
     attn = eqx.nn.MultiheadAttention(
@@ -458,19 +479,19 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        query,
-        key,
-        value,
-        q_weight,
-        q_bias,
-        k_weight,
-        k_bias,
-        v_weight,
-        v_bias,
-        o_weight,
-        o_bias,
-        **params,
-    ):
+        query: jax_core.AbstractValue,
+        key: jax_core.AbstractValue,
+        value: jax_core.AbstractValue,
+        q_weight: jax_core.AbstractValue,
+        q_bias: jax_core.AbstractValue,
+        k_weight: jax_core.AbstractValue,
+        k_bias: jax_core.AbstractValue,
+        v_weight: jax_core.AbstractValue,
+        v_bias: jax_core.AbstractValue,
+        o_weight: jax_core.AbstractValue,
+        o_bias: jax_core.AbstractValue,
+        **params: Any,
+    ) -> jax_core.ShapedArray:
         query_shape = tuple(getattr(query, "shape", ()))
         query_dtype = getattr(query, "dtype", None)
         o_weight_shape = tuple(getattr(o_weight, "shape", ()))
@@ -485,9 +506,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         output_shape = query_shape[:-1] + (output_dim,)
         if query_dtype is None:
             query_dtype = getattr(value, "dtype", getattr(key, "dtype", jnp.float32))
-        return jax.core.ShapedArray(output_shape, query_dtype)
+        return jax_core.ShapedArray(output_shape, query_dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(
+        self,
+        ctx: LoweringContextProtocol,
+        eqn: jax_core.JaxprEqn,
+    ) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -1329,13 +1354,13 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_output)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def _normalize_process_heads(cls, process_heads):
+    def _normalize_process_heads(cls, process_heads: object | None) -> object | None:
         if process_heads is None:
             return None
         if isinstance(process_heads, RotaryProcessHeads):
@@ -1347,20 +1372,22 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patch(orig):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patch(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             def wrapped(
-                self,
-                query,
-                key_,
-                value,
-                mask=None,
+                self: eqx.nn.MultiheadAttention,
+                query: jax.Array,
+                key_: jax.Array,
+                value: jax.Array,
+                mask: jax.Array | None = None,
                 *,
-                key=None,
-                inference=None,
-                deterministic=None,
-                process_heads=None,
-            ):
+                key: jax.Array | None = None,
+                inference: bool | None = None,
+                deterministic: bool | None = None,
+                process_heads: ProcessHeadsFn | RotaryProcessHeads | None = None,
+            ) -> jax.Array:
                 if mask is not None:
                     raise NotImplementedError(
                         "eqx.nn.MultiheadAttention mask handling is not supported"
@@ -1387,7 +1414,12 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 v_weight = jnp.asarray(self.value_proj.weight, dtype=value.dtype)
                 o_weight = jnp.asarray(self.output_proj.weight, dtype=query.dtype)
 
-                def _bias(weight, bias_attr, use_bias, dtype):
+                def _bias(
+                    weight: jax.Array,
+                    bias_attr: jax.Array | None,
+                    use_bias: bool,
+                    dtype: jnp.dtype,
+                ) -> jax.Array:
                     if not use_bias or bias_attr is None:
                         return jnp.zeros((weight.shape[0],), dtype=dtype)
                     return jnp.asarray(bias_attr, dtype=dtype)
@@ -1443,11 +1475,15 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
 
 
 @MultiheadAttentionPlugin._PRIM.def_impl
-def _multihead_attention_impl(*args, **params):
+def _multihead_attention_impl(*args: Any, **params: Any) -> jax.Array:
     return _mha_forward(*args, **params)
 
 
-def _mha_batch_rule(batched_args, batch_dims, **params):
+def _mha_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
+    **params: Any,
+) -> tuple[jax.Array, int | None]:
     (
         query,
         key,

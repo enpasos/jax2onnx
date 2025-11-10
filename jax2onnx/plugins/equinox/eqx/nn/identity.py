@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 import equinox as eqx
+import jax
+import jax.core as jax_core
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -47,10 +50,10 @@ class IdentityPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x):
+    def abstract_eval(x: jax_core.AbstractValue) -> jax_core.AbstractValue:
         return x
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -89,7 +92,7 @@ class IdentityPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, identity_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "identity_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -101,28 +104,35 @@ class IdentityPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
+    def _patch_call(
+        orig: Callable[..., jax.Array] | None,
+    ) -> Callable[[eqx.nn.Identity, jax.Array], jax.Array]:
         del orig
 
-        def wrapped(self, x, *, key=None):
+        def wrapped(
+            self: eqx.nn.Identity, x: jax.Array, *, key: jax.Array | None = None
+        ) -> jax.Array:
             del key
             return IdentityPlugin._PRIM.bind(x)
 
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(lambda x: cls.abstract_eval(x))
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @IdentityPlugin._PRIM.def_impl
-def _identity_impl(x):
+def _identity_impl(x: jax.Array) -> jax.Array:
     return x
 
 
-def _identity_batch_rule(batched_args, batch_dims):
+def _identity_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
+) -> tuple[jax.Array, int | None]:
     (x,) = batched_args
     (bd,) = batch_dims
     return IdentityPlugin._PRIM.bind(x), bd
