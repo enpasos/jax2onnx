@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from collections.abc import Callable, Sequence
+from typing import Any, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from numpy.typing import ArrayLike
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -16,15 +19,14 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _EINSUM_PRIM: Final = make_jnp_primitive("jax.numpy.einsum")
 _JNP_EINSUM_ORIG: Final = jnp.einsum
 
 
-def _einsum_shape(avals, equation: str):
+def _einsum_shape(
+    avals: Sequence[core.AbstractValue], equation: str
+) -> tuple[tuple[Any, ...], np.dtype[Any]]:
     specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
     orig = getattr(_EINSUM_PRIM, "__orig_impl__einsum", jnp.einsum)
     result = jax.eval_shape(lambda *args: orig(equation, *args), *specs)
@@ -187,16 +189,16 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *avals,
+        *avals: core.AbstractValue,
         equation: str,
         precision: Any | None = None,
         optimize: Any | None = None,
         preferred_element_type: Any | None = None,
-    ):
+    ) -> core.ShapedArray:
         shape, dtype = _einsum_shape(avals, equation)
         return core.ShapedArray(shape, dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         equation = params["equation"]
 
@@ -299,12 +301,18 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
         allowed_kwargs = {"precision", "optimize", "preferred_element_type"}
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.einsum not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(equation, *operands, **kwargs):
+            def _patched(
+                equation: str,
+                *operands: ArrayLike,
+                **kwargs: Any,
+            ) -> jax.Array:
                 unknown = set(kwargs) - allowed_kwargs
                 if unknown:
                     raise NotImplementedError(
@@ -336,12 +344,12 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
 @JnpEinsumPlugin._PRIM.def_impl
 def _einsum_impl(
-    equation,
-    *operands,
-    precision=None,
-    optimize=None,
-    preferred_element_type=None,
-):
+    equation: str,
+    *operands: ArrayLike,
+    precision: Any | None = None,
+    optimize: Any | None = None,
+    preferred_element_type: Any | None = None,
+) -> jax.Array:
     try:
         orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
     except RuntimeError:
@@ -360,15 +368,15 @@ JnpEinsumPlugin._PRIM.def_abstract_eval(JnpEinsumPlugin.abstract_eval)
 
 
 def _einsum_batch_rule(
-    batched_args,
-    batch_dims,
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
     *,
-    equation,
-    precision=None,
-    optimize=None,
-    preferred_element_type=None,
-):
-    kwargs = {}
+    equation: str,
+    precision: Any | None = None,
+    optimize: Any | None = None,
+    preferred_element_type: Any | None = None,
+) -> tuple[jax.Array, int | None]:
+    kwargs: dict[str, Any] = {}
     if precision is not None:
         kwargs["precision"] = precision
     if optimize is not None:

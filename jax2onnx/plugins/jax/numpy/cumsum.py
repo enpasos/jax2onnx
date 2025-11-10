@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Optional
+from typing import Any, Callable, ClassVar, Final, Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._patching import AssignSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
@@ -107,13 +106,18 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x, *, axis: int | None = None, reverse: bool = False, dtype=None, **_
-    ):
+        x: jax.core.AbstractValue,
+        *,
+        axis: int | None = None,
+        reverse: bool = False,
+        dtype: np.dtype[Any] | type | None = None,
+        **_: Any,
+    ) -> jax.core.ShapedArray:
         out_shape = x.shape
         out_dtype = np.dtype(dtype) if dtype is not None else x.dtype
         return jax.core.ShapedArray(out_shape, out_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (operand_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -199,17 +203,17 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
 
 @JnpCumSumPlugin._PRIM.def_impl
 def _cumsum_impl(
-    x,
-    *rest,
-    axis=None,
-    dtype=None,
-    reverse=False,
-    precision=None,
-    exclusive=False,
-    out=None,
-    method=None,
-    **kwargs,
-):
+    x: ArrayLike,
+    *rest: Any,
+    axis: Optional[int] = None,
+    dtype: np.dtype[Any] | type | None = None,
+    reverse: bool = False,
+    precision: Any | None = None,
+    exclusive: bool = False,
+    out: Any | None = None,
+    method: Any | None = None,
+    **kwargs: Any,
+) -> ArrayLike:
     if rest:
         raise TypeError("jnp.cumsum expects a single positional argument")
     if out is not None:

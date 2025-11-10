@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Sequence
+from collections.abc import Callable, Sequence
+from typing import ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 from jax import core
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -17,12 +20,11 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _SPLIT_PRIM: Final = make_jnp_primitive("jax.numpy.split")
 _SPLIT_PRIM.multiple_results = True
+
+BatchDim = int | type(batching.not_mapped)
 
 
 def _normalize_axis(axis: int | None, rank: int) -> int:
@@ -139,7 +141,12 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *, indices_or_sections, axis=0):
+    def abstract_eval(
+        x: core.ShapedArray,
+        *,
+        indices_or_sections: int | Sequence[int | np.integer],
+        axis: int = 0,
+    ) -> tuple[core.ShapedArray, ...]:
         rank = len(x.shape)
         axis_norm = _normalize_axis(axis, rank)
         dim = x.shape[axis_norm]
@@ -158,7 +165,7 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             specs.append(core.ShapedArray(tuple(shape), x.dtype))
         return tuple(specs)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis", 0)
         indices_param = params.get("indices_or_sections")
@@ -231,15 +238,21 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., Sequence[jax.Array]] | None,
+        ) -> Callable[..., Sequence[jax.Array]]:
             if orig is None:
                 raise RuntimeError("Original jnp.split not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, indices_or_sections, axis=0):
+            def _patched(
+                a: ArrayLike,
+                indices_or_sections: int | Sequence[int] | np.ndarray,
+                axis: int = 0,
+            ) -> Sequence[jax.Array]:
                 arr = jnp.asarray(a)
                 axis_norm = _normalize_axis(axis, arr.ndim)
                 if isinstance(indices_or_sections, (list, tuple)):
@@ -271,7 +284,9 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
 
 
 @JnpSplitPlugin._PRIM.def_impl
-def _split_impl(a, indices_or_sections, axis=0):
+def _split_impl(
+    a: ArrayLike, indices_or_sections: int | Sequence[int], axis: int = 0
+) -> Sequence[jax.Array]:
     orig = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
     return orig(a, indices_or_sections, axis=axis)
 
@@ -280,12 +295,12 @@ JnpSplitPlugin._PRIM.def_abstract_eval(JnpSplitPlugin.abstract_eval)
 
 
 def _split_batch_rule(
-    batched_args,
-    batch_dims,
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
     *,
-    indices_or_sections,
-    axis=0,
-):
+    indices_or_sections: int | Sequence[int],
+    axis: int = 0,
+) -> tuple[tuple[jax.Array, ...], tuple[BatchDim, ...]]:
     (arr,) = batched_args
     (arr_bdim,) = batch_dims
     axis_int = int(axis)

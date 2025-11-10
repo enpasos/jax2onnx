@@ -1,5 +1,6 @@
 # tests/t_generator.py
 
+import hashlib
 import inspect
 import logging
 import os
@@ -495,28 +496,32 @@ def make_test_function(tp: dict[str, Any]):
 
         processed_input_specs_for_to_onnx: List[Any]
 
+        seed_material = "|".join(
+            [
+                tp.get("context", ""),
+                tp.get("component", ""),
+                tp["testcase"],
+                str(int(current_enable_double_precision)),
+            ]
+        ).encode("utf-8")
+        testcase_seed = int(hashlib.sha256(seed_material).hexdigest()[:16], 16)
+        testcase_rng = np.random.default_rng(testcase_seed)
+
         # Shared helper for generating numeric inputs from shapes/dtypes
         def _rand(shape, dtype):
             """
             Return a NumPy array/random scalar of the requested shape and dtype,
             always as an np.ndarray (so .astype is available).
             """
+            size = shape if shape else ()
             if np.issubdtype(dtype, np.floating):
-                raw = np.random.randn(*shape) if shape else np.random.randn()
+                raw = testcase_rng.standard_normal(size=size) * 0.25
             elif np.issubdtype(dtype, np.integer):
-                raw = (
-                    np.random.randint(0, 5, size=shape)
-                    if shape
-                    else np.random.randint(0, 5)
-                )
+                raw = testcase_rng.integers(0, 5, size=size if shape else ())
             elif dtype == np.bool_ or dtype == np.dtype(bool):
-                raw = (
-                    (np.random.rand(*shape) > 0.5)
-                    if shape
-                    else (np.random.rand() > 0.5)
-                )
+                raw = testcase_rng.random(size=size) > 0.5
             else:
-                raw = np.random.randn(*shape) if shape else np.random.randn()
+                raw = testcase_rng.standard_normal(size=size)
             arr = np.array(raw)
             target = (
                 jnp.float64

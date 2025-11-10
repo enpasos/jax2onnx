@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _IDENTITY_PRIM: Final[Primitive] = Primitive("jax.nn.identity")
@@ -82,10 +81,10 @@ class IdentityPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x):
+    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         lower_unary_elementwise(
             ctx,
             eqn,
@@ -101,23 +100,28 @@ class IdentityPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
+            if orig is None:
+                raise RuntimeError("Original jax.nn.identity not found")
+            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
         return [
             AssignSpec("jax.nn", "identity_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
                 attr="identity",
-                make_value=lambda orig: (
-                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
-                ),
+                make_value=_make_value,
                 delete_if_missing=False,
             ),
         ]
 
 
 @IdentityPlugin._PRIM.def_impl
-def _identity_impl(*args, **kwargs):
-    return jax.nn.identity(*args, **kwargs)
+def _identity_impl(x: ArrayLike) -> ArrayLike:
+    return jax.nn.identity(x)
 
 
 register_unary_elementwise_batch_rule(IdentityPlugin._PRIM)

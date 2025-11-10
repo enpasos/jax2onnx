@@ -541,11 +541,11 @@ def _ir_dtype_from_numpy(dt: np.dtype) -> ir.DataType:
     if dt == np.dtype("float32"):
         return ir.DataType.FLOAT
     if dt == np.dtype("float64"):
-        return getattr(ir.DataType, "DOUBLE", ir.DataType.FLOAT)
+        return ir.DataType.DOUBLE
     if dt == np.dtype("int64"):
         return ir.DataType.INT64
     if dt == np.dtype("int32"):
         return ir.DataType.INT32
     if dt == np.dtype("bool"):
-        return getattr(ir.DataType, "BOOL", ir.DataType.INT32)
+        return ir.DataType.BOOL
     return ir.DataType.FLOAT

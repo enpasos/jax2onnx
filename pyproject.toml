@@ -85,20 +85,22 @@ warn_return_any = true
 warn_unreachable = true
 incremental = false
 files = [
-    "jax2onnx/converter/function_scope.py",
-    "jax2onnx/converter/ir_postprocess.py",
-    "jax2onnx/converter/ir_builder.py",
-    "jax2onnx/converter/ir_context.py",
-    "jax2onnx/plugins/_ir_shapes.py",
-    "tests/extra_tests/framework/test_onnx_ir_surface.py",
+    "jax2onnx",
+    "tests/extra_tests",
     "scripts/audit_ir_dynamic_access.py",
 ]
-
-
-[[tool.mypy.overrides]]
-module = ["jax2onnx.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "jax2onnx.*",
+    "tests.*",
+    "scripts.*",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -107,7 +109,78 @@ module = [
     "jax2onnx.converter.ir_postprocess",
     "jax2onnx.converter.ir_builder",
     "jax2onnx.converter.ir_context",
+    "jax2onnx.converter.lower_dimexpr",
+    "jax2onnx.converter.typing_support",
+    "jax2onnx.plugins._axis0_utils",
     "jax2onnx.plugins._ir_shapes",
+    "jax2onnx.plugins._loop_extent_meta",
+    "jax2onnx.plugins.plugin_system",
+    "jax2onnx.plugins.jax.lax._arg_utils",
+    "jax2onnx.plugins.jax.lax._control_flow_utils",
+    "jax2onnx.plugins.jax.lax._index_utils",
+    "jax2onnx.plugins.jax.lax._reduce_utils",
+    "jax2onnx.plugins.jax.lax._reduction_registry",
+    "jax2onnx.plugins.jax.core.dim_as_value",
+    "jax2onnx.plugins.jax.image._common",
+    "jax2onnx.plugins.jax.image.resize",
+    "jax2onnx.plugins.jax.lax.iota",
+    "jax2onnx.plugins.jax.numpy.add",
+    "jax2onnx.plugins.jax.numpy.arange",
+    "jax2onnx.plugins.jax.numpy.reshape",
+    "jax2onnx.plugins.jax.numpy.tile",
+    "jax2onnx.plugins.jax.numpy.einsum",
+    "jax2onnx.plugins.jax.numpy.stack",
+    "jax2onnx.plugins.jax.numpy.split",
+    "jax2onnx.plugins.jax.numpy.take",
+    "jax2onnx.plugins.jax.numpy.transpose",
+    "jax2onnx.plugins.jax.numpy.squeeze",
+    "jax2onnx.plugins.jax.numpy.select",
+    "jax2onnx.plugins.jax.numpy.clip",
+    "jax2onnx.plugins.jax.numpy.concatenate",
+    "jax2onnx.plugins.jax.numpy._common",
+    "jax2onnx.plugins.jax.numpy.linspace",
+    "jax2onnx.plugins.jax.numpy.where",
+    "jax2onnx.plugins.jax.nn.identity",
+    "jax2onnx.plugins.jax.nn.relu",
+    "jax2onnx.plugins.jax.nn.leaky_relu",
+    "jax2onnx.plugins.jax.nn.gelu",
+    "jax2onnx.plugins.jax.nn.sigmoid",
+    "jax2onnx.plugins.jax.nn.softmax",
+    "jax2onnx.plugins.jax.nn.softplus",
+    "jax2onnx.plugins.jax.nn.softsign",
+    "jax2onnx.plugins.jax.nn.mish",
+    "jax2onnx.plugins.jax.nn.elu",
+    "jax2onnx.plugins.jax.nn.celu",
+    "jax2onnx.plugins.jax.nn.selu",
+    "jax2onnx.plugins.jax.nn.dot_product_attention",
+    "jax2onnx.plugins.jax.random.random_bits",
+    "jax2onnx.plugins.jax.random.random_fold_in",
+    "jax2onnx.plugins.jax.random.random_seed",
+    "jax2onnx.plugins.jax.numpy.cumsum",
+    "jax2onnx.plugins.jax.numpy.conj",
+    "jax2onnx.plugins.jax.numpy.fft",
+    "jax2onnx.plugins.jax.numpy.matmul",
+    "jax2onnx.plugins.jax.numpy.outer",
+    "jax2onnx.plugins.jax.numpy.pow",
+    "jax2onnx.plugins.jax.numpy.prod",
+    "jax2onnx.plugins.jax.numpy.shape",
+    "jax2onnx.plugins.jax.lax.gather_helpers",
+    "jax2onnx.plugins.jax.lax.gather_compile",
+    "jax2onnx.plugins.jax.numpy.sort",
+    "jax2onnx.plugins.jax.numpy.unstack",
+    "jax2onnx.plugins.equinox.eqx.nn.rotary_positional_embedding",
+    "jax2onnx.plugins.equinox.eqx.nn.multihead_attention",
+    "jax2onnx.plugins.equinox.eqx.nn.linear",
+    "jax2onnx.plugins.equinox.eqx.nn.layer_norm",
+    "jax2onnx.plugins.equinox.eqx.nn.conv",
+    "jax2onnx.plugins.equinox.eqx.nn.identity",
+    "jax2onnx.plugins.equinox.eqx.nn.dropout",
+    "jax2onnx.sandbox.issue52_scatter_payload_repro",
+    "scripts.audit_ir_dynamic_access",
+    "tests.extra_tests.framework.test_onnx_ir_surface",
+    "tests.extra_tests.helpers.issue52_broadcast_fixture",
+    "tests.extra_tests.helpers.issue52_loop_concat_fixture",
+    "tests.extra_tests.helpers.issue52_scatter_payload_fixture",
 ]
 follow_imports = "normal"
 ignore_missing_imports = true
@@ -115,10 +188,6 @@ allow_untyped_globals = false
 disallow_untyped_defs = true
 disallow_any_generics = true
 check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = ["tests.*", "scripts.*"]
-ignore_errors = true
 
 [tool.jax]
 enable_x64 = true

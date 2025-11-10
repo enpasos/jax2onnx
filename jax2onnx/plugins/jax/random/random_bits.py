@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import onnx_ir as ir
@@ -13,9 +13,7 @@ import jax
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
 def _shape_from_params(shape_param: Sequence[int]) -> tuple[int, ...]:
@@ -30,7 +28,7 @@ def _shape_from_params(shape_param: Sequence[int]) -> tuple[int, ...]:
     return tuple(dims)
 
 
-def _scalar_constant(ctx: "IRContext", value: float) -> ir.Value:
+def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
     arr = np.asarray(value, dtype=np.float32)
     return ctx.builder.add_initializer_from_scalar(
         name=ctx.fresh_name("const"), value=arr
@@ -71,12 +69,9 @@ def _scalar_constant(ctx: "IRContext", value: float) -> ir.Value:
 class RandomBitsPlugin(PrimitiveLeafPlugin):
     """Lower ``random_bits`` via RandomUniform + scaling + cast."""
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
-        from jax2onnx.converter.ir_context import IRContext  # local import
-
-        if not isinstance(ctx, IRContext):  # pragma: no cover - defensive
-            raise TypeError("Expected IRContext")
-
+    def lower(
+        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
+    ) -> None:  # type: ignore[override]
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})

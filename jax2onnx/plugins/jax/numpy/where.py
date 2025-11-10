@@ -292,11 +292,10 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             and np.issubdtype(target_dtype, np.floating)
             and target_dtype == np.float64
         ):
-            double_enum = getattr(ir.DataType, "DOUBLE", None)
 
             def _is_value_double(val: ir.Value) -> bool:
                 enum = getattr(getattr(val, "type", None), "dtype", None)
-                return enum == double_enum
+                return enum == ir.DataType.DOUBLE
 
             if not _is_value_double(x_val) and not _is_value_double(y_val):
                 target_dtype = np.float32

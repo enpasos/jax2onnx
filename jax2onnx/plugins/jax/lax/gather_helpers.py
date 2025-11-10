@@ -1,7 +1,11 @@
 # jax2onnx/plugins/jax/lax/gather_helpers.py
 
+from __future__ import annotations
+
 from typing import Any, Callable
 import numpy as np
+
+GirInstruction = dict[str, Any]
 
 
 def check_uniform_start_index(
@@ -11,7 +15,9 @@ def check_uniform_start_index(
     return all(values == values[0])
 
 
-def transpose_to_gir(indices: list[int], input_shape: list[Any]) -> list[dict]:
+def transpose_to_gir(
+    indices: list[int], input_shape: list[Any]
+) -> list[GirInstruction]:
     if indices == list(range(len(indices))):
         return []
     dims = [
@@ -28,7 +34,9 @@ def transpose_to_gir(indices: list[int], input_shape: list[Any]) -> list[dict]:
     ]
 
 
-def index_transpose_to_gir(indices: list[int], input_shape: list[Any]) -> list[dict]:
+def index_transpose_to_gir(
+    indices: list[int], input_shape: list[Any]
+) -> list[GirInstruction]:
     if indices == list(range(len(indices))):
         return []
     dims = [
@@ -51,7 +59,7 @@ def index_transpose_to_gir(indices: list[int], input_shape: list[Any]) -> list[d
 
 def index_lastdim_gather_to_gir(
     gather_indices: list[int], input_shape: list[int]
-) -> list[dict]:
+) -> list[GirInstruction]:
     return [
         {
             "op": "index_lastdim_gather",
@@ -63,7 +71,7 @@ def index_lastdim_gather_to_gir(
 
 def index_expand_range_gir(
     dims_to_extend: list[int], dim_slice_sizes: list[int], input_shape: list[int]
-) -> list[dict]:
+) -> list[GirInstruction]:
     dims = [
         {"mode": "expand", "indices_var_index": dim_idx, "slice_size": slice_size}
         for dim_idx, slice_size in zip(dims_to_extend, dim_slice_sizes)
@@ -71,7 +79,7 @@ def index_expand_range_gir(
     return [{"op": "index_expand", "new_dims": dims, "input_shape": input_shape}]
 
 
-def index_reshape(input_shape: list[int], new_shape: list[int]):
+def index_reshape(input_shape: list[int], new_shape: list[int]) -> list[GirInstruction]:
     return [
         {"op": "index_reshape", "input_shape": input_shape, "output_shape": new_shape}
     ]
@@ -85,14 +93,14 @@ def invert_transpose(indices: list[int]) -> list[int]:
     return result
 
 
-def get_gir_input_shape(gir_instr: dict) -> list[Any]:
+def get_gir_input_shape(gir_instr: GirInstruction) -> list[Any]:
     if "dims" not in gir_instr:
         return gir_instr["input_shape"]
     else:
         return [dim["input_size"] for dim in gir_instr["dims"]]
 
 
-def get_gir_output_shape(gir_instr: dict) -> list[Any]:
+def get_gir_output_shape(gir_instr: GirInstruction) -> list[Any]:
     index_to_shape_map = {}
     if "dims" not in gir_instr:
         return gir_instr["output_shape"]
@@ -105,7 +113,7 @@ def get_gir_output_shape(gir_instr: dict) -> list[Any]:
         return [index_to_shape_map[i] for i in range(len(index_to_shape_map))]
 
 
-def calculate_index_shape(gir_instr: dict) -> list[Any]:
+def calculate_index_shape(gir_instr: GirInstruction) -> tuple[list[Any], list[int]]:
     assert gir_instr["op"] in ["general_gather", "ONNX_GatherND"]
     index_shape = {}
     index_index = []
@@ -138,7 +146,7 @@ def calculate_index_shape(gir_instr: dict) -> list[Any]:
     return index_shape, index_index
 
 
-def is_gather_nop(gir_instr: dict) -> bool:
+def is_gather_nop(gir_instr: GirInstruction) -> bool:
     assert gir_instr["op"] == "general_gather"
     return all(
         dim["mode"] == "passthrough" and [dim["dim"]] == dim["target_dimensions"]
@@ -147,8 +155,10 @@ def is_gather_nop(gir_instr: dict) -> bool:
 
 
 def run_one_pass(
-    gir: list[dict], one_pass: Callable[[dict], list[dict]], targets: list[str]
-):
+    gir: list[GirInstruction],
+    one_pass: Callable[[GirInstruction], list[GirInstruction]],
+    targets: list[str],
+) -> list[GirInstruction]:
     result_gir = []
     for instr in gir:
         if instr["op"] in targets:
@@ -156,3 +166,20 @@ def run_one_pass(
         else:
             result_gir.append(instr)
     return result_gir
+
+
+__all__ = [
+    "GirInstruction",
+    "calculate_index_shape",
+    "check_uniform_start_index",
+    "get_gir_input_shape",
+    "get_gir_output_shape",
+    "index_expand_range_gir",
+    "index_lastdim_gather_to_gir",
+    "index_reshape",
+    "index_transpose_to_gir",
+    "invert_transpose",
+    "is_gather_nop",
+    "run_one_pass",
+    "transpose_to_gir",
+]

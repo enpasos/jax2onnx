@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import core
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _UNSTACK_PRIM: Final = make_jnp_primitive("jax.numpy.unstack")
@@ -131,7 +131,9 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *, axis=0):
+    def abstract_eval(
+        x: jax.core.AbstractValue, *, axis: int = 0
+    ) -> tuple[jax.core.ShapedArray, ...]:
         rank = len(x.shape)
         axis_norm = _normalize_axis(axis, rank)
         size = x.shape[axis_norm]
@@ -142,7 +144,7 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
         out_shape = x.shape[:axis_norm] + x.shape[axis_norm + 1 :]
         return tuple(core.ShapedArray(out_shape, x.dtype) for _ in range(int(size)))
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis", 0)
 
@@ -207,15 +209,17 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
             bind_value(out_var, squeezed)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jnp.unstack not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(x, axis=0):
+            def _patched(x: ArrayLike, axis: int = 0) -> ArrayLike:
                 return cls._PRIM.bind(x, axis=axis)
 
             return _patched
@@ -234,7 +238,7 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
 
 
 @JnpUnstackPlugin._PRIM.def_impl
-def _unstack_impl(x, axis=0):
+def _unstack_impl(x: ArrayLike, axis: int = 0):
     orig = get_orig_impl(JnpUnstackPlugin._PRIM, JnpUnstackPlugin._FUNC_NAME)
     return orig(x, axis=axis)
 

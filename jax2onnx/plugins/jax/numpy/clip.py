@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Any
+from collections.abc import Callable
+from typing import Any, ClassVar, Final
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -19,15 +23,15 @@ from jax2onnx.plugins.jax.numpy._common import (
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+ScalarBound = bool | int | float | np.generic
+JaxValue = core.Var | core.Literal
 
 
-def _np_dtype(x: Any) -> np.dtype:
+def _np_dtype(x: DTypeLike) -> np.dtype[Any]:
     return x if isinstance(x, np.dtype) else np.dtype(x)
 
 
-def _dtype_min_max(dtype: np.dtype) -> tuple[Any, Any]:
+def _dtype_min_max(dtype: np.dtype[Any]) -> tuple[ScalarBound, ScalarBound]:
     if np.issubdtype(dtype, np.floating):
         return -jnp.inf, jnp.inf
     if np.issubdtype(dtype, np.integer):
@@ -39,10 +43,10 @@ def _dtype_min_max(dtype: np.dtype) -> tuple[Any, Any]:
 
 
 def _cast_value(
-    ctx: "IRContext",  # type: ignore[name-defined]
+    ctx: LoweringContextProtocol,
     src_val: ir.Value,
-    src_var,
-    target_dtype: np.dtype,
+    src_var: JaxValue,
+    target_dtype: np.dtype[Any],
     tag: str,
 ) -> ir.Value:
     var_dtype = _np_dtype(
@@ -165,10 +169,15 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, a_min, a_max, **_):
+    def abstract_eval(
+        x: core.AbstractValue,
+        a_min: core.AbstractValue,
+        a_max: core.AbstractValue,
+        **_: object,
+    ) -> core.ShapedArray:
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         x_var, lo_var, hi_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -206,15 +215,21 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.clip not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, a_min=None, a_max=None):
+            def _patched(
+                a: ArrayLike,
+                a_min: ArrayLike | None = None,
+                a_max: ArrayLike | None = None,
+            ) -> jax.Array:
                 x = jnp.asarray(a)
                 dtype = x.dtype
                 lo_default, hi_default = _dtype_min_max(_np_dtype(dtype))
@@ -240,7 +255,7 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
 
 
 @JnpClipPlugin._PRIM.def_impl
-def _clip_impl(x, a_min, a_max):
+def _clip_impl(x: ArrayLike, a_min: ArrayLike, a_max: ArrayLike) -> jax.Array:
     orig = get_orig_impl(JnpClipPlugin._PRIM, JnpClipPlugin._FUNC_NAME)
     return orig(x, a_min, a_max)
 

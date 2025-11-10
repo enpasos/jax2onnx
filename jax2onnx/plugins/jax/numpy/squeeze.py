@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 from jax import core
 from jax.interpreters import batching
 from jax._src.lax import lax as lax_internal
@@ -16,10 +18,8 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _SQUEEZE_PRIM: Final = make_jnp_primitive("jax.numpy.squeeze")
@@ -159,14 +159,16 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *, axis=None):
+    def abstract_eval(
+        x: core.AbstractValue, *, axis: int | Sequence[int] | None = None
+    ) -> core.ShapedArray:
         storage_slot = f"__orig_impl__{JnpSqueezePlugin._FUNC_NAME}"
         orig = getattr(JnpSqueezePlugin._PRIM, storage_slot, jnp.squeeze)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
         return core.ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axes", params.get("axis"))
 
@@ -228,15 +230,19 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
         bind_value(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.squeeze not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, axis=None):
+            def _patched(
+                a: ArrayLike, axis: int | Sequence[int] | None = None
+            ) -> jax.Array:
                 arr = jnp.asarray(a)
                 return cls._PRIM.bind(arr, axis=axis)
 
@@ -256,7 +262,7 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
 
 
 @JnpSqueezePlugin._PRIM.def_impl
-def _squeeze_impl(a, axis=None):
+def _squeeze_impl(a: ArrayLike, axis: int | Sequence[int] | None = None) -> jax.Array:
     orig = get_orig_impl(JnpSqueezePlugin._PRIM, JnpSqueezePlugin._FUNC_NAME)
     return orig(a, axis=axis)
 
@@ -264,7 +270,15 @@ def _squeeze_impl(a, axis=None):
 JnpSqueezePlugin._PRIM.def_abstract_eval(JnpSqueezePlugin.abstract_eval)
 
 
-def _squeeze_batch_rule(batched_args, batch_dims, *, axis=None):
+BatchDim = int | type(batching.not_mapped)
+
+
+def _squeeze_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int | Sequence[int] | None = None,
+) -> tuple[jax.Array, BatchDim]:
     (operand,), (_bdim,) = batched_args, batch_dims
     operand_shape = getattr(operand, "shape", ())
     rank = len(operand_shape)

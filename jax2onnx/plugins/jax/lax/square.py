@@ -1,9 +1,11 @@
 # jax2onnx/plugins/jax/lax/square.py
 
-from typing import TYPE_CHECKING
+from typing import Any
 
+from jax import core
 import jax
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import (
@@ -14,8 +16,7 @@ from jax2onnx.plugins._loop_extent_meta import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    pass
+JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
     ],
 )
 class SquarePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final, Optional, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Final, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
+import jax.core as jax_core
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax import ShapeDtypeStruct
@@ -13,6 +14,7 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _is_static_int,
@@ -38,13 +40,13 @@ def _normalized_shape(
 
 
 def _conv_forward(
-    x,
-    weight,
-    bias,
+    x: jax.Array,
+    weight: jax.Array,
+    bias: jax.Array,
     *,
     use_bias: bool,
     strides: Sequence[int],
-    padding,
+    padding: Any,
     dilations: Sequence[int],
     groups: int,
     num_spatial_dims: int,
@@ -90,7 +92,7 @@ def _conv_shape(
     *,
     use_bias: bool,
     strides: Sequence[int],
-    padding,
+    padding: Any,
     dilations: Sequence[int],
     groups: int,
     num_spatial_dims: int,
@@ -167,7 +169,12 @@ class ConvPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, weight, bias, **params):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        weight: jax_core.AbstractValue,
+        bias: jax_core.AbstractValue,
+        **params: Any,
+    ) -> ShapedArray:
         params = dict(params)
         params.pop("padding_mode", None)
         return _conv_shape(
@@ -177,7 +184,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             **params,
         )
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -339,13 +346,13 @@ class ConvPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, conv_result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "conv_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -357,10 +364,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
+    def _patch_call(
+        orig: Callable[..., jax.Array] | None,
+    ) -> Callable[[eqx.nn._conv.Conv, jax.Array], jax.Array]:
         del orig
 
-        def wrapped(self, x, *, key=None):
+        def wrapped(
+            self: eqx.nn._conv.Conv, x: jax.Array, *, key: jax.Array | None = None
+        ) -> jax.Array:
             del key
 
             arr = jnp.asarray(x)
@@ -401,13 +412,19 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
 
 @ConvPlugin._PRIM.def_impl
-def _conv_impl(x, weight, bias, **params):
+def _conv_impl(
+    x: jax.Array, weight: jax.Array, bias: jax.Array, **params: Any
+) -> jax.Array:
     params = dict(params)
     params.pop("padding_mode", None)
     return _conv_forward(x, weight, bias, **params)
 
 
-def _conv_batch_rule(batched_args, batch_dims, **params):
+def _conv_batch_rule(
+    batched_args: tuple[jax.Array, jax.Array, jax.Array],
+    batch_dims: tuple[int | None, int | None, int | None],
+    **params: Any,
+) -> tuple[jax.Array, int | None]:
     x, weight, bias = batched_args
     x_bdim, w_bdim, b_bdim = batch_dims
 

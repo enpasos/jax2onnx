@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from collections.abc import Sequence
+from typing import Any, Callable, ClassVar, Final
+
+import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax import core
 
@@ -12,21 +16,19 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _SELECT_PRIM: Final = make_jnp_primitive("jax.numpy.select")
 
 
-def _broadcast_shape(*shapes):
+def _broadcast_shape(*shapes: Sequence[int | object]) -> tuple[int | object, ...]:
     return jnp.broadcast_shapes(*shapes)
 
 
-def _promote_dtype(*dtypes):
+def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
     return jnp.result_type(*dtypes)
 
 
@@ -97,7 +99,9 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*operands, num_conds: int, num_choices: int):
+    def abstract_eval(
+        *operands: core.AbstractValue, num_conds: int, num_choices: int
+    ) -> core.ShapedArray:
         conds = operands[:num_conds]
         choices = operands[num_conds : num_conds + num_choices]
         default = operands[-1]
@@ -109,7 +113,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         dtype = _promote_dtype(*(c.dtype for c in choices), default.dtype)
         return core.ShapedArray(shape, dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         num_conds = int(params["num_conds"])
         num_choices = int(params["num_choices"])
@@ -178,7 +182,9 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         bind_value(out_var, final_val)
 
     @staticmethod
-    def _ensure_bool(ctx: "IRContext", val: ir.Value, var) -> ir.Value:
+    def _ensure_bool(
+        ctx: LoweringContextProtocol, val: ir.Value, var: core.Var
+    ) -> ir.Value:
         dtype = getattr(getattr(var, "aval", None), "dtype", np.bool_)
         if dtype == np.bool_:
             return val
@@ -196,7 +202,12 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         return cast
 
     @staticmethod
-    def _ensure_dtype(ctx: "IRContext", val: ir.Value, var, target_dtype) -> ir.Value:
+    def _ensure_dtype(
+        ctx: LoweringContextProtocol,
+        val: ir.Value,
+        var: core.Var,
+        target_dtype: np.dtype[Any],
+    ) -> ir.Value:
         dtype = getattr(getattr(var, "aval", None), "dtype", target_dtype)
         if dtype == target_dtype:
             return val
@@ -217,15 +228,22 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         return cast
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.select not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(condlist, choicelist, *, default=None):
+            def _patched(
+                condlist: Sequence[ArrayLike],
+                choicelist: Sequence[ArrayLike],
+                *,
+                default: ArrayLike | None = None,
+            ) -> jax.Array:
                 return cls._PRIM.bind(
                     *condlist,
                     *choicelist,
@@ -250,7 +268,12 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
 
 
 @JnpSelectPlugin._PRIM.def_impl
-def _select_impl(condlist, choicelist, *, default=None):
+def _select_impl(
+    condlist: Sequence[ArrayLike],
+    choicelist: Sequence[ArrayLike],
+    *,
+    default: ArrayLike | None = None,
+) -> jax.Array:
     orig = get_orig_impl(JnpSelectPlugin._PRIM, JnpSelectPlugin._FUNC_NAME)
     return orig(condlist, choicelist, default=default)
 

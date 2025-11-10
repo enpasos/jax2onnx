@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 import equinox as eqx
 import jax
+import jax.core as jax_core
 import numpy as np
 import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.core import ShapedArray
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _const_tensor(ctx, array, *, name: str) -> ir.Value:
+def _const_tensor(ctx: LoweringContextProtocol, array: Any, *, name: str) -> ir.Value:
     arr = np.asarray(array)
     builder = getattr(ctx, "builder", None)
     if builder is None:
@@ -29,10 +31,11 @@ def _const_tensor(ctx, array, *, name: str) -> ir.Value:
     else:
         value = builder.add_initializer_from_array(name=init_name, array=arr)
     _stamp_type_and_shape(value, arr.shape if arr.shape else ())
+    _ensure_value_metadata(ctx, value)
     return value
 
 
-def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
+def _ensure_scalar_bool_input(ctx: LoweringContextProtocol, name: str) -> ir.Value:
     builder = getattr(ctx, "builder", None)
     if builder is None:
         raise AttributeError("IR build context missing builder for dropout input")
@@ -45,6 +48,7 @@ def _ensure_scalar_bool_input(ctx, name: str) -> ir.Value:
         shape=ir.Shape(()),
     )
     builder.inputs.append(value)
+    _ensure_value_metadata(ctx, value)
     return value
 
 
@@ -54,7 +58,7 @@ except ImportError:  # pragma: no cover - older jax
     from jax.core import Literal as _JaxLiteral
 
 
-def _extract_python_bool(var) -> Optional[bool]:
+def _extract_python_bool(var: Any) -> Optional[bool]:
     if isinstance(var, _JaxLiteral):
         val = getattr(var, "val", None)
         if isinstance(val, (bool, np.bool_)):
@@ -155,11 +159,17 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, inference, *, p, call_time=False):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        inference: jax_core.AbstractValue,
+        *,
+        p: float,
+        call_time: bool = False,
+    ) -> ShapedArray:
         del inference, p, call_time
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -175,7 +185,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ratio_val = _const_tensor(ctx, np.asarray(rate, dtype=np.float32), name="ratio")
 
         inference_bool = _extract_python_bool(inference_var)
-        call_params = getattr(ctx, "_call_input_param_names", set())
+        call_params = set(getattr(ctx, "_call_input_param_names", set()))
         param_name = "inference"
 
         def _materialize_not(value: ir.Value) -> ir.Value:
@@ -244,7 +254,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, dropout_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "dropout_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -256,10 +266,19 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
+    def _patch_call(
+        orig: Callable[..., jax.Array] | None,
+    ) -> Callable[..., jax.Array]:
         del orig
 
-        def wrapped(self, x, *, key=None, inference=None, deterministic=None):
+        def wrapped(
+            self: eqx.nn.Dropout,
+            x: jax.Array,
+            *,
+            key: jax.Array | None = None,
+            inference: bool | np.bool_ | jax.Array | None = None,
+            deterministic: bool | None = None,
+        ) -> jax.Array:
             del key
             call_time = deterministic is not None or inference is not None
             if deterministic is not None:
@@ -278,7 +297,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, inference, *, p, call_time=False: cls.abstract_eval(
@@ -289,7 +308,13 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
 
 @DropoutPlugin._PRIM.def_impl
-def _dropout_impl(x, inference, *, p, call_time=False):
+def _dropout_impl(
+    x: jax.Array,
+    inference: bool | np.bool_ | jax.Array,
+    *,
+    p: float,
+    call_time: bool = False,
+) -> jax.Array:
     del p, call_time
     inference_bool = bool(inference)
     if inference_bool:
@@ -297,7 +322,13 @@ def _dropout_impl(x, inference, *, p, call_time=False):
     return x
 
 
-def _dropout_batch_rule(batched_args, batch_dims, *, p, call_time=False):
+def _dropout_batch_rule(
+    batched_args: tuple[jax.Array, jax.Array],
+    batch_dims: tuple[int | None, int | None],
+    *,
+    p: float,
+    call_time: bool = False,
+) -> tuple[jax.Array, int | None]:
     x, inference = batched_args
     x_bdim, inf_bdim = batch_dims
     if inf_bdim is not None:

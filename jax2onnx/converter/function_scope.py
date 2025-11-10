@@ -9,6 +9,7 @@ import onnx_ir as ir
 
 from .ir_context import IRContext
 from .ir_clone import clone_graph
+from .typing_support import SymbolicDimOrigin
 
 
 @dataclass(frozen=True)
@@ -119,11 +120,15 @@ class FunctionScope:
                     self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
                     try:
                         if not isinstance(dim, (int, np.integer)):
-                            self.ctx._sym_origin[dim] = (fin, axis)
+                            self.ctx._sym_origin[dim] = SymbolicDimOrigin(
+                                value=fin, axis=axis
+                            )
                     except Exception:
                         pass
                     try:
-                        self.ctx._sym_origin_str[str(dim)] = (fin, axis)
+                        self.ctx._sym_origin_str[str(dim)] = SymbolicDimOrigin(
+                            value=fin, axis=axis
+                        )
                     except Exception:
                         pass
         return fn_def.inputs

@@ -21,9 +21,12 @@ from typing import (
     ClassVar,
     Dict,
     Final,
+    Iterator,
+    Mapping,
     Optional,
     Set,
     TYPE_CHECKING,
+    Union,
     cast,
 )
 
@@ -37,6 +40,11 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.typing_support import (
+    PrimitiveLowering,
+    RngTrace,
+    SymbolicDimOrigin,
+)
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 
@@ -59,7 +67,8 @@ def _sanitize_op_type(s: str) -> str:
 
 
 # Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
-PLUGIN_REGISTRY: Dict[str, Any] = {}
+PluginEntry = Union["FunctionPlugin", PrimitiveLowering]
+PLUGIN_REGISTRY: Dict[str, PluginEntry] = {}
 
 # Qualified target name -> FunctionPlugin (for reference)
 ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
@@ -81,6 +90,20 @@ EXAMPLE_REGISTRY: Dict[str, dict[str, Any]] = {}
 # Patching state
 _PATCH_STATE: dict[tuple[Any, str], dict[str, Any]] = {}
 
+_RNG_TRACE_REGISTRY: Set[str] = set()
+
+
+def _register_rng_trace(trace: RngTrace) -> None:
+    """Record RNG helpers for CI reporting."""
+
+    _RNG_TRACE_REGISTRY.add(trace.describe())
+
+
+def list_registered_rng_traces() -> list[str]:
+    """Return sorted human-readable RNG helper descriptions."""
+
+    return sorted(_RNG_TRACE_REGISTRY)
+
 
 def _sanitize_op_type_name(name: str) -> str:
     """Make a string safe for ONNX op_type (letters, digits, underscore)."""
@@ -89,8 +112,6 @@ def _sanitize_op_type_name(name: str) -> str:
 
 def _normalize_namespace(namespace: str | None) -> str:
     raw = namespace if namespace is not None else _FUNCTION_DOMAIN
-    if not isinstance(raw, str):
-        raw = str(raw)
     parts = [part for part in raw.split(".") if part]
     sanitized_parts: list[str] = []
     for part in parts:
@@ -114,13 +135,26 @@ _already_imported_plugins: bool = False
 class _FactoryValue:
     """Sentinel wrapping a callable that produces a value given the requested dtype."""
 
-    __slots__ = ("_fn",)
+    __slots__ = ("_fn", "_metadata")
 
-    def __init__(self, fn: Callable[[Any], Any]):
+    def __init__(
+        self,
+        fn: Callable[[Any], Any],
+        *,
+        metadata: Optional[dict[str, Any]] = None,
+    ):
         self._fn = fn
+        self._metadata = metadata or {}
+        trace = self._metadata.get("rng_trace")
+        if isinstance(trace, RngTrace):
+            _register_rng_trace(trace)
 
     def resolve(self, dtype: Any) -> Any:  # noqa: D401 - tiny helper
         return self._fn(dtype)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self._metadata
 
 
 def _materialize(value: Any, dtype: Any) -> Any:
@@ -171,7 +205,8 @@ def with_rng_seed(seed: int | Callable[[Any], int]) -> _FactoryValue:
         seed_value = seed(dtype) if callable(seed) else seed
         return nnx.Rngs(seed_value)
 
-    return _FactoryValue(_build)
+    trace = RngTrace(kind="nnx_rng", seed=seed if isinstance(seed, int) else None)
+    return _FactoryValue(_build, metadata={"rng_trace": trace})
 
 
 def with_prng_key(seed: int | Callable[[Any], int]) -> _FactoryValue:
@@ -183,7 +218,8 @@ def with_prng_key(seed: int | Callable[[Any], int]) -> _FactoryValue:
         seed_value = seed(dtype) if callable(seed) else seed
         return jax.random.PRNGKey(seed_value)
 
-    return _FactoryValue(_build)
+    trace = RngTrace(kind="jax_prng", seed=seed if isinstance(seed, int) else None)
+    return _FactoryValue(_build, metadata={"rng_trace": trace})
 
 
 class _DynamicParamWrapper:
@@ -274,11 +310,11 @@ def construct_and_call(
 
 class PrimitivePlugin(ABC):
     @abstractmethod
-    def get_patch_params(self):
+    def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
         raise NotImplementedError
 
 
-class PrimitiveLeafPlugin(PrimitivePlugin):
+class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
     """Base class for concrete primitive lowerings.
 
     Implementations are responsible for wiring the underlying JAX primitive:
@@ -289,18 +325,20 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
     """
 
     primitive: str
-    metadata: dict[str, Any]
+    metadata: Mapping[str, Any]
     patch_info: Callable[[], dict[str, Any]] | None = None
 
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
-        if not getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
-            if hasattr(cls, "_PRIM") and hasattr(cls, "abstract_eval"):
-                # type: ignore[attr-defined]
-                cls._PRIM.def_abstract_eval(cls.abstract_eval)  # noqa: SLF001
-            cls._ABSTRACT_EVAL_BOUND = True
+    def ensure_abstract_eval_bound(cls) -> None:
+        if getattr(cls, "_ABSTRACT_EVAL_BOUND", False):
+            return
+        prim = getattr(cls, "_PRIM", None)
+        abstract_eval = getattr(cls, "abstract_eval", None)
+        if prim is not None and callable(abstract_eval):
+            prim.def_abstract_eval(abstract_eval)  # noqa: SLF001
+        cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
@@ -308,12 +346,12 @@ class PrimitiveLeafPlugin(PrimitivePlugin):
 
     @classmethod
     @contextmanager
-    def plugin_binding(cls):
+    def plugin_binding(cls) -> Iterator[None]:
         cls.ensure_abstract_eval_bound()
         with apply_patches(cls.binding_specs()):
             yield
 
-    def get_patch_params(self):
+    def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
         if not self.patch_info:
             raise ValueError("patch_info is not defined for this plugin.")
         info = self.patch_info()
@@ -727,7 +765,7 @@ class FunctionPlugin(PrimitivePlugin):
         counters = getattr(ctx, "_func_name_counters", None)
         if counters is None:
             counters = {}
-        counter_key = (namespace, base)
+        counter_key = (namespace, base, "shared")
         idx = counters.get(counter_key, 0) + 1
         counters[counter_key] = idx
         setattr(ctx, "_func_name_counters", counters)
@@ -806,13 +844,12 @@ class FunctionPlugin(PrimitivePlugin):
             for axis, dim in enumerate(raw_shape):
                 actual_dim = dim
                 if origin_lookup is not None and not isinstance(dim, (int, np.integer)):
-                    origin = origin_lookup(dim) or origin_lookup(str(dim))
+                    origin = SymbolicDimOrigin.resolve(origin_lookup, dim)
                     if origin is not None:
-                        src_val, src_axis = origin
-                        src_shape = getattr(src_val, "shape", None)
+                        src_shape = getattr(origin.value, "shape", None)
                         src_dims = getattr(src_shape, "dims", src_shape)
-                        if src_dims is not None and len(src_dims) > src_axis:
-                            candidate = src_dims[src_axis]
+                        if src_dims is not None and len(src_dims) > origin.axis:
+                            candidate = src_dims[origin.axis]
                             if isinstance(candidate, (int, np.integer)):
                                 actual_dim = int(candidate)
                 resolved_shape.append(actual_dim)
@@ -857,12 +894,12 @@ class FunctionPlugin(PrimitivePlugin):
                     shape = tuple(arr.shape)
                     dtype_np = arr.dtype
                     dtype_for_capture = dtype_np
-                sds = jax.ShapeDtypeStruct(shape, dtype_np)
+                entry_sds = jax.ShapeDtypeStruct(shape, dtype_np)
                 dynamic_entries.append(
                     {
                         "name": pname,
                         "var": None,
-                        "sds": sds,
+                        "sds": entry_sds,
                         "force_external": True,
                     }
                 )
@@ -947,9 +984,10 @@ class FunctionPlugin(PrimitivePlugin):
                 setattr(fscope.ctx, "_func_name_counters", counters)
             call_param_names_obj = getattr(ctx, "_call_input_param_names", None)
             if isinstance(call_param_names_obj, set):
-                call_param_names_set = cast(Set[Any], call_param_names_obj)
                 setattr(
-                    fscope.ctx, "_call_input_param_names", set(call_param_names_set)
+                    fscope.ctx,
+                    "_call_input_param_names",
+                    set(call_param_names_obj),
                 )
             call_param_literals_obj = getattr(ctx, "_call_input_param_literals", None)
             if isinstance(call_param_literals_obj, dict):
@@ -975,16 +1013,16 @@ class FunctionPlugin(PrimitivePlugin):
                         call_value_map = dict(existing_lookup)
                     else:
                         call_value_map = {}
-                    for entry, child_val in zip(dynamic_entries, child_dynamic_vals):
-                        entry["child_input"] = child_val
-                        call_value_map[entry["name"]] = child_val
+                    for entry, child_input in zip(dynamic_entries, child_dynamic_vals):
+                        entry["child_input"] = cast(Any, child_input)
+                        call_value_map[entry["name"]] = child_input
                     if call_value_map:
                         setattr(fscope.ctx, "_call_param_value_by_name", call_value_map)
 
             # ---- Trace the callee with child input specs and lower into CHILD ctx ----
 
             # Build ShapeDtypeStructs from the *outer* eqn's invars (safer than IR dtypes)
-            sds = []
+            sds: list[jax.ShapeDtypeStruct] = []
             for v in eqn.invars:
                 aval = getattr(v, "aval", None)
                 sds.append(
@@ -993,7 +1031,9 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 )
 
-            dynamic_sds = [entry["sds"] for entry in dynamic_entries]
+            dynamic_sds: list[jax.ShapeDtypeStruct] = [
+                entry["sds"] for entry in dynamic_entries
+            ]
             base_arg_count = len(sds)
 
             def _wrapped(*all_args):
@@ -1216,7 +1256,7 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     _legacy_register_example_func: Optional[Callable[..., Any]] = None
     _legacy_registry: Optional[dict[str, Any]] = None
     try:  # import under a different name, then assign
-        from jax2onnx.plugins.plugin_system import (  # type: ignore[attr-defined]
+        from jax2onnx.plugins.plugin_system import (
             PLUGIN_REGISTRY as _legacy_registry_ref,
             register_example as _legacy_register_example_ref,
         )

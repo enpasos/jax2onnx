@@ -9,6 +9,10 @@ import numpy as np
 import onnx_ir as ir
 
 # from onnx_ir import Attribute as IRAttr
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    SymbolicDimOrigin,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
@@ -25,20 +29,20 @@ from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 if TYPE_CHECKING:
     pass  # for hints
 
-_IR_TO_NP_DTYPE: Final[dict[ir.DataType | None, np.dtype[Any]]] = {
-    getattr(ir.DataType, "FLOAT16", None): np.float16,
-    getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
-    ir.DataType.FLOAT: np.float32,
-    getattr(ir.DataType, "DOUBLE", None): np.float64,
-    ir.DataType.INT8: np.int8,
-    ir.DataType.INT16: np.int16,
-    ir.DataType.INT32: np.int32,
-    ir.DataType.INT64: np.int64,
-    getattr(ir.DataType, "UINT8", None): np.uint8,
-    getattr(ir.DataType, "UINT16", None): np.uint16,
-    getattr(ir.DataType, "UINT32", None): np.uint32,
-    getattr(ir.DataType, "UINT64", None): np.uint64,
-    ir.DataType.BOOL: np.bool_,
+_IR_TO_NP_DTYPE: Final[dict[ir.DataType, np.dtype[Any]]] = {
+    ir.DataType.FLOAT16: np.dtype(np.float16),
+    ir.DataType.BFLOAT16: np.dtype(getattr(np, "bfloat16", np.float16)),
+    ir.DataType.FLOAT: np.dtype(np.float32),
+    ir.DataType.DOUBLE: np.dtype(np.float64),
+    ir.DataType.INT8: np.dtype(np.int8),
+    ir.DataType.INT16: np.dtype(np.int16),
+    ir.DataType.INT32: np.dtype(np.int32),
+    ir.DataType.INT64: np.dtype(np.int64),
+    ir.DataType.UINT8: np.dtype(np.uint8),
+    ir.DataType.UINT16: np.dtype(np.uint16),
+    ir.DataType.UINT32: np.dtype(np.uint32),
+    ir.DataType.UINT64: np.dtype(np.uint64),
+    ir.DataType.BOOL: np.dtype(np.bool_),
 }
 
 
@@ -325,7 +329,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     where reshape_shape inserts 1s in the non-mapped result axes.
     """
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn):
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -501,19 +505,18 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 target_shape_dims[axis] = int(d)
             else:
                 # Dynamic/symbolic dimension: fetch from its recorded origin.
-                origin = getattr(ctx, "get_symbolic_dim_origin", None)
-                if origin is None:
+                origin_lookup = getattr(ctx, "get_symbolic_dim_origin", None)
+                if origin_lookup is None:
                     raise NotImplementedError(
                         "symbolic dims require ctx.get_symbolic_dim_origin"
                     )
-                src = origin(d)
-                if src is None:
-                    src = origin(str(d))
-                if src is None:
+                origin = SymbolicDimOrigin.resolve(origin_lookup, d)
+                if origin is None:
                     raise NotImplementedError(
                         f"no origin recorded for symbolic dim '{d}'"
                     )
-                src_val, axis = src
+                src_val = origin.value
+                src_axis = int(origin.axis)
                 # Shape(src) → Gather(…, [axis]) → length-1 vector
                 src_rank = len(
                     getattr(getattr(src_val, "shape", None), "dims", ()) or ()
@@ -527,7 +530,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
 
                 idx = _const_i64(
                     ctx,
-                    np.asarray([int(axis)], dtype=np.int64),
+                    np.asarray([src_axis], dtype=np.int64),
                     ctx.fresh_name("bcast_idx"),
                 )
 
@@ -581,19 +584,18 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         )
                     )
                     continue
-                origin = getattr(ctx, "get_symbolic_dim_origin", None)
-                if origin is None:
+                origin_lookup = getattr(ctx, "get_symbolic_dim_origin", None)
+                if origin_lookup is None:
                     raise NotImplementedError(
                         "symbolic dims require ctx.get_symbolic_dim_origin"
                     )
-                src = origin(dim)
-                if src is None:
-                    src = origin(str(dim))
-                if src is None:
+                origin = SymbolicDimOrigin.resolve(origin_lookup, dim)
+                if origin is None:
                     raise NotImplementedError(
                         f"no origin recorded for symbolic dim '{dim}'"
                     )
-                src_val, src_axis = src
+                src_val = origin.value
+                src_axis = int(origin.axis)
                 src_rank = len(
                     getattr(getattr(src_val, "shape", None), "dims", ()) or ()
                 )
@@ -605,7 +607,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, shp)
                 idx = _const_i64(
                     ctx,
-                    np.asarray([int(src_axis)], dtype=np.int64),
+                    np.asarray([src_axis], dtype=np.int64),
                     ctx.fresh_name("bcast_reshape_sym_idx"),
                 )
                 dim_val = builder.Gather(

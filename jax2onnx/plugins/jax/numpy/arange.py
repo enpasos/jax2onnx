@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Sequence
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -51,7 +51,7 @@ DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
 _ARANGE_PRIM: Final = make_jnp_primitive("jax.numpy.arange")
 
 
-def _as_scalar(aval) -> float | int | None:
+def _as_scalar(aval: core.AbstractValue | JaxLiteral | None) -> float | int | None:
     """Best-effort extraction of a scalar literal from an abstract value."""
     if aval is None:
         return None
@@ -64,7 +64,9 @@ def _as_scalar(aval) -> float | int | None:
     return arr.item()
 
 
-def _all_scalars(avals: Sequence[core.AbstractValue]):
+def _all_scalars(
+    avals: Sequence[core.AbstractValue | JaxLiteral | None],
+) -> list[float | int] | None:
     scalars: list[float | int] = []
     for aval in avals:
         if isinstance(aval, JaxLiteral):
@@ -110,8 +112,10 @@ def _determine_length(values: Sequence[float | int]) -> int | None:
 
 
 def _resolve_result_dtype(
-    avals: Sequence[core.AbstractValue], dtype_param, enable_x64: bool
-) -> np.dtype:
+    avals: Sequence[core.AbstractValue | JaxLiteral | None],
+    dtype_param: np.dtype[Any] | type | None,
+    enable_x64: bool,
+) -> np.dtype[Any]:
     if dtype_param is not None:
         requested = np.dtype(dtype_param)
         if np.issubdtype(requested, np.floating):
@@ -524,7 +528,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(*in_avals, dtype=None):
+    def abstract_eval(
+        *in_avals: core.AbstractValue,
+        dtype: np.dtype[Any] | type | None = None,
+    ) -> core.ShapedArray:
         enable_x64 = bool(jax.config.jax_enable_x64)
         result_dtype = _resolve_result_dtype(in_avals, dtype, enable_x64)
         scalars = _all_scalars(in_avals)
@@ -536,18 +543,22 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             shape = (shape,)
         return jax.core.ShapedArray(shape, result_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: "IRContext", eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         dtype_param = params.get("dtype")
-        avals: list[core.AbstractValue] = []
+        avals: list[core.AbstractValue | JaxLiteral | None] = []
         for var in eqn.invars:
             if isinstance(var, JaxLiteral):
                 avals.append(var.aval)
             else:
                 avals.append(getattr(var, "aval", None))
         enable_x64 = bool(ctx.builder.enable_double_precision)
-        result_dtype = _resolve_result_dtype(avals, dtype_param, enable_x64)
-        target_enum = _dtype_to_ir(result_dtype, ctx.builder.enable_double_precision)
+        result_dtype: np.dtype[Any] = _resolve_result_dtype(
+            avals, dtype_param, enable_x64
+        )
+        target_enum: ir.DataType = _dtype_to_ir(
+            result_dtype, ctx.builder.enable_double_precision
+        )
 
         literal_args: list[float | int] | None = []
         input_vals: list[ir.Value] = []
@@ -561,7 +572,8 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 _maybe_cast_value(ctx, val, target_enum, f"arange_cast_{idx}")
             )
             if literal_args is not None and isinstance(var, JaxLiteral):
-                literal_args.append(np.asarray(var.val).item())
+                literal_value = cast(float | int, np.asarray(var.val).item())
+                literal_args.append(literal_value)
             else:
                 literal_args = None
 
@@ -606,7 +618,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         )
         result.type = ir.TensorType(target_enum)
 
-        length_hint = None
+        length_hint: int | None = None
         if literal_args is not None:
             try:
                 length_hint = _determine_length(literal_args)
@@ -627,16 +639,18 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         bind_value(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.arange not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(*args, **kwargs):
-                dtype = kwargs.pop("dtype", None)
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                dtype_param: np.dtype[Any] | type | None = kwargs.pop("dtype", None)
 
                 start_kw = kwargs.pop("start", None)
                 stop_kw = kwargs.pop("stop", None)
@@ -649,7 +663,11 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 num_args = len(args)
                 if num_args > 3:
                     return orig(
-                        *args, dtype=dtype, start=start_kw, stop=stop_kw, step=step_kw
+                        *args,
+                        dtype=dtype_param,
+                        start=start_kw,
+                        stop=stop_kw,
+                        step=step_kw,
                     )
 
                 if num_args == 0:
@@ -664,7 +682,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                     if start_kw is not None or stop_kw is not None:
                         return orig(
                             *args,
-                            dtype=dtype,
+                            dtype=dtype_param,
                             start=start_kw,
                             stop=stop_kw,
                             step=step_kw,
@@ -676,7 +694,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                     if start_kw is not None or stop_kw is not None:
                         return orig(
                             *args,
-                            dtype=dtype,
+                            dtype=dtype_param,
                             start=start_kw,
                             stop=stop_kw,
                             step=step_kw,
@@ -687,17 +705,17 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                     if any(v is not None for v in (start_kw, stop_kw, step_kw)):
                         return orig(
                             *args,
-                            dtype=dtype,
+                            dtype=dtype_param,
                             start=start_kw,
                             stop=stop_kw,
                             step=step_kw,
                         )
                     start, stop, step = args
 
-                values = [start, stop]
+                values: list[Any] = [start, stop]
                 if step_kw is not None or num_args == 3 or step != 1:
                     values.append(step)
-                return cls._PRIM.bind(*values, dtype=dtype)
+                return cls._PRIM.bind(*values, dtype=dtype_param)
 
             return _patched
 
@@ -715,7 +733,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
 
 @JnpArangePlugin._PRIM.def_impl
-def _arange_impl(*args, dtype=None):
+def _arange_impl(*args: Any, dtype: np.dtype[Any] | type | None = None) -> jax.Array:
     try:
         orig = get_orig_impl(JnpArangePlugin._PRIM, JnpArangePlugin._FUNC_NAME)
     except RuntimeError:

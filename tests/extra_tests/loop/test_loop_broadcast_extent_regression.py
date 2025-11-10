@@ -27,7 +27,9 @@ def test_broadcast_preserves_stack_extent():
         concat_dims[0] == repro.STACK_WIDTH * 2
     ), f"Concat axis-0 should be {repro.STACK_WIDTH * 2}, got {concat_dims}"
 
-    assert override == repro.STACK_WIDTH, "loop_axis0_override lost stack extent."
+    assert (
+        override is not None and override.extent == repro.STACK_WIDTH
+    ), "loop_axis0_override lost stack extent."
 
     if loop_dims and isinstance(loop_dims[0], int):
         assert (

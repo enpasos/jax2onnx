@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from collections.abc import Callable, Iterable
+from typing import ClassVar, Final
 
 import jax
+from jax import tree_util
+from jax import core
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -17,11 +22,10 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
+
+BatchDim = int | type(batching.not_mapped)
 
 
 @register_primitive(
@@ -138,8 +142,8 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *in_avals: jax.core.ShapedArray, axis: int, **_
-    ) -> jax.core.ShapedArray:
+        *in_avals: core.AbstractValue, axis: int, **_: object
+    ) -> core.ShapedArray:
         if not in_avals:
             raise ValueError("jnp.stack requires at least one array")
 
@@ -160,7 +164,7 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         out_shape.insert(axis_idx, len(in_avals))
         return jax.core.ShapedArray(tuple(out_shape), ref_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         axis = int(getattr(eqn, "params", {}).get("axis", 0))
 
         input_vals: list[ir.Value] = []
@@ -228,16 +232,18 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.stack not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(arrays, axis=0):
-                flat, _ = jax.tree_util.tree_flatten(arrays)
+            def _patched(arrays: object, axis: int = 0) -> jax.Array:
+                flat, _ = tree_util.tree_flatten(arrays)
                 if not flat:
                     raise ValueError("jnp.stack expects a non-empty sequence")
                 return cls._PRIM.bind(*flat, axis=int(axis))
@@ -257,7 +263,12 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         ]
 
 
-def _stack_batch_rule(batched_args, batch_dims, *, axis=0):
+def _stack_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int = 0,
+) -> tuple[jax.Array, BatchDim]:
     mapped = [
         (arg, bd)
         for arg, bd in zip(batched_args, batch_dims)
@@ -286,7 +297,7 @@ def _stack_batch_rule(batched_args, batch_dims, *, axis=0):
 
 
 @JnpStackPlugin._PRIM.def_impl
-def _stack_impl(arrays, *, axis=0):
+def _stack_impl(arrays: Iterable[ArrayLike], *, axis: int = 0) -> jax.Array:
     orig = get_orig_impl(JnpStackPlugin._PRIM, JnpStackPlugin._FUNC_NAME)
     return orig(arrays, axis=axis)
 

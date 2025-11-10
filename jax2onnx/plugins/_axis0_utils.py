@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 from types import SimpleNamespace
 
 import os
@@ -19,22 +19,35 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
+_FLOAT16: Final[ir.DataType] = ir.DataType.FLOAT16
+_BFLOAT16: Final[ir.DataType] = ir.DataType.BFLOAT16
+_DOUBLE: Final[ir.DataType] = ir.DataType.DOUBLE
+_COMPLEX64: Final[ir.DataType] = ir.DataType.COMPLEX64
+_COMPLEX128: Final[ir.DataType] = ir.DataType.COMPLEX128
+_UINT8: Final[ir.DataType] = ir.DataType.UINT8
+_UINT16: Final[ir.DataType] = ir.DataType.UINT16
+_UINT32: Final[ir.DataType] = ir.DataType.UINT32
+_UINT64: Final[ir.DataType] = ir.DataType.UINT64
+_NP_BFLOAT16: Final[np.dtype[Any]] = np.dtype(
+    np.bfloat16 if hasattr(np, "bfloat16") else np.float16
+)
+
 _IR_TO_NP_DTYPE: dict[ir.DataType | None, np.dtype[Any]] = {
-    getattr(ir.DataType, "FLOAT16", None): np.float16,
-    getattr(ir.DataType, "BFLOAT16", None): getattr(np, "bfloat16", np.float16),
-    ir.DataType.FLOAT: np.float32,
-    getattr(ir.DataType, "DOUBLE", None): np.float64,
-    getattr(ir.DataType, "COMPLEX64", None): np.complex64,
-    getattr(ir.DataType, "COMPLEX128", None): np.complex128,
-    ir.DataType.INT8: np.int8,
-    ir.DataType.INT16: np.int16,
-    ir.DataType.INT32: np.int32,
-    ir.DataType.INT64: np.int64,
-    getattr(ir.DataType, "UINT8", None): np.uint8,
-    getattr(ir.DataType, "UINT16", None): np.uint16,
-    getattr(ir.DataType, "UINT32", None): np.uint32,
-    getattr(ir.DataType, "UINT64", None): np.uint64,
-    ir.DataType.BOOL: np.bool_,
+    _FLOAT16: np.dtype(np.float16),
+    _BFLOAT16: np.dtype(_NP_BFLOAT16),
+    ir.DataType.FLOAT: np.dtype(np.float32),
+    _DOUBLE: np.dtype(np.float64),
+    _COMPLEX64: np.dtype(np.complex64),
+    _COMPLEX128: np.dtype(np.complex128),
+    ir.DataType.INT8: np.dtype(np.int8),
+    ir.DataType.INT16: np.dtype(np.int16),
+    ir.DataType.INT32: np.dtype(np.int32),
+    ir.DataType.INT64: np.dtype(np.int64),
+    _UINT8: np.dtype(np.uint8),
+    _UINT16: np.dtype(np.uint16),
+    _UINT32: np.dtype(np.uint32),
+    _UINT64: np.dtype(np.uint64),
+    ir.DataType.BOOL: np.dtype(np.bool_),
 }
 
 
@@ -50,6 +63,39 @@ def _axis0_debug(message: str) -> None:
         print(f"[axis0-debug] {message}", flush=True)
 
 
+def _value_name(value: Any) -> str | None:
+    if value is None or not hasattr(value, "name"):
+        return None
+    name = value.name
+    return str(name) if name is not None else None
+
+
+def _shape_dims(value: Any) -> tuple[Any, ...]:
+    if value is None:
+        return ()
+    if not hasattr(value, "shape"):
+        return ()
+    shape = value.shape
+    if not hasattr(shape, "dims"):
+        return ()
+    dims = shape.dims
+    if dims:
+        return tuple(dims)
+    return ()
+
+
+def _aval_shape_tuple(var: Any) -> tuple[Any, ...]:
+    if var is None:
+        return ()
+    if not hasattr(var, "aval"):
+        return ()
+    aval = var.aval
+    shape = aval.shape if hasattr(aval, "shape") else ()
+    if shape:
+        return tuple(shape)
+    return ()
+
+
 def _np_dtype_for_enum(enum: Any) -> np.dtype[Any] | None:
     if isinstance(enum, np.dtype):
         return enum
@@ -57,7 +103,7 @@ def _np_dtype_for_enum(enum: Any) -> np.dtype[Any] | None:
         return _IR_TO_NP_DTYPE.get(enum)
     if isinstance(enum, (int, np.integer)):
         try:
-            return _IR_TO_NP_DTYPE.get(ir.DataType(enum))
+            return _IR_TO_NP_DTYPE.get(ir.DataType(int(enum)))
         except Exception:
             return None
     return None
@@ -66,7 +112,7 @@ def _np_dtype_for_enum(enum: Any) -> np.dtype[Any] | None:
 def _static_dim_as_int(dim: Any) -> int | None:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
-    value = getattr(dim, "value", None)
+    value = dim.value if hasattr(dim, "value") else None
     if isinstance(value, (int, np.integer)):
         return int(value)
     try:
@@ -94,26 +140,33 @@ def _pad_axis0_to_extent(
     if dim0_int is None:
         _axis0_debug(
             "ensure_axis0_extent unable to read static dim0 "
-            f"type={type(dim0)} value={getattr(value, 'name', None)} override={override}"
+            f"type={type(dim0)} value={_value_name(value)} override={override}"
         )
         return None
     pad_amount = override - dim0_int
     if pad_amount <= 0:
         return None
 
-    value_type = getattr(value, "type", None)
-    dtype_enum = getattr(value_type, "dtype", None)
+    value_type = value.type if hasattr(value, "type") else None
+    value_dtype = (
+        value_type.dtype
+        if value_type is not None and hasattr(value_type, "dtype")
+        else None
+    )
+    dtype_enum = value_dtype
     if dtype_enum is None and reference is not None:
-        dtype_enum = getattr(getattr(reference, "type", None), "dtype", None)
-    np_dtype = _np_dtype_for_enum(dtype_enum) or np.float32
+        ref_type = reference.type if hasattr(reference, "type") else None
+        if ref_type is not None and hasattr(ref_type, "dtype"):
+            dtype_enum = ref_type.dtype
+    np_dtype = _np_dtype_for_enum(dtype_enum) or np.dtype(np.float32)
 
     zero_scalar = np.zeros((), dtype=np_dtype)
     zero_init = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name("axis0_pad_zero"),
         array=zero_scalar,
     )
-    if getattr(value_type, "dtype", None) is not None:
-        zero_init.type = ir.TensorType(value_type.dtype)
+    if value_dtype is not None:
+        zero_init.type = ir.TensorType(value_dtype)
     _stamp_type_and_shape(zero_init, ())
     _ensure_value_metadata(ctx, zero_init)
 
@@ -149,17 +202,17 @@ def _pad_axis0_to_extent(
     except Exception:
         _axis0_debug(
             "ensure_axis0_extent concat stamp failed "
-            f"value={getattr(padded, 'name', None)} dims={new_dims}"
+            f"value={_value_name(padded)} dims={new_dims}"
         )
     _ensure_value_metadata(ctx, padded)
     set_axis0_override(padded, override)
     _axis0_debug(
         "ensure_axis0_extent padded "
-        f"value={getattr(padded, 'name', None)} "
+        f"value={_value_name(padded)} "
         f"original_dim={dim0_int} override={override}"
     )
     if _axis0_debug_enabled():
-        shape_dims = getattr(getattr(padded, "shape", None), "dims", ()) or ()
+        shape_dims = _shape_dims(padded)
         shape_desc = [
             (
                 _static_dim_as_int(dim)
@@ -170,7 +223,7 @@ def _pad_axis0_to_extent(
         ]
         _axis0_debug(
             "ensure_axis0_extent padded dims "
-            f"value={getattr(padded, 'name', None)} dims={shape_desc}"
+            f"value={_value_name(padded)} dims={shape_desc}"
         )
     return padded
 
@@ -180,21 +233,19 @@ def ensure_axis0_extent(
 ) -> Any:
     if override is None or override <= 1:
         _axis0_debug(
-            f"ensure_axis0_extent skip override={override} value={getattr(value, 'name', None)}"
+            f"ensure_axis0_extent skip override={override} value={_value_name(value)}"
         )
         return value
 
-    shape_obj = getattr(value, "shape", None)
-    dims_tuple = getattr(shape_obj, "dims", None)
+    dims_tuple = _shape_dims(value)
     dims = list(dims_tuple) if dims_tuple else None
     if (not dims or len(dims) == 0) and reference is not None:
-        ref_shape = getattr(reference, "shape", None)
-        ref_dims = getattr(ref_shape, "dims", None)
+        ref_dims = _shape_dims(reference)
         if ref_dims and len(ref_dims) > 0:
             dims = list(ref_dims)
     if not dims or len(dims) == 0:
         _axis0_debug(
-            f"ensure_axis0_extent no dims override={override} value={getattr(value, 'name', None)}"
+            f"ensure_axis0_extent no dims override={override} value={_value_name(value)}"
         )
         return value
     if not dims_tuple or len(dims_tuple) == 0:
@@ -203,7 +254,7 @@ def ensure_axis0_extent(
             _stamp_type_and_shape(value, stamp_dims)
         except Exception:
             _axis0_debug(
-                f"ensure_axis0_extent failed to stamp input shape value={getattr(value, 'name', None)}"
+                f"ensure_axis0_extent failed to stamp input shape value={_value_name(value)}"
             )
     dim0 = dims[0]
     existing = get_axis0_override(value)
@@ -228,10 +279,10 @@ def ensure_axis0_extent(
             except Exception:
                 _axis0_debug(
                     "ensure_axis0_extent failed to restamp existing override "
-                    f"value={getattr(value, 'name', None)}"
+                    f"value={_value_name(value)}"
                 )
         _axis0_debug(
-            f"ensure_axis0_extent existing override matches override={override} value={getattr(value, 'name', None)}"
+            f"ensure_axis0_extent existing override matches override={override} value={_value_name(value)}"
         )
         return value
 
@@ -240,12 +291,12 @@ def ensure_axis0_extent(
         if dim0_int == override:
             set_axis0_override(value, override)
             _axis0_debug(
-                f"ensure_axis0_extent dim0 already {override} value={getattr(value, 'name', None)}"
+                f"ensure_axis0_extent dim0 already {override} value={_value_name(value)}"
             )
             return value
         if dim0_int > override:
             _axis0_debug(
-                f"ensure_axis0_extent dim0={dim0_int} incompatible with override={override} value={getattr(value, 'name', None)}"
+                f"ensure_axis0_extent dim0={dim0_int} incompatible with override={override} value={_value_name(value)}"
             )
             return value
         if dim0_int < override:
@@ -260,13 +311,13 @@ def ensure_axis0_extent(
                 return padded
             _axis0_debug(
                 "ensure_axis0_extent unable to pad "
-                f"value={getattr(value, 'name', None)} "
+                f"value={_value_name(value)} "
                 f"dim0={dim0_int} override={override}"
             )
         set_axis0_override(value, override)
         _axis0_debug(
             "ensure_axis0_extent metadata override only "
-            f"value={getattr(value, 'name', None)} override={override}"
+            f"value={_value_name(value)} override={override}"
         )
         try:
             new_dims = list(dims)
@@ -277,12 +328,12 @@ def ensure_axis0_extent(
         except Exception:
             _axis0_debug(
                 "ensure_axis0_extent failed to stamp override-only shape "
-                f"value={getattr(value, 'name', None)}"
+                f"value={_value_name(value)}"
             )
         return value
     else:
         _axis0_debug(
-            f"ensure_axis0_extent non-static dim0 override={override} value={getattr(value, 'name', None)}"
+            f"ensure_axis0_extent non-static dim0 override={override} value={_value_name(value)}"
         )
 
     rank = len(dims)
@@ -294,7 +345,7 @@ def ensure_axis0_extent(
 
     _axis0_debug(
         "ensure_axis0_extent expanding "
-        f"value={getattr(value, 'name', None)} override={override} dims={dims}"
+        f"value={_value_name(value)} override={override} dims={dims}"
     )
     if rank > 1:
         shape_tensor = ctx.builder.Shape(
@@ -355,7 +406,7 @@ def ensure_axis0_extent(
         target_shape,
         _outputs=[ctx.fresh_name("axis0_expand")],
     )
-    if getattr(value, "type", None) is not None:
+    if hasattr(value, "type") and value.type is not None:
         expanded.type = value.type
     try:
         original_dims = list(dims)
@@ -364,24 +415,32 @@ def ensure_axis0_extent(
             _stamp_type_and_shape(expanded, tuple(original_dims))
     except Exception:
         _axis0_debug(
-            f"ensure_axis0_extent failed to stamp shape for value={getattr(expanded, 'name', None)}"
+            f"ensure_axis0_extent failed to stamp shape for value={_value_name(expanded)}"
         )
     _ensure_value_metadata(ctx, expanded)
     set_axis0_override(expanded, override)
     _axis0_debug(
-        f"ensure_axis0_extent produced expand value={getattr(expanded, 'name', None)} override={override}"
+        f"ensure_axis0_extent produced expand value={_value_name(expanded)} override={override}"
     )
     return expanded
 
 
 def maybe_expand_binary_axis0(
-    ctx: Any, lhs: Any, rhs: Any, out_val: Any, out_var: Any | None = None
-):
+    ctx: Any,
+    lhs: Any,
+    rhs: Any,
+    out_val: Any,
+    out_var: Any | None = None,
+) -> tuple[Any, Any, int | None]:
     override_sources = [
         get_axis0_override(lhs),
         get_axis0_override(rhs),
         get_axis0_override(out_val),
-        getattr(ctx, "_static_loop_extent_axis0", None),
+        (
+            ctx._static_loop_extent_axis0
+            if hasattr(ctx, "_static_loop_extent_axis0")
+            else None
+        ),
     ]
     override_candidates = [
         int(val)
@@ -392,19 +451,20 @@ def maybe_expand_binary_axis0(
 
     _axis0_debug(
         "maybe_expand_binary_axis0 "
-        f"lhs={getattr(lhs, 'name', None)} rhs={getattr(rhs, 'name', None)} "
-        f"out={getattr(out_val, 'name', None)} override_candidates={override_candidates} "
+        f"lhs={_value_name(lhs)} rhs={_value_name(rhs)} "
+        f"out={_value_name(out_val)} override_candidates={override_candidates} "
         f"selected={override}"
     )
 
     if override is None:
-        return lhs, rhs, None
+        out_override = get_axis0_override(out_val)
+        if isinstance(out_override, (int, np.integer)) and int(out_override) > 1:
+            override = int(out_override)
+        else:
+            return lhs, rhs, None
 
-    out_override = get_axis0_override(out_val)
-    if override is None and isinstance(out_override, (int, np.integer)):
-        override = int(out_override)
-    lhs_shape0 = getattr(getattr(lhs, "shape", None), "dims", ()) or ()
-    rhs_shape0 = getattr(getattr(rhs, "shape", None), "dims", ()) or ()
+    lhs_shape0 = _shape_dims(lhs)
+    rhs_shape0 = _shape_dims(rhs)
     lhs0 = lhs_shape0[0] if len(lhs_shape0) > 0 else None
     rhs0 = rhs_shape0[0] if len(rhs_shape0) > 0 else None
     lhs0_int = _static_dim_as_int(lhs0)
@@ -441,8 +501,8 @@ def maybe_expand_binary_axis0(
         ]
         _axis0_debug(
             "maybe_expand_binary_axis0 analysis "
-            f"lhs={getattr(lhs, 'name', None)} "
-            f"rhs={getattr(rhs, 'name', None)} "
+            f"lhs={_value_name(lhs)} "
+            f"rhs={_value_name(rhs)} "
             f"override={override} "
             f"lhs_rank={len(lhs_shape0)} lhs_dim={lhs0_int} lhs_needs={lhs_needs} lhs_dims={lhs_dims_desc} "
             f"rhs_rank={len(rhs_shape0)} rhs_dim={rhs0_int} rhs_needs={rhs_needs} rhs_dims={rhs_dims_desc}"
@@ -470,7 +530,7 @@ def maybe_expand_binary_axis0(
         return fallback_lhs, fallback_rhs, override
 
     if out_var is not None:
-        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+        out_shape = _aval_shape_tuple(out_var)
         if out_shape:
             fake_ref = SimpleNamespace(shape=SimpleNamespace(dims=out_shape))
             lhs_alt = ensure_axis0_extent(ctx, lhs, override, reference=fake_ref)
@@ -485,7 +545,7 @@ def maybe_expand_binary_axis0(
                 return lhs_alt, rhs_alt, override
     out_shape = ()
     if out_var is not None:
-        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+        out_shape = _aval_shape_tuple(out_var)
     _axis0_debug(
         "maybe_expand_binary_axis0 override dropped "
         f"lhs_override={lhs_override} rhs_override={rhs_override} "
@@ -497,11 +557,11 @@ def maybe_expand_binary_axis0(
 def stamp_axis0_binary_result(
     result: Any, out_var: Any, out_spec: Any, override: int | None
 ) -> None:
-    out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
+    out_shape = _aval_shape_tuple(out_var)
     if override is not None and out_shape:
         out_shape = (override,) + out_shape[1:]
     if out_shape:
         dims = tuple(_to_ir_dim_for_shape(dim) for dim in out_shape)
         _stamp_type_and_shape(result, dims)
-    elif getattr(out_spec, "shape", None) is not None:
+    elif hasattr(out_spec, "shape") and out_spec.shape is not None:
         result.shape = out_spec.shape
