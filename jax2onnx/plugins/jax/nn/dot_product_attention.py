@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import (
-    TYPE_CHECKING,
+    Callable,
     ClassVar,
     DefaultDict,
     Dict,
@@ -21,6 +21,7 @@ import jax.numpy as jnp
 from jax import nn as jax_nn
 from jax.extend.core import Primitive
 import onnx_ir as ir
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
@@ -33,9 +34,7 @@ from jax2onnx.plugins.jax.lax.scatter_utils import (
     _shape_of,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _builder_op
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
 _DPA_PRIM: Final[Primitive] = Primitive("jax.nn.dot_product_attention")
@@ -109,7 +108,9 @@ def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     return str(dim), False
 
 
-def _cast_to_int64(ctx: "IRContext", value: ir.Value, *, base: str) -> ir.Value:
+def _cast_to_int64(
+    ctx: LoweringContextProtocol, value: ir.Value, *, base: str
+) -> ir.Value:
     casted = ctx.builder.Cast(
         value,
         _outputs=[ctx.fresh_name(base)],
@@ -121,7 +122,9 @@ def _cast_to_int64(ctx: "IRContext", value: ir.Value, *, base: str) -> ir.Value:
     return casted
 
 
-def _make_range_value(ctx: "IRContext", limit: ir.Value, *, base: str) -> ir.Value:
+def _make_range_value(
+    ctx: LoweringContextProtocol, limit: ir.Value, *, base: str
+) -> ir.Value:
     start = _scalar_i64(ctx, 0, f"{base}_start")
     step = _scalar_i64(ctx, 1, f"{base}_step")
     rng = _builder_op(
@@ -136,7 +139,12 @@ def _make_range_value(ctx: "IRContext", limit: ir.Value, *, base: str) -> ir.Val
 
 
 def _logical_and(
-    ctx: "IRContext", lhs: ir.Value, rhs: ir.Value, *, base: str, shape_hint
+    ctx: LoweringContextProtocol,
+    lhs: ir.Value,
+    rhs: ir.Value,
+    *,
+    base: str,
+    shape_hint,
 ) -> ir.Value:
     out = _builder_op(
         ctx,
@@ -150,7 +158,7 @@ def _logical_and(
 
 
 def _builder_tensor_op(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     op_type: str,
     inputs: list[ir.Value | ir.Value],
     *,
@@ -566,7 +574,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     def abstract_eval(q, k, v, *_, **__):
         return jax.core.ShapedArray(q.shape, q.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         invars = list(eqn.invars)
         out_var = eqn.outvars[0]
 
@@ -1024,8 +1032,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patched(orig_fn):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patched(
+            orig_fn: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
+            if orig_fn is None:
+                raise RuntimeError("Original jax.nn.dot_product_attention not found")
+
             def _bind(q, k, v, *args, **kwargs):
                 bias_arg: Optional[jax.Array] = None
                 mask_arg: Optional[jax.Array] = None
@@ -1131,5 +1144,5 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
 
 @DotProductAttentionPlugin._PRIM.def_impl
-def _impl(*args, **kwargs):
+def _impl(*args, **kwargs) -> ArrayLike:
     return _ORIG_DOT_PRODUCT_ATTENTION(*args, **kwargs)
