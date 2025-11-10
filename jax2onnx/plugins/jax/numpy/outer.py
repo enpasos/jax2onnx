@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import ClassVar, Final
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
@@ -16,9 +20,6 @@ from jax2onnx.plugins.jax.numpy._common import (
     make_jnp_primitive,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _OUTER_PRIM: Final = make_jnp_primitive("jax.numpy.outer")
@@ -49,12 +50,12 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str] = "outer"
 
     @staticmethod
-    def abstract_eval(a, b):
+    def abstract_eval(a: core.AbstractValue, b: core.AbstractValue) -> core.ShapedArray:
         result_shape = tuple(a.shape) + tuple(b.shape)
         result_dtype = np.result_type(a.dtype, b.dtype)
         return jax.core.ShapedArray(result_shape, result_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         (a_var, b_var) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -103,14 +104,14 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
 
 
 @JnpOuterPlugin._PRIM.def_impl
-def _outer_impl(*args, **kwargs):
+def _outer_impl(a: ArrayLike, b: ArrayLike) -> jax.Array:
     orig = get_orig_impl(JnpOuterPlugin._PRIM, JnpOuterPlugin._FUNC_NAME)
-    return orig(*args, **kwargs)
+    return orig(a, b)
 
 
 JnpOuterPlugin._PRIM.def_abstract_eval(JnpOuterPlugin.abstract_eval)

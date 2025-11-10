@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import onnx
 import onnx_ir as ir
 from onnx import AttributeProto
 
 from jax2onnx import to_onnx
+from jax2onnx.converter.typing_support import AxisOverrideInfo
 
 
 STACK_WIDTH = 5
@@ -35,8 +37,8 @@ def _stack_block(state: jax.Array) -> jax.Array:
     return jnp.stack([rho, momentum[0], momentum[1], momentum[2], big_e], axis=0)
 
 
-def _inner_scan(state: jax.Array):
-    def body(carry, _):
+def _inner_scan(state: jax.Array) -> Tuple[jax.Array, jax.Array]:
+    def body(carry: jax.Array, _: Any) -> Tuple[jax.Array, jax.Array]:
         stacked = _stack_block(carry)
         return carry, stacked
 
@@ -44,8 +46,10 @@ def _inner_scan(state: jax.Array):
     return carry, scans[-1]
 
 
-def _model(state: jax.Array, t_arr: jax.Array, dt_arr: jax.Array):
-    def body(carry, _):
+def _model(
+    state: jax.Array, t_arr: jax.Array, dt_arr: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    def body(carry: jax.Array, _: Any) -> Tuple[jax.Array, jax.Array]:
         new_carry, stacked = _inner_scan(carry)
         return new_carry, stacked
 
@@ -64,12 +68,15 @@ def _inputs() -> list[jax.ShapeDtypeStruct]:
 
 
 def export_model(path: Optional[Path] = None) -> onnx.ModelProto:
-    model = to_onnx(
-        _model,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        opset=21,
-        model_name=_MODEL_NAME,
+    model = cast(
+        onnx.ModelProto,
+        to_onnx(
+            _model,
+            inputs=_inputs(),
+            enable_double_precision=True,
+            opset=21,
+            model_name=_MODEL_NAME,
+        ),
     )
     try:
         model.ir_version = min(model.ir_version, _IR_VERSION_CAP)
@@ -81,13 +88,16 @@ def export_model(path: Optional[Path] = None) -> onnx.ModelProto:
 
 
 def export_ir_model() -> ir.Model:
-    return to_onnx(
-        _model,
-        inputs=_inputs(),
-        enable_double_precision=True,
-        opset=21,
-        model_name=_MODEL_NAME,
-        return_mode="ir",
+    return cast(
+        ir.Model,
+        to_onnx(
+            _model,
+            inputs=_inputs(),
+            enable_double_precision=True,
+            opset=21,
+            model_name=_MODEL_NAME,
+            return_mode="ir",
+        ),
     )
 
 
@@ -133,12 +143,15 @@ def dims_for(name: str, model: onnx.ModelProto) -> List[int | str | None]:
     return _dims_for(name, _value_info_map(model))
 
 
-def loop_axis_override() -> Optional[int]:
+def loop_axis_override() -> Optional[AxisOverrideInfo]:
     ir_model = export_ir_model()
     loop_node = next(
         node for node in ir_model.graph.all_nodes() if node.op_type == "Loop"
     )
-    return loop_node.outputs[1].meta.get("loop_axis0_override")
+    override = loop_node.outputs[1].meta.get("loop_axis0_override")
+    if isinstance(override, (int, np.integer)):
+        return AxisOverrideInfo(extent=int(override), op_type="Loop")
+    return None
 
 
 def metadata_ok(model: Optional[onnx.ModelProto] = None) -> bool:
@@ -157,7 +170,7 @@ def metadata_ok(model: Optional[onnx.ModelProto] = None) -> bool:
         return False
     if not concat_dims or concat_dims[0] != STACK_WIDTH * 2:
         return False
-    if override not in (STACK_WIDTH,):
+    if override is None or override.extent not in (STACK_WIDTH,):
         return False
     if loop_dims and isinstance(loop_dims[0], int) and loop_dims[0] != STACK_WIDTH:
         return False

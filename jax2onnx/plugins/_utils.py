@@ -9,33 +9,23 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-_dtype_pairs: Final[Sequence[tuple[str, np.dtype[Any]]]] = (
-    ("DOUBLE", np.float64),
-    ("FLOAT", np.float32),
-    ("FLOAT16", np.float16),
-    ("INT64", np.int64),
-    ("INT32", np.int32),
-    ("INT16", np.int16),
-    ("INT8", np.int8),
-    ("UINT64", np.uint64),
-    ("UINT32", np.uint32),
-    ("UINT16", np.uint16),
-    ("UINT8", np.uint8),
-    ("BOOL", np.bool_),
+_DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
+    (ir.DataType.DOUBLE, np.dtype(np.float64)),
+    (ir.DataType.FLOAT, np.dtype(np.float32)),
+    (ir.DataType.FLOAT16, np.dtype(np.float16)),
+    (ir.DataType.INT64, np.dtype(np.int64)),
+    (ir.DataType.INT32, np.dtype(np.int32)),
+    (ir.DataType.INT16, np.dtype(np.int16)),
+    (ir.DataType.INT8, np.dtype(np.int8)),
+    (ir.DataType.UINT64, np.dtype(np.uint64)),
+    (ir.DataType.UINT32, np.dtype(np.uint32)),
+    (ir.DataType.UINT16, np.dtype(np.uint16)),
+    (ir.DataType.UINT8, np.dtype(np.uint8)),
+    (ir.DataType.BOOL, np.dtype(np.bool_)),
 )
 
 
-def _build_ir_to_np_dtype() -> dict[ir.DataType, np.dtype[Any]]:
-    mapping: dict[ir.DataType, np.dtype[Any]] = {}
-    for name, np_dt in _dtype_pairs:
-        enum = getattr(ir.DataType, name, None)
-        if enum is None or np_dt is None:
-            continue
-        mapping[enum] = np.dtype(np_dt)
-    return mapping
-
-
-_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = _build_ir_to_np_dtype()
+_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
 
 
 def cast_param_like(

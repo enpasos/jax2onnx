@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from collections.abc import Callable
+from typing import ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
 from jax import core
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -22,9 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _TAKE_PRIM: Final = make_jnp_primitive("jax.numpy.take")
@@ -57,7 +57,10 @@ def _canonical_axis(axis: int, rank: int) -> int:
 
 
 def _as_int64(
-    ctx: "IRContext", value: ir.Value, shape: tuple[int | object, ...], name_hint: str
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    shape: tuple[int | object, ...],
+    name_hint: str,
 ) -> ir.Value:
     current_type = getattr(value, "type", None)
     current_dtype = getattr(current_type, "dtype", None)
@@ -129,7 +132,13 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(arr, indices, *, axis=None, mode=None):
+    def abstract_eval(
+        arr: core.ShapedArray,
+        indices: core.ShapedArray,
+        *,
+        axis: int | None = None,
+        mode: str | None = None,
+    ) -> core.ShapedArray:
         if mode is not None:
             raise NotImplementedError("jnp.take mode parameter is not supported")
         if axis is None:
@@ -139,7 +148,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         out_shape = arr.shape[:axis_norm] + indices.shape + arr.shape[axis_norm + 1 :]
         return core.ShapedArray(out_shape, arr.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis")
         mode = params.get("mode")
@@ -183,15 +192,23 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.take not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(arr, indices, *, axis=None, mode=None):
+            def _patched(
+                arr: ArrayLike,
+                indices: ArrayLike,
+                *,
+                axis: int | None = None,
+                mode: str | None = None,
+            ) -> jax.Array:
                 if axis is None or mode is not None:
                     return orig(arr, indices, axis=axis, mode=mode)
                 indices_arr = jnp.asarray(indices)
@@ -218,7 +235,13 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
 
 
 @JnpTakePlugin._PRIM.def_impl
-def _take_impl(arr, indices, *, axis=None, mode=None):
+def _take_impl(
+    arr: ArrayLike,
+    indices: ArrayLike,
+    *,
+    axis: int | None = None,
+    mode: str | None = None,
+) -> jax.Array:
     orig = get_orig_impl(JnpTakePlugin._PRIM, JnpTakePlugin._FUNC_NAME)
     return orig(arr, indices, axis=axis, mode=mode)
 

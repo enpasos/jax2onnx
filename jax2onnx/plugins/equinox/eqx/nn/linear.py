@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final, Optional
+from typing import Callable, ClassVar, Final, Optional
 
 import equinox as eqx
 import jax
+import jax.core as jax_core
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
 from jax.core import ShapedArray
+from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -64,7 +66,9 @@ def _set_value_const_payload(val: ir.Value, arr: np.ndarray) -> None:
                 pass
 
 
-def _inline_scalar_bias(ctx, bias_val: ir.Value, out_features: int) -> ir.Value:
+def _inline_scalar_bias(
+    ctx: LoweringContextProtocol, bias_val: ir.Value, out_features: int
+) -> ir.Value:
     expand_node = getattr(bias_val, "producer", None)
     if callable(expand_node):
         try:
@@ -287,7 +291,11 @@ class LinearPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, weight, bias):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        weight: jax_core.AbstractValue,
+        bias: jax_core.AbstractValue,
+    ) -> ShapedArray:
         del bias
         out_features = weight.shape[0]
         if x.ndim <= 1:
@@ -296,7 +304,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             out_shape = (*x.shape[:-1], out_features)
         return ShapedArray(out_shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -472,7 +480,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_output)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "linear_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -484,10 +492,12 @@ class LinearPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
+    def _patch_call(
+        orig: Callable[..., jax.Array] | None,
+    ) -> Callable[[eqx.nn.Linear, jax.Array], jax.Array]:
         del orig
 
-        def wrapped(self, x):
+        def wrapped(self: eqx.nn.Linear, x: jax.Array) -> jax.Array:
             weight = jnp.asarray(self.weight)
             bias = self.bias
             if bias is None:
@@ -509,14 +519,17 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
 
 @LinearPlugin._PRIM.def_impl
-def _linear_impl(x, weight, bias):
+def _linear_impl(x: jax.Array, weight: jax.Array, bias: jax.Array) -> jax.Array:
     w = jnp.asarray(weight)
     b = jnp.asarray(bias)
     y = jnp.matmul(x, jnp.swapaxes(w, -1, -2))
     return y + b
 
 
-def _linear_batch_rule(batched_args, batch_dims):
+def _linear_batch_rule(
+    batched_args: tuple[jax.Array, jax.Array, jax.Array],
+    batch_dims: tuple[int | None, int | None, int | None],
+) -> tuple[jax.Array, int | None]:
     x, weight, bias = batched_args
     x_bdim, w_bdim, b_bdim = batch_dims
     if w_bdim is not None or b_bdim is not None:

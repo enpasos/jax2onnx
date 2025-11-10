@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import inspect
 import types
-from collections.abc import Iterable as IterableABC
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 
+from jax import core
+
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
-def _get_builder(ctx: Any):
+def _get_builder(ctx: LoweringContextProtocol) -> Any:
     builder = getattr(ctx, "builder", None)
     if builder is None:
         raise AttributeError(
@@ -23,7 +26,9 @@ def _get_builder(ctx: Any):
     return builder
 
 
-def builder_identity(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
+def builder_identity(
+    ctx: LoweringContextProtocol, value: ir.Value, *, name_hint: str
+) -> ir.Value:
     builder = _get_builder(ctx)
     out = builder.Identity(
         value,
@@ -43,7 +48,7 @@ def builder_identity(ctx: Any, value: ir.Value, *, name_hint: str) -> ir.Value:
 
 
 def builder_cast(
-    ctx: Any,
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_enum: ir.DataType,
     *,
@@ -67,20 +72,23 @@ def builder_cast(
 
 
 def builder_loop(
-    ctx: Any,
+    ctx: LoweringContextProtocol,
     *inputs: ir.Value,
     body: ir.Graph,
     output_names: list[str],
 ) -> tuple[ir.Value, ...] | ir.Value:
     builder = _get_builder(ctx)
-    return builder.Loop(
+    loop_result = builder.Loop(
         *inputs,
         body=body,
         _outputs=output_names,
     )
+    return loop_result
 
 
-def _call_plugin_lower(plugin: Any, ctx: Any, eqn: Any) -> None:
+def _call_plugin_lower(
+    plugin: Any, ctx: LoweringContextProtocol, eqn: core.JaxprEqn
+) -> None:
     """Invoke a plugin's lowering helper, forwarding params when supported."""
     lower_fn = getattr(plugin, "lower", None)
     if lower_fn is None:
@@ -91,10 +99,11 @@ def _call_plugin_lower(plugin: Any, ctx: Any, eqn: Any) -> None:
             return lower_fn(ctx, eqn, getattr(eqn, "params", None))
     except (ValueError, TypeError):
         pass
-    return lower_fn(ctx, eqn)
+    lower_fn(ctx, eqn)
+    return None
 
 
-def lower_jaxpr_eqns(ctx: Any, jaxpr: Any) -> None:
+def lower_jaxpr_eqns(ctx: LoweringContextProtocol, jaxpr: core.Jaxpr) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
     for inner_eqn in getattr(jaxpr, "eqns", ()):
         prim = inner_eqn.primitive.name
@@ -106,7 +115,9 @@ def lower_jaxpr_eqns(ctx: Any, jaxpr: Any) -> None:
         _call_plugin_lower(plugin, ctx, inner_eqn)
 
 
-def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
+def make_subgraph_context(
+    parent_ctx: LoweringContextProtocol, *, prefix: str
+) -> LoweringContextProtocol:
     """Create a child IR context suitable for Loop/If subgraphs."""
     child_ctx = type(parent_ctx)(
         opset=getattr(parent_ctx.builder, "opset", 21),
@@ -155,7 +166,7 @@ def make_subgraph_context(parent_ctx: Any, *, prefix: str) -> Any:
     child_ctx.builder.outputs = []
     child_ctx.builder.nodes = []
     child_ctx.builder.initializers = []
-    return child_ctx
+    return cast(LoweringContextProtocol, child_ctx)
 
 
 def relax_value_to_rank_only(val: ir.Value | None) -> None:
@@ -165,7 +176,7 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
     dims = getattr(shape_obj, "dims", None)
     if dims is None and shape_obj is not None:
         try:
-            dims = list(shape_obj) if isinstance(shape_obj, IterableABC) else None
+            dims = list(shape_obj) if isinstance(shape_obj, Iterable) else None
         except Exception:
             dims = None
     if dims is None:
@@ -175,9 +186,7 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
             dims = getattr(shape_obj, "dims", None)
             if dims is None and shape_obj is not None:
                 try:
-                    dims = (
-                        list(shape_obj) if isinstance(shape_obj, IterableABC) else None
-                    )
+                    dims = list(shape_obj) if isinstance(shape_obj, Iterable) else None
                 except Exception:
                     dims = None
     if not dims or len(dims) == 0:

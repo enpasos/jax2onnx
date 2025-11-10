@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import ClassVar, Final
+
+from jax import core
 
 import jax
 import jax.numpy as jnp
@@ -10,15 +12,14 @@ import numpy as np
 from jax2onnx.plugins.jax.lax.add import lower_add
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
     make_jnp_primitive,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
@@ -74,20 +75,20 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, y):
+    def abstract_eval(x: core.AbstractValue, y: core.AbstractValue) -> core.ShapedArray:
         out_shape = tuple(jnp.broadcast_shapes(x.shape, y.shape))
         out_dtype = np.promote_types(x.dtype, y.dtype)
         return jax.core.ShapedArray(out_shape, out_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         lower_add(ctx, eqn)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
 
 
 @JnpAddPlugin._PRIM.def_impl
-def _add_impl(*args, **kwargs):
+def _add_impl(*args: object, **kwargs: object) -> object:
     orig = get_orig_impl(JnpAddPlugin._PRIM, JnpAddPlugin._FUNC_NAME)
     return orig(*args, **kwargs)

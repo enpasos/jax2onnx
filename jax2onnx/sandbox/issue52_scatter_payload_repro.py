@@ -11,18 +11,23 @@ import pathlib
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
+from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import onnxruntime as ort
+import onnx
+import onnx_ir as ir
+import onnxruntime as ort  # type: ignore[import-untyped]
 from jax._src import core, source_info_util
-from onnxruntime.capi.onnxruntime_pybind11_state import Fail, InvalidArgument
+from onnxruntime.capi.onnxruntime_pybind11_state import (  # type: ignore[import-untyped]
+    Fail,
+    InvalidArgument,
+)
 
 from jax2onnx import to_onnx
-from jax2onnx.serde_onnx import ir_to_onnx
-import onnx
+from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
 
 jax.config.update("jax_enable_x64", True)
 
@@ -164,8 +169,6 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
 
     registry: Dict[str, core.Primitive] = {}
     for module in list(sys.modules.values()):
-        if module is None:
-            continue
         name = getattr(module, "__name__", "")
         if not name.startswith("jax"):
             continue
@@ -206,7 +209,7 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
     return registry
 
 
-def _import_module(module_name: str):
+def _import_module(module_name: str) -> ModuleType:
     try:
         return importlib.import_module(module_name)
     except ModuleNotFoundError:
@@ -227,7 +230,12 @@ def _deserialize_closed_jaxpr(
     return core.ClosedJaxpr(jaxpr, consts)
 
 
-def _load_payload():
+def _load_payload() -> Tuple[
+    core.ClosedJaxpr,
+    jax.Array,
+    jax.Array,
+    jax.Array,
+]:
     data = np.load(PAYLOAD_PATH, allow_pickle=False)
     meta_json = data["meta"].tobytes().decode("utf-8")
     meta = json.loads(meta_json)
@@ -242,20 +250,30 @@ def _load_payload():
     return closed, prim0, initial_time, time_step
 
 
-def _feed_forward_fn(closed: core.ClosedJaxpr):
-    def ff(y_current, t_arr, dt_arr):
+def _feed_forward_fn(
+    closed: core.ClosedJaxpr,
+) -> Callable[[jax.Array, jax.Array, jax.Array], Any]:
+    def ff(
+        y_current: jax.Array,
+        t_arr: jax.Array,
+        dt_arr: jax.Array,
+    ) -> Any:
         return core.eval_jaxpr(closed.jaxpr, closed.consts, y_current, t_arr, dt_arr)
 
     return ff
 
 
-def _axis0_override(value: Any) -> Optional[int]:
+def _axis0_override(
+    value: Any,
+    *,
+    op_type: Optional[str] = None,
+) -> Optional[AxisOverrideInfo]:
     meta = getattr(value, "meta", None)
     if meta is None:
         return None
     maybe = meta.get("loop_axis0_override")
     if isinstance(maybe, (int, np.integer)):
-        return int(maybe)
+        return AxisOverrideInfo(extent=int(maybe), op_type=op_type)
     return None
 
 
@@ -279,7 +297,8 @@ def _shape_tuple(value: Any) -> Tuple[Any, ...]:
 def _format_value(value: Any) -> str:
     shape = _shape_tuple(value)
     override = _axis0_override(value)
-    return f"{value.name} axis0={override} shape={shape}"
+    axis_extent = override.extent if override is not None else None
+    return f"{value.name} axis0={axis_extent} shape={shape}"
 
 
 def _find_value(
@@ -296,7 +315,7 @@ def _find_value(
     return None, None
 
 
-def _trace_axis0(ir_model: Any) -> None:
+def _trace_axis0(ir_model: ir.Model) -> None:
     print("[AXIS0] ---- Loop / Slice trace ----")
     loop_node, loop_val = _find_value(
         ir_model,
@@ -369,8 +388,10 @@ def _trace_axis0(ir_model: Any) -> None:
         uses_list = list(uses_raw)
     if uses_list:
         expand_node = uses_list[0][0]
-        if expand_node is not None and getattr(expand_node, "outputs", ()):
-            expand_val = expand_node.outputs[0]
+        if expand_node is not None:
+            outputs = getattr(expand_node, "outputs", None)
+            if outputs:
+                expand_val = outputs[0]
     if expand_val is not None and expand_node is not None:
         print(f"[AXIS0] expand_out   -> {_format_value(expand_val)}")
         for idx, inp in enumerate(expand_node.inputs):
@@ -379,19 +400,14 @@ def _trace_axis0(ir_model: Any) -> None:
         print("[AXIS0] expand_out   -> <missing>")
 
 
-def _collect_axis0_overrides(
-    graph: Any, overrides: Dict[str, tuple[int, Optional[str]]]
-) -> None:
+def _collect_axis0_overrides(graph: Any, overrides: AxisOverrideMap) -> None:
     for node in graph.all_nodes():
         for out in getattr(node, "outputs", ()):
-            override = _axis0_override(out)
-            if isinstance(override, int) and override > 1:
-                op_type = (
-                    getattr(out.producer(), "op_type", None)
-                    if hasattr(out, "producer")
-                    else None
-                )
-                overrides.setdefault(out.name, (override, op_type))
+            producer = out.producer() if hasattr(out, "producer") else None
+            op_type = getattr(producer, "op_type", None)
+            override = _axis0_override(out, op_type=op_type)
+            if isinstance(override, AxisOverrideInfo) and override.extent > 1:
+                overrides.setdefault(out.name, override)
         attrs = getattr(node, "attributes", {})
         if not isinstance(attrs, dict):
             continue
@@ -406,9 +422,7 @@ def _collect_axis0_overrides(
                     _collect_axis0_overrides(subgraph, overrides)
 
 
-def _restamp_onnx_axis0(
-    graph: onnx.GraphProto, overrides: Dict[str, tuple[int, Optional[str]]]
-) -> None:
+def _restamp_onnx_axis0(graph: onnx.GraphProto, overrides: AxisOverrideMap) -> None:
     _ALLOWED_OPS = {
         "Expand",
         "Mul",
@@ -419,23 +433,24 @@ def _restamp_onnx_axis0(
     }
 
     def _apply(vi: onnx.ValueInfoProto) -> None:
-        data = overrides.get(vi.name)
-        if data is None:
+        info = overrides.get(vi.name)
+        if info is None or not info.allows_restamp(_ALLOWED_OPS):
             return
-        override, op_type = data
-        if op_type not in _ALLOWED_OPS:
+        tensor_type = getattr(vi, "type", None)
+        if tensor_type is None or tensor_type.tensor_type is None:
             return
-        if not isinstance(override, int) or override <= 1:
-            return
-        shape = vi.type.tensor_type.shape
+        shape = tensor_type.tensor_type.shape
         if shape is None or not shape.dim:
             return
         dim0 = shape.dim[0]
-        # Skip restamping if an incompatible static extent is already recorded.
-        if dim0.HasField("dim_value") and dim0.dim_value not in (0, override, 1):
+        if dim0.HasField("dim_value") and dim0.dim_value not in (
+            0,
+            info.extent,
+            1,
+        ):
             return
         dim0.ClearField("dim_param")
-        dim0.dim_value = override
+        dim0.dim_value = info.extent
 
     for vi in graph.value_info:
         _apply(vi)
@@ -454,13 +469,13 @@ def _restamp_onnx_axis0(
 
 
 def _export_to_onnx(
-    ff,
-    prim0,
-    t_arr,
-    dt_arr,
+    ff: Callable[[jax.Array, jax.Array, jax.Array], Any],
+    prim0: jax.Array,
+    t_arr: jax.Array,
+    dt_arr: jax.Array,
     *,
     trace_axis0: bool = True,
-) -> tuple[Any, Any]:
+) -> tuple[onnx.ModelProto, ir.Model]:
     inputs: List[Any] = [prim0, t_arr, dt_arr]
     to_kwargs: Dict[str, Any] = {
         "inputs": inputs,
@@ -477,15 +492,11 @@ def _export_to_onnx(
     if trace_axis0:
         _trace_axis0(ir_model)
 
-    overrides: Dict[str, int] = {}
+    overrides: AxisOverrideMap = {}
     _collect_axis0_overrides(ir_model.graph, overrides)
 
-    model_proto = ir_to_onnx(ir_model)
+    model_proto = ir.to_proto(ir_model)
     _restamp_onnx_axis0(model_proto.graph, overrides)
-    try:
-        model_proto.ir_version = min(model_proto.ir_version, 10)
-    except Exception:
-        pass
     ONNX_PATH.write_bytes(model_proto.SerializeToString())
     print(f"[INFO] ONNX payload written to {ONNX_PATH}")
     return model_proto, ir_model
@@ -503,7 +514,7 @@ def export_models(
     return model_proto, ir_model, prim0, t_arr, dt_arr
 
 
-def _run_onnx(prim0, t_arr, dt_arr) -> None:
+def _run_onnx(prim0: jax.Array, t_arr: jax.Array, dt_arr: jax.Array) -> None:
     try:
         sess = ort.InferenceSession(str(ONNX_PATH), providers=["CPUExecutionProvider"])
     except Fail as err:

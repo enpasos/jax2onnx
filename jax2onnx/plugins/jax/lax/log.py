@@ -1,14 +1,16 @@
 # jax2onnx/plugins/jax/lax/log.py
 
-from typing import TYPE_CHECKING
+from typing import Any
 
+from jax import core
 import jax
+
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    pass
+JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -36,7 +38,7 @@ if TYPE_CHECKING:
     ],
 )
 class LogPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

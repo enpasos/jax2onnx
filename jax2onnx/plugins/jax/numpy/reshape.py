@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax import core
 
@@ -21,10 +23,8 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _RESHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.reshape")
@@ -201,7 +201,12 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *, newshape, order="C"):
+    def abstract_eval(
+        x: core.AbstractValue,
+        *,
+        newshape: Sequence[int | object] | int | object,
+        order: str | None = "C",
+    ) -> core.ShapedArray:
         if order not in (None, "C"):
             raise NotImplementedError("Only C-order reshape is supported")
         storage_slot = f"__orig_impl__{JnpReshapePlugin._FUNC_NAME}"
@@ -210,7 +215,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         result = jax.eval_shape(lambda arr: orig(arr, newshape, order=order), spec)
         return core.ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         newshape_param = params.get("new_sizes", params.get("newshape"))
         order = params.get("order", "C")
@@ -388,12 +393,18 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
     def binding_specs(cls):
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.reshape not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, newshape, order="C"):
+            def _patched(
+                a: ArrayLike,
+                newshape: Sequence[int | object] | int | object,
+                order: str | None = "C",
+            ) -> jax.Array:
                 if order not in (None, "C"):
                     raise NotImplementedError("Only C-order reshape is supported")
                 return cls._PRIM.bind(
@@ -416,7 +427,11 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 
 
 @JnpReshapePlugin._PRIM.def_impl
-def _reshape_impl(a, newshape, order="C"):
+def _reshape_impl(
+    a: ArrayLike,
+    newshape: Sequence[int | object] | int | object,
+    order: str | None = "C",
+) -> jax.Array:
     orig = get_orig_impl(JnpReshapePlugin._PRIM, JnpReshapePlugin._FUNC_NAME)
     return orig(a, newshape, order=order)
 

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, Callable, ClassVar
 
 import equinox as eqx
 import jax
+import jax.core as jax_core
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -80,11 +82,17 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, scale, bias, *, epsilon):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        scale: jax_core.AbstractValue,
+        bias: jax_core.AbstractValue,
+        *,
+        epsilon: float,
+    ) -> ShapedArray:
         del scale, bias, epsilon
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -128,7 +136,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "layer_norm_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -140,8 +148,16 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
-        def wrapped(self, x, state=None, *, key=None):
+    def _patch_call(
+        orig: Callable[..., jax.Array] | None,
+    ) -> Callable[..., Any]:
+        def wrapped(
+            self: eqx.nn.LayerNorm,
+            x: jax.Array,
+            state: Any = None,
+            *,
+            key: jax.Array | None = None,
+        ) -> Any:
             del key
             if getattr(self, "shape", None) is not None and x.shape != self.shape:
                 raise ValueError(
@@ -162,7 +178,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, scale, bias, *, epsilon: cls.abstract_eval(
@@ -173,7 +189,13 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
 
 
 @LayerNormPlugin._PRIM.def_impl
-def _layer_norm_impl(x, scale, bias, *, epsilon):
+def _layer_norm_impl(
+    x: jax.Array,
+    scale: jax.Array,
+    bias: jax.Array,
+    *,
+    epsilon: float,
+) -> jax.Array:
     x_arr = jnp.asarray(x)
     scale_arr = jnp.asarray(scale, dtype=x_arr.dtype)
     bias_arr = jnp.asarray(bias, dtype=x_arr.dtype)
@@ -191,7 +213,12 @@ def _layer_norm_impl(x, scale, bias, *, epsilon):
     return norm * scale_b + bias_b
 
 
-def _layer_norm_batch_rule(batched_args, batch_dims, *, epsilon):
+def _layer_norm_batch_rule(
+    batched_args: tuple[jax.Array, jax.Array, jax.Array],
+    batch_dims: tuple[int | None, int | None, int | None],
+    *,
+    epsilon: float,
+) -> tuple[jax.Array, int | None]:
     x, scale, bias = batched_args
     x_bdim, scale_bdim, bias_bdim = batch_dims
     if scale_bdim is not None or bias_bdim is not None:

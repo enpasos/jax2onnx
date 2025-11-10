@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Callable, ClassVar, Final
 
+import jax
 import jax.numpy as jnp
 from jax import core
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _TRANSPOSE_PRIM: Final = make_jnp_primitive("jax.numpy.transpose")
+AxesArg = Sequence[int] | int | None
 
 
-def _normalize_axes(axes: Sequence[int] | int | None, rank: int) -> tuple[int, ...]:
+def _normalize_axes(axes: AxesArg, rank: int) -> tuple[int, ...]:
     if axes is None:
         return tuple(reversed(range(rank)))
     if isinstance(axes, int):
@@ -141,13 +143,13 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, axes=None):
+    def abstract_eval(x: core.AbstractValue, axes: AxesArg = None) -> core.ShapedArray:
         rank = len(x.shape)
         axes_tuple = _normalize_axes(axes, rank)
         out_shape = tuple(x.shape[i] for i in axes_tuple)
         return core.ShapedArray(out_shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})
@@ -190,15 +192,17 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.transpose not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, axes=None):
+            def _patched(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
                 arr = jnp.asarray(a)
                 axes_tuple = _normalize_axes(axes, arr.ndim)
                 return cls._PRIM.bind(arr, axes=axes_tuple)
@@ -219,7 +223,7 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
 
 
 @JnpTransposePlugin._PRIM.def_impl
-def _transpose_impl(a, axes=None):
+def _transpose_impl(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
     orig = get_orig_impl(JnpTransposePlugin._PRIM, JnpTransposePlugin._FUNC_NAME)
     return orig(a, axes=axes)
 

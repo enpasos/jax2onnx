@@ -1,15 +1,17 @@
 # jax2onnx/plugins/jax/lax/or.py
 
+from typing import Any
+
 import numpy as np
 import jax
+from jax import core
 
-from typing import TYPE_CHECKING
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -59,7 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class OrPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitwise_or`` and boolean ``or``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

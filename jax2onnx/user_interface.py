@@ -1,6 +1,9 @@
 # jax2onnx/user_interface.py
 
+import logging
+import os
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -16,27 +19,24 @@ from typing import (
     overload,
     runtime_checkable,
 )
-import logging
-import os
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx
+import onnx_ir as ir
+import onnxruntime
 from jax import core
 
 from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
     ShapeTupleSpec,
+    _to_ir_dtype_from_np,
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
-from jax2onnx.serde_onnx import ir_to_onnx
-import onnxruntime
-from onnx_ir import Model as IRModel  # type: ignore
-
 
 ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
@@ -117,49 +117,115 @@ def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpe
     return normalized
 
 
-@overload
-def to_onnx(
-    fn: Callable,
-    inputs: Sequence[UserInputSpec],
-    input_params: Optional[Mapping[str, object]] = ...,
-    model_name: str = ...,
-    opset: int = ...,
-    *,
-    enable_double_precision: bool = ...,
-    record_primitive_calls_file: Optional[str] = ...,
-    return_mode: Literal["proto"] = ...,
-    output_path: None = ...,
-) -> onnx.ModelProto: ...
+def _maybe_int_dim(dim: Any) -> int:
+    return int(dim)
 
 
-@overload
-def to_onnx(
-    fn: Callable,
-    inputs: Sequence[UserInputSpec],
-    input_params: Optional[Mapping[str, object]] = ...,
-    model_name: str = ...,
-    opset: int = ...,
-    *,
-    enable_double_precision: bool = ...,
-    record_primitive_calls_file: Optional[str] = ...,
-    return_mode: Literal["ir"],
-    output_path: Optional[PathLikeStr] = ...,
-) -> IRModel: ...
+def _materialize_input_params_on_ir(
+    model: ir.Model, param_map: Mapping[str, object]
+) -> None:
+    if not param_map:
+        return
+
+    graph = model.graph
+    existing_inputs = {
+        value.name for value in graph.inputs if getattr(value, "name", None)
+    }
+    initializer_names = {name for name in graph.initializers.keys() if name}
+
+    referenced_names: set[str] = set()
+    value_by_name: Dict[str, ir.Value] = {}
+
+    def _record(value: Optional[ir.Value]) -> None:
+        if value is None:
+            return
+        name = getattr(value, "name", None)
+        if not name:
+            return
+        referenced_names.add(name)
+        value_by_name.setdefault(name, value)
+
+    for node in graph:
+        for val in node.inputs:
+            _record(val)
+    for output in graph.outputs:
+        _record(output)
+
+    for name, python_value in param_map.items():
+        if not name:
+            continue
+        if name in existing_inputs or name in initializer_names:
+            continue
+        if name not in referenced_names:
+            continue
+
+        existing_value = value_by_name.get(name)
+        if existing_value is not None:
+            graph.inputs.append(existing_value)
+            existing_inputs.add(name)
+            continue
+
+        arr = np.asarray(python_value)
+        try:
+            ir_dtype = _to_ir_dtype_from_np(arr.dtype)
+        except Exception:
+            ir_dtype = None
+        if ir_dtype is None:
+            continue
+
+        shape = tuple(_maybe_int_dim(dim) for dim in arr.shape)
+        new_value = ir.Value(
+            name=name,
+            type=ir.TensorType(ir_dtype),
+            shape=ir.Shape(shape),
+        )
+        graph.inputs.append(new_value)
+        existing_inputs.add(name)
 
 
-@overload
-def to_onnx(
-    fn: Callable,
-    inputs: Sequence[UserInputSpec],
-    input_params: Optional[Mapping[str, object]] = ...,
-    model_name: str = ...,
-    opset: int = ...,
-    *,
-    enable_double_precision: bool = ...,
-    record_primitive_calls_file: Optional[str] = ...,
-    return_mode: Literal["file"],
-    output_path: PathLikeStr,
-) -> str: ...
+if TYPE_CHECKING:
+
+    @overload
+    def to_onnx(
+        fn: Callable,
+        inputs: Sequence[UserInputSpec],
+        input_params: Optional[Mapping[str, object]] = ...,
+        model_name: str = ...,
+        opset: int = ...,
+        *,
+        enable_double_precision: bool = ...,
+        record_primitive_calls_file: Optional[str] = ...,
+        return_mode: Literal["proto"] = ...,
+        output_path: None = ...,
+    ) -> onnx.ModelProto: ...
+
+    @overload
+    def to_onnx(
+        fn: Callable,
+        inputs: Sequence[UserInputSpec],
+        input_params: Optional[Mapping[str, object]] = ...,
+        model_name: str = ...,
+        opset: int = ...,
+        *,
+        enable_double_precision: bool = ...,
+        record_primitive_calls_file: Optional[str] = ...,
+        return_mode: Literal["ir"],
+        output_path: Optional[PathLikeStr] = ...,
+    ) -> ir.Model: ...
+
+    @overload
+    def to_onnx(
+        fn: Callable,
+        inputs: Sequence[UserInputSpec],
+        input_params: Optional[Mapping[str, object]] = ...,
+        model_name: str = ...,
+        opset: int = ...,
+        *,
+        enable_double_precision: bool = ...,
+        record_primitive_calls_file: Optional[str] = ...,
+        return_mode: Literal["file"],
+        output_path: PathLikeStr,
+    ) -> str: ...
 
 
 def to_onnx(
@@ -173,7 +239,7 @@ def to_onnx(
     record_primitive_calls_file: Optional[str] = None,
     return_mode: ReturnMode = "proto",
     output_path: Optional[PathLikeStr] = None,
-) -> Union[onnx.ModelProto, IRModel, str]:
+) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
 
@@ -266,52 +332,6 @@ def to_onnx(
         protective_clone=(normalized_mode == "ir"),
     )
 
-    def _attach_input_params(model_proto: onnx.ModelProto) -> None:
-        if not param_map:
-            return
-
-        graph: onnx.GraphProto = model_proto.graph
-        existing_inputs = {vi.name for vi in graph.input}
-        provided_names = set(existing_inputs)
-        provided_names.update(init.name for init in graph.initializer)
-        sparse_inits = graph.sparse_initializer
-        if sparse_inits is not None:
-            provided_names.update(init.name for init in sparse_inits)
-
-        referenced: set[str] = set()
-        for node in graph.node:
-            for inp_name in node.input:
-                if inp_name:
-                    referenced.add(inp_name)
-        for output in graph.output:
-            name = output.name
-            if name:
-                referenced.add(name)
-
-        for name, value in param_map.items():
-            if not name or name in existing_inputs:
-                continue
-            if name in provided_names:
-                continue
-            if name not in referenced:
-                continue
-
-            arr = np.asarray(value)
-            elem_type = None
-            try:
-                elem_type = onnx.helper.np_dtype_to_tensor_dtype(np.dtype(arr.dtype))
-            except Exception:
-                elem_type = None
-            if elem_type is None and arr.dtype == np.bool_:
-                elem_type = onnx.TensorProto.BOOL
-            if elem_type is None:
-                continue
-            shape = list(arr.shape)
-            vi = onnx.helper.make_tensor_value_info(name, elem_type, shape)
-            graph.input.extend([vi])
-            existing_inputs.add(name)
-            provided_names.add(name)
-
     def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
         dest_dir = os.path.dirname(dest)
         if dest_dir:
@@ -323,11 +343,11 @@ def to_onnx(
         result,
         promote_to_double=enable_double_precision,
     )
+    _materialize_input_params_on_ir(result, param_map)
     if normalized_mode == "ir":
         return result
 
-    model_proto = ir_to_onnx(result)
-    _attach_input_params(model_proto)
+    model_proto = ir.to_proto(result)
     if normalized_mode == "file":
         assert file_path is not None
         return _save_model_proto(model_proto, file_path)

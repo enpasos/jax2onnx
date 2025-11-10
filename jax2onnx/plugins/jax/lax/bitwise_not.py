@@ -1,15 +1,17 @@
 # jax2onnx/plugins/jax/lax/bitwise_not.py
 
-from typing import TYPE_CHECKING
+from typing import Any
 
+from jax import core
 import jax
 import numpy as np
+
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    pass  # type hints only
+JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -53,10 +55,10 @@ if TYPE_CHECKING:
 )
 class BitwiseNotPlugin(PrimitiveLeafPlugin):
     @staticmethod
-    def abstract_eval(x):
+    def abstract_eval(x: core.AbstractValue):
         return x
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

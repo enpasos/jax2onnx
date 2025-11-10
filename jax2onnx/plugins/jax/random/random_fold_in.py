@@ -10,19 +10,18 @@ producing an ONNX Value so downstream passes see a concrete tensor.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import onnx_ir as ir
+import jax
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
-
-def _identity(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
+def _identity(
+    ctx: LoweringContextProtocol, value: ir.Value, name_hint: str
+) -> ir.Value:
     result = ctx.builder.Identity(value, _outputs=[ctx.fresh_name(name_hint)])
     if getattr(value, "type", None) is not None:
         result.type = value.type
@@ -62,7 +61,7 @@ def _identity(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
 class RandomFoldInPlugin(PrimitiveLeafPlugin):
     """Forward the incoming key; sufficient for deterministic inference paths."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

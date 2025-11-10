@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.pow import lower_pow
@@ -15,10 +16,8 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _broadcast_shape(x_shape, y_shape):
@@ -52,11 +51,11 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str]
 
     @staticmethod
-    def abstract_eval(x, y):
+    def abstract_eval(x: jax.core.AbstractValue, y: jax.core.AbstractValue):
         shape = _broadcast_shape(x.shape, y.shape)
         return jax.core.ShapedArray(shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         lower_pow(ctx, eqn)
 
     @classmethod
@@ -110,9 +109,9 @@ class JnpPowerPlugin(_BaseJnpPow):
 
 
 @JnpPowerPlugin._PRIM.def_impl
-def _power_impl(*args, **kwargs):
+def _power_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpPowerPlugin._PRIM, JnpPowerPlugin._FUNC_NAME)
-    return orig(*args, **kwargs)
+    return orig(x, y)
 
 
 _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
@@ -161,6 +160,6 @@ class JnpPowPlugin(_BaseJnpPow):
 
 
 @JnpPowPlugin._PRIM.def_impl
-def _pow_impl(*args, **kwargs):
+def _pow_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpPowPlugin._PRIM, JnpPowPlugin._FUNC_NAME)
-    return orig(*args, **kwargs)
+    return orig(x, y)

@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    SymbolicDimOrigin,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - import is only for type hints
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _dynamic_or_constant(specs):
@@ -93,7 +92,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
     ],
 )
 class DimAsValuePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: IRContext, eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn):
         out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("dim_as_value_out")
@@ -101,20 +100,17 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
 
         dim_expr = eqn.params.get("dim")
         origin_getter = getattr(ctx, "get_symbolic_dim_origin", None)
-        origin = origin_getter(dim_expr) if callable(origin_getter) else None
-        if origin is None and callable(origin_getter):
-            origin = origin_getter(str(dim_expr))
+        origin = SymbolicDimOrigin.resolve(origin_getter, dim_expr)
         if origin is None:
             raise ValueError(
                 f"Symbolic dimension '{dim_expr}' has no registered input origin."
             )
 
-        src_val, axis = origin
-        axis = int(axis)
-        src_rank = _infer_rank(src_val, axis)
+        axis = int(origin.axis)
+        src_rank = _infer_rank(origin.value, axis)
 
         shape_vec = ctx.builder.Shape(
-            src_val,
+            origin.value,
             _outputs=[ctx.fresh_name("dim_as_value_shape")],
         )
         shape_vec.type = ir.TensorType(ir.DataType.INT64)

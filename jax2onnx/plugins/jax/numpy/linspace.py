@@ -66,18 +66,14 @@ def _maybe_cast(
         np_arr = np.asarray(const_arr)
         enum_to_np = {
             ir.DataType.FLOAT: np.float32,
+            ir.DataType.DOUBLE: np.float64,
             ir.DataType.INT32: np.int32,
             ir.DataType.INT64: np.int64,
             ir.DataType.INT16: np.int16,
             ir.DataType.INT8: np.int8,
+            ir.DataType.UINT8: np.uint8,
             ir.DataType.BOOL: np.bool_,
         }
-        double_enum = getattr(ir.DataType, "DOUBLE", None)
-        if double_enum is not None:
-            enum_to_np[double_enum] = np.float64
-        uint8_enum = getattr(ir.DataType, "UINT8", None)
-        if uint8_enum is not None:
-            enum_to_np[uint8_enum] = np.uint8
         target_dtype = enum_to_np.get(target_enum)
         if target_dtype is not None and np_arr.dtype != target_dtype:
             new_val = ctx.bind_const_for_var(

@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.fft import FFTPlugin as _LaxFFTPlugin
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
 _LAX_FFT_PLUGIN: _LaxFFTPlugin = _LaxFFTPlugin()
@@ -27,7 +26,9 @@ class _JnpFFTMetadata(PrimitiveLeafPlugin):
         # jnp.fft already lowers through lax.fft, so no monkey patches required.
         return []
 
-    def lower(self, ctx: "IRContext", eqn):  # pragma: no cover - delegated lowering
+    def lower(
+        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
+    ) -> None:  # pragma: no cover - delegated lowering
         _LAX_FFT_PLUGIN.lower(ctx, eqn)
 
 

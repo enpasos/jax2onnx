@@ -2,29 +2,32 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, ClassVar, Final, cast
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
+from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax.interpreters import batching
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _ORIGINAL_JNP_CONCATENATE: Final = jnp.concatenate
 
+ArrayTuple = tuple[ArrayLike, ...]
 
-def _to_tuple(arrays: Iterable[jnp.ndarray]) -> tuple:
+
+def _to_tuple(arrays: Iterable[ArrayLike]) -> ArrayTuple:
     if isinstance(arrays, (list, tuple)):
         return tuple(arrays)
     return tuple(arrays)
@@ -37,14 +40,14 @@ def _normalize_axis(axis: int, rank: int) -> int:
     return ax % rank if ax < 0 else ax
 
 
-def _promote_dtype(dtypes: Sequence[np.dtype]) -> np.dtype:
+def _promote_dtype(dtypes: Sequence[np.dtype[Any]]) -> np.dtype[Any]:
     result = dtypes[0]
     for dt in dtypes[1:]:
         result = np.promote_types(result, dt)
     return result
 
 
-def _concat_dynamic_tile(x: jnp.ndarray) -> jnp.ndarray:
+def _concat_dynamic_tile(x: jax.Array) -> jax.Array:
     """Mimic the legacy concat-with-token pattern used in Transformer blocks."""
 
     # x : (B, N, D)
@@ -142,13 +145,16 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _canonicalize_call(*args, **kwargs):
+    def _canonicalize_call(
+        *args: object, **kwargs: object
+    ) -> tuple[ArrayTuple, int, DTypeLike | None]:
         if not args:
             raise TypeError(
                 "concatenate() missing required positional argument 'arrays'"
             )
 
-        arrays = args[0]
+        arrays_obj = args[0]
+        arrays = _to_tuple(cast(Iterable[ArrayLike], arrays_obj))
         if len(args) > 1:
             axis = args[1]
         else:
@@ -160,13 +166,16 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         if len(args) > 3 or kwargs:
             raise TypeError("concatenate() received unexpected arguments")
 
-        arrays_tuple = _to_tuple(arrays)
-        if not arrays_tuple:
+        if not arrays:
             raise ValueError("need at least one array to concatenate")
-        return arrays_tuple, axis, dtype
+        return arrays, axis, dtype
 
     @staticmethod
-    def abstract_eval(*arrays, axis=0, dtype=None):
+    def abstract_eval(
+        *arrays: core.AbstractValue,
+        axis: int = 0,
+        dtype: DTypeLike | None = None,
+    ) -> core.ShapedArray:
         if not arrays:
             raise ValueError("concatenate requires at least one operand")
         rank = len(arrays[0].shape)
@@ -195,7 +204,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
             out_dtype = _promote_dtype([np.dtype(a.dtype) for a in arrays])
         return jax.core.ShapedArray(tuple(out_shape), out_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         out_var = eqn.outvars[0]
         in_vars = list(eqn.invars)
         params = getattr(eqn, "params", {})
@@ -254,15 +263,17 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.concatenate not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(*args, **kwargs):
+            def _patched(*args: object, **kwargs: object) -> jax.Array:
                 arrays, axis, dtype = cls._canonicalize_call(*args, **kwargs)
                 axis_int = int(axis)
                 return cls._PRIM.bind(*arrays, axis=axis_int, dtype=dtype)
@@ -283,7 +294,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
 
 
 @JnpConcatenatePlugin._PRIM.def_impl
-def _concatenate_impl(*args, **kwargs):
+def _concatenate_impl(*args: object, **kwargs: object) -> jax.Array:
     try:
         orig = get_orig_impl(
             JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
@@ -293,9 +304,18 @@ def _concatenate_impl(*args, **kwargs):
     return orig(*args, **kwargs)
 
 
-def _concatenate_batch_rule(batched_args, batch_dims, *, axis=0, dtype=None):
+BatchDim = int | type(batching.not_mapped)
+
+
+def _concatenate_batch_rule(
+    batched_args: tuple[object, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int = 0,
+    dtype: DTypeLike | None = None,
+) -> tuple[jax.Array, BatchDim]:
     axis_int = int(axis)
-    axis_size = None
+    axis_size: int | None = None
     for arg, bdim in zip(batched_args, batch_dims):
         if bdim is batching.not_mapped:
             continue
@@ -321,7 +341,7 @@ def _concatenate_batch_rule(batched_args, batch_dims, *, axis=0, dtype=None):
     except RuntimeError:
         orig = _ORIGINAL_JNP_CONCATENATE
 
-    def _call_single(*slices):
+    def _call_single(*slices: object) -> jax.Array:
         if dtype is None:
             return orig(slices, axis=axis_int)
         return orig(slices, axis=axis_int, dtype=dtype)

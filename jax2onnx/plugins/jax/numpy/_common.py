@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable, cast
 
 from jax.extend.core import Primitive
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+
+
+BoundCallable = Callable[..., Any]
 
 
 def make_jnp_primitive(name: str) -> Primitive:
@@ -28,11 +31,15 @@ def jnp_binding_specs(
     attr_name = f"{func_name}_p"
     storage_slot = f"{store_attr}_{func_name}"
 
-    def _make_value(orig: Callable | None) -> Callable:
+    def _make_value(orig: BoundCallable | None) -> BoundCallable:
         if orig is None:
             raise RuntimeError(f"Original jnp.{func_name} not found for patching")
         setattr(prim, storage_slot, orig)
-        return lambda *args, **kwargs: prim.bind(*args, **kwargs)
+
+        def _bound(*args: Any, **kwargs: Any) -> Any:
+            return prim.bind(*args, **kwargs)
+
+        return _bound
 
     return [
         AssignSpec(
@@ -49,9 +56,9 @@ def jnp_binding_specs(
 
 def get_orig_impl(
     prim: Primitive, func_name: str, store_attr: str = "__orig_impl__"
-) -> Callable:
+) -> BoundCallable:
     storage_slot = f"{store_attr}_{func_name}"
-    orig = getattr(prim, storage_slot, None)
+    orig = cast(BoundCallable | None, getattr(prim, storage_slot, None))
     if orig is None:
         raise RuntimeError(f"Original implementation for jnp.{func_name} not captured")
     return orig

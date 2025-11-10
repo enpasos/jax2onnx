@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import onnx_ir as ir
 
+from jax import core
+
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -20,8 +23,8 @@ from jax2onnx.plugins.jax.lax._index_utils import _builder_op
 
 
 def lower_arg_reduction(
-    ctx: Any,
-    eqn: Any,
+    ctx: LoweringContextProtocol,
+    eqn: core.JaxprEqn,
     *,
     op_name: str,
     name_prefix: str,
@@ -31,9 +34,15 @@ def lower_arg_reduction(
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]
 
-    params = getattr(eqn, "params", {})
-    axes = params.get("axes") or (0,)
-    axis = int(axes[0])
+    params: dict[str, Any] = getattr(eqn, "params", {})
+    axes_param = params.get("axes")
+    if axes_param is None:
+        axes_seq: tuple[int, ...] = (0,)
+    elif isinstance(axes_param, Sequence):
+        axes_seq = tuple(int(ax) for ax in axes_param)
+    else:
+        axes_seq = (int(axes_param),)
+    axis = int(axes_seq[0])
     select_last = int(params.get("select_last_index", 0))
     index_dtype = np.dtype(params.get("index_dtype", np.int64))
 

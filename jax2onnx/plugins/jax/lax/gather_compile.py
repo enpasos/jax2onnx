@@ -1,9 +1,12 @@
 # jax2onnx/plugins/jax/lax/gather_compile.py
 
+from __future__ import annotations
+
 from typing import Any, Optional
 import numpy as np
 import copy
 from .gather_helpers import (
+    GirInstruction,
     calculate_index_shape,
     check_uniform_start_index,
     get_gir_input_shape,
@@ -19,7 +22,9 @@ from .gather_helpers import (
 )
 
 
-def lax_gather_to_gir(eqn: Any, indices_var_value: Optional[np.ndarray]) -> list[dict]:
+def lax_gather_to_gir(
+    eqn: Any, indices_var_value: Optional[np.ndarray]
+) -> list[GirInstruction]:
     """Convert lax.gather equation to normalized GIR."""
     operand = eqn.invars[0]
     indices_var = eqn.invars[1]
@@ -39,7 +44,7 @@ def lax_gather_to_gir(eqn: Any, indices_var_value: Optional[np.ndarray]) -> list
         if dimidx not in set(dn.start_indices_batching_dims)
     ]
 
-    gir_entries = []
+    gir_entries: list[GirInstruction] = []
 
     for dim in range(len(operand_shape)):
         entry = {"dim": dim, "input_size": operand_shape[dim]}
@@ -129,7 +134,7 @@ def lax_gather_to_gir(eqn: Any, indices_var_value: Optional[np.ndarray]) -> list
 
     result_op = {"op": "general_gather", "dims": gir_entries}
 
-    result_ops = []
+    result_ops: list[GirInstruction] = []
 
     if indices_var_value is not None:
         result_ops.append(
@@ -145,7 +150,7 @@ def lax_gather_to_gir(eqn: Any, indices_var_value: Optional[np.ndarray]) -> list
     return result_ops
 
 
-def extract_slicing(gir_instr_orig: dict) -> list[dict]:
+def extract_slicing(gir_instr_orig: GirInstruction) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -215,7 +220,9 @@ def extract_slicing(gir_instr_orig: dict) -> list[dict]:
         return [gir_instr_orig]
 
 
-def turn_dynamic_range_slice_to_gather(gir_instr_orig: dict) -> list[dict]:
+def turn_dynamic_range_slice_to_gather(
+    gir_instr_orig: GirInstruction,
+) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -275,7 +282,9 @@ def turn_dynamic_range_slice_to_gather(gir_instr_orig: dict) -> list[dict]:
     return result
 
 
-def normalize_gather_with_transpose(gir_instr_orig: dict) -> list[dict]:
+def normalize_gather_with_transpose(
+    gir_instr_orig: GirInstruction,
+) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -324,7 +333,9 @@ def normalize_gather_with_transpose(gir_instr_orig: dict) -> list[dict]:
     return input_transpose + [gir_instr] + output_transpose
 
 
-def normalize_gather_index_tensor_with_transpose(gir_instr_orig: dict) -> list[dict]:
+def normalize_gather_index_tensor_with_transpose(
+    gir_instr_orig: GirInstruction,
+) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -344,7 +355,9 @@ def normalize_gather_index_tensor_with_transpose(gir_instr_orig: dict) -> list[d
     return index_transpose + [gir_instr]
 
 
-def reorder_gathered_indices(gir_instr_orig: dict) -> list[dict]:
+def reorder_gathered_indices(
+    gir_instr_orig: GirInstruction,
+) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -363,7 +376,7 @@ def reorder_gathered_indices(gir_instr_orig: dict) -> list[dict]:
     return result
 
 
-def detect_onnx_gather(gir_instr_orig: dict) -> list[dict]:
+def detect_onnx_gather(gir_instr_orig: GirInstruction) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -399,7 +412,7 @@ def detect_onnx_gather(gir_instr_orig: dict) -> list[dict]:
     return result
 
 
-def detect_onnx_gather_nd(gir_instr_orig: dict) -> list[dict]:
+def detect_onnx_gather_nd(gir_instr_orig: GirInstruction) -> list[GirInstruction]:
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
@@ -435,7 +448,7 @@ def detect_onnx_gather_nd(gir_instr_orig: dict) -> list[dict]:
     return [gir_instr]
 
 
-def fold_constant_index_tensor(gir: list[dict]) -> list[dict]:
+def fold_constant_index_tensor(gir: list[GirInstruction]) -> list[GirInstruction]:
     index_tensor = None
     result_ops = []
     changed = False
@@ -507,7 +520,7 @@ def fold_constant_index_tensor(gir: list[dict]) -> list[dict]:
     return result_ops
 
 
-def run_all_passes(gir: list[dict]) -> list[dict]:
+def run_all_passes(gir: list[GirInstruction]) -> list[GirInstruction]:
     gir = run_one_pass(gir, extract_slicing, ["general_gather"])
     gir = run_one_pass(gir, turn_dynamic_range_slice_to_gather, ["general_gather"])
     gir = run_one_pass(gir, normalize_gather_with_transpose, ["general_gather"])
@@ -529,7 +542,9 @@ def run_all_passes(gir: list[dict]) -> list[dict]:
     return gir
 
 
-def compile_to_gir(eqn: Any, indices_var_value: Optional[np.ndarray]) -> list[dict]:
+def compile_to_gir(
+    eqn: Any, indices_var_value: Optional[np.ndarray]
+) -> list[GirInstruction]:
     gir = lax_gather_to_gir(eqn, indices_var_value)
     gir = run_all_passes(gir)
     return gir

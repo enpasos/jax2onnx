@@ -13,6 +13,7 @@ from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
 
 from .ir_clone import clone_graph
+from .typing_support import SymbolicDimOrigin
 
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
@@ -246,7 +247,7 @@ class IRBuilder:
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
         # optional: symbolic dim origins used by some plugins
-        self._sym_origin: dict[str, tuple[ir.Value, int]] = {}
+        self._sym_origin: dict[str, SymbolicDimOrigin] = {}
         self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
         self._stacktrace_rel_base: str = os.getcwd()
         self._current_jax_traceback: Optional[str] = None
@@ -714,9 +715,9 @@ class IRBuilder:
 
     # ---------- symbolic dim origin ----------
     def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None:
-        self._sym_origin[sym] = (src_val, axis)
+        self._sym_origin[sym] = SymbolicDimOrigin(value=src_val, axis=axis)
 
-    def get_symbolic_dim_origin(self, sym: str) -> Optional[tuple[ir.Value, int]]:
+    def get_symbolic_dim_origin(self, sym: str) -> Optional[SymbolicDimOrigin]:
         return self._sym_origin.get(sym)
 
     def to_ir_model(
