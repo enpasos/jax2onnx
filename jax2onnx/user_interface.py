@@ -117,10 +117,7 @@ def _normalize_input_specs(raw_inputs: Sequence[UserInputSpec]) -> List[InputSpe
     return normalized
 
 
-@overload
 def _maybe_int_dim(dim: Any) -> int:
-    if isinstance(dim, np.integer):
-        return int(dim)
     return int(dim)
 
 
@@ -184,8 +181,6 @@ def _materialize_input_params_on_ir(
         )
         graph.inputs.append(new_value)
         existing_inputs.add(name)
-        referenced_names.add(name)
-        value_by_name[name] = new_value
 
 
 if TYPE_CHECKING:
