@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 from jax2onnx import onnx_function
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.user_interface import to_onnx
 
 
@@ -104,3 +105,25 @@ def test_unused_input_param_does_not_reappear():
 
     input_names = {vi.name for vi in model.graph.input}
     assert input_names == {"in_0"}
+
+
+def test_input_params_materialized_for_ir_return_mode():
+    ir_model = to_onnx(
+        _SuperBlock(),
+        inputs=[(5, 10, 3)],
+        input_params={"deterministic": True},
+        model_name="test_deterministic_param_ir_materialized",
+        return_mode="ir",
+    )
+
+    input_names = {value.name for value in ir_model.graph.inputs}
+    assert "deterministic" in input_names
+
+    check = EG(
+        ["Dropout"],
+        symbols={"B": None},
+        no_unused_inputs=True,
+        no_unused_function_inputs=True,
+        search_functions=True,
+    )
+    assert check(ir_model)
