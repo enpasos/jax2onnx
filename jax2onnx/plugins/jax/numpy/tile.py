@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import ClassVar, Final
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
+from numpy.typing import ArrayLike
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -213,13 +216,18 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(a, *, repeats, **_):
+    def abstract_eval(
+        a: core.AbstractValue,
+        *,
+        repeats: ArrayLike,
+        **_: object,
+    ) -> core.ShapedArray:
         # Defer to the original implementation for robust symbolic-shape handling.
         spec = jax.ShapeDtypeStruct(a.shape, a.dtype)
         out = jax.eval_shape(lambda arr: _ORIG_TILE(arr, repeats), spec)
         return jax.core.ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         input_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         repeats_var = eqn.invars[1] if len(eqn.invars) > 1 else None
@@ -292,15 +300,17 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.tile not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, reps):
+            def _patched(a: ArrayLike, reps: ArrayLike) -> jax.Array:
                 if isinstance(reps, jax.Array) and not isinstance(
                     reps, jax.core.Tracer
                 ):
@@ -346,7 +356,11 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         cache[src] = shape_val
         return shape_val
 
-    def _build_static_repeats(self, ctx: LoweringContextProtocol, repeats_param):
+    def _build_static_repeats(
+        self,
+        ctx: LoweringContextProtocol,
+        repeats_param: Sequence[int | np.integer] | int | np.integer,
+    ) -> tuple[ir.Value, int]:
         repeats_tuple = (
             (repeats_param,)
             if isinstance(repeats_param, (int, np.integer))

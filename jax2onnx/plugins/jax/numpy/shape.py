@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _SHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.shape")
@@ -68,7 +67,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x):
+    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
         result = _shape_eval(x)
         if isinstance(result, tuple):
             rank = len(result)
@@ -78,7 +77,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
             return core.ShapedArray((rank,), dtype)
         return core.ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -131,15 +130,17 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
         bind_value(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jnp.shape not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a):
+            def _patched(a: ArrayLike) -> ArrayLike:
                 arr = jnp.asarray(a)
                 return cls._PRIM.bind(arr)
 
@@ -159,7 +160,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
 
 
 @JnpShapePlugin._PRIM.def_impl
-def _shape_impl(a):
+def _shape_impl(a: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpShapePlugin._PRIM, JnpShapePlugin._FUNC_NAME)
     return orig(a)
 

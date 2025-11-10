@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax import core
 import numpy as np
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
@@ -24,10 +25,8 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _MATMUL_PRIM: Final = make_jnp_primitive("jax.numpy.matmul")
@@ -147,11 +146,11 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(a, b):
+    def abstract_eval(a: core.AbstractValue, b: core.AbstractValue) -> core.ShapedArray:
         shape, dtype = _matmul_shape(a.shape, b.shape, a.dtype)
         return core.ShapedArray(shape, dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         a_var, b_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -202,13 +201,13 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
 
     def _maybe_lower_complex(
         self,
-        ctx: "IRContext",
-        a_var,
-        b_var,
-        out_var,
+        ctx: LoweringContextProtocol,
+        a_var: core.Var,
+        b_var: core.Var,
+        out_var: core.Var,
         a_val: ir.Value,
         b_val: ir.Value,
-        out_spec,
+        out_spec: ir.Value,
         out_shape: tuple[int, ...],
     ) -> bool:
         def _is_complex(var) -> bool:
@@ -318,15 +317,17 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         return True
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jnp.matmul not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, b):
+            def _patched(a: ArrayLike, b: ArrayLike) -> ArrayLike:
                 return cls._PRIM.bind(a, b)
 
             return _patched
@@ -345,7 +346,7 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
 
 
 @JnpMatmulPlugin._PRIM.def_impl
-def _matmul_impl(a, b):
+def _matmul_impl(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpMatmulPlugin._PRIM, JnpMatmulPlugin._FUNC_NAME)
     return orig(a, b)
 

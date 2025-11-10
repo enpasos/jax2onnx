@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
 from jax.interpreters import batching
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _GELU_PRIM: Final[Primitive] = Primitive("jax.nn.gelu")
@@ -91,11 +90,13 @@ class GeluPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, approximate: bool = True):
+    def abstract_eval(
+        x: jax.core.AbstractValue, approximate: bool = True
+    ) -> jax.core.ShapedArray:
         del approximate
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         approximate = bool(eqn.params.get("approximate", True))
 
         approx_attr = "tanh" if approximate else "none"
@@ -116,26 +117,36 @@ class GeluPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
+            if orig is None:
+                raise RuntimeError("Original jax.nn.gelu not found")
+            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
         return [
             AssignSpec("jax.nn", "gelu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
                 attr="gelu",
-                make_value=lambda orig: (
-                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
-                ),
+                make_value=_make_value,
                 delete_if_missing=False,
             ),
         ]
 
 
 @GeluPlugin._PRIM.def_impl
-def _gelu_impl(*args, **kwargs):
-    return jax.nn.gelu(*args, **kwargs)
+def _gelu_impl(x: ArrayLike, approximate: bool = True) -> ArrayLike:
+    return jax.nn.gelu(x, approximate=approximate)
 
 
-def _gelu_batch_rule(batched_args, batch_dims, *, approximate=True):
+def _gelu_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
+    *,
+    approximate: bool = True,
+) -> tuple[jax.Array, int | None]:
     (x,) = batched_args
     (bd,) = batch_dims
     out = GeluPlugin._PRIM.bind(x, approximate=approximate)

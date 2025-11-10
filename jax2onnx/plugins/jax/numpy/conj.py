@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 from jax import core
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
@@ -19,10 +20,8 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _CONJ_PRIM: Final = make_jnp_primitive("jax.numpy.conj")
@@ -67,7 +66,7 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str] = "conj"
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -124,15 +123,17 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, identity_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jnp.conj not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(x):
+            def _patched(x: ArrayLike) -> ArrayLike:
                 return cls._PRIM.bind(x)
 
             return _patched
@@ -151,7 +152,7 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
 
 
 @JnpConjPlugin._PRIM.def_impl
-def _conj_impl(x):
+def _conj_impl(x: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpConjPlugin._PRIM, JnpConjPlugin._FUNC_NAME)
     return orig(x)
 

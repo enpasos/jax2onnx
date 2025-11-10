@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
-from jax import core
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -16,14 +18,11 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _SORT_PRIM: Final = make_jnp_primitive("jax.numpy.sort")
 
 
-def _sort_eval(x, axis=-1):
+def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     orig = getattr(_SORT_PRIM, "__orig_impl__sort", jnp.sort)
     spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
     result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
@@ -75,7 +74,13 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *, axis=-1, kind=None, order=None):
+    def abstract_eval(
+        x: core.AbstractValue,
+        *,
+        axis: int = -1,
+        kind: str | None = None,
+        order: Any | None = None,
+    ) -> core.ShapedArray:
         if kind not in (None, "stable", "mergesort"):
             raise NotImplementedError("Only default/stable sorts supported")
         if order is not None:
@@ -83,7 +88,7 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         result = _sort_eval(x, axis=axis)
         return core.ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("axis", -1))
         kind = params.get("kind", None)
@@ -147,15 +152,22 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         bind_value(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.sort not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a, axis=-1, kind=None, order=None):
+            def _patched(
+                a: ArrayLike,
+                axis: int = -1,
+                kind: str | None = None,
+                order: Any | None = None,
+            ) -> jax.Array:
                 if order is not None:
                     raise NotImplementedError(
                         "jnp.sort order parameter is not supported"
@@ -180,7 +192,9 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
 
 
 @JnpSortPlugin._PRIM.def_impl
-def _sort_impl(a, axis=-1, kind=None, order=None):
+def _sort_impl(
+    a: ArrayLike, axis: int = -1, kind: str | None = None, order: Any | None = None
+) -> jax.Array:
     orig = get_orig_impl(JnpSortPlugin._PRIM, JnpSortPlugin._FUNC_NAME)
     return orig(a, axis=axis, kind=kind, order=order)
 

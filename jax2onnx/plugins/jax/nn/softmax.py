@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from jax.interpreters import batching
+from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _SOFTMAX_PRIM: Final[Primitive] = Primitive("jax.nn.softmax")
@@ -72,11 +71,13 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, axis: int = -1):
+    def abstract_eval(
+        x: jax.core.AbstractValue, axis: int = -1
+    ) -> jax.core.ShapedArray:
         del axis
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (x_var,) = eqn.invars
 
         axis = int(eqn.params.get("axis", -1))
@@ -100,26 +101,36 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
             cls._ABSTRACT_EVAL_BOUND = True
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_value(
+            orig: Callable[..., ArrayLike] | None,
+        ) -> Callable[..., ArrayLike]:
+            if orig is None:
+                raise RuntimeError("Original jax.nn.softmax not found")
+            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
         return [
             AssignSpec("jax.nn", "softmax_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
                 attr="softmax",
-                make_value=lambda orig: (
-                    lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
-                ),
+                make_value=_make_value,
                 delete_if_missing=False,
             ),
         ]
 
 
 @SoftmaxPlugin._PRIM.def_impl
-def _softmax_impl(*args, **kwargs):
-    return _JAX_SOFTMAX_ORIG(*args, **kwargs)
+def _softmax_impl(x: ArrayLike, axis: int = -1) -> ArrayLike:
+    return _JAX_SOFTMAX_ORIG(x, axis=axis)
 
 
-def _softmax_batch_rule(batched_args, batch_dims, *, axis=-1):
+def _softmax_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | None, ...],
+    *,
+    axis: int = -1,
+) -> tuple[jax.Array, int | None]:
     (x,) = batched_args
     (x_bdim,) = batch_dims
 

@@ -4,18 +4,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 import onnx_ir as ir
 
 import jax
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - import guard for typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple:
@@ -28,14 +24,16 @@ def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple:
     return tuple(dims)
 
 
-def _const_array(ctx: "IRContext", arr: np.ndarray, *, name_hint: str) -> ir.Value:
+def _const_array(
+    ctx: LoweringContextProtocol, arr: np.ndarray, *, name_hint: str
+) -> ir.Value:
     """Emit a constant through the builder so function-mode and dedup policies apply."""
     return ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=arr
     )
 
 
-def _unsqueeze(ctx: "IRContext", value: ir.Value, axis: int) -> ir.Value:
+def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.Value:
     axes = _const_array(
         ctx, np.asarray([axis], dtype=np.int64), name_hint="unsqueeze_axes"
     )
@@ -90,7 +88,7 @@ def _unsqueeze(ctx: "IRContext", value: ir.Value, axis: int) -> ir.Value:
 class RandomSeedPlugin(PrimitiveLeafPlugin):
     """Lower ``random_seed`` to a deterministic uint32 key pair [0, seed]."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
         seed_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -139,7 +137,7 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
 class RandomUnwrapPlugin(PrimitiveLeafPlugin):
     """Forward the uint32 key produced by ``random_seed``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))
@@ -163,7 +161,7 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
 class RandomWrapPlugin(PrimitiveLeafPlugin):
     """No-op wrapper around PRNG keys."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))

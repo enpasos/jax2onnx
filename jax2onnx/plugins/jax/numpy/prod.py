@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, Sequence
 from collections.abc import Sequence as _Seq
+from typing import Any, Callable, ClassVar, Final, Sequence
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 import jax
+from jax import core
 import jax.numpy as jnp
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.jax.numpy._common import (
@@ -18,9 +21,6 @@ from jax2onnx.plugins.jax.numpy._common import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
@@ -132,15 +132,15 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x,
+        x: core.AbstractValue,
         *,
         axes: Sequence[int] | None = None,
         axes_is_tuple: bool = False,  # ignored, kept for signature symmetry
-        dtype: np.dtype | None = None,
+        dtype: np.dtype[Any] | type | None = None,
         keepdims: bool = False,
-        initial=None,
-        where=True,
-    ):
+        initial: ArrayLike | None = None,
+        where: bool = True,
+    ) -> core.ShapedArray:
         if initial is not None:
             raise NotImplementedError(
                 "jnp.prod with 'initial' is not supported in ONNX lowering"
@@ -177,21 +177,29 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
 
         return jax.core.ShapedArray(out_shape, out_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceProd", allow_dtype_param=True)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.prod not found for monkey patching")
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(
-                a, axis=None, dtype=None, keepdims=False, *, initial=None, where=True
-            ):
+                a: ArrayLike,
+                axis: int | _Seq[int] | None = None,
+                dtype: np.dtype[Any] | type | None = None,
+                keepdims: bool = False,
+                *,
+                initial: ArrayLike | None = None,
+                where: bool = True,
+            ) -> jax.Array:
                 if initial is not None:
                     raise NotImplementedError(
                         "jnp.prod with 'initial' is not supported for ONNX export"
@@ -200,7 +208,7 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
                     raise NotImplementedError(
                         "jnp.prod with 'where' is not supported for ONNX export"
                     )
-                axes_param = None
+                axes_param: tuple[int, ...] | None = None
                 axes_is_tuple = False
                 if axis is not None:
                     if isinstance(axis, _Seq) and not isinstance(axis, (str, bytes)):
@@ -210,7 +218,7 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
                         axes_param = (int(axis),)
                         axes_is_tuple = False
                 return cls._PRIM.bind(
-                    a,
+                    jnp.asarray(a),
                     axes=axes_param,
                     axes_is_tuple=axes_is_tuple,
                     dtype=dtype,
@@ -234,15 +242,15 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
 
 @JnpProdPlugin._PRIM.def_impl
 def _prod_impl(
-    a,
+    a: ArrayLike,
     *,
-    axes=None,
+    axes: tuple[int, ...] | None = None,
     axes_is_tuple: bool = False,
-    dtype=None,
-    keepdims=False,
-    initial=None,
-    where=True,
-):
+    dtype: np.dtype[Any] | type | None = None,
+    keepdims: bool = False,
+    initial: ArrayLike | None = None,
+    where: bool = True,
+) -> jax.Array:
     if initial is not None:
         raise NotImplementedError(
             "jnp.prod with 'initial' is not supported for ONNX export"
@@ -257,12 +265,12 @@ def _prod_impl(
     except RuntimeError:
         orig = jnp.prod
 
-    axis_arg = None
+    axis_arg: int | tuple[int, ...] | None = None
     if axes is not None:
         axis_vals = tuple(int(ax) for ax in axes)
         axis_arg = axis_vals if axes_is_tuple else axis_vals[0]
 
-    return orig(a, axis=axis_arg, dtype=dtype, keepdims=keepdims)
+    return orig(jnp.asarray(a), axis=axis_arg, dtype=dtype, keepdims=keepdims)
 
 
 JnpProdPlugin._PRIM.def_abstract_eval(JnpProdPlugin.abstract_eval)
