@@ -16,9 +16,9 @@ import numpy as np
 import onnx
 from jax._src import core, source_info_util
 from onnx import AttributeProto
+import onnx_ir as ir
 
 from jax2onnx import to_onnx
-from jax2onnx.serde_onnx import ir_to_onnx
 
 
 jax.config.update("jax_enable_x64", True)
@@ -336,12 +336,8 @@ def export_models(
     overrides: Dict[str, Tuple[int, Optional[str]]] = {}
     _collect_axis0_overrides(ir_model.graph, overrides)
 
-    model_proto = ir_to_onnx(ir_model)
+    model_proto = ir.to_proto(ir_model)
     _restamp_onnx_axis0(model_proto.graph, overrides)
-    try:
-        model_proto.ir_version = min(model_proto.ir_version, 10)
-    except Exception:
-        pass
     return model_proto, ir_model, prim0, t_arr, dt_arr
 
 
