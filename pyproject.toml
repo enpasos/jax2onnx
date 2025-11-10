@@ -85,30 +85,22 @@ warn_return_any = true
 warn_unreachable = true
 incremental = false
 files = [
-    "jax2onnx/converter/function_scope.py",
-    "jax2onnx/converter/ir_postprocess.py",
-    "jax2onnx/converter/ir_builder.py",
-    "jax2onnx/converter/ir_context.py",
-    "jax2onnx/converter/lower_dimexpr.py",
-    "jax2onnx/converter/typing_support.py",
-    "jax2onnx/plugins/_axis0_utils.py",
-    "jax2onnx/plugins/_ir_shapes.py",
-    "jax2onnx/plugins/_loop_extent_meta.py",
-    "jax2onnx/plugins/jax/core/dim_as_value.py",
-    "jax2onnx/plugins/plugin_system.py",
-    "tests/extra_tests/framework/test_onnx_ir_surface.py",
-    "tests/extra_tests/helpers/issue52_scatter_payload_fixture.py",
-    "tests/extra_tests/helpers/issue52_broadcast_fixture.py",
-    "tests/extra_tests/helpers/issue52_loop_concat_fixture.py",
-    "jax2onnx/sandbox/issue52_scatter_payload_repro.py",
+    "jax2onnx",
+    "tests/extra_tests",
     "scripts/audit_ir_dynamic_access.py",
 ]
-
-
-[[tool.mypy.overrides]]
-module = ["jax2onnx.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "jax2onnx.*",
+    "tests.*",
+    "scripts.*",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -122,6 +114,17 @@ module = [
     "jax2onnx.plugins._axis0_utils",
     "jax2onnx.plugins._ir_shapes",
     "jax2onnx.plugins._loop_extent_meta",
+    "jax2onnx.plugins.plugin_system",
+    "jax2onnx.plugins.jax.core.dim_as_value",
+    "jax2onnx.plugins.jax.lax.iota",
+    "jax2onnx.plugins.jax.numpy.linspace",
+    "jax2onnx.plugins.jax.numpy.where",
+    "jax2onnx.sandbox.issue52_scatter_payload_repro",
+    "scripts.audit_ir_dynamic_access",
+    "tests.extra_tests.framework.test_onnx_ir_surface",
+    "tests.extra_tests.helpers.issue52_broadcast_fixture",
+    "tests.extra_tests.helpers.issue52_loop_concat_fixture",
+    "tests.extra_tests.helpers.issue52_scatter_payload_fixture",
 ]
 follow_imports = "normal"
 ignore_missing_imports = true
@@ -129,43 +132,6 @@ allow_untyped_globals = false
 disallow_untyped_defs = true
 disallow_any_generics = true
 check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = ["tests.*", "scripts.*"]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "tests.extra_tests.helpers.issue52_scatter_payload_fixture",
-    "tests.extra_tests.helpers.issue52_broadcast_fixture",
-    "tests.extra_tests.helpers.issue52_loop_concat_fixture",
-]
-ignore_errors = false
-follow_imports = "normal"
-disallow_untyped_defs = true
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "jax2onnx.plugins.jax.core.dim_as_value",
-]
-follow_imports = "normal"
-ignore_missing_imports = true
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = ["jax2onnx.sandbox.issue52_scatter_payload_repro"]
-follow_imports = "normal"
-ignore_missing_imports = true
-allow_untyped_globals = false
-disallow_untyped_defs = true
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = ["jax2onnx.plugins.plugin_system"]
-follow_imports = "normal"
-ignore_missing_imports = true
-allow_untyped_globals = false
 
 [tool.jax]
 enable_x64 = true
