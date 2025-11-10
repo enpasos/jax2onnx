@@ -723,7 +723,6 @@ register_example(
             "input_values": [_ATTN_Q],
             "expected_output_shapes": [(3, _ATTN_CONFIG.hidden_size)],
             "run_only_f32_variant": True,
-            "skip_numeric_validation": True,
         }
     ],
 )
@@ -778,7 +777,6 @@ register_example(
             "input_values": [_MLP_INPUT],
             "expected_output_shapes": [(3, _MLP_CONFIG.hidden_size)],
             "run_only_f32_variant": True,
-            "skip_numeric_validation": True,
         }
     ],
 )
@@ -851,7 +849,6 @@ register_example(
             "input_values": [_TF_INPUT],
             "expected_output_shapes": [(3, _TF_CONFIG.hidden_size)],
             "run_only_f32_variant": True,
-            "skip_numeric_validation": True,
         }
     ],
 )
