@@ -29,6 +29,12 @@ optional = true
 treescope = ">=0.1.8"
 torch = "==2.4.0"   
 
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+jax = { version = ">=0.7.2", extras = ["cuda12_pip"] }
+
 
 [tool.poetry]
 packages = [
@@ -65,6 +71,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 addopts = "--disable-warnings"
+testpaths = ["tests"]
+norecursedirs = ["tmp", "scripts"]
 
 
 

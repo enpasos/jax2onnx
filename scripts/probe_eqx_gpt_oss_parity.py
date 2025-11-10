@@ -1,3 +1,5 @@
+# scripts/probe_eqx_gpt_oss_parity.py
+
 from __future__ import annotations
 
 import argparse
@@ -54,13 +56,17 @@ def _randomise_torch_model(model: TorchTransformer, *, seed: int) -> None:
     generator = torch.Generator().manual_seed(seed)
     for param in model.parameters():
         if param.data.dtype.is_floating_point:
-            noise = torch.randn(param.data.shape, generator=generator, dtype=torch.float32)
+            noise = torch.randn(
+                param.data.shape, generator=generator, dtype=torch.float32
+            )
             param.data.copy_(noise.to(param.data.dtype))
         else:
             param.data.zero_()
 
 
-def _torch_mlp_stages(block, x: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+def _torch_mlp_stages(
+    block, x: torch.Tensor
+) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
     stages: Dict[str, torch.Tensor] = {}
     stages["input"] = x
     normed = block.norm(x)
@@ -103,11 +109,15 @@ def _run_torch(model: TorchTransformer, tokens: torch.Tensor) -> Dict[str, np.nd
         for idx, block in enumerate(model.block):
             attn_debug, attn = _torch_attn_stages(block.attn, x)
             for name, value in attn_debug.items():
-                stages[f"block{idx}.attn.{name}"] = value.detach().to(torch.float32).cpu().numpy()
+                stages[f"block{idx}.attn.{name}"] = (
+                    value.detach().to(torch.float32).cpu().numpy()
+                )
             stages[f"block{idx}.attn"] = stages[f"block{idx}.attn.output"]
             mlp_debug, x = _torch_mlp_stages(block.mlp, attn)
             for name, value in mlp_debug.items():
-                stages[f"block{idx}.mlp.{name}"] = value.detach().to(torch.float32).cpu().numpy()
+                stages[f"block{idx}.mlp.{name}"] = (
+                    value.detach().to(torch.float32).cpu().numpy()
+                )
             stages[f"block{idx}.mlp"] = stages[f"block{idx}.mlp.output"]
         norm = model.norm(x)
         stages["norm"] = norm.detach().to(torch.float32).cpu().numpy()
@@ -123,7 +133,9 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
         x_compute = x.astype(jnp.bfloat16)
         normed = _apply_pointwise(block.norm, x_compute).astype(jnp.bfloat16)
         stages["norm"] = np.array(normed[0], dtype=np.float32)
-        gate_logits = _apply_linear_float32_accum(block.gate, normed).astype(jnp.bfloat16)
+        gate_logits = _apply_linear_float32_accum(block.gate, normed).astype(
+            jnp.bfloat16
+        )
         stages["gate_logits"] = np.array(gate_logits[0], dtype=np.float32)
         expert_scores, expert_indices = jax.lax.top_k(
             gate_logits, block.experts_per_token
@@ -135,8 +147,12 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
         ).astype(jnp.bfloat16)
         stages["expert_weights"] = np.array(expert_weights[0], dtype=np.float32)
 
-        mlp1_weight = jnp.take(block.mlp1_weight, expert_indices, axis=0).astype(jnp.bfloat16)
-        mlp1_bias = jnp.take(block.mlp1_bias, expert_indices, axis=0).astype(jnp.bfloat16)
+        mlp1_weight = jnp.take(block.mlp1_weight, expert_indices, axis=0).astype(
+            jnp.bfloat16
+        )
+        mlp1_bias = jnp.take(block.mlp1_bias, expert_indices, axis=0).astype(
+            jnp.bfloat16
+        )
         proj1 = jnp.einsum(
             "bskoh,bsh->bsko",
             mlp1_weight.astype(jnp.float32),
@@ -148,8 +164,12 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
         act = _swiglu(proj1, limit=block.swiglu_limit).astype(jnp.bfloat16)
         stages["act"] = np.array(act[0], dtype=np.float32)
 
-        mlp2_weight = jnp.take(block.mlp2_weight, expert_indices, axis=0).astype(jnp.bfloat16)
-        mlp2_bias = jnp.take(block.mlp2_bias, expert_indices, axis=0).astype(jnp.bfloat16)
+        mlp2_weight = jnp.take(block.mlp2_weight, expert_indices, axis=0).astype(
+            jnp.bfloat16
+        )
+        mlp2_bias = jnp.take(block.mlp2_bias, expert_indices, axis=0).astype(
+            jnp.bfloat16
+        )
         proj2 = jnp.einsum(
             "bskhi,bski->bskh",
             mlp2_weight.astype(jnp.float32),
@@ -176,15 +196,15 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
     stages["norm"] = np.array(normed[0], dtype=np.float32)
     gate_logits = _apply_linear_nd(block.gate, normed).astype(jnp.float32)
     stages["gate_logits"] = np.array(gate_logits[0], dtype=np.float32)
-    expert_scores, expert_indices = jax.lax.top_k(
-        gate_logits, block.experts_per_token
-    )
+    expert_scores, expert_indices = jax.lax.top_k(gate_logits, block.experts_per_token)
     stages["expert_scores"] = np.array(expert_scores[0], dtype=np.float32)
     stages["expert_indices"] = np.array(expert_indices[0], dtype=np.float32)
     expert_weights = jnn.softmax(expert_scores, axis=-1)
     stages["expert_weights"] = np.array(expert_weights[0], dtype=np.float32)
 
-    mlp1_weight = jnp.take(block.mlp1_weight, expert_indices, axis=0).astype(jnp.float32)
+    mlp1_weight = jnp.take(block.mlp1_weight, expert_indices, axis=0).astype(
+        jnp.float32
+    )
     mlp1_bias = jnp.take(block.mlp1_bias, expert_indices, axis=0).astype(jnp.float32)
     proj1 = jnp.einsum(
         "bskoh,bsh->bsko", mlp1_weight, normed.astype(jnp.float32), optimize="optimal"
@@ -194,24 +214,24 @@ def _eqx_mlp_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.n
     act = _swiglu(proj1, limit=block.swiglu_limit)
     stages["act"] = np.array(act[0], dtype=np.float32)
 
-    mlp2_weight = jnp.take(block.mlp2_weight, expert_indices, axis=0).astype(jnp.float32)
-    mlp2_bias = jnp.take(block.mlp2_bias, expert_indices, axis=0).astype(jnp.float32)
-    proj2 = jnp.einsum(
-        "bskhi,bski->bskh", mlp2_weight, act, optimize="optimal"
+    mlp2_weight = jnp.take(block.mlp2_weight, expert_indices, axis=0).astype(
+        jnp.float32
     )
+    mlp2_bias = jnp.take(block.mlp2_bias, expert_indices, axis=0).astype(jnp.float32)
+    proj2 = jnp.einsum("bskhi,bski->bskh", mlp2_weight, act, optimize="optimal")
     proj2 = proj2 + mlp2_bias
     stages["proj2"] = np.array(proj2[0], dtype=np.float32)
 
-    combined = jnp.einsum(
-        "bskh,bsk->bsh", proj2, expert_weights, optimize="optimal"
-    )
+    combined = jnp.einsum("bskh,bsk->bsh", proj2, expert_weights, optimize="optimal")
     stages["combined"] = np.array(combined[0], dtype=np.float32)
     output = x + combined.astype(x.dtype)
     stages["output"] = np.array(output[0], dtype=np.float32)
     return stages, output
 
 
-def _torch_attn_stages(block, x: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+def _torch_attn_stages(
+    block, x: torch.Tensor
+) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
     stages: Dict[str, torch.Tensor] = {}
     stages["input"] = x
     normed = block.norm(x)
@@ -249,7 +269,9 @@ def _torch_attn_stages(block, x: torch.Tensor) -> Tuple[Dict[str, torch.Tensor],
     return stages, output
 
 
-def _eqx_attn_stages(block, x: jnp.ndarray) -> Tuple[Dict[str, np.ndarray], jnp.ndarray]:
+def _eqx_attn_stages(
+    block, x: jnp.ndarray
+) -> Tuple[Dict[str, np.ndarray], jnp.ndarray]:
     stages: Dict[str, np.ndarray] = {}
     stages["input"] = np.array(x[0], dtype=np.float32)
     if block.param_dtype == jnp.bfloat16:
@@ -371,14 +393,18 @@ def main(seed: int) -> None:
     config_eqx = _config_from_torch_transformer(torch_model)
 
     print("=== Parity diffs (param_dtype=bfloat16) ===")
-    eqx_bf16 = EqxTransformer(config_eqx, key=jax.random.PRNGKey(seed), param_dtype=jnp.bfloat16)
+    eqx_bf16 = EqxTransformer(
+        config_eqx, key=jax.random.PRNGKey(seed), param_dtype=jnp.bfloat16
+    )
     eqx_bf16 = _populate_eqx_from_torch(torch_model, eqx_bf16, param_dtype=jnp.bfloat16)
     diffs_bf16 = _compare(torch_model, eqx_bf16, tokens)
     for key, value in diffs_bf16.items():
         print(f"{key:>20s}: {value:.6f}")
 
     print("\n=== Parity diffs (param_dtype=float32) ===")
-    eqx_f32 = EqxTransformer(config_eqx, key=jax.random.PRNGKey(seed + 1), param_dtype=jnp.float32)
+    eqx_f32 = EqxTransformer(
+        config_eqx, key=jax.random.PRNGKey(seed + 1), param_dtype=jnp.float32
+    )
     eqx_f32 = _populate_eqx_from_torch(torch_model, eqx_f32, param_dtype=jnp.float32)
     diffs_f32 = _compare(torch_model, eqx_f32, tokens)
     for key, value in diffs_f32.items():
@@ -386,7 +412,11 @@ def main(seed: int) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Probe torch vs. Equinox GPT-OSS parity.")
-    parser.add_argument("--seed", type=int, default=123, help="Random seed for reproducibility.")
+    parser = argparse.ArgumentParser(
+        description="Probe torch vs. Equinox GPT-OSS parity."
+    )
+    parser.add_argument(
+        "--seed", type=int, default=123, help="Random seed for reproducibility."
+    )
     args = parser.parse_args()
     main(args.seed)

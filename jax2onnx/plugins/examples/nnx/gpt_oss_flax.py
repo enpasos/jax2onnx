@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import numpy as np
-from typing import List, Optional
+from typing import Final, List, Optional
 
 import jax
 from jax import core as jax_core
@@ -73,15 +73,15 @@ class RMSNorm(nn.Module):
         return (t * scale).astype(original_dtype)
 
 
-_TEST_CONFIG = GPTOSSConfig(hidden_size=64)
-_ATTN_CONFIG = GPTOSSConfig(
+_TEST_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(hidden_size=64)
+_ATTN_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(
     hidden_size=32,
     num_attention_heads=4,
     num_key_value_heads=2,
     head_dim=8,
 )
 
-_EXPECT_RMS_GRAPH = EG(
+_EXPECT_RMS_GRAPH: Final = EG(
     [
         (
             "Pow -> ReduceSum -> Reshape -> Expand -> Div -> Add -> Sqrt -> Div -> Mul",
@@ -161,8 +161,14 @@ def _rotary_tables(
         concentration = 0.1 * math.log(scaling_factor) + 1.0
         d_half = head_dim / 2.0
         denom = math.log(base)
-        low = d_half * math.log(initial_context_length / (ntk_beta * 2 * math.pi)) / denom
-        high = d_half * math.log(initial_context_length / (ntk_alpha * 2 * math.pi)) / denom
+        low = (
+            d_half * math.log(initial_context_length / (ntk_beta * 2 * math.pi)) / denom
+        )
+        high = (
+            d_half
+            * math.log(initial_context_length / (ntk_alpha * 2 * math.pi))
+            / denom
+        )
         interpolation = 1.0 / (scaling_factor * inv_freq)
         extrapolation = 1.0 / inv_freq
         ramp = (np.arange(d_half, dtype=np.float32) - low) / (high - low)
@@ -273,8 +279,12 @@ def _build_rotary_apply(
     return _apply
 
 
-_ROTARY_Q = jnp.linspace(0.0, 0.9, num=48, dtype=jnp.float32).reshape(3, 2, 8)
-_ROTARY_K = jnp.linspace(0.5, -0.7, num=48, dtype=jnp.float32).reshape(3, 2, 8)
+_ROTARY_Q: Final[jax.Array] = jnp.linspace(0.0, 0.9, num=48, dtype=jnp.float32).reshape(
+    3, 2, 8
+)
+_ROTARY_K: Final[jax.Array] = jnp.linspace(
+    0.5, -0.7, num=48, dtype=jnp.float32
+).reshape(3, 2, 8)
 
 
 register_example(
@@ -331,9 +341,7 @@ class AttentionBlock(nn.Module):
         ).astype(x.dtype)
 
         normed = RMSNorm(cfg.hidden_size, name="norm")(x)
-        qkv_dim = cfg.head_dim * (
-            cfg.num_attention_heads + 2 * cfg.num_key_value_heads
-        )
+        qkv_dim = cfg.head_dim * (cfg.num_attention_heads + 2 * cfg.num_key_value_heads)
         qkv_kernel = self.param(
             "qkv_kernel",
             nn.initializers.xavier_uniform(),
@@ -415,7 +423,7 @@ class MLPBlock(nn.Module):
             nn.initializers.zeros,
             (cfg.num_experts,),
         ).astype(dtype)
-        gate_logits = normed @ gate_kernel + gate_bias
+        normed @ gate_kernel + gate_bias
 
         n_tokens = jax_core.concrete_or_error(
             int, normed.shape[0], "MLPBlock requires static token count"
@@ -430,9 +438,7 @@ class MLPBlock(nn.Module):
         base_weights = np.full(
             (cfg.experts_per_token,), 1.0 / cfg.experts_per_token, dtype=np.float32
         )[None, :]
-        top_weights = jnp.asarray(
-            np.tile(base_weights, (n_tokens, 1)), dtype=dtype
-        )
+        top_weights = jnp.asarray(np.tile(base_weights, (n_tokens, 1)), dtype=dtype)
 
         if capture_routing is not None:
             capture_routing.append(
@@ -590,7 +596,7 @@ def _sdpa_impl(
     return attn.reshape(n_new_tokens, -1)
 
 
-sdpa = jax.jit(
+sdpa: Final = jax.jit(
     _sdpa_impl,
     static_argnames=(
         "sliding_window",
@@ -629,10 +635,14 @@ def _sdpa_callable(
     return _apply
 
 
-_SDPA_Q = jnp.arange(16, dtype=jnp.float32).reshape(2, 2, 1, 4) / 10.0
-_SDPA_K = jnp.linspace(0.0, 1.0, num=24, dtype=jnp.float32).reshape(3, 2, 4)
-_SDPA_V = jnp.linspace(1.0, -1.0, num=24, dtype=jnp.float32).reshape(3, 2, 4)
-_SDPA_S = jnp.array([0.1, -0.2], dtype=jnp.float32)
+_SDPA_Q: Final[jax.Array] = jnp.arange(16, dtype=jnp.float32).reshape(2, 2, 1, 4) / 10.0
+_SDPA_K: Final[jax.Array] = jnp.linspace(0.0, 1.0, num=24, dtype=jnp.float32).reshape(
+    3, 2, 4
+)
+_SDPA_V: Final[jax.Array] = jnp.linspace(1.0, -1.0, num=24, dtype=jnp.float32).reshape(
+    3, 2, 4
+)
+_SDPA_S: Final[jax.Array] = jnp.array([0.1, -0.2], dtype=jnp.float32)
 
 
 register_example(
@@ -674,7 +684,9 @@ def _build_attention_apply(
         cos_table=cos,
         sin_table=sin,
         sequence_length=sequence_length,
-        mask=_causal_mask(sequence_length, sequence_length, sliding_window=config.sliding_window),
+        mask=_causal_mask(
+            sequence_length, sequence_length, sliding_window=config.sliding_window
+        ),
     )
     dummy = jnp.zeros((sequence_length, config.hidden_size), dtype=dtype)
     variables = module.init(init_key, dummy)
@@ -685,7 +697,9 @@ def _build_attention_apply(
     return _apply
 
 
-_ATTN_Q = jnp.linspace(0.0, 1.0, num=96, dtype=jnp.float32).reshape(3, 32)
+_ATTN_Q: Final[jax.Array] = jnp.linspace(0.0, 1.0, num=96, dtype=jnp.float32).reshape(
+    3, 32
+)
 
 
 register_example(
@@ -715,7 +729,7 @@ register_example(
 )
 
 
-_MLP_CONFIG = GPTOSSConfig(
+_MLP_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(
     hidden_size=32,
     num_experts=4,
     experts_per_token=2,
@@ -740,7 +754,9 @@ def _build_mlp_apply(
     return _apply
 
 
-_MLP_INPUT = jnp.linspace(-0.5, 0.75, num=96, dtype=jnp.float32).reshape(3, 32)
+_MLP_INPUT: Final[jax.Array] = jnp.linspace(
+    -0.5, 0.75, num=96, dtype=jnp.float32
+).reshape(3, 32)
 
 
 register_example(
@@ -768,7 +784,7 @@ register_example(
 )
 
 
-_TF_CONFIG = GPTOSSConfig(
+_TF_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(
     hidden_size=32,
     num_attention_heads=4,
     num_key_value_heads=2,
@@ -793,7 +809,9 @@ def _build_transformer_apply(
         cos_table=cos,
         sin_table=sin,
         sequence_length=sequence_length,
-        mask=_causal_mask(sequence_length, sequence_length, sliding_window=config.sliding_window),
+        mask=_causal_mask(
+            sequence_length, sequence_length, sliding_window=config.sliding_window
+        ),
     )
     dummy = jnp.zeros((sequence_length, config.hidden_size), dtype=dtype)
     variables = module.init(init_key, dummy)
@@ -804,7 +822,9 @@ def _build_transformer_apply(
     return _apply
 
 
-_TF_INPUT = jnp.linspace(-1.0, 1.0, num=96, dtype=jnp.float32).reshape(3, 32)
+_TF_INPUT: Final[jax.Array] = jnp.linspace(
+    -1.0, 1.0, num=96, dtype=jnp.float32
+).reshape(3, 32)
 
 
 register_example(

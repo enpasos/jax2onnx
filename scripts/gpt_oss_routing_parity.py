@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/gpt_oss_routing_parity.py
+
 """
 Parity harness for comparing GPT-OSS JAX (Flax/NNX) vs PyTorch routing.
 
@@ -88,14 +90,31 @@ def _load_tokenizer(prompt: str) -> Tuple[List[int], List[str]]:
 def _load_jax_model(
     checkpoint: Path,
 ):
+    import jax
     from gpt_oss.jax.loader_orbax import OrbaxWeightLoader, load_config_from_orbax
+    from gpt_oss.jax.loader_safetensors import WeightLoader
     from gpt_oss.jax.model import ModelConfig, Transformer
+    from gpt_oss.jax.token_generator import (
+        detect_checkpoint_format,
+        load_config_from_checkpoint,
+    )
 
-    config_dict = load_config_from_orbax(str(checkpoint))
-    config = ModelConfig(**config_dict)
+    ckpt_path = Path(checkpoint)
+    fmt = detect_checkpoint_format(ckpt_path)
+
+    if fmt == "orbax":
+        config_dict = load_config_from_orbax(str(ckpt_path))
+        config = ModelConfig(**config_dict)
+        loader = OrbaxWeightLoader(str(ckpt_path))
+        params = loader.load_params(show_progress=True)
+    else:
+        config = load_config_from_checkpoint(ckpt_path)
+        loader = WeightLoader(str(ckpt_path))
+        params = loader.load_params(config, show_progress=True)
+
+    target = jax.devices()[0]
+    params = jax.tree.map(lambda x: jax.device_put(x, target), params)
     model = Transformer(config=config)
-    loader = OrbaxWeightLoader(str(checkpoint))
-    params = loader.load_params(show_progress=True)
     return model, params, config
 
 
@@ -151,7 +170,9 @@ def _compare_routing(
         for token_idx in range(num_tokens):
             jax_token = jax_layer[token_idx]
             torch_token = torch_layer[token_idx]
-            expert_match = np.array_equal(jax_token["expert_ids"], torch_token["expert_ids"])
+            expert_match = np.array_equal(
+                jax_token["expert_ids"], torch_token["expert_ids"]
+            )
             gate_diff = np.abs(jax_token["gate_weights"] - torch_token["gate_weights"])
 
             layer_matches.append(expert_match)
@@ -227,7 +248,7 @@ def _write_markdown(results: Dict[str, Any], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = output_dir / f"{timestamp}_summary.md"
     with summary.open("w") as fp:
-        fp.write(f"# GPT-OSS Routing Parity Summary\n\n")
+        fp.write("# GPT-OSS Routing Parity Summary\n\n")
         fp.write(f"Prompt: {results['prompt']}\n\n")
         fp.write(f"Result: {'PASS' if results['passed'] else 'FAIL'}\n\n")
         fp.write("| Layer | Expert Match | Mean Gate Diff | Max Gate Diff | Status |\n")
@@ -247,7 +268,9 @@ def _write_markdown(results: Dict[str, Any], output_dir: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare GPT-OSS JAX vs PyTorch routing.")
+    parser = argparse.ArgumentParser(
+        description="Compare GPT-OSS JAX vs PyTorch routing."
+    )
     parser.add_argument(
         "--gpt-oss-path",
         required=True,
@@ -289,7 +312,7 @@ def main() -> None:
     print(f"Token IDs: {token_ids}")
     print(f"Num tokens: {len(token_ids)}\n")
 
-    jax = _setup_jax()
+    _setup_jax()
     torch, device = _setup_torch()
 
     print("Loading JAX model/params ...")
@@ -315,4 +338,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

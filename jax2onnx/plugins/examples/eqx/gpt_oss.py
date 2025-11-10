@@ -117,9 +117,7 @@ def _apply_linear_float32_accum(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.nd
 
     weight = jnp.asarray(linear.weight, dtype=jnp.float32)
     bias = (
-        jnp.asarray(linear.bias, dtype=jnp.float32)
-        if linear.bias is not None
-        else None
+        jnp.asarray(linear.bias, dtype=jnp.float32) if linear.bias is not None else None
     )
 
     orig_shape = x.shape[:-1]
@@ -619,17 +617,15 @@ class MLPBlock(eqx.Module):
             expert_scores, expert_indices = jax.lax.top_k(
                 gate_logits, self.experts_per_token
             )
-        expert_weights = _softmax_torch_approx(
-            expert_scores, axis=-1
-        ).astype(jnp.float32)
+        expert_weights = _softmax_torch_approx(expert_scores, axis=-1).astype(
+            jnp.float32
+        )
 
         mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
             jnp.float32
         )
         mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(jnp.float32)
-        proj1 = jnp.einsum(
-            "bskoh,bsh->bsko", mlp1_weight, normed, optimize="optimal"
-        )
+        proj1 = jnp.einsum("bskoh,bsh->bsko", mlp1_weight, normed, optimize="optimal")
         proj1 = proj1 + mlp1_bias
         act = _swiglu(proj1, limit=self.swiglu_limit).astype(jnp.float32)
 
@@ -637,9 +633,7 @@ class MLPBlock(eqx.Module):
             jnp.float32
         )
         mlp2_bias = jnp.take(self.mlp2_bias, expert_indices, axis=0).astype(jnp.float32)
-        proj2 = jnp.einsum(
-            "bskhi,bski->bskh", mlp2_weight, act, optimize="optimal"
-        )
+        proj2 = jnp.einsum("bskhi,bski->bskh", mlp2_weight, act, optimize="optimal")
         proj2 = proj2 + mlp2_bias
         combined = jnp.einsum(
             "bskh,bsk->bsh", proj2, expert_weights, optimize="optimal"
@@ -1026,9 +1020,9 @@ def _populate_eqx_from_torch(
             _torch_tensor_to_jax(torch_block.attn.sinks, dtype=param_dtype),
         )
         eqx_model = eqx.tree_at(
-        lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
-        eqx_model,
-        _torch_tensor_to_jax(torch_block.attn.norm.scale, dtype=jnp.float32),
+            lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.attn.norm.scale, dtype=jnp.float32),
         )
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].attn.qkv.weight,
@@ -1052,9 +1046,9 @@ def _populate_eqx_from_torch(
         )
 
         eqx_model = eqx.tree_at(
-        lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
-        eqx_model,
-        _torch_tensor_to_jax(torch_block.mlp.norm.scale, dtype=jnp.float32),
+            lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
+            eqx_model,
+            _torch_tensor_to_jax(torch_block.mlp.norm.scale, dtype=jnp.float32),
         )
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].mlp.gate.weight,

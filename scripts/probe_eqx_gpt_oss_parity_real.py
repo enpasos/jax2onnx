@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/probe_eqx_gpt_oss_parity_real.py
+
 """Parity probe using the released GPT-OSS 20B checkpoint and a harmony prompt."""
 
 from __future__ import annotations
