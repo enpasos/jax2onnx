@@ -55,10 +55,15 @@ def _setup_jax():
     return jax
 
 
-def _setup_torch():
+def _setup_torch(requested: str):
     import torch
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if requested == "gpu":
+        if not torch.cuda.is_available():
+            raise RuntimeError("--torch-device gpu requested but CUDA is not available")
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     print(f"Using PyTorch with device={device}")
     return torch, device
 
@@ -304,6 +309,12 @@ def parse_args() -> argparse.Namespace:
         help="Force the JAX backend for the run.",
     )
     parser.add_argument(
+        "--torch-device",
+        choices=["cpu", "gpu"],
+        default="cpu",
+        help="Device to run the PyTorch reference (defaults to cpu).",
+    )
+    parser.add_argument(
         "--max-layers",
         type=int,
         help="Limit comparison to the first N transformer layers.",
@@ -332,7 +343,7 @@ def main() -> None:
     print(f"Num tokens: {len(token_ids)}\n")
 
     _setup_jax()
-    torch, device = _setup_torch()
+    torch, device = _setup_torch(args.torch_device)
 
     print("Loading JAX model/params ...")
     jax_model, jax_params, config = _load_jax_model(args.jax_checkpoint)
