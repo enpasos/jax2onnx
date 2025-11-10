@@ -25,6 +25,7 @@ Usage example:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -49,11 +50,8 @@ def _ensure_repo_on_path(repo_path: Path) -> None:
 def _setup_jax():
     import jax
 
-    try:
-        jax.devices("gpu")
-        print("Using JAX with GPU backend")
-    except RuntimeError:
-        print("Using JAX with CPU backend")
+    backend = jax.default_backend()
+    print(f"Using JAX with {backend.upper()} backend")
     return jax
 
 
@@ -300,6 +298,21 @@ def parse_args() -> argparse.Namespace:
         default=Path("artifacts/gpt_oss_routing"),
         help="Directory for markdown summaries.",
     )
+    parser.add_argument(
+        "--jax-platform",
+        choices=["cpu", "gpu"],
+        help="Force the JAX backend for the run.",
+    )
+    parser.add_argument(
+        "--max-layers",
+        type=int,
+        help="Limit comparison to the first N transformer layers.",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        help="Limit comparison to the first N prompt tokens.",
+    )
     return parser.parse_args()
 
 
@@ -307,7 +320,13 @@ def main() -> None:
     args = parse_args()
     _ensure_repo_on_path(args.gpt_oss_path)
 
+    if args.jax_platform:
+        os.environ["JAX_PLATFORM_NAME"] = args.jax_platform
+
     token_ids, token_strs = _load_tokenizer(args.prompt)
+    if args.max_tokens is not None:
+        token_ids = token_ids[: args.max_tokens]
+        token_strs = token_strs[: args.max_tokens]
     print(f"Prompt: {args.prompt}")
     print(f"Token IDs: {token_ids}")
     print(f"Num tokens: {len(token_ids)}\n")
@@ -328,6 +347,10 @@ def main() -> None:
     _, jax_routing = _run_jax(jax_model, jax_params, token_ids, num_layers)
     print("Running PyTorch inference ...")
     _, torch_routing = _run_torch(torch_model, token_ids, num_layers, device)
+
+    if args.max_layers is not None:
+        jax_routing = jax_routing[: args.max_layers]
+        torch_routing = torch_routing[: args.max_layers]
 
     results = _compare_routing(jax_routing, torch_routing, args.prompt, token_strs)
     _print_results(results)
