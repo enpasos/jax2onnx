@@ -21,7 +21,9 @@ def test_loop_concat_preserves_stack_extent():
     ), f"squeeze axis-0 should remain {repro.STACK_WIDTH}, got {squeeze_dims}"
 
     override = repro.loop_axis_override()
-    assert override == repro.STACK_WIDTH, "IR loop metadata lost the 5-wide extent."
+    assert (
+        override is not None and override.extent == repro.STACK_WIDTH
+    ), "IR loop metadata lost the 5-wide extent."
 
     if loop_dims:
         dim0 = loop_dims[0]

@@ -94,6 +94,10 @@ files = [
     "jax2onnx/plugins/_ir_shapes.py",
     "jax2onnx/plugins/jax/core/dim_as_value.py",
     "tests/extra_tests/framework/test_onnx_ir_surface.py",
+    "tests/extra_tests/helpers/issue52_scatter_payload_fixture.py",
+    "tests/extra_tests/helpers/issue52_broadcast_fixture.py",
+    "tests/extra_tests/helpers/issue52_loop_concat_fixture.py",
+    "jax2onnx/sandbox/issue52_scatter_payload_repro.py",
     "scripts/audit_ir_dynamic_access.py",
 ]
 
@@ -127,10 +131,29 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
+    "tests.extra_tests.helpers.issue52_scatter_payload_fixture",
+    "tests.extra_tests.helpers.issue52_broadcast_fixture",
+    "tests.extra_tests.helpers.issue52_loop_concat_fixture",
+]
+ignore_errors = false
+follow_imports = "normal"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
     "jax2onnx.plugins.jax.core.dim_as_value",
 ]
 follow_imports = "normal"
 ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["jax2onnx.sandbox.issue52_scatter_payload_repro"]
+follow_imports = "normal"
+ignore_missing_imports = true
+allow_untyped_globals = false
+disallow_untyped_defs = true
 check_untyped_defs = true
 
 [tool.jax]

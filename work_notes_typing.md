@@ -12,3 +12,6 @@
 ## Progress
 - ✅ Inspected `pyproject.toml` mypy settings and converter/plugin modules to map where protocols and stricter flags will have the most impact.
 - ✅ Added shared typing helpers (`SymbolicDimOrigin`, `LoweringContextProtocol`) and updated converter + representative plugins to consume them, expanding the mypy target set with the new converter modules.
+- ✅ Confirmed documentation already points engineers to `ir.to_proto(...)` and verified every `jax2onnx/converter` module relies solely on `onnx_ir`, so removing the old serde shim does not introduce new typing surface area or protobuf touch points inside the converter.
+- ✅ Hardened typing around the plugin registry + helper sandboxes (`jax2onnx/plugins/plugin_system.py`, Issue52 fixtures/sandbox) by adding the `PrimitiveLowering`/`FunctionLowering` protocols, the `AxisOverrideInfo`/`RngTrace` helpers, and extending mypy’s strict coverage; updated the scatter/broadcast/loop-concat fixtures and tests to exercise the new annotations.
+- ✅ Added `scripts/check_typing.sh` so CI (and humans) can run `./scripts/check_typing.sh` to execute `poetry run mypy --config-file pyproject.toml` with the expanded target set.

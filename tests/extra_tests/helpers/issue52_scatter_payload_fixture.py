@@ -8,7 +8,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from types import ModuleType
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 
 import jax
 import jax.numpy as jnp
@@ -19,6 +27,7 @@ from onnx import AttributeProto
 import onnx_ir as ir
 
 from jax2onnx import to_onnx
+from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
 
 
 jax.config.update("jax_enable_x64", True)
@@ -36,7 +45,7 @@ class ArrayLoader:
         return np.asarray(self.arrays[ref])
 
 
-def _import_module(module_name: str):
+def _import_module(module_name: str) -> ModuleType:
     try:
         return importlib.import_module(module_name)
     except ModuleNotFoundError:
@@ -178,8 +187,6 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
 
     registry: Dict[str, core.Primitive] = {}
     for module in list(sys.modules.values()):
-        if module is None:
-            continue
         name = getattr(module, "__name__", "")
         if not name.startswith("jax"):
             continue
@@ -220,7 +227,7 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
     return registry
 
 
-def _load_payload():
+def _load_payload() -> Tuple[core.ClosedJaxpr, jax.Array, jax.Array, jax.Array]:
     data = np.load(PAYLOAD_PATH, allow_pickle=False)
     meta_json = data["meta"].tobytes().decode("utf-8")
     meta = json.loads(meta_json)
@@ -235,33 +242,39 @@ def _load_payload():
     return closed, prim0, initial_time, time_step
 
 
-def _feed_forward_fn(closed: core.ClosedJaxpr):
-    def ff(y_current, t_arr, dt_arr):
+def _feed_forward_fn(
+    closed: core.ClosedJaxpr,
+) -> Callable[[jax.Array, jax.Array, jax.Array], Any]:
+    def ff(
+        y_current: jax.Array,
+        t_arr: jax.Array,
+        dt_arr: jax.Array,
+    ) -> Any:
         return core.eval_jaxpr(closed.jaxpr, closed.consts, y_current, t_arr, dt_arr)
 
     return ff
 
 
-def _axis0_override(value: Any) -> Optional[int]:
+def _axis0_override(
+    value: Any, *, op_type: Optional[str]
+) -> Optional[AxisOverrideInfo]:
     meta = getattr(value, "meta", None)
     if meta is None:
         return None
     maybe = meta.get("loop_axis0_override")
     if isinstance(maybe, (int, np.integer)):
-        return int(maybe)
+        return AxisOverrideInfo(extent=int(maybe), op_type=op_type)
     return None
 
 
-def _collect_axis0_overrides(
-    graph: Any, overrides: Dict[str, Tuple[int, Optional[str]]]
-) -> None:
+def _collect_axis0_overrides(graph: Any, overrides: AxisOverrideMap) -> None:
     for node in graph.all_nodes():
         for out in getattr(node, "outputs", ()):
-            override = _axis0_override(out)
-            if isinstance(override, int) and override > 1:
-                producer = out.producer() if hasattr(out, "producer") else None
-                op_type = getattr(producer, "op_type", None)
-                overrides.setdefault(out.name, (override, op_type))
+            producer = out.producer() if hasattr(out, "producer") else None
+            op_type = getattr(producer, "op_type", None)
+            override = _axis0_override(out, op_type=op_type)
+            if isinstance(override, AxisOverrideInfo) and override.extent > 1:
+                overrides.setdefault(out.name, override)
         attrs = getattr(node, "attributes", {})
         if not isinstance(attrs, dict):
             continue
@@ -277,25 +290,27 @@ def _collect_axis0_overrides(
 
 
 def _restamp_onnx_axis0(
-    graph: onnx.GraphProto, overrides: Dict[str, Tuple[int, Optional[str]]]
+    graph: onnx.GraphProto,
+    overrides: AxisOverrideMap,
 ) -> None:
     allowed_ops = {"Expand", "Mul", "Div", "Add", "Sub", "ScatterND"}
 
     def _apply(value_info: onnx.ValueInfoProto) -> None:
-        data = overrides.get(value_info.name)
-        if data is None:
-            return
-        override, op_type = data
-        if op_type not in allowed_ops or not isinstance(override, int) or override <= 1:
+        info = overrides.get(value_info.name)
+        if info is None or not info.allows_restamp(allowed_ops):
             return
         tensor_type = value_info.type.tensor_type
         if tensor_type is None or not tensor_type.shape.dim:
             return
         dim0 = tensor_type.shape.dim[0]
-        if dim0.HasField("dim_value") and dim0.dim_value not in (0, override, 1):
+        if dim0.HasField("dim_value") and dim0.dim_value not in (
+            0,
+            info.extent,
+            1,
+        ):
             return
         dim0.ClearField("dim_param")
-        dim0.dim_value = override
+        dim0.dim_value = info.extent
 
     for collection in (graph.value_info, graph.output, graph.input):
         for value_info in collection:
@@ -333,7 +348,7 @@ def export_models(
         # effects of restamping, so we skip verbose logging here.
         pass
 
-    overrides: Dict[str, Tuple[int, Optional[str]]] = {}
+    overrides: AxisOverrideMap = {}
     _collect_axis0_overrides(ir_model.graph, overrides)
 
     model_proto = ir.to_proto(ir_model)

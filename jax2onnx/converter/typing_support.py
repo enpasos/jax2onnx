@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Mapping,
+    Protocol,
+    runtime_checkable,
+)
 
 import numpy as np
 import onnx_ir as ir
@@ -57,8 +64,6 @@ class SymbolicDimOrigin:
 class SymbolicDimTracker(Protocol):
     def get_symbolic_dim_origin(self, dim: object) -> SymbolicDimOrigin | None: ...
 
-    def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None: ...
-
 
 @runtime_checkable
 class LoweringContextProtocol(SymbolicDimTracker, Protocol):
@@ -75,3 +80,55 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
     ) -> ir.Value: ...
 
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
+
+
+@dataclass(frozen=True)
+class AxisOverrideInfo:
+    """Structured axis-0 override metadata captured during lowering."""
+
+    extent: int
+    op_type: str | None = None
+
+    def allows_restamp(self, allowed_ops: Collection[str] | None = None) -> bool:
+        """Return True when the override may safely restamp ONNX metadata."""
+
+        if self.extent <= 1:
+            return False
+        if not allowed_ops:
+            return True
+        return self.op_type in allowed_ops
+
+    def as_tuple(self) -> tuple[int, str | None]:
+        return (self.extent, self.op_type)
+
+
+AxisOverrideMap = dict[str, AxisOverrideInfo]
+
+
+@dataclass(frozen=True)
+class RngTrace:
+    """Tracks deterministic RNG helpers requested via construct_and_call()."""
+
+    kind: str
+    seed: int | None
+
+    def describe(self) -> str:
+        return f"{self.kind}(seed={self.seed})"
+
+
+@runtime_checkable
+class PrimitiveLowering(Protocol):
+    def lower(
+        self,
+        ctx: LoweringContextProtocol,
+        eqn: Any,
+        *extra: Any,
+        **kwargs: Any,
+    ) -> Any: ...
+
+
+@runtime_checkable
+class FunctionLowering(Protocol):
+    def get_handler(
+        self, converter: Any
+    ) -> Callable[[Any, Any, Mapping[str, Any]], Any]: ...
