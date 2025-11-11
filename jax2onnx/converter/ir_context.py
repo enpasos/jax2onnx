@@ -411,7 +411,6 @@ class IRContext:
         inputs: Optional[Sequence[ir.Value]] = None,
         outputs: Optional[Sequence[ir.Value]] = None,
     ) -> ir.Node:
-        # maintain legacy signature; plugins pass a constructed ir.Node
         self.builder.nodes.append(node)
         return node
 

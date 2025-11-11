@@ -64,7 +64,7 @@ def _value_const_numpy(value: ir.Value) -> Optional[np.ndarray]:
 
 
 class _InitializerList(MutableSequence[ir.Value]):
-    """List-like view over graph initializers that mirrors legacy builder semantics."""
+    """List-like view over graph initializers that preserves builder semantics."""
 
     def __init__(self, graph: ir.Graph):
         self._graph = graph

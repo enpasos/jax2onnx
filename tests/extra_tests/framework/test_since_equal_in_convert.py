@@ -17,9 +17,6 @@ def test_plugins_since_metadata_present():
         if not isinstance(metadata, dict):
             continue
         context = metadata.get("context", "")
-        if isinstance(context, str) and not context.endswith("2"):
-            # Skip function bodies still tagged with legacy context strings.
-            continue
         since = metadata.get("since")
         if not isinstance(since, str) or not since.strip():
             missing.append(f"{primitive} (context={context!r})")

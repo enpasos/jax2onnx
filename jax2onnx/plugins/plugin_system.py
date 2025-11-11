@@ -84,7 +84,7 @@ _IN_FUNCTION_BUILD: ContextVar[set[str]] = ContextVar(
     "_IN_FUNCTION_BUILD", default=set()
 )
 
-# Optional examples registry (mirrored into legacy on register_example)
+# Optional examples registry (used by docs/test generation tooling)
 EXAMPLE_REGISTRY: Dict[str, dict[str, Any]] = {}
 
 # Patching state
@@ -1241,44 +1241,11 @@ def _consume_onnx_function_hits() -> set[str]:
 
 
 def register_example(**metadata: Any) -> dict[str, Any]:
-    """
-    New-world example registration used by plugins/examples/*
-    IMPORTANT: Immediately mirror into the legacy registry if available so that
-    scripts/generate_tests.py (unchanged) sees the examples.
-    """
+    """Register example metadata used by plugins/examples/*."""
     comp = metadata.get("component")
     if not isinstance(comp, str) or not comp:
         raise ValueError("register_example requires a non-empty 'component' string.")
     EXAMPLE_REGISTRY[comp] = metadata
-
-    # Mirror into legacy registry immediately
-    # -- Set up a single, typed alias once, then assign from import to avoid mypy no-redef --
-    _legacy_register_example_func: Optional[Callable[..., Any]] = None
-    _legacy_registry: Optional[dict[str, Any]] = None
-    try:  # import under a different name, then assign
-        from jax2onnx.plugins.plugin_system import (
-            PLUGIN_REGISTRY as _legacy_registry_ref,
-            register_example as _legacy_register_example_ref,
-        )
-
-        _legacy_register_example_func = _legacy_register_example_ref
-        _legacy_registry = _legacy_registry_ref
-    except Exception:
-        pass
-
-    if _legacy_register_example_func is not None:
-        try:
-            already_present = (
-                isinstance(_legacy_registry, dict) and comp in _legacy_registry
-            )
-            if not already_present:
-                _legacy_register_example_func(**metadata)
-        except Exception:
-            logger.debug(
-                "Mirroring examples entry %r into legacy registry failed",
-                metadata,
-                exc_info=True,
-            )
 
     return metadata
 

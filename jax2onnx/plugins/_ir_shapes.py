@@ -92,7 +92,7 @@ def _dim_label_from_value_or_aval(
 
 
 def _ensure_value_metadata(ctx: object, v: ir.Value | None) -> None:
-    del ctx  # legacy parameter; kept for call-site compatibility
+    del ctx  # parameter retained for API compatibility
     if v is None:
         return
     shape_obj = v.shape
