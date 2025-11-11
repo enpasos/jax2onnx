@@ -85,9 +85,6 @@ def test_plugins_skip_numeric_validation_is_constrained():
         for case in testcases:
             if not isinstance(case, dict):
                 continue
-            if case.get("legacy_only"):
-                continue
-
             if case.get("skip_numeric_validation"):
                 testcase = case.get("testcase", "<unnamed>")
                 key = (str(context), str(component), str(testcase))

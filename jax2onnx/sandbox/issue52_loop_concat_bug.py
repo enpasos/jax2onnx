@@ -162,7 +162,7 @@ def metadata_ok(model: onnx.ModelProto | None = None) -> bool:
 
 
 def _inject_runtime_failure(model: onnx.ModelProto) -> onnx.ModelProto:
-    """Force the legacy failure by clobbering metadata and adding a reshape."""
+    """Force the historical failure by clobbering metadata and adding a reshape."""
     target_dims = [1, 210, 1, 1]
     for graph in _enumerate_graphs(model.graph):
         for vi in graph.value_info:

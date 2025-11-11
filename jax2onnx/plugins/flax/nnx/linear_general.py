@@ -39,7 +39,7 @@ def _shape_of(coll, name: str):
     name is not found, fall back sensibly:
       • if asking for 'var_0' or 'in_0' → use the first graph input
       • if asking for 'var_3' or 'out_0' → use the first graph output
-    This keeps checks working across legacy and IR pipelines."""
+    This keeps checks working across both historical and current naming schemes."""
     for vi in coll:
         if vi.name == name:
             dims = []
@@ -51,7 +51,7 @@ def _shape_of(coll, name: str):
                 else:
                     dims.append(None)
             return tuple(dims)
-    # Legacy compatibility across name changes ('var_0'/'in0', 'var_3'/'out_0'):
+    # Compatibility across name changes ('var_0'/'in0', 'var_3'/'out_0'):
     if name in {"var_0", "in_0", "var_3", "out_0"} and len(coll) >= 1:
         vi = coll[0]
         dims = []
@@ -401,8 +401,8 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     """
     IR-only plugin for flax.nnx.LinearGeneral:
       Reshape([-1,K]) → Gemm → Reshape-back.
-    Maintains legacy value-name prefixes ("input_reshape", "gemm_output")
-    so post-checks from the original tests continue to work.
+    Maintains the original value-name prefixes ("input_reshape", "gemm_output")
+    so post-checks from the existing tests continue to work.
     """
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.linear_general")

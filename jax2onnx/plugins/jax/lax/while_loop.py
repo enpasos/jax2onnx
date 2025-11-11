@@ -71,7 +71,7 @@ def _while_loop_closure_fn(x: jax.Array) -> jax.Array:
 
 
 def _loop_single(x):
-    """Scalar accumulator loop used by legacy tests."""
+    """Scalar accumulator loop used by while-loop metadata tests."""
 
     return jax.lax.while_loop(lambda v: v < 3, lambda v: v + 1, x)
 

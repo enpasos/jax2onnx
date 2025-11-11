@@ -3,8 +3,8 @@
 """Utilities for validating parameter wiring on serialized ONNX models.
 
 These helpers operate on ``onnx.ModelProto`` objects produced by the IR-only
-converter. They are intentionally lightweight to keep them usable inside
-policy tests without importing the legacy converter package.
+converter. They stay lightweight so policy tests can run them without pulling
+in additional converter dependencies.
 """
 
 from __future__ import annotations

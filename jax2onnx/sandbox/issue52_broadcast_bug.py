@@ -4,9 +4,9 @@
 Issue #52 broadcast metadata smoke-test.
 
 Exports a tiny nested scan, reports the loop/broadcast metadata, and (if requested)
-forces the legacy `1 × …` restamp so onnxruntime reproduces the mismatch. The
-converter is expected to emit the correct leading extent automatically, so by
-default the script simply verifies the metadata and exits.
+forces the `1 × …` restamp so onnxruntime reproduces the mismatch. The converter is
+expected to emit the correct leading extent automatically, so by default the script
+simply verifies the metadata and exits.
 """
 
 from __future__ import annotations
