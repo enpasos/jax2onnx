@@ -218,6 +218,7 @@ class IRContext:
         self._initializers = _InitializerProxy(self)
         self._nodes = self.builder.nodes
         self._inputs = self.builder.inputs
+        self.record_primitive_calls_file: str | None = None
         # Track where each symbolic dim came from (object if hashable, and always string)
         self._sym_origin: dict[object, SymbolicDimOrigin] = {}
         self._sym_origin_str: dict[str, SymbolicDimOrigin] = {}
@@ -261,8 +262,7 @@ class IRContext:
         self._const_folder.register_handler(prim_name, handler)
 
     def try_evaluate_const(self, var: Any) -> Optional[NDArray[np.generic]]:
-        result = self._const_folder.try_evaluate(var)
-        return cast(Optional[NDArray[np.generic]], result)
+        return self._const_folder.try_evaluate(var)
 
     @property
     def opset(self) -> int:

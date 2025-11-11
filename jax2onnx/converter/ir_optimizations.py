@@ -77,6 +77,13 @@ NodeList: TypeAlias = List[ir.Node]
 NodeSeq: TypeAlias = Sequence[ir.Node]
 ValueList: TypeAlias = List[ir.Value]
 ValueSeq: TypeAlias = Sequence[ir.Value]
+ArrayND = np.ndarray[Any, np.dtype[Any]]
+
+
+def _as_ndarray(value: object, *, dtype: np.dtype[Any] | None = None) -> ArrayND:
+    """Typed wrapper around np.asarray to satisfy mypy."""
+    return cast(ArrayND, np.asarray(value, dtype=dtype))
+
 
 # ---------------- Debug ----------------
 
@@ -94,7 +101,7 @@ def _dbg_tm(*a: object) -> None:
 # ---------------- Public helper shims (restored for unit tests) ----------------
 
 
-def _is_elem(op_type: str) -> bool:
+def _is_elem(op_type: object) -> bool:
     """
     Return True if op_type is a benign elementwise op (case-insensitive).
     """
@@ -129,7 +136,7 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
                         attr_obj = entry
                         break
 
-    candidates: Optional[SequenceABC] = None
+    candidates: Optional[SequenceABC[object]] = None
     if isinstance(attr_obj, ir.Attr):
         try:
             as_ints = attr_obj.as_ints()
@@ -146,10 +153,13 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
 
     if candidates is None:
         return None
-    try:
-        return [int(x) for x in candidates]
-    except Exception:
-        return None
+    ints: list[int] = []
+    for candidate in candidates:
+        if isinstance(candidate, (int, np.integer)):
+            ints.append(int(candidate))
+        else:
+            return None
+    return ints
 
 
 def _perms_compose_identity(p1: Sequence[int], p2: Sequence[int]) -> bool:
@@ -467,10 +477,13 @@ def _propagate_value_name_to_subgraphs(
             _maybe_rename(g_out)
 
         init_container = graph.initializers
+        init_values: Iterable[ir.Value]
         if isinstance(init_container, Mapping):
             init_values = init_container.values()
+        elif isinstance(init_container, SequenceABC):
+            init_values = init_container
         else:
-            init_values = init_container or []
+            init_values = ()
         for init in init_values:
             if isinstance(init, ir.Value):
                 _maybe_rename(init)
@@ -728,7 +741,7 @@ def _collect_value_dtypes(graph: ir.Graph, nodes: NodeSeq) -> Dict[str, int]:
 # ---------------- Cast cleanup ----------------
 
 
-def remove_redundant_casts_ir(graph) -> None:
+def remove_redundant_casts_ir(graph: ir.Graph) -> None:
     nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
@@ -816,11 +829,11 @@ def remove_redundant_casts_ir(graph) -> None:
 # ---------------- Transpose folding ----------------
 
 
-def _transpose_perm(node) -> Optional[List[int]]:
+def _transpose_perm(node: ir.Node) -> Optional[List[int]]:
     return _get_perm_attr(node)
 
 
-def remove_redundant_transpose_pairs_ir(graph) -> None:
+def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
@@ -910,12 +923,16 @@ def remove_redundant_transpose_pairs_ir(graph) -> None:
 # ---------------- Reshape folding ----------------
 
 
-def remove_redundant_reshape_pairs_ir(graph) -> None:
+def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
     nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
 
-    def _producer_idx_for_local(val, pbo, pbn):
+    def _producer_idx_for_local(
+        val: Optional[ir.Value],
+        pbo: Dict[int, int],
+        pbn: Dict[str, int],
+    ) -> Optional[int]:
         return _producer_idx_for(val, pbo, pbn)
 
     changed = True
@@ -997,7 +1014,7 @@ def _shapes_match_exact(
     return True
 
 
-def remove_identity_reshapes_ir(graph) -> None:
+def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
     nodes, persist = _get_node_seq_and_setter(graph)
     if not nodes:
         return
@@ -1116,7 +1133,7 @@ def _copy_shape_dtype(dst: Optional["ir.Value"], src: Optional["ir.Value"]) -> b
     return changed
 
 
-def propagate_unary_shapes_ir(graph) -> None:
+def propagate_unary_shapes_ir(graph: ir.Graph) -> None:
     """
     For known unary dataflow ops, set the first output's shape & dtype = first input's,
     when output metadata is missing/unknown. This helps preserve batch symbols across
@@ -1173,8 +1190,10 @@ def _find_producer_idx(
     name: Optional[str]
     if isinstance(val_or_name, str):
         name = val_or_name
+    elif isinstance(val_or_name, ir.Value):
+        name = _v_name(val_or_name)
     else:
-        name = _v_name(val_or_name)  # type: ignore[arg-type]
+        name = None
     if not name:
         return None
     for idx, n in enumerate(nodes):
@@ -1184,16 +1203,16 @@ def _find_producer_idx(
     return None
 
 
-def _literal_bool_array(value: str) -> Optional[np.ndarray]:
+def _literal_bool_array(value: str) -> Optional[ArrayND]:
     normalized = value.strip().lower()
     if normalized == "true":
-        return np.asarray(True, dtype=np.bool_)
+        return _as_ndarray(True, dtype=np.dtype(np.bool_))
     if normalized == "false":
-        return np.asarray(False, dtype=np.bool_)
+        return _as_ndarray(False, dtype=np.dtype(np.bool_))
     return None
 
 
-def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
+def _to_numpy_from_attr(attr: ir.Attr) -> Optional[ArrayND]:
     attr_type = attr.type
     if isinstance(attr_type, str):
         try:
@@ -1202,22 +1221,22 @@ def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
             attr_type = None
     if attr_type is IRAttrType.FLOAT:
         try:
-            return np.asarray(attr.as_float())
+            return _as_ndarray(attr.as_float())
         except Exception:
             return None
     if attr_type is IRAttrType.FLOATS:
         try:
-            return np.asarray(tuple(attr.as_floats()))
+            return _as_ndarray(tuple(attr.as_floats()))
         except Exception:
             return None
     if attr_type is IRAttrType.INT:
         try:
-            return np.asarray(attr.as_int())
+            return _as_ndarray(attr.as_int())
         except Exception:
             return None
     if attr_type is IRAttrType.INTS:
         try:
-            return np.asarray(tuple(attr.as_ints()))
+            return _as_ndarray(tuple(attr.as_ints()))
         except Exception:
             return None
     if attr_type is IRAttrType.STRING:
@@ -1228,7 +1247,7 @@ def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
         bool_arr = _literal_bool_array(string_value)
         if bool_arr is not None:
             return bool_arr
-        return np.asarray(string_value)
+        return _as_ndarray(string_value)
     if attr_type is IRAttrType.STRINGS:
         try:
             strings = tuple(attr.as_strings())
@@ -1238,7 +1257,7 @@ def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
             bool_arr = _literal_bool_array(strings[0])
             if bool_arr is not None:
                 return bool_arr
-        return np.asarray(strings)
+        return _as_ndarray(strings)
     if attr_type is IRAttrType.TENSOR:
         try:
             return _to_numpy_from_any(attr.as_tensor())
@@ -1256,8 +1275,14 @@ def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
         ]
         if not collected or any(arr is None for arr in collected):
             return None
+        arrays: list[ArrayND] = []
+        for arr in collected:
+            if arr is None:
+                return None
+            arrays.append(arr)
         try:
-            return np.stack([np.asarray(arr) for arr in collected])
+            stacked: ArrayND = np.stack(arrays)
+            return stacked
         except Exception:
             return None
     value = attr.value
@@ -1266,7 +1291,7 @@ def _to_numpy_from_attr(attr: ir.Attr) -> Optional[np.ndarray]:
     return None
 
 
-def _to_numpy_from_any(x: object) -> Optional[np.ndarray]:
+def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
     """
     Convert common IR payload carriers (Values, Tensors, Attrs, numpy scalars) into
     numpy arrays so scalar booleans can be read without falling back to proto shims.
@@ -1276,30 +1301,30 @@ def _to_numpy_from_any(x: object) -> Optional[np.ndarray]:
     if isinstance(x, np.ndarray):
         return x
     if isinstance(x, np.generic):
-        return np.asarray(x)
+        return _as_ndarray(x)
     if isinstance(x, (bool, int, float, complex, np.bool_, np.integer, np.floating)):
-        return np.asarray(x)
+        return _as_ndarray(x)
     if isinstance(x, str):
         bool_arr = _literal_bool_array(x)
         if bool_arr is not None:
             return bool_arr
-        return np.asarray(x)
+        return _as_ndarray(x)
     if isinstance(x, ir.Value):
         return _to_numpy_from_any(x.const_value)
     if isinstance(x, ir.Tensor):
         try:
-            return np.asarray(x.numpy())
+            return _as_ndarray(x.numpy())
         except Exception:
             return None
     if isinstance(x, ir.Attr):
         return _to_numpy_from_attr(x)
     if isinstance(x, SequenceABC) and not isinstance(x, (bytes, bytearray)):
         try:
-            return np.asarray(tuple(x))
+            return _as_ndarray(tuple(x))
         except Exception:
             return None
     try:
-        arr = np.asarray(x)
+        arr = _as_ndarray(x)
     except Exception:
         return None
     if arr.dtype == object and arr.size == 1:
@@ -1317,7 +1342,7 @@ def _as_scalar_bool(payload: object) -> Optional[bool]:
     if arr is None:
         return None
     try:
-        return bool(np.asarray(arr).reshape(()).astype(np.bool_).item())
+        return bool(arr.reshape(()).astype(np.bool_).item())
     except Exception:
         return None
 
@@ -1374,7 +1399,7 @@ def _missing_bool_value() -> "ir.Value":
     return ir.Value(name="", type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
 
 
-def inline_dropout_training_mode_constants_ir(graph) -> None:
+def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
     """
     Constant-only inlining for Dropout.training_mode:
       - If training_mode is a constant False → drop it (make input #2 missing)
@@ -1479,7 +1504,7 @@ def _graph_outputs_list(graph: ir.Graph) -> List["ir.Value"]:
 # ---------------- DCE ----------------
 
 
-def remove_dead_nodes_ir(graph) -> None:
+def remove_dead_nodes_ir(graph: ir.Graph) -> None:
     debug_metadata_flag = os.getenv("JAX2ONNX_ENABLE_STACKTRACE_METADATA", "")
     if debug_metadata_flag and debug_metadata_flag.strip().lower() not in (
         "0",
@@ -1542,12 +1567,12 @@ def _attr_kind(attr: object) -> Optional[str]:
     if isinstance(attr, ir.Attr):
         atype = attr.type
         if isinstance(atype, IRAttrType):
-            return atype.name
+            return str(atype.name)
         if isinstance(atype, str):
             return atype.upper()
         return None
     if isinstance(attr, IRAttrType):
-        return attr.name
+        return str(attr.name)
     if isinstance(attr, str):
         return attr.upper()
     return None
@@ -1562,7 +1587,7 @@ def _iter_node_attrs(node: ir.Node) -> Iterable[ir.Attr]:
     return []
 
 
-def _collect_used_value_names(graph, used: Set[str]) -> None:
+def _collect_used_value_names(graph: ir.Graph, used: Set[str]) -> None:
     """Record names that are consumed from an *outer* scope.
 
     A name is considered "used" for the parent when it appears as an input to
@@ -1615,7 +1640,7 @@ def _collect_used_value_names(graph, used: Set[str]) -> None:
                     _collect_used_value_names(sub, used)
 
 
-def prune_unused_graph_inputs_ir(graph) -> None:
+def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
     """
     Remove graph inputs that are not consumed by any node and are not graph outputs.
     (We do NOT run this on function bodies to avoid changing function signatures.)

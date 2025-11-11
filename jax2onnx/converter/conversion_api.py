@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Dict,
     Iterable,
+    Iterator,
     List,
     Mapping,
     Optional,
@@ -65,8 +66,8 @@ def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
 # ---------------------------
 
 
-def _np_float_dtype(enable_double_precision: bool):
-    return np.float64 if enable_double_precision else np.float32
+def _np_float_dtype(enable_double_precision: bool) -> np.dtype[Any]:
+    return np.dtype(np.float64 if enable_double_precision else np.float32)
 
 
 def _maybe_promote_float_array(
@@ -102,7 +103,7 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     return ir.DataType.FLOAT
 
 
-def _to_ir_shape(shape_tuple) -> "ir.Shape":
+def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
     dims: Tuple[Union[int, str], ...] = tuple(
         int(d) if isinstance(d, (int, np.integer)) else str(d) for d in shape_tuple
     )
@@ -143,22 +144,22 @@ def _as_sds_list(
     # 3) build SDS list
     for spec in inputs:
         if isinstance(spec, jax.ShapeDtypeStruct):
-            dims: List[object] = []
+            dims_list: List[object] = []
             for dim in tuple(spec.shape):
                 if isinstance(dim, str):
-                    dims.append(name2sym[dim])
+                    dims_list.append(name2sym[dim])
                 elif isinstance(dim, (int, np.integer)):
-                    dims.append(int(dim))
+                    dims_list.append(int(dim))
                 else:
-                    dims.append(dim)
-            sds_list.append(jax.ShapeDtypeStruct(tuple(dims), spec.dtype))
+                    dims_list.append(dim)
+            sds_list.append(jax.ShapeDtypeStruct(tuple(dims_list), spec.dtype))
             continue
 
-        dims = tuple(
+        dims_tuple = tuple(
             name2sym[dim] if isinstance(dim, str) else int(dim) for dim in spec
         )
         dt = jnp.float64 if enable_double_precision else jnp.float32
-        sds_list.append(jax.ShapeDtypeStruct(dims, dt))
+        sds_list.append(jax.ShapeDtypeStruct(dims_tuple, dt))
     return sds_list
 
 
@@ -183,13 +184,22 @@ class _IRBuildContext:
         self._name_counter += 1
         return f"{prefix}_{self._name_counter}"
 
-    def add_node(self, node, inputs=None, outputs=None):
+    def add_node(
+        self,
+        node: ir.Node,
+        inputs: Sequence[ir.Value] | None = None,
+        outputs: Sequence[ir.Value] | None = None,
+    ) -> ir.Node:
+        if inputs is not None:
+            node.inputs = list(inputs)
+        if outputs is not None:
+            node.outputs = list(outputs)
         self._nodes.append(node)
         return node
 
     def get_value_for_var(
         self,
-        var,
+        var: Any,
         *,
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
@@ -279,7 +289,7 @@ class _IRBuildContext:
 
 
 @contextmanager
-def _activate_plugin_worlds():
+def _activate_plugin_worlds() -> Iterator[None]:
     # Ensure plugin registry is populated
     import_all_plugins()
     with ExitStack() as stack:
@@ -293,7 +303,7 @@ def _activate_plugin_worlds():
 
 
 @contextmanager
-def _force_jax_x64(enable_double_precision: bool):
+def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
     read_config = jax.config.read if hasattr(jax.config, "read") else None
     if callable(read_config):
         previous = bool(read_config("jax_enable_x64"))
@@ -337,7 +347,7 @@ def to_onnx(
         # 2) JAXPR (optionally print for debugging)
         frozen_params: Dict[str, object] = dict(input_params or {})
 
-        def _wrapped(*xs):
+        def _wrapped(*xs: Any) -> Any:
             return fn(*xs, **frozen_params)
 
         with _activate_plugin_worlds():
@@ -503,11 +513,13 @@ def to_onnx(
 
             if isinstance(functions_store, dict):
                 for fn_ir in ir_funcs:
-                    identifier = None
-                    try:
-                        identifier = fn_ir.identifier()  # type: ignore[attr-defined]
-                    except AttributeError:
-                        identifier = None
+                    identifier: object | None = None
+                    identifier_fn = getattr(fn_ir, "identifier", None)
+                    if callable(identifier_fn):
+                        try:
+                            identifier = identifier_fn()
+                        except Exception:
+                            identifier = None
                     if not identifier and hasattr(fn_ir, "id"):
                         identifier = object.__getattribute__(fn_ir, "id")
                     if not identifier:
@@ -567,7 +579,7 @@ def to_onnx(
         def _ir_attr_int(name: str, val: int) -> Attr:
             ival = int(val)
             try:
-                return Attr.i(name, ival)  # type: ignore[attr-defined]
+                return Attr.i(name, ival)
             except AttributeError:
                 return Attr(name, AttributeType.INT, ival)
 
@@ -643,12 +655,13 @@ def to_onnx(
                 _normalize_value_shape(value)
 
             function_container = model_proto.functions
+            graph_values: Iterable[object]
             if isinstance(function_container, dict):
                 graph_values = function_container.values()
             elif isinstance(function_container, Sequence):
                 graph_values = function_container
             else:
-                graph_values = []
+                graph_values = ()
 
             for fn in graph_values:
                 try:
@@ -672,7 +685,7 @@ def to_onnx(
                     return value
 
                 try:
-                    return Attr(name, value)  # type: ignore[arg-type]
+                    return Attr(name, value)
                 except TypeError:
                     pass
                 except Exception:
@@ -732,14 +745,17 @@ def to_onnx(
             function_values = []
         for fn in function_values:
             try:
+                graph_obj = getattr(fn, "graph", None)
+                if graph_obj is None:
+                    continue
                 overrides_attr: dict[str, dict[str, object]] = {}
                 if hasattr(fn, "_attr_overrides"):
                     raw_overrides = object.__getattribute__(fn, "_attr_overrides")
                     if raw_overrides:
                         overrides_attr = dict(raw_overrides)
                 fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
-                _apply_ir_attr_overrides_to_graph(fn.graph, fn_overrides)
-                _fix_concat_axis_in_graph(fn.graph)
+                _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
+                _fix_concat_axis_in_graph(graph_obj)
             except Exception:
                 pass
 

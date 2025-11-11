@@ -16,7 +16,7 @@ class ConstantFolder:
         arr = np.asarray(value)
         self._known[id(var)] = cast(NDArray[np.generic], arr)
 
-    def install_producers(self, jaxpr) -> None:
+    def install_producers(self, jaxpr: Any) -> None:
         self._producer.clear()
         for eqn in jaxpr.eqns:
             for out in eqn.outvars:

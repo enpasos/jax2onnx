@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, List
 import numpy as np
 import jax.numpy as jnp
 from jax import lax
-from jax._src.export.shape_poly import _DimExpr as DimExpr
 
 import onnx_ir as ir
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
@@ -22,6 +21,7 @@ from jax2onnx.plugins._loop_extent_meta import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.utils.shape_poly import dim_expr_constant_value
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
@@ -40,14 +40,7 @@ def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
 def _dim_const_value(dim) -> int | None:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
-    if isinstance(dim, DimExpr):
-        try:
-            text = str(dim).strip()
-            if text.lstrip("-").isdigit():
-                return int(text)
-        except Exception:
-            return None
-    return None
+    return dim_expr_constant_value(dim)
 
 
 @register_primitive(
