@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable as IterableABC, Mapping, Sequence as SequenceABC
 from itertools import chain
+from typing import Any, Iterable, TypeAlias, Union, cast
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
-from typing import Iterable, cast
 
-
-DimValue = int | ir.SymbolicDim | None
+DimValue: TypeAlias = Union[int, ir.SymbolicDim, None]
 
 
 def _value_name(value: ir.Value | None) -> str | None:
@@ -36,8 +35,11 @@ def _shape_dims(shape_obj: object) -> list[DimValue] | None:
         return [dim for dim in shape_obj.dims]
     if isinstance(shape_obj, SequenceABC) and not isinstance(shape_obj, (str, bytes)):
         dims: list[DimValue] = []
-        for dim in shape_obj:
-            if isinstance(dim, (int, ir.SymbolicDim)) or dim is None:
+        dims_src = cast(Iterable[object], shape_obj)
+        for dim in dims_src:
+            if dim is None:
+                dims.append(None)
+            elif isinstance(dim, (int, ir.SymbolicDim)):
                 dims.append(dim)
             else:
                 dims.append(ir.SymbolicDim(str(dim)))
@@ -135,9 +137,11 @@ def _tensor_to_numpy(tensor: object) -> np.ndarray | None:
             result = tensor.numpy()
         except Exception:
             return None
-        return result if isinstance(result, np.ndarray) else np.asarray(result)
+        if isinstance(result, np.ndarray):
+            return result
+        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(result))
     if isinstance(tensor, (list, tuple)):
-        return np.asarray(tensor)
+        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
     return None
 
 

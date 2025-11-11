@@ -23,17 +23,7 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-try:  # pragma: no cover
-    from jax._src.export.shape_poly import _DimExpr as DimExpr
-except Exception:  # pragma: no cover
-    DimExpr = ()  # type: ignore[assignment]
-
-
-def _is_dim_expr(x: object) -> bool:
-    if isinstance(DimExpr, tuple):  # fallback if the import above failed
-        return False
-    return isinstance(x, DimExpr)
+from jax2onnx.utils.shape_poly import is_dim_expr
 
 
 _ORIG_TILE: Final = jnp.tile
@@ -376,7 +366,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         for idx, rep in enumerate(repeats_tuple):
             if isinstance(rep, (int, np.integer)):
                 pieces.append(_const_i64(ctx, [int(rep)], f"tile_rep_{idx}"))
-            elif _is_dim_expr(rep) or isinstance(rep, str):
+            elif is_dim_expr(rep) or isinstance(rep, str):
                 origin = _origin(rep)
                 if origin is None:
                     raise ValueError(f"Symbolic repeat '{rep}' has no origin")

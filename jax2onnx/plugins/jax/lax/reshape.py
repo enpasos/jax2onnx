@@ -9,7 +9,6 @@ import os
 import numpy as np
 import jax
 from jax import lax
-from jax._src.export.shape_poly import _DimExpr as DimExpr
 
 import onnx_ir as ir
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -25,6 +24,11 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _shape_of,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.utils.shape_poly import (
+    dim_expr_constant_value,
+    is_dim_expr,
+    symbolic_dim_eq,
+)
 
 if TYPE_CHECKING:
     from jax2onnx.converter.ir_context import IRContext
@@ -309,29 +313,16 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         runtime_iter = iter(runtime_dim_vars)
 
         # ---- small helpers for DimExpr handling --------------------------------
-        def _dimexpr_const_value(d: DimExpr) -> Optional[int]:
-            """If a DimExpr prints like an integer (e.g. '3' or '-1'), return that int."""
-            try:
-                s = str(d).strip()
-                if s.lstrip("-").isdigit():
-                    return int(s)
-            except Exception:
-                pass
-            return None
+        def _dimexpr_const_value(dim: object) -> Optional[int]:
+            """If a symbolic dim prints like an integer (e.g. '3' or '-1'), return that int."""
+            return dim_expr_constant_value(dim)
 
-        def _same_symbol(dim_expr: DimExpr, axis_dim) -> bool:
+        def _same_symbol(dim_expr: object, axis_dim: object) -> bool:
             """Robust 'same symbol' test between a DimExpr and an input axis dim."""
-            if axis_dim is dim_expr:
-                return True
-            try:
-                # If input axis is static int, allow matching constant DimExpr too.
-                if isinstance(axis_dim, (int, np.integer)):
-                    cv = _dimexpr_const_value(dim_expr)
-                    return cv is not None and int(axis_dim) == cv
-                # Otherwise compare string forms (covers same-scope symbols)
-                return str(axis_dim) == str(dim_expr)
-            except Exception:
-                return False
+            if isinstance(axis_dim, (int, np.integer)):
+                cv = _dimexpr_const_value(dim_expr)
+                return cv is not None and int(axis_dim) == cv
+            return symbolic_dim_eq(dim_expr, axis_dim)
 
         # Track whether we already inserted an inferred dim (-1)
         inserted_neg1 = any(
@@ -345,7 +336,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 part = const_i64_vec(np.array([int(dim)], dtype=np.int64))
                 shape_parts.append(part)
                 const_accum.append(int(dim))
-            elif isinstance(dim, DimExpr):
+            elif is_dim_expr(dim):
                 # Try first to fold to constant if the referenced axis is static.
                 axis_idx = next(
                     (i for i, d in enumerate(x_shape) if _same_symbol(dim, d)), None
@@ -361,7 +352,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                         const_accum.append(v)
                         continue
                     # ... or a constant DimExpr like '3'
-                    if isinstance(axis_dim_val, DimExpr):
+                    if is_dim_expr(axis_dim_val):
                         cv_axis = _dimexpr_const_value(axis_dim_val)
                         if cv_axis is not None:
                             shape_parts.append(

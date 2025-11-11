@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Sequence
 
 import jax
+from jax import lax
 import numpy as np
 import onnx_ir as ir
-from jax._src.lax import windowed_reductions as _windowed_reductions
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -21,6 +21,36 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
+
+
+def reduce_window_sum(
+    operand: jax.Array,
+    *,
+    window_dimensions: Sequence[int],
+    window_strides: Sequence[int] | None = None,
+    padding: Sequence[tuple[int, int]] | None = None,
+    base_dilation: Sequence[int] | None = None,
+    window_dilation: Sequence[int] | None = None,
+) -> jax.Array:
+    """Bind the reduce_window_sum primitive without touching private JAX APIs."""
+    dims = tuple(int(d) for d in window_dimensions)
+    if window_strides is None:
+        window_strides = (1,) * len(dims)
+    if padding is None:
+        padding = tuple((0, 0) for _ in dims)
+    if base_dilation is None:
+        base_dilation = (1,) * len(dims)
+    if window_dilation is None:
+        window_dilation = (1,) * len(dims)
+    pad_pairs = tuple(tuple(int(p) for p in pair) for pair in padding)
+    return lax.reduce_window_sum_p.bind(
+        operand,
+        window_dimensions=dims,
+        window_strides=tuple(int(s) for s in window_strides),
+        padding=pad_pairs,
+        base_dilation=tuple(int(d) for d in base_dilation),
+        window_dilation=tuple(int(d) for d in window_dilation),
+    )
 
 
 def _normalize_int_tuple(
@@ -47,7 +77,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.reduce_window_sum_p.name,
+    jaxpr_primitive=lax.reduce_window_sum_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_window_sum.html",
     onnx=[
         {
@@ -61,7 +91,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     testcases=[
         {
             "testcase": "reduce_window_sum_valid",
-            "callable": lambda x: _windowed_reductions._reduce_window_sum(
+            "callable": lambda x: reduce_window_sum(
                 x,
                 window_dimensions=(3,),
                 window_strides=(1,),
@@ -75,7 +105,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
         },
         {
             "testcase": "reduce_window_sum_same_padding",
-            "callable": lambda x: _windowed_reductions._reduce_window_sum(
+            "callable": lambda x: reduce_window_sum(
                 x,
                 window_dimensions=(2, 2),
                 window_strides=(1, 1),
@@ -89,7 +119,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
         },
         {
             "testcase": "reduce_window_sum_stride_dilate",
-            "callable": lambda x: _windowed_reductions._reduce_window_sum(
+            "callable": lambda x: reduce_window_sum(
                 x,
                 window_dimensions=(1, 3),
                 window_strides=(2, 1),
@@ -104,7 +134,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
         },
         {
             "testcase": "reduce_window_sum_int32",
-            "callable": lambda x: _windowed_reductions._reduce_window_sum(
+            "callable": lambda x: reduce_window_sum(
                 x,
                 window_dimensions=(3,),
                 window_strides=(1,),
@@ -119,7 +149,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
         },
         {
             "testcase": "reduce_window_sum_base_dilation",
-            "callable": lambda x: _windowed_reductions._reduce_window_sum(
+            "callable": lambda x: reduce_window_sum(
                 x,
                 window_dimensions=(2,),
                 window_strides=(1,),

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Union, cast
+from typing import TYPE_CHECKING, Dict, TypeAlias, Union, cast
 
-from jax._src.export.shape_poly import _DimExpr, _DimTerm, _DimFactor
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.utils.shape_poly import (
+    DimExprLike,
+    DimFactorWithPower,
+    DimTermLike,
+    DimTermWithCoeff,
+)
 import onnx_ir as ir
 import numpy as np
 
@@ -15,8 +20,8 @@ if TYPE_CHECKING:
 
 
 CacheKey = Union[str, int]
-OperandsTuple = tuple[_DimExpr | int, ...]
-TermWithMultiplier = tuple[_DimTerm, int]
+OperandsTuple = tuple[DimExprLike | int, ...]
+TermWithMultiplier: TypeAlias = DimTermWithCoeff
 
 
 class LowerDimExpr:
@@ -118,7 +123,7 @@ class LowerDimExpr:
         self.compute_cache[key] = result_value
         return result_value
 
-    def _lower_factor(self, factor: tuple[_DimFactor, int]) -> ir.Value:
+    def _lower_factor(self, factor: DimFactorWithPower) -> ir.Value:
         if str(factor) in self.compute_cache:
             return self.compute_cache[str(factor)]
 
@@ -130,7 +135,7 @@ class LowerDimExpr:
                 )
             result_value = self._get_dim_value(var_name)
         else:
-            operands = cast(OperandsTuple, factor[0].operands)
+            operands = cast(OperandsTuple, tuple(factor[0].operands))
             op_name = factor[0].operation
             if not isinstance(op_name, str):
                 raise TypeError(f"Unsupported DimFactor operation type: {op_name}")
@@ -150,7 +155,7 @@ class LowerDimExpr:
         self.compute_cache[str(factor)] = result_value
         return result_value
 
-    def _lower_term(self, term: _DimTerm) -> ir.Value:
+    def _lower_term(self, term: DimTermLike) -> ir.Value:
         if str(term) in self.compute_cache:
             return self.compute_cache[str(term)]
 
@@ -173,7 +178,7 @@ class LowerDimExpr:
         self.compute_cache[str(term)] = result_value
         return result_value
 
-    def _lower_term_with_mult(self, term: tuple[_DimTerm, int]) -> ir.Value:
+    def _lower_term_with_mult(self, term: DimTermWithCoeff) -> ir.Value:
         if str(term) in self.compute_cache:
             return self.compute_cache[str(term)]
 
@@ -196,7 +201,7 @@ class LowerDimExpr:
         self.compute_cache[str(term)] = result_value
         return result_value
 
-    def _lower_expr(self, expr: _DimExpr | int) -> ir.Value:
+    def _lower_expr(self, expr: DimExprLike | int) -> ir.Value:
         if isinstance(expr, int):
             return self._get_scalar(expr)
 
@@ -220,7 +225,7 @@ class LowerDimExpr:
         self.compute_cache[str(expr)] = result_value
         return result_value
 
-    def __call__(self, exprs: list[_DimExpr | int | ir.Value]) -> ir.Value:
+    def __call__(self, exprs: list[DimExprLike | int | ir.Value]) -> ir.Value:
         values = [
             expr if isinstance(expr, ir.Value) else self._lower_expr(expr)
             for expr in exprs
