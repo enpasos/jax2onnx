@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/export_flax_gpt_oss_to_onnx.py
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +8,6 @@ import json
 from dataclasses import fields
 from pathlib import Path
 
-import flax.serialization as flax_serialization
 from flax.serialization import msgpack_restore
 import jax
 import jax.numpy as jnp
@@ -26,8 +27,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export the Flax GPT-OSS transformer stack to ONNX."
     )
-    parser.add_argument("--params", required=True, type=Path, help="Path to staged Flax params (.msgpack).")
-    parser.add_argument("--output", required=True, type=Path, help="Destination ONNX file.")
+    parser.add_argument(
+        "--params",
+        required=True,
+        type=Path,
+        help="Path to staged Flax params (.msgpack).",
+    )
+    parser.add_argument(
+        "--output", required=True, type=Path, help="Destination ONNX file."
+    )
     parser.add_argument(
         "--config",
         type=Path,

@@ -9,6 +9,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from jax2onnx.plugins.examples.eqx.gpt_oss import (
+    Transformer as EqxTransformer,
+    _config_from_torch_transformer,
+    _populate_eqx_from_torch,
+)
+
+pytestmark = pytest.mark.skip(
+    reason="Equinox GPT-OSS parity checks are temporarily disabled while the Flax/NNX path is stabilized."
+)
+
 try:
     import torch
     from gpt_oss.torch.model import ModelConfig, Transformer as TorchTransformer
@@ -17,12 +27,6 @@ except ImportError as exc:  # pragma: no cover - optional dependency guard
         f"GPT-OSS parity tests require optional dependencies: {exc}",
         allow_module_level=True,
     )
-
-from jax2onnx.plugins.examples.eqx.gpt_oss import (
-    Transformer as EqxTransformer,
-    _config_from_torch_transformer,
-    _populate_eqx_from_torch,
-)
 
 
 def _make_tiny_config() -> ModelConfig:

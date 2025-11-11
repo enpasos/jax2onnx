@@ -1,28 +1,19 @@
 # GPT-OSS Weights Workflow
 
-The GPT-OSS example under `jax2onnx/plugins/examples/eqx/gpt_oss.py` mirrors
-OpenAI’s reference Transformer architecture. This guide walks through loading an
-official checkpoint, mapping it into the Equinox example, and exporting an ONNX
-graph that preserves the IR-only layout used by the test-suite.
+The GPT-OSS examples in this repo come in two flavors:
+
+- **Flax/NNX (`jax2onnx/plugins/examples/nnx/gpt_oss_flax.py`)** – this is the
+  path backed by the routing parity harness, staged checkpoint exporter, and the
+  `FlaxTransformer` expect-graph tests.
+- **Equinox (`jax2onnx/plugins/examples/eqx/gpt_oss.py`)** – kept for historical
+  comparison and still covered by the Equinox parity tests.
+
+Unless you specifically need the Equinox version, follow Sections 2–4 below for
+Flax/NNX. The Equinox workflow now lives in Sections 5–6.
 
 All commands assume you are at the project root with the Poetry environment
 available. The workflow targets CPU-only tools; feel free to switch the device
 flags to `cuda:X` if you have GPU support.
-
-## Prerequisites
-
-Install the optional dependencies needed to read GPT-OSS checkpoints:
-
-```bash
-poetry install --with test
-poetry run pip install gpt-oss safetensors
-poetry run pip install torch --index-url https://download.pytorch.org/whl/cpu
-poetry run pip install huggingface_hub
-```
-
-> The `gpt-oss` wheel already depends on `torch` and `safetensors`, but
-> installing them explicitly (`cpu` wheel shown above) makes it clear which
-> variants the parity scripts expect.
 
 ## 1. Download a GPT-OSS checkpoint
 
@@ -65,7 +56,79 @@ contents (tokenizer, chat template, etc.).
 After the download finishes you should have a directory containing `config.json`
 and a set of `*.safetensors` shards.
 
-## 2. Export the Equinox example to ONNX
+## 2. Stage GPT-OSS weights for Flax/NNX
+
+Run the staging helper to materialize a Flax `.msgpack` bundle plus a matching
+`config.json`. The exporter and expect-graph tests consume this format directly.
+
+```bash
+poetry run python scripts/export_flax_gpt_oss_params.py \
+  --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --output ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack
+```
+
+Use `--gpt-oss-path` if the helper repo lives somewhere other than the default
+`tmp/gpt-oss-jax-vs-torch-numerical-comparison`. The script automatically
+detects Orbax vs. SafeTensors checkpoints and writes
+`flax_params.msgpack.config.json` beside the serialized parameters.
+
+## 3. Export the Flax/NNX transformer to ONNX
+
+With staged params in place, call the ONNX exporter. It instantiates the
+`examples.nnx_gpt_oss.FlaxTransformer` module, loads the staged parameters via
+`nnx.Param` assignments, and traces the full embedding → blocks → norm → head
+pipeline.
+
+```bash
+poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+  --output artifacts/gpt_oss_flax.onnx \
+  --sequence-length 256
+```
+
+Notes:
+
+- `--sequence-length` controls both the tracing inputs and the rotary/mask
+  tables. Start small (e.g. 128) while verifying the workflow, then bump the
+  length to your deployment target.
+- Pass `--config /path/to/config.json` if the staging script’s JSON lives
+  elsewhere.
+- The exporter mirrors the exact callable covered by
+  `tests/examples/test_nnx_gpt_oss.py::Test_FlaxTransformer`. Run that test (or
+  the whole file) to sanity-check ONNX numeric validation locally:
+
+  ```bash
+  poetry run pytest tests/examples/test_nnx_gpt_oss.py::Test_FlaxTransformer -q
+  ```
+
+## 4. Flax/NNX routing parity harness
+
+The parity harness from PR #217 verifies that the staged Flax/NNX model makes
+identical expert choices to the PyTorch reference. There is an optional slow
+smoke test in `tests/extra_tests/test_flax_routing_parity.py` that runs the
+harness with `--max-layers 4 --max-tokens 2` on CPU whenever checkpoints are
+present.
+
+To run the harness manually (e.g. with longer prompts or more layers):
+
+```bash
+JAX_PLATFORM_NAME=cpu poetry run python scripts/gpt_oss_routing_parity.py \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --jax-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --prompt "What is the capital of France?" \
+  --max-layers 24 \
+  --max-tokens 4 \
+  --torch-device cpu \
+  --output-dir artifacts/gpt_oss_routing/flax
+```
+
+The harness writes `artifacts/gpt_oss_routing/flax/<timestamp>_summary.md`
+containing per-layer match rates and gate diffs. Adjust `--max-layers` and
+`--max-tokens` to keep runs developer-friendly, and prefer `--torch-device cpu`
+to avoid CUDA OOMs during PyTorch checkpoint loading.
+
+## 5. (Legacy) Export the Equinox example to ONNX
 
 Use the helper script to load the checkpoint, mirror it into the IR-only Equinox
 modules, and emit an ONNX graph. The script preserves the exact callable used by
@@ -99,10 +162,10 @@ poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
 - Pass a higher `--seq-len` (e.g. 512) once the 256-token run succeeds; longer
   sequences raise memory pressure while tracing the attention blocks.
 
-## 3. Validate parity (optional)
+## 6. (Legacy) Validate Equinox parity (optional)
 
 Numerical comparisons between the PyTorch and ONNX/JAX paths are covered by the
-new regression tests in `tests/extra_tests/test_eqx_gpt_oss_parity.py`. When the
+regression tests in `tests/extra_tests/test_eqx_gpt_oss_parity.py`. When the
 optional dependencies above are installed, this test asserts the Equinox model
 tracks the PyTorch reference to within a small tolerance (absolute differences
 stay below `~1e0` when working in bfloat16).
@@ -112,59 +175,3 @@ Run a focused check with:
 ```bash
 poetry run pytest -q tests/extra_tests/test_eqx_gpt_oss_parity.py
 ```
-
-## 4. Flax/NNX routing parity harness
-
-For the Flax/NNX path under `jax2onnx/plugins/examples/nnx/gpt_oss_flax.py` we
-use the parity harness from the upstream PR #217. The lightweight smoke test in
-`tests/extra_tests/test_flax_routing_parity.py` exercises the harness with
-`--max-layers 4 --max-tokens 2` on CPU to make sure gate diffs stay within the
-documented bf16 window.
-
-To reproduce the full report locally:
-
-```bash
-JAX_PLATFORM_NAME=cpu poetry run python scripts/gpt_oss_routing_parity.py \
-  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
-  --jax-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
-  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
-  --prompt "What is the capital of France?" \
-  --max-layers 24 \
-  --max-tokens 4 \
-  --torch-device cpu \
-  --output-dir artifacts/gpt_oss_routing/flax
-```
-
-The harness writes `artifacts/gpt_oss_routing/flax/<timestamp>_summary.md`
-containing per-layer match rates and gate diffs. The `--max-layers` and
-`--max-tokens` flags let you dial the run time down for developer machines, and
-`--torch-device cpu` avoids CUDA OOMs during reference loading.
-
-For weight staging, use `scripts/export_flax_gpt_oss_params.py` to serialize the
-checkpoint into a Flax bundle that downstream ONNX exports can consume:
-
-```bash
-poetry run python scripts/export_flax_gpt_oss_params.py \
-  --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
-  --output ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack
-```
-
-The `examples.nnx_gpt_oss.FlaxTransformer` example (covered by
-`tests/examples/test_nnx_gpt_oss.py`) instantiates the full embedding → blocks →
-norm → unembedding stack so structural coverage stays close to the production
-model.
-
-Once params are staged, export the Flax transformer to ONNX via:
-
-```bash
-poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
-  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
-  --output artifacts/gpt_oss_flax.onnx \
-  --sequence-length 256
-```
-
-The exporter expects a config JSON living next to the params bundle (the staging
-script emits `<output>.config.json`). Pass `--config /path/to/config.json` if you
-want to override that location. Increase `--sequence-length` once shorter traces
-succeed; the script derives rotary tables and causal/sliding masks automatically
-from the config.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/export_flax_gpt_oss_params.py
+
 """Stage GPT-OSS Flax parameters for downstream ONNX exports."""
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ def _ensure_repo_on_path(repo: Path) -> None:
 def _load_params(checkpoint: Path):
     from gpt_oss.jax.loader_orbax import OrbaxWeightLoader, load_config_from_orbax
     from gpt_oss.jax.loader_safetensors import WeightLoader
-    from gpt_oss.jax.token_generator import detect_checkpoint_format, load_config_from_checkpoint
+    from gpt_oss.jax.token_generator import (
+        detect_checkpoint_format,
+        load_config_from_checkpoint,
+    )
 
     fmt = detect_checkpoint_format(checkpoint)
     if fmt == "orbax":
@@ -36,9 +41,21 @@ def _load_params(checkpoint: Path):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Stage GPT-OSS Flax params for ONNX export.")
-    parser.add_argument("--checkpoint", required=True, type=Path, help="Path to safetensors/orbax checkpoint")
-    parser.add_argument("--output", required=True, type=Path, help="Where to write serialized Flax params")
+    parser = argparse.ArgumentParser(
+        description="Stage GPT-OSS Flax params for ONNX export."
+    )
+    parser.add_argument(
+        "--checkpoint",
+        required=True,
+        type=Path,
+        help="Path to safetensors/orbax checkpoint",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Where to write serialized Flax params",
+    )
     parser.add_argument(
         "--gpt-oss-path",
         type=Path,

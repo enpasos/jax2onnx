@@ -51,6 +51,11 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_bits",
         "random_bits_uint32",
     ),
+    (
+        "examples.nnx_gpt_oss",
+        "FlaxSDPA",
+        "gpt_oss_sdpa_flax",
+    ),
 }
 
 

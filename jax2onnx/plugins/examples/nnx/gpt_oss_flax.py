@@ -39,10 +39,10 @@ class _KeySeq:
         return sub
 
 
-_XAVIER_UNIFORM = jax.nn.initializers.variance_scaling(
+_XAVIER_UNIFORM: Final = jax.nn.initializers.variance_scaling(
     1.0, "fan_avg", "uniform", dtype=jnp.float32
 )
-_NORMAL_002 = jax.nn.initializers.normal(stddev=0.02)
+_NORMAL_002: Final = jax.nn.initializers.normal(stddev=0.02)
 
 
 def _init_param(
@@ -64,7 +64,9 @@ def _matmul_lastdim(lhs: jax.Array, rhs: jax.Array) -> jax.Array:
     )
 
 
-def _linear(lhs: jax.Array, kernel: jax.Array, bias: jax.Array | None = None) -> jax.Array:
+def _linear(
+    lhs: jax.Array, kernel: jax.Array, bias: jax.Array | None = None
+) -> jax.Array:
     y = _matmul_lastdim(lhs, kernel)
     if bias is not None:
         y = y + bias
@@ -524,9 +526,7 @@ class MLPBlock(nnx.Module):
                 f"MLPBlock expected sequence_length={self.sequence_length}, got {n_tokens}"
             )
 
-        gate_logits = _linear(
-            normed, self.gate_kernel.value, self.gate_bias.value
-        )
+        gate_logits = _linear(normed, self.gate_kernel.value, self.gate_bias.value)
         expert_logits, expert_indices = jax.lax.top_k(
             gate_logits, cfg.experts_per_token
         )
@@ -556,9 +556,7 @@ class MLPBlock(nnx.Module):
                 mlp1_b,
             )
             gate_part = jnp.minimum(mlp1[:, : cfg.intermediate_size], 7.0)
-            linear_part = jnp.clip(
-                mlp1[:, cfg.intermediate_size :], -7.0, 7.0
-            )
+            linear_part = jnp.clip(mlp1[:, cfg.intermediate_size :], -7.0, 7.0)
             swish_gate = gate_part * jax.nn.sigmoid(1.702 * gate_part)
             activated = swish_gate * (linear_part + 1.0)
             mlp2 = _linear(
@@ -688,7 +686,6 @@ class Transformer(nnx.Module):
         tokens: jax.Array,
         capture_routing: Optional[List[List[dict]]] = None,
     ) -> jax.Array:
-        cfg = self.config
         num_tokens = jax_core.concrete_or_error(
             int,
             tokens.shape[0],
@@ -795,15 +792,31 @@ def _sdpa_impl(
     return attn.reshape(n_new_tokens, -1)
 
 
-sdpa: Final = jax.jit(
-    _sdpa_impl,
-    static_argnames=(
-        "sliding_window",
-        "kv_offset",
-        "sequence_length",
-        "kv_length",
-    ),
-)
+def sdpa(
+    Q: jax.Array,
+    K: jax.Array,
+    V: jax.Array,
+    S: jax.Array,
+    *,
+    sm_scale: float,
+    sliding_window: int = 0,
+    kv_offset: int = 0,
+    sequence_length: int | None = None,
+    kv_length: int | None = None,
+    mask: jax.Array | None = None,
+) -> jax.Array:
+    return _sdpa_impl(
+        Q,
+        K,
+        V,
+        S,
+        sm_scale=sm_scale,
+        sliding_window=sliding_window,
+        kv_offset=kv_offset,
+        sequence_length=sequence_length,
+        kv_length=kv_length,
+        mask=mask,
+    )
 
 
 def _sdpa_callable(
@@ -1050,6 +1063,85 @@ register_example(
             ),
             "input_values": [_TF_INPUT],
             "expected_output_shapes": [(3, _TF_CONFIG.hidden_size)],
+            "run_only_f32_variant": True,
+        }
+    ],
+)
+
+
+_MODEL_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(
+    hidden_size=32,
+    num_attention_heads=4,
+    num_key_value_heads=2,
+    head_dim=8,
+    num_hidden_layers=2,
+    num_experts=4,
+    experts_per_token=2,
+    intermediate_size=16,
+    vocab_size=48,
+)
+
+
+def _build_transformer_model_apply(
+    *,
+    config: GPTOSSConfig,
+    sequence_length: int,
+    table_length: int,
+    init_key: jax.Array,
+    dtype: jnp.dtype,
+) -> callable:
+    cos, sin = _rotary_tables_for_config(config, min_length=table_length)
+    mask_sliding = _causal_mask(
+        sequence_length, sequence_length, sliding_window=config.sliding_window
+    )
+    mask_causal = _causal_mask(sequence_length, sequence_length, sliding_window=0)
+    module = Transformer(
+        config=config,
+        cos_table=cos,
+        sin_table=sin,
+        sequence_length=sequence_length,
+        mask_sliding=mask_sliding,
+        mask_causal=mask_causal,
+        dtype=dtype,
+        rng=init_key,
+    )
+
+    def _apply(tokens: jax.Array) -> jax.Array:
+        return module(tokens)
+
+    return _apply
+
+
+_MODEL_TOKENS: Final[jax.Array] = jnp.array(
+    [0, 5, 7],
+    dtype=jnp.int32,
+)
+
+
+register_example(
+    component="FlaxTransformer",
+    description="Full GPT-OSS Flax transformer (embedding, blocks, head).",
+    source="https://github.com/openai/gpt-oss/pull/217",
+    since="v0.12.0",
+    context="examples.nnx_gpt_oss",
+    children=[
+        "FlaxTransformerBlock",
+        "FlaxAttentionBlock",
+        "FlaxMLPBlock",
+    ],
+    testcases=[
+        {
+            "testcase": "gpt_oss_transformer_flax",
+            "callable": construct_and_call(
+                _build_transformer_model_apply,
+                config=_MODEL_CONFIG,
+                sequence_length=3,
+                table_length=8,
+                init_key=with_prng_key(123),
+                dtype=with_requested_dtype(),
+            ),
+            "input_values": [_MODEL_TOKENS],
+            "expected_output_shapes": [(3, _MODEL_CONFIG.vocab_size)],
             "run_only_f32_variant": True,
         }
     ],

@@ -1,3 +1,5 @@
+# tests/extra_tests/test_flax_routing_parity.py
+
 """Optional smoke test for the GPT-OSS Flax routing parity harness."""
 
 from __future__ import annotations
