@@ -235,7 +235,7 @@ def _find_next_consumer_idx(
     Find the index of the next node (after start_idx) that consumes the given
     value (by name or object). Return None if not found.
     """
-    # Prefer the IR API when available, falling back to the legacy scan.
+    # Prefer the IR API when available, otherwise scan the nodes manually.
     ref_value, ref_name = _value_identity(obj)
     target_name = name or ref_name
     if ref_value is not None:
@@ -401,7 +401,7 @@ def _replace_everywhere(
 
     * When ``old_v`` is present we rely on the IR helper (safe because the pass
       already knows all consumers that should be updated share that object).
-    * When the pass only tracked the value name (legacy IR builds may expose
+    * When the pass only tracked the value name (older ONNX exports may expose
       strings or name copies), we manually scan the provided ``nodes`` and
       update inputs that match either the cached object or the cached name.
     * String-name rewrites also handle the case where ONNX IR stored a raw
@@ -522,7 +522,7 @@ def _replace_in_graph_outputs(
     new_v: ir.Value,
 ) -> None:
     """
-    Swap a graph output from ``old_v`` to ``new_v`` while keeping legacy fallbacks.
+    Swap a graph output from ``old_v`` to ``new_v`` while keeping string-name fallbacks.
 
     Optimizer passes sometimes redirect the final node in a chain (e.g.
     collapsing Reshape→Reshape). If the old value fed a graph output we must
@@ -536,8 +536,8 @@ def _replace_in_graph_outputs(
         The value being replaced. When present we let the IR helper rewrite all
         consumers (graph outputs included).
     old_name:
-        Legacy fallback when only the value name is known. Some onnx_ir builds
-        expose string inputs, so we still scan for matching names.
+        Fallback when only the value name is known. Some onnx_ir builds expose
+        string inputs, so we still scan for matching names.
     new_v:
         The replacement value that should now feed the graph outputs.
     """

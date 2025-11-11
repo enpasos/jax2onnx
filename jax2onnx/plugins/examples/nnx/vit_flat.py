@@ -627,20 +627,12 @@ class VisionTransformer(nnx.Module):
         strides: list[int] = [1, 2, 2],
         patch_size: int = 4,
         embedding_type: str = "conv",
-        # Add support for legacy code
-        dropout_rate: float | None = None,
         embedding_dropout_rate: float = 0.1,
         attention_dropout_rate: float = 0.1,
         mlp_dropout_rate: float = 0.1,
         *,
         rngs: nnx.Rngs,
     ):
-        # Handle legacy code that passes dropout_rate
-        if dropout_rate is not None:
-            embedding_dropout_rate = dropout_rate
-            attention_dropout_rate = dropout_rate
-            mlp_dropout_rate = dropout_rate
-
         if embedding_type not in ["conv", "patch"]:
             raise ValueError("embedding_type must be either 'conv' or 'patch'")
 

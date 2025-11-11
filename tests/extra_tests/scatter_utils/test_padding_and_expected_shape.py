@@ -40,7 +40,7 @@ def test_slice_scatter_window_metadata_matches_expected_shape():
 
     assert (
         computed_updates_shape == expected_updates_shape
-    ), "plugins scatter metadata should preserve the legacy window layout"
+    ), "plugins scatter metadata should preserve the expected window layout"
 
 
 def test_scatter_window_map_excludes_scatter_axes():

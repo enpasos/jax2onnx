@@ -71,13 +71,7 @@ def test_loop_mul_broadcast_in_loop_ort_fails(tmp_path):
     m = onnx.load(str(p))
     onnx.checker.check_model(m)
 
-    # Older ORT versions used to choke on this pattern.
-    # Our converter now keeps dtypes consistent, so newer ORT loads it just fine.
-    try:
-        ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
-    except Exception:
-        # Accept the legacy failure mode.
-        return
+    ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
 
     # If we got here, ORT accepted the model. Assert we really produced no mixed dtypes
     # for the Mul inside the Loop body.

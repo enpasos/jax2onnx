@@ -30,7 +30,7 @@ class SymbolicDimOrigin:
 
     @classmethod
     def from_unknown(cls, origin: object | None) -> SymbolicDimOrigin | None:
-        """Normalise legacy `(value, axis)` tuples into ``SymbolicDimOrigin``."""
+        """Normalise `(value, axis)` tuples into ``SymbolicDimOrigin``."""
         if origin is None:
             return None
         if isinstance(origin, cls):

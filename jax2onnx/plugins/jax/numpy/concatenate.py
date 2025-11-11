@@ -48,7 +48,7 @@ def _promote_dtype(dtypes: Sequence[np.dtype[Any]]) -> np.dtype[Any]:
 
 
 def _concat_dynamic_tile(x: jax.Array) -> jax.Array:
-    """Mimic the legacy concat-with-token pattern used in Transformer blocks."""
+    """Mimic the concat-with-token pattern used in Transformer blocks."""
 
     # x : (B, N, D)
     d_feature = x.shape[2]
