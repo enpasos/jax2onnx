@@ -216,7 +216,7 @@ class RMSNorm(eqx.Module):
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x_f32 = x.astype(jnp.float32)
-        rms = jnp.mean(jnp.power(x_f32, 2.0), axis=-1, keepdims=True)
+        rms = jnp.mean(jnp.square(x_f32), axis=-1, keepdims=True)
         normalized = x_f32 * jax.lax.rsqrt(rms + self.eps)
         scaled = normalized * self.weight
         return scaled.astype(x.dtype)
@@ -1187,10 +1187,19 @@ register_example(
             "input_shapes": [("B", _TEST_CONFIG.hidden_size)],
             "post_check_onnx_graph": EG(
                 [
+                    ("Mul", {}),
                     (
-                        "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul -> Add",
-                        {"counts": {"ReduceMean": 1}},
-                    )
+                        "ReduceSum",
+                        {
+                            "counts": {
+                                "Mul": 3,
+                                "ReduceSum": 1,
+                                "Div": 2,
+                                "Add": 1,
+                                "Sqrt": 1,
+                            }
+                        },
+                    ),
                 ],
                 symbols={"B": None},
                 no_unused_inputs=True,

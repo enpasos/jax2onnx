@@ -16,7 +16,10 @@ from jax2onnx.plugins.examples.eqx.gpt_oss import (
 )
 
 pytestmark = pytest.mark.skip(
-    reason="Equinox GPT-OSS parity checks are temporarily disabled while the Flax/NNX path is stabilized."
+    reason=(
+        "Equinox GPT-OSS parity is still being realigned with the torch "
+        "reference; see tracking issue for re-enabling."
+    )
 )
 
 try:

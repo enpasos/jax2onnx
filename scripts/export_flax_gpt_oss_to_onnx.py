@@ -20,7 +20,7 @@ from jax2onnx.plugins.examples.nnx.gpt_oss_flax import (
     _causal_mask,
     _rotary_tables_for_config,
 )
-from jax2onnx.user_interface import to_onnx
+from jax2onnx.user_interface import allclose, to_onnx
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +46,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=128,
         help="Sequence length to trace/export. Must not exceed the rotary table length.",
+    )
+    parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip running a JAX vs. ONNX numeric comparison after exporting.",
+    )
+    parser.add_argument(
+        "--emit-hidden-states",
+        action="store_true",
+        help=(
+            "Add one ONNX output tensor per transformer block (post-residual hidden state) "
+            "to aid parity debugging."
+        ),
     )
     return parser.parse_args()
 
@@ -112,6 +125,19 @@ def _load_model_params(model: Transformer, params: dict) -> None:
     _assign_param(model.unembedding_kernel, params["unembedding"]["kernel"])
 
 
+def _make_export_callable(
+    model: Transformer, *, include_hidden_states: bool
+) -> callable:
+    def _apply(tokens):
+        if include_hidden_states:
+            hidden_states: list[jax.Array] = []
+            logits = model(tokens, capture_hidden_states=hidden_states)
+            return (logits, *tuple(hidden_states))
+        return model(tokens)
+
+    return _apply
+
+
 def main() -> None:
     args = parse_args()
     params_path = args.params.expanduser().resolve()
@@ -147,19 +173,33 @@ def main() -> None:
     )
     _load_model_params(model, params)
 
-    def _apply(tokens):
-        return model(tokens)
-
     dummy_tokens = jnp.zeros((seq_len,), dtype=jnp.int32)
+    export_apply = _make_export_callable(
+        model,
+        include_hidden_states=args.emit_hidden_states,
+    )
     output_path = args.output.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     to_onnx(
-        _apply,
+        export_apply,
         [dummy_tokens],
         model_name="flax_gpt_oss_transformer",
         return_mode="file",
         output_path=str(output_path),
     )
+
+    if not args.skip_validation:
+        success, message = allclose(
+            export_apply,
+            str(output_path),
+            [np.asarray(dummy_tokens, dtype=np.int32)],
+        )
+        if success:
+            print("[export] ONNX vs. JAX numeric check: PASS")
+        else:
+            print("[export] ONNX vs. JAX numeric check: FAIL")
+            print(f"         details: {message}")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

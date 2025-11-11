@@ -336,7 +336,21 @@ def to_onnx(
         dest_dir = os.path.dirname(dest)
         if dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
-        onnx.save(model_proto, dest)
+        data_location = os.path.basename(dest) + ".data"
+        data_path = os.path.join(dest_dir or ".", data_location)
+        onnx.save_model(
+            model_proto,
+            dest,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_location,
+            size_threshold=1024,
+            convert_attribute=False,
+        )
+        # onnx.save_model writes the external tensor file automatically; ensure it exists
+        if not os.path.exists(data_path):
+            with open(data_path, "wb") as f:
+                f.write(b"")
         return dest
 
     postprocess_ir_model(

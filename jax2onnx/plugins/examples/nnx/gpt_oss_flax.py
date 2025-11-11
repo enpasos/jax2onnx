@@ -688,6 +688,7 @@ class Transformer(nnx.Module):
         self,
         tokens: jax.Array,
         capture_routing: Optional[List[List[dict]]] = None,
+        capture_hidden_states: Optional[List[jax.Array]] = None,
     ) -> jax.Array:
         num_tokens = jax_core.concrete_or_error(
             int,
@@ -714,6 +715,8 @@ class Transformer(nnx.Module):
                 capture_routing[layer_idx] if capture_routing is not None else None
             )
             x = block(x, capture_routing=layer_capture)
+            if capture_hidden_states is not None:
+                capture_hidden_states.append(x)
 
         x = self.norm(x)
         logits = _linear(x, self.unembedding_kernel.value)
