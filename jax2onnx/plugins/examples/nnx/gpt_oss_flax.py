@@ -11,8 +11,9 @@ from typing import Final, List, Optional
 
 import jax
 from jax import core as jax_core
+from jax import lax
 import jax.numpy as jnp
-from flax import linen as nn
+from flax import nnx
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -21,6 +22,71 @@ from jax2onnx.plugins.plugin_system import (
     with_prng_key,
     with_requested_dtype,
 )
+
+
+class _KeySeq:
+    """Lightweight PRNG splitter for deterministic nnx Module init."""
+
+    def __init__(self, key: jax.Array | int | None):
+        if key is None:
+            key = 0
+        if isinstance(key, int):
+            key = jax.random.PRNGKey(key)
+        self._key = key
+
+    def next(self) -> jax.Array:
+        self._key, sub = jax.random.split(self._key)
+        return sub
+
+
+_XAVIER_UNIFORM = jax.nn.initializers.variance_scaling(
+    1.0, "fan_avg", "uniform", dtype=jnp.float32
+)
+_NORMAL_002 = jax.nn.initializers.normal(stddev=0.02)
+
+
+def _init_param(
+    key: jax.Array,
+    initializer,
+    shape: tuple[int, ...],
+    dtype: jnp.dtype = jnp.float32,
+) -> nnx.Param:
+    return nnx.Param(initializer(key, shape, dtype))
+
+
+def _matmul_lastdim(lhs: jax.Array, rhs: jax.Array) -> jax.Array:
+    return lax.dot_general(
+        lhs,
+        rhs,
+        dimension_numbers=(((lhs.ndim - 1,), (0,)), ((), ())),
+        precision=lax.Precision.HIGHEST,
+        preferred_element_type=jnp.float32,
+    )
+
+
+def _linear(lhs: jax.Array, kernel: jax.Array, bias: jax.Array | None = None) -> jax.Array:
+    y = _matmul_lastdim(lhs, kernel)
+    if bias is not None:
+        y = y + bias
+    return y.astype(lhs.dtype)
+
+
+def _concat(values: list[jax.Array] | tuple[jax.Array, ...], axis: int) -> jax.Array:
+    seq = list(values)
+    if not seq:
+        raise ValueError("concat requires at least one value")
+    rank = seq[0].ndim
+    if axis < 0:
+        axis = axis + rank
+    return lax.concatenate(seq, dimension=axis)
+
+
+def _softmax(logits: jax.Array, axis: int = -1) -> jax.Array:
+    max_logits = jnp.max(logits, axis=axis, keepdims=True)
+    stabilized = logits - lax.stop_gradient(max_logits)
+    exp = jnp.exp(stabilized)
+    denom = jnp.sum(exp, axis=axis, keepdims=True)
+    return exp / denom
 
 
 def _swiglu(
@@ -43,6 +109,8 @@ class GPTOSSConfig:
     num_attention_heads: int = 4
     num_key_value_heads: int = 2
     head_dim: int = 16
+    num_hidden_layers: int = 1
+    vocab_size: int = 32
     sliding_window: int = 0
     rope_theta: float = 10000.0
     initial_context_length: int = 4096
@@ -54,23 +122,18 @@ class GPTOSSConfig:
     intermediate_size: int = 64
 
 
-class RMSNorm(nn.Module):
-    hidden_size: int
-    eps: float = 1e-5
+class RMSNorm(nnx.Module):
+    def __init__(self, hidden_size: int, *, eps: float = 1e-5):
+        self.hidden_size = hidden_size
+        self.eps = eps
+        self.scale = nnx.Param(jnp.ones((hidden_size,), dtype=jnp.float32))
 
-    @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        scale = self.param(
-            "scale",
-            nn.initializers.ones,
-            (self.hidden_size,),
-            jnp.float32,
-        )
         original_dtype = x.dtype
         t = x.astype(jnp.float32)
         rms = jnp.sqrt(jnp.mean(t**2, axis=-1, keepdims=True) + self.eps)
         t = t / rms
-        return (t * scale).astype(original_dtype)
+        return (t * self.scale.value).astype(original_dtype)
 
 
 _TEST_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(hidden_size=64)
@@ -110,11 +173,9 @@ def _build_rmsnorm_apply(
     dtype: jnp.dtype,
 ) -> callable:
     module = RMSNorm(hidden_size)
-    dummy = jnp.zeros((1, hidden_size), dtype=dtype)
-    params = module.init(init_key, dummy)["params"]
 
     def _apply(x: jax.Array) -> jax.Array:
-        return module.apply({"params": params}, x)
+        return module(x)
 
     return _apply
 
@@ -221,7 +282,8 @@ def _causal_mask(
     return jnp.asarray(mask, dtype=jnp.float32)
 
 
-class RotaryEmbedding(nn.Module):
+@dataclasses.dataclass
+class RotaryEmbedding:
     head_dim: int
     cos_table: jax.Array
     sin_table: jax.Array
@@ -248,7 +310,7 @@ class RotaryEmbedding(nn.Module):
             x1, x2 = jnp.split(x, 2, axis=-1)
             y1 = x1 * cos_b - x2 * sin_b
             y2 = x2 * cos_b + x1 * sin_b
-            return jnp.concatenate([y1, y2], axis=-1).reshape(orig_shape)
+            return _concat([y1, y2], axis=-1).reshape(orig_shape)
 
         return _rotate(query), _rotate(key)
 
@@ -270,11 +332,9 @@ def _build_rotary_apply(
         cos_table=cos_table,
         sin_table=sin_table,
     )
-    dummy = jnp.zeros((sequence_length, 2, head_dim), dtype=dtype)
-    variables = module.init(init_key, dummy, dummy, position_offset=0)
 
     def _apply(q: jax.Array, k: jax.Array) -> tuple[jax.Array, jax.Array]:
-        return module.apply(variables, q, k, position_offset=1)
+        return module(q, k, position_offset=1)
 
     return _apply
 
@@ -313,14 +373,49 @@ register_example(
 )
 
 
-class AttentionBlock(nn.Module):
-    config: GPTOSSConfig
-    cos_table: jax.Array
-    sin_table: jax.Array
-    sequence_length: int
-    mask: jax.Array
+class AttentionBlock(nnx.Module):
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        cos_table: jax.Array,
+        sin_table: jax.Array,
+        sequence_length: int,
+        mask: jax.Array,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        self.config = config
+        self.cos_table = nnx.data(cos_table)
+        self.sin_table = nnx.data(sin_table)
+        self.sequence_length = sequence_length
+        self.mask = nnx.data(mask)
+        self.dtype = dtype
 
-    @nn.compact
+        self.norm = RMSNorm(config.hidden_size)
+        rng_seq = _KeySeq(rng)
+
+        qkv_dim = config.head_dim * (
+            config.num_attention_heads + 2 * config.num_key_value_heads
+        )
+        self.qkv_kernel = _init_param(
+            rng_seq.next(), _XAVIER_UNIFORM, (config.hidden_size, qkv_dim), dtype
+        )
+        self.qkv_bias = nnx.Param(jnp.zeros((qkv_dim,), dtype=dtype))
+        self.out_kernel = _init_param(
+            rng_seq.next(),
+            _XAVIER_UNIFORM,
+            (config.hidden_size, config.hidden_size),
+            dtype,
+        )
+        self.out_bias = nnx.Param(jnp.zeros((config.hidden_size,), dtype=dtype))
+        self.sinks = _init_param(
+            rng_seq.next(),
+            _NORMAL_002,
+            (config.num_attention_heads,),
+            dtype,
+        )
+
     def __call__(self, x: jax.Array) -> jax.Array:
         cfg = self.config
         num_tokens = jax_core.concrete_or_error(
@@ -334,25 +429,8 @@ class AttentionBlock(nn.Module):
             )
         q_mult = cfg.num_attention_heads // cfg.num_key_value_heads
 
-        sinks = self.param(
-            "sinks",
-            nn.initializers.normal(stddev=0.02),
-            (cfg.num_attention_heads,),
-        ).astype(x.dtype)
-
-        normed = RMSNorm(cfg.hidden_size, name="norm")(x)
-        qkv_dim = cfg.head_dim * (cfg.num_attention_heads + 2 * cfg.num_key_value_heads)
-        qkv_kernel = self.param(
-            "qkv_kernel",
-            nn.initializers.xavier_uniform(),
-            (cfg.hidden_size, qkv_dim),
-        ).astype(x.dtype)
-        qkv_bias = self.param(
-            "qkv_bias",
-            nn.initializers.zeros,
-            (qkv_dim,),
-        ).astype(x.dtype)
-        qkv = normed @ qkv_kernel + qkv_bias
+        normed = self.norm(x)
+        qkv = _linear(normed, self.qkv_kernel.value, self.qkv_bias.value)
 
         q_end = cfg.num_attention_heads * cfg.head_dim
         k_end = q_end + cfg.num_key_value_heads * cfg.head_dim
@@ -376,7 +454,7 @@ class AttentionBlock(nn.Module):
             q,
             k,
             v,
-            sinks,
+            self.sinks.value.astype(x.dtype),
             sm_scale=sm_scale,
             sliding_window=cfg.sliding_window,
             kv_offset=0,
@@ -385,45 +463,58 @@ class AttentionBlock(nn.Module):
             mask=self.mask,
         )
 
-        out_kernel = self.param(
-            "out_kernel",
-            nn.initializers.xavier_uniform(),
-            (cfg.hidden_size, cfg.hidden_size),
-        ).astype(x.dtype)
-        out_bias = self.param(
-            "out_bias",
-            nn.initializers.zeros,
-            (cfg.hidden_size,),
-        ).astype(x.dtype)
-        projected = attn_out @ out_kernel + out_bias
+        projected = _linear(attn_out, self.out_kernel.value, self.out_bias.value)
         return x + projected
 
 
-class MLPBlock(nn.Module):
-    config: GPTOSSConfig
-    sequence_length: int
+class MLPBlock(nnx.Module):
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        sequence_length: int,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        self.config = config
+        self.sequence_length = sequence_length
+        self.norm = RMSNorm(config.hidden_size)
+        rng_seq = _KeySeq(rng)
 
-    @nn.compact
+        self.gate_kernel = _init_param(
+            rng_seq.next(),
+            _XAVIER_UNIFORM,
+            (config.hidden_size, config.num_experts),
+            dtype,
+        )
+        self.gate_bias = nnx.Param(jnp.zeros((config.num_experts,), dtype=dtype))
+
+        self.mlp1_weight = _init_param(
+            rng_seq.next(),
+            _XAVIER_UNIFORM,
+            (config.num_experts, config.intermediate_size * 2, config.hidden_size),
+            dtype,
+        )
+        self.mlp1_bias = nnx.Param(
+            jnp.zeros((config.num_experts, config.intermediate_size * 2), dtype=dtype)
+        )
+        self.mlp2_weight = _init_param(
+            rng_seq.next(),
+            _XAVIER_UNIFORM,
+            (config.num_experts, config.hidden_size, config.intermediate_size),
+            dtype,
+        )
+        self.mlp2_bias = nnx.Param(
+            jnp.zeros((config.num_experts, config.hidden_size), dtype=dtype)
+        )
+
     def __call__(
         self,
         x: jax.Array,
         capture_routing: Optional[List[dict]] = None,
     ) -> jax.Array:
         cfg = self.config
-        dtype = x.dtype
-        normed = RMSNorm(cfg.hidden_size, name="norm")(x)
-
-        gate_kernel = self.param(
-            "gate_kernel",
-            nn.initializers.xavier_uniform(),
-            (cfg.hidden_size, cfg.num_experts),
-        ).astype(dtype)
-        gate_bias = self.param(
-            "gate_bias",
-            nn.initializers.zeros,
-            (cfg.num_experts,),
-        ).astype(dtype)
-        normed @ gate_kernel + gate_bias
+        normed = self.norm(x)
 
         n_tokens = jax_core.concrete_or_error(
             int, normed.shape[0], "MLPBlock requires static token count"
@@ -432,106 +523,201 @@ class MLPBlock(nn.Module):
             raise ValueError(
                 f"MLPBlock expected sequence_length={self.sequence_length}, got {n_tokens}"
             )
-        n_tokens = self.sequence_length
-        base_idx = np.arange(cfg.experts_per_token, dtype=np.int32)[None, :]
-        top_indices = jnp.asarray(np.tile(base_idx, (n_tokens, 1)))
-        base_weights = np.full(
-            (cfg.experts_per_token,), 1.0 / cfg.experts_per_token, dtype=np.float32
-        )[None, :]
-        top_weights = jnp.asarray(np.tile(base_weights, (n_tokens, 1)), dtype=dtype)
+
+        gate_logits = _linear(
+            normed, self.gate_kernel.value, self.gate_bias.value
+        )
+        expert_logits, expert_indices = jax.lax.top_k(
+            gate_logits, cfg.experts_per_token
+        )
+        expert_indices = expert_indices.astype(jnp.int32)
+        expert_weights = jax.nn.softmax(expert_logits, axis=-1)
 
         if capture_routing is not None:
             capture_routing.append(
                 {
-                    "expert_ids": np.array(top_indices),
-                    "gate_weights": np.array(top_weights),
+                    "expert_ids": np.array(expert_indices),
+                    "gate_weights": np.array(expert_weights),
                 }
             )
 
-        mlp1_weight = self.param(
-            "mlp1_weight",
-            nn.initializers.xavier_uniform(),
-            (cfg.num_experts, cfg.hidden_size, cfg.intermediate_size * 2),
-        ).astype(dtype)
-        mlp1_bias = self.param(
-            "mlp1_bias",
-            nn.initializers.zeros,
-            (cfg.num_experts, cfg.intermediate_size * 2),
-        ).astype(dtype)
-        mlp2_weight = self.param(
-            "mlp2_weight",
-            nn.initializers.xavier_uniform(),
-            (cfg.num_experts, cfg.intermediate_size, cfg.hidden_size),
-        ).astype(dtype)
-        mlp2_bias = self.param(
-            "mlp2_bias",
-            nn.initializers.zeros,
-            (cfg.num_experts, cfg.hidden_size),
-        ).astype(dtype)
+        mlp1_kernel = jnp.transpose(self.mlp1_weight.value, (0, 2, 1))
+        mlp2_kernel = jnp.transpose(self.mlp2_weight.value, (0, 2, 1))
 
-        expert_one_hot = jax.nn.one_hot(
-            top_indices,
-            cfg.num_experts,
-            dtype=dtype,
+        def _run_expert(
+            mlp1_w: jax.Array,
+            mlp1_b: jax.Array,
+            mlp2_w: jax.Array,
+            mlp2_b: jax.Array,
+        ) -> jax.Array:
+            mlp1 = _linear(
+                normed,
+                mlp1_w,
+                mlp1_b,
+            )
+            gate_part = jnp.minimum(mlp1[:, : cfg.intermediate_size], 7.0)
+            linear_part = jnp.clip(
+                mlp1[:, cfg.intermediate_size :], -7.0, 7.0
+            )
+            swish_gate = gate_part * jax.nn.sigmoid(1.702 * gate_part)
+            activated = swish_gate * (linear_part + 1.0)
+            mlp2 = _linear(
+                activated,
+                mlp2_w,
+                mlp2_b,
+            )
+            return mlp2
+
+        expert_outputs = jax.vmap(
+            _run_expert,
+            in_axes=(0, 0, 0, 0),
+            out_axes=0,
+        )(
+            mlp1_kernel,
+            self.mlp1_bias.value,
+            mlp2_kernel,
+            self.mlp2_bias.value,
         )
-        mixing_weights = jnp.sum(
-            expert_one_hot * top_weights[..., None],
+
+        expert_outputs = expert_outputs.transpose(1, 0, 2)
+        dense_gate_weights = jnp.sum(
+            jax.nn.one_hot(
+                expert_indices,
+                cfg.num_experts,
+                dtype=expert_outputs.dtype,
+            )
+            * expert_weights[..., None],
             axis=1,
         )
-
-        def _token_forward(token: jax.Array) -> jax.Array:
-            def _expert_forward(
-                w1: jax.Array,
-                b1: jax.Array,
-                w2: jax.Array,
-                b2: jax.Array,
-            ) -> jax.Array:
-                hidden = token @ w1 + b1
-                gate = jnp.minimum(hidden[..., : cfg.intermediate_size], 7.0)
-                linear = hidden[..., cfg.intermediate_size :]
-                linear = jnp.minimum(jnp.maximum(linear, -7.0), 7.0)
-                swish_gate = gate * jax.nn.sigmoid(1.702 * gate)
-                activated = swish_gate * (linear + 1.0)
-                return activated @ w2 + b2
-
-            return jax.vmap(_expert_forward)(
-                mlp1_weight, mlp1_bias, mlp2_weight, mlp2_bias
-            )
-
-        expert_outputs = jax.vmap(_token_forward)(normed)
-        fused = jnp.einsum("tnh,tn->th", expert_outputs, mixing_weights)
+        fused = jnp.sum(
+            expert_outputs * dense_gate_weights[..., None],
+            axis=1,
+        )
         return x + fused
 
 
-class TransformerBlock(nn.Module):
-    config: GPTOSSConfig
-    cos_table: jax.Array
-    sin_table: jax.Array
-    sequence_length: int
-    mask: jax.Array
+class TransformerBlock(nnx.Module):
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        cos_table: jax.Array,
+        sin_table: jax.Array,
+        sequence_length: int,
+        mask: jax.Array,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        rng_seq = _KeySeq(rng)
+        self.attention = AttentionBlock(
+            config=config,
+            cos_table=cos_table,
+            sin_table=sin_table,
+            sequence_length=sequence_length,
+            mask=mask,
+            dtype=dtype,
+            rng=rng_seq.next(),
+        )
+        self.mlp = MLPBlock(
+            config=config,
+            sequence_length=sequence_length,
+            dtype=dtype,
+            rng=rng_seq.next(),
+        )
 
-    @nn.compact
     def __call__(
         self,
         x: jax.Array,
         capture_routing: Optional[List[dict]] = None,
     ) -> jax.Array:
-        attn = AttentionBlock(
-            config=self.config,
-            cos_table=self.cos_table,
-            sin_table=self.sin_table,
-            name="attention",
-            sequence_length=self.sequence_length,
-            mask=self.mask,
-        )
-        mlp = MLPBlock(
-            config=self.config,
-            name="mlp",
-            sequence_length=self.sequence_length,
-        )
-        x = attn(x)
-        x = mlp(x, capture_routing=capture_routing)
+        x = self.attention(x)
+        x = self.mlp(x, capture_routing=capture_routing)
         return x
+
+
+class Transformer(nnx.Module):
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        cos_table: jax.Array,
+        sin_table: jax.Array,
+        sequence_length: int,
+        mask_sliding: jax.Array,
+        mask_causal: jax.Array,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        self.config = config
+        self.sequence_length = sequence_length
+        self.cos_table = nnx.data(cos_table)
+        self.sin_table = nnx.data(sin_table)
+        self.mask_sliding = nnx.data(mask_sliding)
+        self.mask_causal = nnx.data(mask_causal)
+
+        rng_seq = _KeySeq(rng)
+        self.embedding = _init_param(
+            rng_seq.next(),
+            _NORMAL_002,
+            (config.vocab_size, config.hidden_size),
+            dtype,
+        )
+        self.blocks = nnx.Dict()
+        for layer_idx in range(config.num_hidden_layers):
+            use_sliding = config.sliding_window if (layer_idx % 2 == 0) else 0
+            mask = self.mask_sliding if use_sliding > 0 else self.mask_causal
+            self.blocks[f"block_{layer_idx}"] = TransformerBlock(
+                config=config,
+                cos_table=self.cos_table,
+                sin_table=self.sin_table,
+                sequence_length=sequence_length,
+                mask=mask,
+                dtype=dtype,
+                rng=rng_seq.next(),
+            )
+        self.norm = RMSNorm(config.hidden_size)
+        self.unembedding_kernel = _init_param(
+            rng_seq.next(),
+            _XAVIER_UNIFORM,
+            (config.hidden_size, config.vocab_size),
+            dtype,
+        )
+
+    def __call__(
+        self,
+        tokens: jax.Array,
+        capture_routing: Optional[List[List[dict]]] = None,
+    ) -> jax.Array:
+        cfg = self.config
+        num_tokens = jax_core.concrete_or_error(
+            int,
+            tokens.shape[0],
+            "Transformer requires static sequence length",
+        )
+        if num_tokens != self.sequence_length:
+            raise ValueError(
+                f"Transformer expected sequence_length={self.sequence_length}, got {num_tokens}"
+            )
+        embedding = self.embedding.value
+        hidden = embedding[tokens.astype(jnp.int32)]
+
+        num_blocks = self.config.num_hidden_layers
+        if capture_routing is not None and len(capture_routing) != num_blocks:
+            raise ValueError(
+                f"capture_routing must contain {num_blocks} lists; got {len(capture_routing)}"
+            )
+
+        x = hidden
+        for layer_idx in range(num_blocks):
+            block = self.blocks[f"block_{layer_idx}"]
+            layer_capture = (
+                capture_routing[layer_idx] if capture_routing is not None else None
+            )
+            x = block(x, capture_routing=layer_capture)
+
+        x = self.norm(x)
+        logits = _linear(x, self.unembedding_kernel.value)
+        return logits
 
 
 def _sdpa_impl(
@@ -586,13 +772,26 @@ def _sdpa_impl(
 
     Qh = Q.transpose(1, 2, 0, 3)
     Kh = K.transpose(1, 2, 3, 0)
-    logits = jnp.matmul(Qh, Kh) * sm_scale
+    logits = lax.dot_general(
+        Qh,
+        Kh,
+        dimension_numbers=(((3,), (2,)), ((0, 1), (0, 1))),
+        precision=lax.Precision.HIGHEST,
+        preferred_element_type=jnp.float32,
+    )
+    logits = logits * sm_scale
     logits = logits + mask[None, None, :, :]
-    logits = jnp.concatenate([logits, sinks], axis=-1)
+    logits = _concat([logits, sinks], axis=-1)
 
-    weights = jax.nn.softmax(logits, axis=-1)[..., :-1]
+    weights = _softmax(logits, axis=-1)[..., :-1]
     Vh = V.transpose(1, 2, 0, 3)
-    attn = jnp.matmul(weights, Vh).transpose(2, 0, 1, 3)
+    attn = lax.dot_general(
+        weights,
+        Vh,
+        dimension_numbers=(((3,), (2,)), ((0, 1), (0, 1))),
+        precision=lax.Precision.HIGHEST,
+        preferred_element_type=jnp.float32,
+    ).transpose(2, 0, 1, 3)
     return attn.reshape(n_new_tokens, -1)
 
 
@@ -687,12 +886,12 @@ def _build_attention_apply(
         mask=_causal_mask(
             sequence_length, sequence_length, sliding_window=config.sliding_window
         ),
+        dtype=dtype,
+        rng=init_key,
     )
-    dummy = jnp.zeros((sequence_length, config.hidden_size), dtype=dtype)
-    variables = module.init(init_key, dummy)
 
     def _apply(x: jax.Array) -> jax.Array:
-        return module.apply(variables, x)
+        return module(x)
 
     return _apply
 
@@ -743,12 +942,15 @@ def _build_mlp_apply(
     dtype: jnp.dtype,
 ) -> callable:
     sequence_length = 3
-    module = MLPBlock(config=config, sequence_length=sequence_length)
-    dummy = jnp.zeros((sequence_length, config.hidden_size), dtype=dtype)
-    variables = module.init(init_key, dummy)
+    module = MLPBlock(
+        config=config,
+        sequence_length=sequence_length,
+        dtype=dtype,
+        rng=init_key,
+    )
 
     def _apply(x: jax.Array) -> jax.Array:
-        return module.apply(variables, x)
+        return module(x)
 
     return _apply
 
@@ -810,12 +1012,12 @@ def _build_transformer_apply(
         mask=_causal_mask(
             sequence_length, sequence_length, sliding_window=config.sliding_window
         ),
+        dtype=dtype,
+        rng=init_key,
     )
-    dummy = jnp.zeros((sequence_length, config.hidden_size), dtype=dtype)
-    variables = module.init(init_key, dummy)
 
     def _apply(x: jax.Array) -> jax.Array:
-        return module.apply(variables, x)
+        return module(x)
 
     return _apply
 

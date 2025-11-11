@@ -112,3 +112,59 @@ Run a focused check with:
 ```bash
 poetry run pytest -q tests/extra_tests/test_eqx_gpt_oss_parity.py
 ```
+
+## 4. Flax/NNX routing parity harness
+
+For the Flax/NNX path under `jax2onnx/plugins/examples/nnx/gpt_oss_flax.py` we
+use the parity harness from the upstream PR #217. The lightweight smoke test in
+`tests/extra_tests/test_flax_routing_parity.py` exercises the harness with
+`--max-layers 4 --max-tokens 2` on CPU to make sure gate diffs stay within the
+documented bf16 window.
+
+To reproduce the full report locally:
+
+```bash
+JAX_PLATFORM_NAME=cpu poetry run python scripts/gpt_oss_routing_parity.py \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --jax-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --prompt "What is the capital of France?" \
+  --max-layers 24 \
+  --max-tokens 4 \
+  --torch-device cpu \
+  --output-dir artifacts/gpt_oss_routing/flax
+```
+
+The harness writes `artifacts/gpt_oss_routing/flax/<timestamp>_summary.md`
+containing per-layer match rates and gate diffs. The `--max-layers` and
+`--max-tokens` flags let you dial the run time down for developer machines, and
+`--torch-device cpu` avoids CUDA OOMs during reference loading.
+
+For weight staging, use `scripts/export_flax_gpt_oss_params.py` to serialize the
+checkpoint into a Flax bundle that downstream ONNX exports can consume:
+
+```bash
+poetry run python scripts/export_flax_gpt_oss_params.py \
+  --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --output ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack
+```
+
+The `examples.nnx_gpt_oss.FlaxTransformer` example (covered by
+`tests/examples/test_nnx_gpt_oss.py`) instantiates the full embedding → blocks →
+norm → unembedding stack so structural coverage stays close to the production
+model.
+
+Once params are staged, export the Flax transformer to ONNX via:
+
+```bash
+poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+  --output artifacts/gpt_oss_flax.onnx \
+  --sequence-length 256
+```
+
+The exporter expects a config JSON living next to the params bundle (the staging
+script emits `<output>.config.json`). Pass `--config /path/to/config.json` if you
+want to override that location. Increase `--sequence-length` once shorter traces
+succeed; the script derives rotary tables and causal/sliding masks automatically
+from the config.
