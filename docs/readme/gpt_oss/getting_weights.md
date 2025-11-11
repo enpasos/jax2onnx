@@ -101,6 +101,34 @@ Notes:
   poetry run pytest tests/examples/test_nnx_gpt_oss.py::Test_FlaxTransformer -q
   ```
 
+> **Tip:** When iterating on the exporter it can be helpful to trim the staged
+> checkpoint down to a couple of layers. The snippet below keeps only the first
+> two Transformer blocks while preserving the original hidden size/head layout,
+> producing a much smaller bundle that exports quickly:
+>
+> ```bash
+> poetry run python - <<'PY'
+> from pathlib import Path
+> import json
+> import flax.serialization as serialization
+>
+> root = Path("~/.cache/gpt_oss/gpt-oss-20b").expanduser()
+> params = serialization.msgpack_restore((root / "flax_params.msgpack").read_bytes())
+> keep = {k: params[k] for k in ["embedding", "norm", "unembedding"]}
+> for idx in range(2):
+>     keep[f"block_{idx}"] = params[f"block_{idx}"]
+> (root / "flax_params_2layers.msgpack").write_bytes(serialization.to_bytes(keep))
+>
+> config = json.loads((root / "flax_params.config.json").read_text())
+> config["num_hidden_layers"] = 2
+> (root / "flax_params_2layers.config.json").write_text(json.dumps(config, indent=2))
+> print("Wrote 2-layer bundle under", root)
+> PY
+> ```
+>
+> Export with `--params .../flax_params_2layers.msgpack --config .../flax_params_2layers.config.json`
+> to keep traces under a few minutes.
+
 ## 4. Flax/NNX routing parity harness
 
 The parity harness from PR #217 verifies that the staged Flax/NNX model makes

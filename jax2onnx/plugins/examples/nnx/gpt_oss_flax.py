@@ -407,7 +407,10 @@ class AttentionBlock(nnx.Module):
         self.out_kernel = _init_param(
             rng_seq.next(),
             _XAVIER_UNIFORM,
-            (config.hidden_size, config.hidden_size),
+            (
+                config.num_attention_heads * config.head_dim,
+                config.hidden_size,
+            ),
             dtype,
         )
         self.out_bias = nnx.Param(jnp.zeros((config.hidden_size,), dtype=dtype))
