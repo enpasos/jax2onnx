@@ -2,6 +2,7 @@
 
 import logging
 import os
+from contextlib import contextmanager
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -43,6 +44,18 @@ _VALID_RETURN_MODES = {"proto", "ir", "file"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
+
+
+@contextmanager
+def _temporary_x64(enabled: bool) -> None:
+    prev = jax.config.jax_enable_x64
+    try:
+        if enabled != prev:
+            jax.config.update("jax_enable_x64", enabled)
+        yield
+    finally:
+        if jax.config.jax_enable_x64 != prev:
+            jax.config.update("jax_enable_x64", prev)
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -321,16 +334,22 @@ def to_onnx(
                 )
             param_map[key] = value
 
-    result = to_onnx_impl(
-        fn=fn,
-        inputs=normalized_inputs,
-        input_params=param_map,
-        model_name=model_name,
-        opset=opset,
-        enable_double_precision=enable_double_precision,
-        record_primitive_calls_file=record_primitive_calls_file,
-        protective_clone=(normalized_mode == "ir"),
-    )
+    with _temporary_x64(enable_double_precision):
+        result = to_onnx_impl(
+            fn=fn,
+            inputs=normalized_inputs,
+            input_params=param_map,
+            model_name=model_name,
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            record_primitive_calls_file=record_primitive_calls_file,
+            protective_clone=(normalized_mode == "ir"),
+        )
+
+        postprocess_ir_model(
+            result,
+            promote_to_double=enable_double_precision,
+        )
 
     def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
         dest_dir = os.path.dirname(dest)
@@ -353,10 +372,6 @@ def to_onnx(
                 f.write(b"")
         return dest
 
-    postprocess_ir_model(
-        result,
-        promote_to_double=enable_double_precision,
-    )
     _materialize_input_params_on_ir(result, param_map)
     if normalized_mode == "ir":
         return result
@@ -416,6 +431,8 @@ def allclose(
     input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
+    *,
+    enable_double_precision: bool = False,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs remain numerically close.
@@ -427,6 +444,8 @@ def allclose(
         input_params: Optional keyword arguments applied to both call sites.
         rtol: Relative tolerance for floating-point comparisons.
         atol: Absolute tolerance for floating-point comparisons.
+        enable_double_precision: Temporarily enable `jax_enable_x64` while running the
+            comparison. Defaults to False.
 
     Returns:
         `(is_match, message)` where `is_match` indicates success and `message`
@@ -457,7 +476,8 @@ def allclose(
         xs = list(inputs)
 
     params = dict(input_params or {})
-    return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
+    with _temporary_x64(enable_double_precision):
+        return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
 
 
 def _run_allclose(

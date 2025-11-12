@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/run_flax_gpt_oss_onnx.py
+
 """Compare Flax GPT-OSS transformer outputs against its ONNX export."""
 
 from __future__ import annotations
@@ -33,7 +35,9 @@ def _assign_param(param, value):
     target_shape = param.value.shape
     arr = jnp.asarray(value, dtype=param.value.dtype)
     if arr.shape != target_shape:
-        raise ValueError(f"Shape mismatch for {param}: expected {target_shape}, got {arr.shape}")
+        raise ValueError(
+            f"Shape mismatch for {param}: expected {target_shape}, got {arr.shape}"
+        )
     param.value = arr
 
 
@@ -172,9 +176,7 @@ def main() -> None:
     print(f"Max |diff|: {diff}")
 
     if need_hidden:
-        for layer_idx, (jax_state, ort_state) in enumerate(
-            zip(jax_hidden, ort_hidden)
-        ):
+        for layer_idx, (jax_state, ort_state) in enumerate(zip(jax_hidden, ort_hidden)):
             layer_diff = np.max(np.abs(jax_state - ort_state))
             mean_diff = float(np.mean(np.abs(jax_state - ort_state)))
             print(

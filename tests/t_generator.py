@@ -715,15 +715,15 @@ def make_test_function(tp: dict[str, Any]):
                         dt = np.float64
                     xs_for_num_check.append(np.asarray(val_from_tc, dtype=dt))
 
-                with _temporary_x64(current_enable_double_precision):
-                    passed, msg = allclose(
-                        callable_obj,
-                        model_path,
-                        xs_for_num_check,
-                        input_params_from_testcase,
-                        rtol=rtol,
-                        atol=atol,
-                    )
+                passed, msg = allclose(
+                    callable_obj,
+                    model_path,
+                    xs_for_num_check,
+                    input_params_from_testcase,
+                    rtol=rtol,
+                    atol=atol,
+                    enable_double_precision=current_enable_double_precision,
+                )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
 
@@ -780,15 +780,15 @@ def make_test_function(tp: dict[str, Any]):
                     f"(callable takes no arguments)."
                 )
 
-            with _temporary_x64(current_enable_double_precision):
-                passed_numerical, validation_message = allclose(
-                    callable_obj,
-                    model_path,
-                    xs_for_num_check,
-                    input_params_from_testcase,
-                    rtol=rtol,
-                    atol=atol,
-                )
+            passed_numerical, validation_message = allclose(
+                callable_obj,
+                model_path,
+                xs_for_num_check,
+                input_params_from_testcase,
+                rtol=rtol,
+                atol=atol,
+                enable_double_precision=current_enable_double_precision,
+            )
             assert (
                 passed_numerical
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
