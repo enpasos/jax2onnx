@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -17,18 +18,20 @@ from typing import (
     Optional,
     Tuple,
 )
+from collections.abc import Mapping
+from enum import Enum
 
 import jax
+import jax.extend.core as jax_core_ext
 import jax.numpy as jnp
 import numpy as np
 import onnx
-from jax._src import core, source_info_util
+from jax import core
 from onnx import AttributeProto
 import onnx_ir as ir
 
 from jax2onnx import to_onnx
 from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
-
 
 jax.config.update("jax_enable_x64", True)
 
@@ -69,7 +72,9 @@ def _deserialize_aval(desc: Dict[str, Any]) -> core.AbstractValue:
     raise TypeError(f"Unsupported aval description: {desc}")
 
 
-def _deserialize_var(desc: Dict[str, Any], var_map: Dict[str, core.Var]) -> core.Var:
+def _deserialize_var(
+    desc: Dict[str, Any], var_map: Dict[str, jax_core_ext.Var]
+) -> jax_core_ext.Var:
     name = desc["name"]
     if name in var_map:
         return var_map[name]
@@ -78,21 +83,21 @@ def _deserialize_var(desc: Dict[str, Any], var_map: Dict[str, core.Var]) -> core
         raise TypeError(f"Unexpected aval descriptor for {name!r}: {aval_desc!r}")
     aval = _deserialize_aval(aval_desc)
     try:
-        var = core.Var(aval)
+        var = jax_core_ext.Var(aval)
     except TypeError:
-        var = core.Var(name, aval)
+        var = jax_core_ext.Var(name, aval)
     var_map[name] = var
     return var
 
 
-def _deserialize_literal(desc: Dict[str, Any], loader: ArrayLoader) -> core.Literal:
+def _deserialize_literal(desc: Dict[str, Any], loader: ArrayLoader) -> _LiteralType:
     aval = _deserialize_aval(desc["aval"])
     value_desc = desc["value"]
     if value_desc["kind"] == "array":
         val = loader.get(value_desc["ref"])
     else:
         val = value_desc["value"]
-    return core.Literal(val, aval)
+    return _LiteralType(val, aval)
 
 
 def _deserialize_value(desc: Any, loader: ArrayLoader) -> Any:
@@ -120,7 +125,14 @@ def _deserialize_value(desc: Any, loader: ArrayLoader) -> Any:
                     return cls(**mapping)
                 raise
         if kind == "enum":
-            enum_cls = getattr(_import_module(desc["module"]), desc["name"])
+            module = _import_module(desc["module"])
+            enum_cls = getattr(module, desc["name"], None)
+            if enum_cls is None:
+                enum_cls = _ENUM_FALLBACKS.get((desc["module"], desc["name"]))
+                if enum_cls is None:
+                    raise AttributeError(
+                        f"Enum {desc['name']} not available in {desc['module']}"
+                    )
             return enum_cls[desc["member"]]
         if kind == "dtype":
             return np.dtype(desc["value"])
@@ -131,7 +143,7 @@ def _deserialize_value(desc: Any, loader: ArrayLoader) -> Any:
 
 
 def _deserialize_atom(
-    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]
+    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, jax_core_ext.Var]
 ) -> core.Atom:
     kind = desc["kind"]
     if kind == "var":
@@ -145,47 +157,109 @@ def _deserialize_atom(
 
 
 def _deserialize_eqn(
-    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, core.Var]
+    desc: Dict[str, Any], loader: ArrayLoader, var_map: Dict[str, jax_core_ext.Var]
 ) -> core.JaxprEqn:
     primitive = _primitive_registry()[desc["primitive"]]
     invars = [_deserialize_atom(atom, loader, var_map) for atom in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
-    params = _deserialize_value(desc["params"], loader)
-    return core.new_jaxpr_eqn(
+    params = _sanitize_params(_deserialize_value(desc["params"], loader))
+    eqn = core.new_jaxpr_eqn(
         invars,
         outvars,
         primitive,
         params,
         effects=(),
-        source_info=source_info_util.new_source_info(),
     )
+    return eqn
 
 
-def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> core.Jaxpr:
-    var_map: Dict[str, core.Var] = {}
+def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> jax_core_ext.Jaxpr:
+    var_map: Dict[str, jax_core_ext.Var] = {}
     constvars = [_deserialize_var(var, var_map) for var in desc["constvars"]]
     invars = [_deserialize_var(var, var_map) for var in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
     eqns = [_deserialize_eqn(eqn, loader, var_map) for eqn in desc["eqns"]]
-    return core.Jaxpr(constvars, invars, outvars, eqns)
+    return jax_core_ext.Jaxpr(constvars, invars, outvars, eqns)
 
 
 def _deserialize_closed_jaxpr(
     desc: Dict[str, Any], loader: ArrayLoader
-) -> core.ClosedJaxpr:
+) -> jax_core_ext.ClosedJaxpr:
     jaxpr = _deserialize_jaxpr(desc["jaxpr"], loader)
     consts = [_deserialize_value(c, loader) for c in desc["consts"]]
-    return core.ClosedJaxpr(jaxpr, consts)
+    return jax_core_ext.ClosedJaxpr(jaxpr, consts)
+
+
+_PrimitiveType = getattr(jax_core_ext, "Primitive")
+_LiteralType = getattr(jax_core_ext, "Literal")
+_FALLBACK_IMPLS: Dict[str, Callable[..., Any]] = {
+    "square": lambda x: jnp.square(x),
+}
+
+
+class _ArrayCopySemantics(Enum):
+    REUSE_INPUT = "REUSE_INPUT"
+    DONATE_INPUT = "DONATE_INPUT"
+    UNKNOWN = "UNKNOWN"
+
+
+_ENUM_FALLBACKS: Dict[tuple[str, str], type[Enum]] = {
+    ("jaxlib._jax", "ArrayCopySemantics"): _ArrayCopySemantics,
+    ("jaxlib.xla_extension", "ArrayCopySemantics"): _ArrayCopySemantics,
+}
+
+
+def _wrap_primitive_bind(primitive: _PrimitiveType) -> None:
+    if getattr(primitive, "_sharding_bind_wrapped", False):
+        return
+    orig_bind = primitive.bind
+
+    def _compat_bind(*args, **params):
+        current = params
+        while True:
+            try:
+                return orig_bind(*args, **current)
+            except TypeError as exc:
+                message = str(exc)
+                unexpected = re.search(
+                    r"unexpected keyword argument '([^']+)'", message
+                )
+                if unexpected:
+                    key = unexpected.group(1)
+                    if key in current:
+                        new_params = dict(current)
+                        new_params.pop(key, None)
+                        current = new_params
+                        continue
+                missing = re.search(
+                    r"required keyword-only argument: '([^']+)'", message
+                )
+                if missing:
+                    key = missing.group(1)
+                    if key not in current:
+                        new_params = dict(current)
+                        new_params[key] = None
+                        current = new_params
+                        continue
+                raise
+
+    primitive.bind = _compat_bind  # type: ignore[assignment]
+    primitive._sharding_bind_wrapped = True  # type: ignore[attr-defined]
 
 
 @lru_cache(maxsize=1)
-def _primitive_registry() -> Dict[str, core.Primitive]:
-    def _collect(module: Any, registry: Dict[str, core.Primitive]) -> None:
+def _primitive_registry() -> Dict[str, _PrimitiveType]:
+    def _collect(module: Any, registry: Dict[str, _PrimitiveType]) -> None:
         for attr in getattr(module, "__dict__", {}).values():
-            if isinstance(attr, core.Primitive):
+            if isinstance(attr, _PrimitiveType):
+                _wrap_primitive_bind(attr)
                 registry.setdefault(attr.name, attr)
 
-    registry: Dict[str, core.Primitive] = {}
+    registry: Dict[str, _PrimitiveType] = {}
+    primitives_mod = getattr(jax_core_ext, "primitives", None)
+    if primitives_mod is not None:
+        _collect(primitives_mod, registry)
+
     for module in list(sys.modules.values()):
         name = getattr(module, "__name__", "")
         if not name.startswith("jax"):
@@ -196,16 +270,15 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
         "jax",
         "jax.core",
         "jax.lax",
-        "jax.numpy",
+        "jax.lax.control_flow",
+        "jax.lax.parallel",
+        "jax.lax.slicing",
         "jax.scipy",
-        "jax._src.lax.lax",
-        "jax._src.lax.control_flow",
-        "jax._src.lax.parallel",
-        "jax._src.lax.slicing",
-        "jax._src.lax.lax_control_flow",
-        "jax._src.numpy.lax_numpy",
-        "jax._src.numpy.reductions",
-        "jax._src.nn.functions",
+        "jax.numpy",
+        "jax.numpy.linalg",
+        "jax.numpy.fft",
+        "jax.nn",
+        "jax.random",
     )
     for module_name in safe_modules:
         try:
@@ -214,17 +287,19 @@ def _primitive_registry() -> Dict[str, core.Primitive]:
             continue
         _collect(module, registry)
 
-    try:
-        lax_impl = importlib.import_module("jax._src.lax.lax")
-    except Exception:
-        lax_impl = None
-    if lax_impl is not None:
-        _collect(lax_impl, registry)
-
     for attr in core.__dict__.values():
-        if isinstance(attr, core.Primitive):
+        if isinstance(attr, _PrimitiveType):
             registry.setdefault(attr.name, attr)
+    for name, impl in _FALLBACK_IMPLS.items():
+        registry.setdefault(name, _build_fallback_primitive(name, impl))
     return registry
+
+
+def _build_fallback_primitive(name: str, fn: Callable[..., Any]) -> _PrimitiveType:
+    prim = _PrimitiveType(name)
+    prim.def_impl(fn)
+    _wrap_primitive_bind(prim)
+    return prim
 
 
 def _load_payload() -> Tuple[core.ClosedJaxpr, jax.Array, jax.Array, jax.Array]:
@@ -362,3 +437,13 @@ __all__ = [
     "_primitive_registry",
     "export_models",
 ]
+
+
+def _sanitize_params(params: Any) -> Any:
+    if isinstance(params, Mapping):
+        sanitized = dict(params.items())
+    elif hasattr(params, "items"):
+        sanitized = dict(params.items())
+    else:
+        return params
+    return sanitized

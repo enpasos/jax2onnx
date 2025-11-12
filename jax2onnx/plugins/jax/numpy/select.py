@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final
 
 import jax
+import jax.extend.core as jax_core_ext
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -183,7 +184,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _ensure_bool(
-        ctx: LoweringContextProtocol, val: ir.Value, var: core.Var
+        ctx: LoweringContextProtocol, val: ir.Value, var: jax_core_ext.Var
     ) -> ir.Value:
         dtype = getattr(getattr(var, "aval", None), "dtype", np.bool_)
         if dtype == np.bool_:
@@ -205,7 +206,7 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
     def _ensure_dtype(
         ctx: LoweringContextProtocol,
         val: ir.Value,
-        var: core.Var,
+        var: jax_core_ext.Var,
         target_dtype: np.dtype[Any],
     ) -> ir.Value:
         dtype = getattr(getattr(var, "aval", None), "dtype", target_dtype)

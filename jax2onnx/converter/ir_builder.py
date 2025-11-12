@@ -5,7 +5,17 @@ from __future__ import annotations
 import os
 import traceback
 from collections.abc import MutableSequence, Sequence
-from typing import Any, Final, Iterable, Iterator, Optional, Tuple, Union, overload
+from typing import (
+    Any,
+    Final,
+    Iterable,
+    Iterator,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    overload,
+)
 
 import numpy as np
 import onnx_ir as ir
@@ -49,18 +59,19 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         raise TypeError(f"Unsupported dtype: {dtype}") from e
 
 
-def _value_const_numpy(value: ir.Value) -> Optional[np.ndarray]:
+def _value_const_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
     """Return a numpy view of `value` when backed by a constant tensor."""
     const = value.const_value
     if const is None:
         return None
     try:
-        return const.numpy()
+        array = const.numpy()
     except Exception:
         try:
-            return np.asarray(const)
+            array = np.asarray(const)
         except Exception:
             return None
+    return cast(np.ndarray[Any, np.dtype[Any]], array)
 
 
 class _InitializerList(MutableSequence[ir.Value]):
@@ -181,7 +192,9 @@ class _InitializerList(MutableSequence[ir.Value]):
                 # Normalize dtype for fair comparison: onnx_ir tensors may
                 # materialize as float64 via numpy bridge.
                 try:
-                    arr_new_cast = arr_new.astype(arr_old.dtype, copy=False)
+                    arr_new_cast: np.ndarray[Any, np.dtype[Any]] = arr_new.astype(
+                        arr_old.dtype, copy=False
+                    )
                 except Exception:
                     arr_new_cast = arr_new
                 same = (
@@ -235,9 +248,9 @@ class IRBuilder:
             opset_imports={"": self.opset},
         )
         self.graph = graph
-        self._inputs = graph.inputs
-        self._outputs = graph.outputs
-        self._nodes = graph
+        self._inputs: MutableSequence[ir.Value] = graph.inputs
+        self._outputs: MutableSequence[ir.Value] = graph.outputs
+        self._nodes: ir.Graph = graph
         self._initializers = _InitializerList(graph)
         self._tape_builder = _TapeBuilder(graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
