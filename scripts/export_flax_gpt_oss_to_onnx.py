@@ -7,6 +7,7 @@ import argparse
 import json
 from dataclasses import fields
 from pathlib import Path
+from typing import Final
 
 from flax.serialization import msgpack_restore
 import jax
@@ -21,6 +22,21 @@ from jax2onnx.plugins.examples.nnx.gpt_oss_flax import (
     _rotary_tables_for_config,
 )
 from jax2onnx.user_interface import allclose, to_onnx
+
+BLOCK_DEBUG_KEYS: Final = (
+    "input",
+    "post_attention",
+    "output",
+    "mlp_normed",
+    "mlp_gate_logits",
+    "mlp_expert_indices",
+    "mlp_expert_weights",
+    "mlp_dense_gate_weights",
+    "mlp_prelinear_outputs",
+    "mlp_activated_outputs",
+    "mlp_expert_outputs",
+    "mlp_fused",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,6 +74,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Add one ONNX output tensor per transformer block (post-residual hidden state) "
             "to aid parity debugging."
+        ),
+    )
+    parser.add_argument(
+        "--emit-block-debug",
+        action="store_true",
+        help=(
+            "Add three ONNX outputs per transformer block (block input, post-attention output, "
+            "and final block output) for detailed parity debugging."
         ),
     )
     return parser.parse_args()
@@ -126,14 +150,37 @@ def _load_model_params(model: Transformer, params: dict) -> None:
 
 
 def _make_export_callable(
-    model: Transformer, *, include_hidden_states: bool
+    model: Transformer,
+    *,
+    include_hidden_states: bool,
+    include_block_debug: bool,
 ) -> callable:
     def _apply(tokens):
-        if include_hidden_states:
-            hidden_states: list[jax.Array] = []
-            logits = model(tokens, capture_hidden_states=hidden_states)
-            return (logits, *tuple(hidden_states))
-        return model(tokens)
+        hidden_states: list[jax.Array] | None = [] if include_hidden_states else None
+        block_debug: list[dict[str, jax.Array]] | None = (
+            [] if include_block_debug else None
+        )
+        logits = model(
+            tokens,
+            capture_hidden_states=hidden_states,
+            capture_block_debug=block_debug,
+        )
+        outputs: list[jax.Array] = [logits]
+        if hidden_states is not None:
+            outputs.extend(hidden_states)
+        if block_debug is not None:
+            for entry in block_debug:
+                for key in BLOCK_DEBUG_KEYS:
+                    value = entry.get(key)
+                    if value is None:
+                        raise RuntimeError(
+                            f"Block debug entry missing '{key}'. "
+                            "Ensure capture_block_debug collects all keys."
+                        )
+                    outputs.append(value)
+        if len(outputs) == 1:
+            return outputs[0]
+        return tuple(outputs)
 
     return _apply
 
@@ -177,6 +224,7 @@ def main() -> None:
     export_apply = _make_export_callable(
         model,
         include_hidden_states=args.emit_hidden_states,
+        include_block_debug=args.emit_block_debug,
     )
     output_path = args.output.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -421,7 +421,12 @@ class AttentionBlock(nnx.Module):
             dtype,
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(
+        self,
+        x: jax.Array,
+        *,
+        capture_debug: Optional[dict[str, jax.Array]] = None,
+    ) -> jax.Array:
         cfg = self.config
         num_tokens = jax_core.concrete_or_error(
             int,
@@ -435,6 +440,8 @@ class AttentionBlock(nnx.Module):
         q_mult = cfg.num_attention_heads // cfg.num_key_value_heads
 
         normed = self.norm(x)
+        if capture_debug is not None:
+            capture_debug["attn_normed"] = normed
         qkv = _linear(normed, self.qkv_kernel.value, self.qkv_bias.value)
 
         q_end = cfg.num_attention_heads * cfg.head_dim
@@ -469,6 +476,8 @@ class AttentionBlock(nnx.Module):
         )
 
         projected = _linear(attn_out, self.out_kernel.value, self.out_bias.value)
+        if capture_debug is not None:
+            capture_debug["attn_projected"] = projected
         return x + projected
 
 
@@ -517,9 +526,13 @@ class MLPBlock(nnx.Module):
         self,
         x: jax.Array,
         capture_routing: Optional[List[dict]] = None,
+        *,
+        capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
         cfg = self.config
         normed = self.norm(x)
+        if capture_debug is not None:
+            capture_debug["mlp_normed"] = normed
 
         n_tokens = jax_core.concrete_or_error(
             int, normed.shape[0], "MLPBlock requires static token count"
@@ -530,11 +543,16 @@ class MLPBlock(nnx.Module):
             )
 
         gate_logits = _linear(normed, self.gate_kernel.value, self.gate_bias.value)
+        if capture_debug is not None:
+            capture_debug["mlp_gate_logits"] = gate_logits
         expert_logits, expert_indices = jax.lax.top_k(
             gate_logits, cfg.experts_per_token
         )
         expert_indices = expert_indices.astype(jnp.int32)
         expert_weights = jax.nn.softmax(expert_logits, axis=-1)
+        if capture_debug is not None:
+            capture_debug["mlp_expert_indices"] = expert_indices
+            capture_debug["mlp_expert_weights"] = expert_weights
 
         if capture_routing is not None:
             capture_routing.append(
@@ -552,7 +570,7 @@ class MLPBlock(nnx.Module):
             mlp1_b: jax.Array,
             mlp2_w: jax.Array,
             mlp2_b: jax.Array,
-        ) -> jax.Array:
+        ) -> tuple[jax.Array, jax.Array, jax.Array]:
             mlp1 = _linear(
                 normed,
                 mlp1_w,
@@ -567,9 +585,9 @@ class MLPBlock(nnx.Module):
                 mlp2_w,
                 mlp2_b,
             )
-            return mlp2
+            return mlp2, mlp1, activated
 
-        expert_outputs = jax.vmap(
+        expert_outputs, prelinear_outputs, activated_outputs = jax.vmap(
             _run_expert,
             in_axes=(0, 0, 0, 0),
             out_axes=0,
@@ -581,6 +599,12 @@ class MLPBlock(nnx.Module):
         )
 
         expert_outputs = expert_outputs.transpose(1, 0, 2)
+        prelinear_outputs = prelinear_outputs.transpose(1, 0, 2)
+        activated_outputs = activated_outputs.transpose(1, 0, 2)
+        if capture_debug is not None:
+            capture_debug["mlp_expert_outputs"] = expert_outputs
+            capture_debug["mlp_prelinear_outputs"] = prelinear_outputs
+            capture_debug["mlp_activated_outputs"] = activated_outputs
         dense_gate_weights = jnp.sum(
             jax.nn.one_hot(
                 expert_indices,
@@ -590,11 +614,16 @@ class MLPBlock(nnx.Module):
             * expert_weights[..., None],
             axis=1,
         )
+        if capture_debug is not None:
+            capture_debug["mlp_dense_gate_weights"] = dense_gate_weights
         fused = jnp.sum(
             expert_outputs * dense_gate_weights[..., None],
             axis=1,
         )
-        return x + fused
+        if capture_debug is not None:
+            capture_debug["mlp_fused"] = fused
+        out = x + fused
+        return out
 
 
 class TransformerBlock(nnx.Module):
@@ -630,10 +659,18 @@ class TransformerBlock(nnx.Module):
         self,
         x: jax.Array,
         capture_routing: Optional[List[dict]] = None,
+        *,
+        capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
-        x = self.attention(x)
-        x = self.mlp(x, capture_routing=capture_routing)
-        return x
+        attn_out = self.attention(x, capture_debug=capture_debug)
+        if capture_debug is not None:
+            capture_debug["post_attention"] = attn_out
+        out = self.mlp(
+            attn_out,
+            capture_routing=capture_routing,
+            capture_debug=capture_debug,
+        )
+        return out
 
 
 class Transformer(nnx.Module):
@@ -689,6 +726,7 @@ class Transformer(nnx.Module):
         tokens: jax.Array,
         capture_routing: Optional[List[List[dict]]] = None,
         capture_hidden_states: Optional[List[jax.Array]] = None,
+        capture_block_debug: Optional[List[dict[str, jax.Array]]] = None,
     ) -> jax.Array:
         num_tokens = jax_core.concrete_or_error(
             int,
@@ -714,7 +752,18 @@ class Transformer(nnx.Module):
             layer_capture = (
                 capture_routing[layer_idx] if capture_routing is not None else None
             )
-            x = block(x, capture_routing=layer_capture)
+            debug_entry: Optional[dict[str, jax.Array]] = None
+            if capture_block_debug is not None:
+                debug_entry = {}
+                capture_block_debug.append(debug_entry)
+                debug_entry["input"] = x
+            x = block(
+                x,
+                capture_routing=layer_capture,
+                capture_debug=debug_entry,
+            )
+            if debug_entry is not None:
+                debug_entry["output"] = x
             if capture_hidden_states is not None:
                 capture_hidden_states.append(x)
 

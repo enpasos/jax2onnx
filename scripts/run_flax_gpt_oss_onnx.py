@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Final
 
 import flax.serialization as flax_serialization
 import jax
@@ -20,6 +21,21 @@ from jax2onnx.plugins.examples.nnx.gpt_oss_flax import (
     Transformer,
     _causal_mask,
     _rotary_tables_for_config,
+)
+
+BLOCK_DEBUG_KEYS: Final = (
+    "input",
+    "post_attention",
+    "output",
+    "mlp_normed",
+    "mlp_gate_logits",
+    "mlp_expert_indices",
+    "mlp_expert_weights",
+    "mlp_dense_gate_weights",
+    "mlp_prelinear_outputs",
+    "mlp_activated_outputs",
+    "mlp_expert_outputs",
+    "mlp_fused",
 )
 
 
@@ -104,6 +120,14 @@ def parse_args() -> argparse.Namespace:
             "Requires an ONNX exported with --emit-hidden-states."
         ),
     )
+    parser.add_argument(
+        "--compare-block-debug",
+        action="store_true",
+        help=(
+            "Compare per-block inputs/post-attention outputs/final outputs. "
+            "Requires an ONNX exported with --emit-block-debug."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -129,11 +153,22 @@ def main() -> None:
 
     extra_outputs = sess.get_outputs()
     need_hidden = args.compare_hidden_states
-    if need_hidden and len(extra_outputs) != 1 + config.num_hidden_layers:
+    need_block_debug = args.compare_block_debug
+    expected_outputs = 1
+    if need_hidden:
+        expected_outputs += config.num_hidden_layers
+    if need_block_debug:
+        expected_outputs += len(BLOCK_DEBUG_KEYS) * config.num_hidden_layers
+    if len(extra_outputs) != expected_outputs:
+        requirement_parts = []
+        if need_hidden:
+            requirement_parts.append("--emit-hidden-states")
+        if need_block_debug:
+            requirement_parts.append("--emit-block-debug")
+        requirement = " and ".join(requirement_parts) if requirement_parts else "standard export"
         raise SystemExit(
-            "ONNX model does not expose hidden states. Re-export with "
-            "`scripts/export_flax_gpt_oss_to_onnx.py --emit-hidden-states ...` "
-            "and rerun this script with --compare-hidden-states."
+            f"ONNX model exposes {len(extra_outputs)} outputs but {expected_outputs} were expected. "
+            f"Ensure the model was exported with {requirement}."
         )
 
     tokens = _tokenize(args.prompt, config.vocab_size)
@@ -148,12 +183,22 @@ def main() -> None:
 
     tokens_jax = jnp.asarray(tokens_padded)
     hidden_states: list[jax.Array] = []
-    if need_hidden:
-        jax_out = model(tokens_jax, capture_hidden_states=hidden_states)
-    else:
-        jax_out = model(tokens_jax)
+    block_debug: list[dict[str, jax.Array]] = []
+    jax_out = model(
+        tokens_jax,
+        capture_hidden_states=hidden_states if need_hidden else None,
+        capture_block_debug=block_debug if need_block_debug else None,
+    )
     jax_out = jax.device_get(jax_out)
     jax_hidden = [np.asarray(jax.device_get(h)) for h in hidden_states]
+    jax_block_debug = (
+        [
+            {key: np.asarray(jax.device_get(value)) for key, value in entry.items()}
+            for entry in block_debug
+        ]
+        if need_block_debug
+        else []
+    )
     print(f"[info] JAX output shape: {jax_out.shape}")
     jax_logits = jax_out[-1]
 
@@ -161,13 +206,19 @@ def main() -> None:
     ort_logits_full = ort_outputs[0]
     ort_logits = ort_logits_full[-1]
     print(f"[info] ORT output shape: {ort_logits_full.shape}")
-    ort_hidden = ort_outputs[1:] if need_hidden else []
+    offset = 1
+    ort_hidden = []
     if need_hidden:
-        if len(ort_hidden) != config.num_hidden_layers:
-            raise SystemExit(
-                f"Expected {config.num_hidden_layers} hidden outputs, "
-                f"but ONNX returned {len(ort_hidden)}."
-            )
+        ort_hidden = ort_outputs[offset : offset + config.num_hidden_layers]
+        offset += config.num_hidden_layers
+    ort_block_debug = []
+    if need_block_debug:
+        for _ in range(config.num_hidden_layers):
+            entry: dict[str, np.ndarray] = {}
+            for key in BLOCK_DEBUG_KEYS:
+                entry[key] = ort_outputs[offset]
+                offset += 1
+            ort_block_debug.append(entry)
 
     diff = np.max(np.abs(jax_logits - ort_logits))
     print(f"Prompt: {args.prompt!r}")
@@ -177,12 +228,43 @@ def main() -> None:
 
     if need_hidden:
         for layer_idx, (jax_state, ort_state) in enumerate(zip(jax_hidden, ort_hidden)):
-            layer_diff = np.max(np.abs(jax_state - ort_state))
-            mean_diff = float(np.mean(np.abs(jax_state - ort_state)))
+            ort_arr = np.asarray(ort_state)
+            layer_diff = np.max(np.abs(jax_state - ort_arr))
+            mean_diff = float(np.mean(np.abs(jax_state - ort_arr)))
             print(
                 f"[hidden] block_{layer_idx}: max |diff|={layer_diff:.6f}, "
                 f"mean |diff|={mean_diff:.6f}"
             )
+    if need_block_debug:
+        if len(jax_block_debug) != len(ort_block_debug):
+            raise SystemExit(
+                f"Expected {len(jax_block_debug)} block debug outputs, "
+                f"but ONNX returned {len(ort_block_debug)}."
+            )
+        for layer_idx, (jax_dbg, ort_dbg) in enumerate(
+            zip(jax_block_debug, ort_block_debug)
+        ):
+            for key in BLOCK_DEBUG_KEYS:
+                j_arr = jax_dbg.get(key)
+                o_arr = np.asarray(ort_dbg.get(key))
+                layer_diff = np.max(np.abs(j_arr - o_arr))
+                mean_diff = float(np.mean(np.abs(j_arr - o_arr)))
+                print(
+                    f"[debug] block_{layer_idx} {key}: max |diff|={layer_diff:.6f}, "
+                    f"mean |diff|={mean_diff:.6f}"
+                )
+                if key == "mlp_expert_outputs" and layer_diff > 1e-3:
+                    per_expert_diff = np.max(
+                        np.abs(j_arr - o_arr), axis=(0, 2), keepdims=False
+                    )
+                    summary = ", ".join(
+                        f"e{idx}:{val:.3f}"
+                        for idx, val in enumerate(per_expert_diff)
+                        if val > 1e-3
+                    )
+                    print(
+                        f"    [detail] expert diffs (>1e-3): {summary or 'none'}"
+                    )
 
 
 if __name__ == "__main__":
