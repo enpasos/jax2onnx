@@ -9,16 +9,16 @@ Build a reproducible pipeline that:
 3. Proves JAX ↔ ONNX parity using `scripts/run_flax_gpt_oss_onnx.py` (logits, hidden states, and MoE internals).
 4. Promotes the validated ONNX to `docs/onnx/examples/nnx_gpt_oss/` and documents the workflow for future checkpoints.
 
-## Current Status (Baseline2 – 2025-11-12)
+## Current Status (Baseline5 – 2025-11-12)
 
 - **Instrumentation:** The exporter accepts `--emit-hidden-states` and `--emit-block-debug`. The harness understands `--compare-hidden-states` / `--compare-block-debug` and prints max/mean diffs per block tensor. Debug taps cover attention input/output plus the full MoE pipeline (normed tokens, gate logits/indices/weights, dense weights, prelinear/activated/expert outputs, fused result).
 - **Parity:** With the 2-layer GPT-OSS checkpoint (`~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack`, seq_len=32) the debug ONNX export matches JAX:
   - Logits `max |diff| ≈ 1.9e-05`
   - Hidden states `max |diff| ≤ 1.5e-04`
   - All MoE debug tensors `max |diff| ≤ 4.5e-04`
-- **Artifacts:** Debug export lives at `/tmp/gpt_oss_transformer_flax_debug.onnx` (paired `.data`). No canonical artifact committed yet—once verified, it will be copied into `docs/onnx/examples/nnx_gpt_oss/` as “baseline2”.
+- **Artifacts:** Debug export lives at `/tmp/gpt_oss_transformer_flax_debug.onnx` (paired `.data`). No canonical artifact committed yet—once verified, it will be copied into `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”.
 
-## Reproducing Baseline2
+## Reproducing Baseline5
 
 ```bash
 JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
@@ -42,7 +42,7 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_fla
 
 ## Outstanding Tasks
 
-1. **Promote canonical artifact:** Re-export without debug outputs, run `run_flax_gpt_oss_onnx.py` (no compare flags) to capture final logits diff, then place `gpt_oss_transformer_flax.onnx(.data)` under `docs/onnx/examples/nnx_gpt_oss/` as “baseline2”.
+1. **Promote canonical artifact:** Re-export without debug outputs, run `run_flax_gpt_oss_onnx.py` (no compare flags) to capture final logits diff, then place `gpt_oss_transformer_flax.onnx(.data)` under `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”.
 2. **Documentation:** Add a workflow write-up (`docs/readme/gpt_oss/` or similar) describing the checkpoint download → Flax load → ONNX export → parity verification process. Reference the new debug flags.
 3. **Regression coverage:** Create a lightweight pytest (toy config, short seq len) that runs the harness with `--compare-hidden-states`. This protects the instrumentation and keeps future MoE tweaks honest.
 4. **Scaling plan:** Extend beyond the 2-layer checkpoint (full GPT-OSS stack, BF16/FP32 variants) once GPU-backed parity runs are available; reuse the block-debug taps to localize any discrepancies.
@@ -66,13 +66,13 @@ poetry run python scripts/probe_flax_gpt_oss_parity.py \
   --torch-max-layers 2
 ```
 
-The script tokenizes the prompt (tiktoken if available, otherwise a byte fallback), pads/truncates to `--sequence-length`, promotes the Torch reference to float32, and runs both frameworks while capturing per-token logits plus per-block debug tensors (normed inputs, q/k/v, gate logits, expert weights, fused outputs, etc.). Baseline2 (2-layer bundle, prompt above) now lands at logits max `|Δ| ≈ 3e-5` with stage stats ≤`3e-4`. Commit (or at least stash) the console output alongside the exported artifact so reviewers can see which checkpoint/prompt proved parity and which tensors were inspected.
+The script tokenizes the prompt (tiktoken if available, otherwise a byte fallback), pads/truncates to `--sequence-length`, promotes the Torch reference to float32, and runs both frameworks while capturing per-token logits plus per-block debug tensors (normed inputs, q/k/v, gate logits, expert weights, fused outputs, etc.). Baseline5 (2-layer bundle, prompt above) now lands at logits max `|Δ| ≈ 3e-5` with stage stats ≤`3e-4`. Commit (or at least stash) the console output alongside the exported artifact so reviewers can see which checkpoint/prompt proved parity and which tensors were inspected.
 
 Mirror the Equinox parity workflow when recording evidence:
 
 - Match model depth and dtype. When using the 2-layer staged bundle pass `--torch-max-layers 2` so both frameworks compare the same blocks, and ensure bf16 weights stay bf16 everywhere (the script guards conversions for you).
 - Seed everything. Reuse the fixed prompt above plus `--seed 0` (default) so reruns regenerate identical logits/stage tensors.
 - Capture the full report. Reviewers expect the command line, logits diff summary, the top stage-diff table, and an empty `[issues]` section (meaning every tensor matched shape-for-shape). This mirrors the Equinox checklist and keeps artifacts auditable.
-- Store the parity transcript next to the promoted ONNX (e.g., `docs/onnx/examples/nnx_gpt_oss/baseline2_parity.md`) just like we do for the Equinox examples.
+- Store the parity transcript next to the promoted ONNX (e.g., `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`) just like we do for the Equinox examples.
 
 Once Original ↔ JAX parity is proven for the checkpoint, the JAX ↔ ONNX harness closes the chain and we can ship the ONNX artifact with confidence.

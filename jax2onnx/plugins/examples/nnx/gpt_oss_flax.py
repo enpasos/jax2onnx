@@ -619,26 +619,26 @@ class MLPBlock(nnx.Module):
             expert_weights,
             optimize="optimal",
         )
-        dense_gate_weights = jnp.zeros(
-            (n_tokens, cfg.num_experts),
-            dtype=expert_weights.dtype,
-        )
-        token_axis = jnp.arange(n_tokens)[:, None]
-        dense_gate_weights = dense_gate_weights.at[token_axis, expert_indices].set(
-            expert_weights
+        dense_gate_weights = jnp.sum(
+            jax.nn.one_hot(
+                expert_indices,
+                cfg.num_experts,
+                dtype=expert_weights.dtype,
+            )
+            * expert_weights[..., None],
+            axis=1,
         )
 
-        def _scatter(values: jax.Array) -> jax.Array:
-            dense = jnp.zeros(
-                (n_tokens, cfg.num_experts) + values.shape[2:],
-                dtype=values.dtype,
-            )
-            return dense.at[token_axis, expert_indices].set(values)
+        one_hot = jax.nn.one_hot(
+            expert_indices,
+            cfg.num_experts,
+            dtype=jnp.float32,
+        )
 
         if capture_debug is not None:
-            capture_debug["mlp_expert_outputs"] = _scatter(expert_outputs)
-            capture_debug["mlp_prelinear_outputs"] = _scatter(prelinear_outputs)
-            capture_debug["mlp_activated_outputs"] = _scatter(activated_outputs)
+            capture_debug["mlp_expert_outputs"] = expert_outputs
+            capture_debug["mlp_prelinear_outputs"] = prelinear_outputs
+            capture_debug["mlp_activated_outputs"] = activated_outputs
             capture_debug["mlp_dense_gate_weights"] = dense_gate_weights
             capture_debug["mlp_fused"] = fused
         out = x + fused.astype(x.dtype)

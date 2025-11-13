@@ -284,33 +284,8 @@ def _collect_flax_debug(model: Transformer, tokens: np.ndarray) -> Tuple[np.ndar
     stages: List[Dict[str, np.ndarray]] = []
     for entry in block_debug:
         stage = {key: _to_numpy(value) for key, value in entry.items()}
-        _project_flax_expert_views(stage)
         stages.append(stage)
     return np.asarray(jax.device_get(logits)), stages
-
-
-def _project_flax_expert_views(stage: Dict[str, np.ndarray]) -> None:
-    indices = stage.get("mlp_expert_indices")
-    if indices is None:
-        return
-    selector = indices.astype(np.int64)
-    batch = np.arange(selector.shape[0])[:, None]
-
-    def _gather(key: str) -> None:
-        if key not in stage:
-            return
-        arr = stage[key]
-        if arr.ndim < 2:
-            return
-        gathered = arr[batch, selector, ...]
-        stage[key] = gathered
-
-    for key in (
-        "mlp_prelinear_outputs",
-        "mlp_activated_outputs",
-        "mlp_expert_outputs",
-    ):
-        _gather(key)
 
 
 def _diff_stats(torch_arr: np.ndarray, flax_arr: np.ndarray) -> Dict[str, float]:
