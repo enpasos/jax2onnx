@@ -91,16 +91,20 @@ def _softmax(logits: jax.Array, axis: int = -1) -> jax.Array:
     return exp / denom
 
 
+def _softmax_torch_approx(logits: jax.Array, axis: int = -1) -> jax.Array:
+    logits_f32 = logits.astype(jnp.float32)
+    probs = jax.nn.softmax(logits_f32, axis=axis)
+    return probs.astype(logits.dtype)
+
+
 def _swiglu(
     x: jax.Array,
-    split_size: int,
+    *,
     alpha: float = 1.702,
     limit: float = 7.0,
 ) -> jax.Array:
-    gate = x[..., :split_size]
-    linear = x[..., split_size:]
-    gate = jnp.clip(gate, None, limit)
-    linear = jnp.clip(linear, -limit, limit)
+    gate = jnp.clip(x[..., ::2], a_min=None, a_max=limit)
+    linear = jnp.clip(x[..., 1::2], a_min=-limit, a_max=limit)
     swish_gate = gate * jax.nn.sigmoid(alpha * gate)
     return swish_gate * (linear + 1.0)
 
@@ -122,6 +126,7 @@ class GPTOSSConfig:
     num_experts: int = 4
     experts_per_token: int = 2
     intermediate_size: int = 64
+    swiglu_limit: float = 7.0
 
 
 class RMSNorm(nnx.Module):
@@ -133,9 +138,10 @@ class RMSNorm(nnx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         original_dtype = x.dtype
         t = x.astype(jnp.float32)
-        rms = jnp.sqrt(jnp.mean(t**2, axis=-1, keepdims=True) + self.eps)
-        t = t / rms
-        return (t * self.scale.value).astype(original_dtype)
+        rms = jnp.mean(t**2, axis=-1, keepdims=True)
+        inv = lax.rsqrt(rms + self.eps)
+        t = t * inv
+        return (t * self.scale.value.astype(jnp.float32)).astype(original_dtype)
 
 
 _TEST_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(hidden_size=64)
@@ -439,7 +445,7 @@ class AttentionBlock(nnx.Module):
             )
         q_mult = cfg.num_attention_heads // cfg.num_key_value_heads
 
-        normed = self.norm(x)
+        normed = self.norm(x).astype(jnp.float32)
         if capture_debug is not None:
             capture_debug["attn_normed"] = normed
         qkv = _linear(normed, self.qkv_kernel.value, self.qkv_bias.value)
@@ -453,6 +459,10 @@ class AttentionBlock(nnx.Module):
         q = q.reshape(num_tokens, cfg.num_key_value_heads, q_mult, cfg.head_dim)
         k = k.reshape(num_tokens, cfg.num_key_value_heads, cfg.head_dim)
         v = v.reshape(num_tokens, cfg.num_key_value_heads, cfg.head_dim)
+        if capture_debug is not None:
+            capture_debug["attn_q"] = q
+            capture_debug["attn_k"] = k
+            capture_debug["attn_v"] = v
 
         rope = RotaryEmbedding(
             head_dim=cfg.head_dim,
@@ -492,6 +502,8 @@ class MLPBlock(nnx.Module):
     ):
         self.config = config
         self.sequence_length = sequence_length
+        self.param_dtype = dtype
+        self.swiglu_limit = float(getattr(config, "swiglu_limit", 7.0))
         self.norm = RMSNorm(config.hidden_size)
         rng_seq = _KeySeq(rng)
 
@@ -542,14 +554,20 @@ class MLPBlock(nnx.Module):
                 f"MLPBlock expected sequence_length={self.sequence_length}, got {n_tokens}"
             )
 
-        gate_logits = _linear(normed, self.gate_kernel.value, self.gate_bias.value)
+        gate_logits = _linear(
+            normed,
+            self.gate_kernel.value.astype(jnp.float32),
+            self.gate_bias.value.astype(jnp.float32),
+        )
         if capture_debug is not None:
             capture_debug["mlp_gate_logits"] = gate_logits
         expert_logits, expert_indices = jax.lax.top_k(
             gate_logits, cfg.experts_per_token
         )
         expert_indices = expert_indices.astype(jnp.int32)
-        expert_weights = jax.nn.softmax(expert_logits, axis=-1)
+        expert_weights = _softmax_torch_approx(
+            expert_logits.astype(jnp.float32), axis=-1
+        ).astype(jnp.float32)
         if capture_debug is not None:
             capture_debug["mlp_expert_indices"] = expert_indices
             capture_debug["mlp_expert_weights"] = expert_weights
@@ -562,67 +580,68 @@ class MLPBlock(nnx.Module):
                 }
             )
 
-        mlp1_kernel = jnp.transpose(self.mlp1_weight.value, (0, 2, 1))
-        mlp2_kernel = jnp.transpose(self.mlp2_weight.value, (0, 2, 1))
-
-        def _run_expert(
-            mlp1_w: jax.Array,
-            mlp1_b: jax.Array,
-            mlp2_w: jax.Array,
-            mlp2_b: jax.Array,
-        ) -> tuple[jax.Array, jax.Array, jax.Array]:
-            mlp1 = _linear(
-                normed,
-                mlp1_w,
-                mlp1_b,
-            )
-            gate_part = jnp.minimum(mlp1[:, : cfg.intermediate_size], 7.0)
-            linear_part = jnp.clip(mlp1[:, cfg.intermediate_size :], -7.0, 7.0)
-            swish_gate = gate_part * jax.nn.sigmoid(1.702 * gate_part)
-            activated = swish_gate * (linear_part + 1.0)
-            mlp2 = _linear(
-                activated,
-                mlp2_w,
-                mlp2_b,
-            )
-            return mlp2, mlp1, activated
-
-        expert_outputs, prelinear_outputs, activated_outputs = jax.vmap(
-            _run_expert,
-            in_axes=(0, 0, 0, 0),
-            out_axes=0,
-        )(
-            mlp1_kernel,
-            self.mlp1_bias.value,
-            mlp2_kernel,
-            self.mlp2_bias.value,
+        mlp1_weight = jnp.take(
+            self.mlp1_weight.value, expert_indices, axis=0
+        ).astype(jnp.float32)
+        mlp1_bias = jnp.take(self.mlp1_bias.value, expert_indices, axis=0).astype(
+            jnp.float32
+        )
+        prelinear_outputs = jnp.einsum(
+            "tkoh,th->tko",
+            mlp1_weight,
+            normed,
+            optimize="optimal",
+        )
+        prelinear_outputs = prelinear_outputs + mlp1_bias
+        activated_outputs = _swiglu(
+            prelinear_outputs,
+            alpha=1.702,
+            limit=self.swiglu_limit,
         )
 
-        expert_outputs = expert_outputs.transpose(1, 0, 2)
-        prelinear_outputs = prelinear_outputs.transpose(1, 0, 2)
-        activated_outputs = activated_outputs.transpose(1, 0, 2)
-        if capture_debug is not None:
-            capture_debug["mlp_expert_outputs"] = expert_outputs
-            capture_debug["mlp_prelinear_outputs"] = prelinear_outputs
-            capture_debug["mlp_activated_outputs"] = activated_outputs
-        dense_gate_weights = jnp.sum(
-            jax.nn.one_hot(
-                expert_indices,
-                cfg.num_experts,
-                dtype=expert_outputs.dtype,
-            )
-            * expert_weights[..., None],
-            axis=1,
+        mlp2_weight = jnp.take(self.mlp2_weight.value, expert_indices, axis=0).astype(
+            jnp.float32
         )
+        mlp2_bias = jnp.take(self.mlp2_bias.value, expert_indices, axis=0).astype(
+            jnp.float32
+        )
+        expert_outputs = jnp.einsum(
+            "tkhi,tki->tkh",
+            mlp2_weight,
+            activated_outputs.astype(jnp.float32),
+            optimize="optimal",
+        )
+        expert_outputs = expert_outputs + mlp2_bias
+
+        fused = jnp.einsum(
+            "tkh,tk->th",
+            expert_outputs,
+            expert_weights,
+            optimize="optimal",
+        )
+        dense_gate_weights = jnp.zeros(
+            (n_tokens, cfg.num_experts),
+            dtype=expert_weights.dtype,
+        )
+        token_axis = jnp.arange(n_tokens)[:, None]
+        dense_gate_weights = dense_gate_weights.at[token_axis, expert_indices].set(
+            expert_weights
+        )
+
+        def _scatter(values: jax.Array) -> jax.Array:
+            dense = jnp.zeros(
+                (n_tokens, cfg.num_experts) + values.shape[2:],
+                dtype=values.dtype,
+            )
+            return dense.at[token_axis, expert_indices].set(values)
+
         if capture_debug is not None:
+            capture_debug["mlp_expert_outputs"] = _scatter(expert_outputs)
+            capture_debug["mlp_prelinear_outputs"] = _scatter(prelinear_outputs)
+            capture_debug["mlp_activated_outputs"] = _scatter(activated_outputs)
             capture_debug["mlp_dense_gate_weights"] = dense_gate_weights
-        fused = jnp.sum(
-            expert_outputs * dense_gate_weights[..., None],
-            axis=1,
-        )
-        if capture_debug is not None:
             capture_debug["mlp_fused"] = fused
-        out = x + fused
+        out = x + fused.astype(x.dtype)
         return out
 
 
@@ -784,67 +803,51 @@ def _sdpa_impl(
     kv_length: int | None = None,
     mask: jax.Array | None = None,
 ) -> jax.Array:
-    """Scaled dot-product attention from the GPT-OSS Flax reference."""
+    """Torch-style SDPA matching the GPT-OSS reference implementation."""
 
-    n_new_tokens, n_heads, q_mult, _ = Q.shape
-    n_kv_tokens = K.shape[0]
-    if sequence_length is not None:
-        n_new_tokens = sequence_length
-    else:
-        n_new_tokens = jax_core.concrete_or_error(
-            int, n_new_tokens, "sdpa requires static token count for ONNX export"
-        )
-    if kv_length is not None:
-        n_kv_tokens = kv_length
-    else:
-        n_kv_tokens = jax_core.concrete_or_error(
-            int, n_kv_tokens, "sdpa requires static kv-token count for ONNX export"
-        )
+    seq_len, kv_heads, q_mult, head_dim = Q.shape
+    dtype = Q.dtype
+    Q = Q.astype(jnp.float32)
+    K = K.astype(jnp.float32)
+    V = V.astype(jnp.float32)
 
-    K = K[:, :, None, :].repeat(q_mult, axis=2)
-    V = V[:, :, None, :].repeat(q_mult, axis=2)
+    K_exp = jnp.expand_dims(K, axis=2)
+    K_exp = jnp.broadcast_to(K_exp, (seq_len, kv_heads, q_mult, head_dim))
 
-    sinks = S.reshape(n_heads, q_mult, 1, 1).repeat(n_new_tokens, axis=2)
-
-    kv_offset = jax_core.concrete_or_error(
-        int, kv_offset, "sdpa requires static kv_offset for ONNX export"
+    logits = jnp.einsum(
+        "qhmd,khmd->hmqk",
+        Q,
+        K_exp,
+        optimize="optimal",
     )
-    if mask is None:
-        mask = jnp.asarray(
-            _causal_mask(
-                n_new_tokens,
-                n_kv_tokens,
-                sliding_window,
-                kv_offset=kv_offset,
-            ),
-            dtype=Q.dtype,
-        )
-    else:
-        mask = mask.astype(Q.dtype)
+    logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
 
-    Qh = Q.transpose(1, 2, 0, 3)
-    Kh = K.transpose(1, 2, 3, 0)
-    logits = lax.dot_general(
-        Qh,
-        Kh,
-        dimension_numbers=(((3,), (2,)), ((0, 1), (0, 1))),
-        precision=lax.Precision.HIGHEST,
-        preferred_element_type=jnp.float32,
+    mask = jnp.triu(
+        jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32), k=1
     )
-    logits = logits * sm_scale
+    if sliding_window > 0:
+        mask = mask + jnp.tril(
+            jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32),
+            k=-sliding_window,
+        )
     logits = logits + mask[None, None, :, :]
-    logits = _concat([logits, sinks], axis=-1)
 
-    weights = _softmax(logits, axis=-1)[..., :-1]
-    Vh = V.transpose(1, 2, 0, 3)
-    attn = lax.dot_general(
+    sink_logits = S.reshape(kv_heads, q_mult, 1, 1).astype(jnp.float32)
+    sink_logits = jnp.broadcast_to(sink_logits, (kv_heads, q_mult, seq_len, 1))
+    extended = jnp.concatenate([logits, sink_logits], axis=-1)
+    weights = _softmax_torch_approx(extended, axis=-1)[..., :-1]
+
+    V_exp = jnp.expand_dims(V, axis=2)
+    V_exp = jnp.broadcast_to(V_exp, (seq_len, kv_heads, q_mult, head_dim))
+
+    attn = jnp.einsum(
+        "hmqk,khmd->qhmd",
         weights,
-        Vh,
-        dimension_numbers=(((3,), (2,)), ((0, 1), (0, 1))),
-        precision=lax.Precision.HIGHEST,
-        preferred_element_type=jnp.float32,
-    ).transpose(2, 0, 1, 3)
-    return attn.reshape(n_new_tokens, -1)
+        V_exp,
+        optimize="optimal",
+    )
+    attn = attn.reshape(seq_len, kv_heads * q_mult * head_dim)
+    return attn.astype(dtype)
 
 
 def sdpa(

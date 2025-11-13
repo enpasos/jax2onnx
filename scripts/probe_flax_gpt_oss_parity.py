@@ -94,13 +94,15 @@ def _load_flax_model(config: GPTOSSConfig, params: dict, seq_len: int, seed: int
     cos, sin = _rotary_tables_for_config(config, min_length=seq_len)
     sliding_mask = _causal_mask(seq_len, seq_len, sliding_window=config.sliding_window)
     causal_mask = _causal_mask(seq_len, seq_len, sliding_window=0)
+    dtype = jnp.float32
     model = Transformer(
         config=config,
-        cos_table=cos,
-        sin_table=sin,
+        cos_table=cos.astype(dtype),
+        sin_table=sin.astype(dtype),
         sequence_length=seq_len,
-        mask_sliding=sliding_mask,
-        mask_causal=causal_mask,
+        mask_sliding=sliding_mask.astype(dtype),
+        mask_causal=causal_mask.astype(dtype),
+        dtype=dtype,
         rng=jax.random.PRNGKey(seed),
     )
 
@@ -141,6 +143,7 @@ def _select_torch_device(choice: str) -> torch.device:
 
 def _load_torch_model(checkpoint: Path, device: torch.device) -> TorchTransformer:
     model = TorchTransformer.from_checkpoint(str(checkpoint), device=device)
+    model = model.to(torch.float32)
     model.eval()
     torch.set_grad_enabled(False)
     return model
@@ -180,6 +183,9 @@ def _torch_block_debug(block, x: torch.Tensor) -> Dict[str, np.ndarray]:
     )
     k = k.view(-1, attn.num_key_value_heads, attn.head_dim)
     v = v.view(-1, attn.num_key_value_heads, attn.head_dim)
+    entry["attn_q"] = _to_numpy(q)
+    entry["attn_k"] = _to_numpy(k)
+    entry["attn_v"] = _to_numpy(v)
     q_rot, k_rot = attn.rope(q, k)
     attn_core = torch_sdpa(
         q_rot,

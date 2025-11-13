@@ -62,10 +62,11 @@ poetry run python scripts/probe_flax_gpt_oss_parity.py \
   --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
   --sequence-length 32 \
   --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
-  --torch-device cpu
+  --torch-device cpu \
+  --torch-max-layers 2
 ```
 
-The script tokenizes the prompt (tiktoken if available, otherwise a byte fallback), pads/truncates to `--sequence-length`, runs both frameworks, and then reports per-token logits plus per-block debug diffs (normed inputs, gate logits, expert weights, fused outputs, etc.). Baseline2 sticks to the seeded prompt above and expects logits max `|Δ|` ≲ `2e-4` with stage stats in the `1e-4–1e-3` range. Commit (or at least stash) the console output alongside the exported artifact so reviewers can see which checkpoint/prompt proved parity and which tensors were inspected.
+The script tokenizes the prompt (tiktoken if available, otherwise a byte fallback), pads/truncates to `--sequence-length`, promotes the Torch reference to float32, and runs both frameworks while capturing per-token logits plus per-block debug tensors (normed inputs, q/k/v, gate logits, expert weights, fused outputs, etc.). Baseline2 (2-layer bundle, prompt above) now lands at logits max `|Δ| ≈ 3e-5` with stage stats ≤`3e-4`. Commit (or at least stash) the console output alongside the exported artifact so reviewers can see which checkpoint/prompt proved parity and which tensors were inspected.
 
 Mirror the Equinox parity workflow when recording evidence:
 
