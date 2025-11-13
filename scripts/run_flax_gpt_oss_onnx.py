@@ -165,7 +165,9 @@ def main() -> None:
             requirement_parts.append("--emit-hidden-states")
         if need_block_debug:
             requirement_parts.append("--emit-block-debug")
-        requirement = " and ".join(requirement_parts) if requirement_parts else "standard export"
+        requirement = (
+            " and ".join(requirement_parts) if requirement_parts else "standard export"
+        )
         raise SystemExit(
             f"ONNX model exposes {len(extra_outputs)} outputs but {expected_outputs} were expected. "
             f"Ensure the model was exported with {requirement}."
@@ -262,9 +264,7 @@ def main() -> None:
                         for idx, val in enumerate(per_expert_diff)
                         if val > 1e-3
                     )
-                    print(
-                        f"    [detail] expert diffs (>1e-3): {summary or 'none'}"
-                    )
+                    print(f"    [detail] expert diffs (>1e-3): {summary or 'none'}")
 
 
 if __name__ == "__main__":

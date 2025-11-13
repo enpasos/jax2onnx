@@ -13,7 +13,7 @@ poetry run python scripts/run_flax_gpt_oss_onnx.py \
 - ONNX / JAX logits shapes: `(32, 201088)`
 - Prompt tokens: `['What', ' is', ' the', ' capital', ' of', ' France', '?']`
 - Final-token logits max |Δ|: **1.33514404296875e-05**
-- ONNX Runtime stripped a handful of unused initializers automatically (warnings in stdout).
+- ONNX Runtime stripped a handful of unused initializers automatically (warnings in stdout). External tensor data now lives in `gpt_oss_transformer_flax_baseline5.onnx.data`, so no alias files are required.
 
 ## Original (Torch) ↔ JAX Parity (Baseline5)
 
@@ -49,7 +49,7 @@ poetry run python scripts/probe_flax_gpt_oss_parity.py \
 
 - No `[issues]` were reported; remaining per-stage entries stay ≤2.3e-5 and match shapes exactly.
 
-## Expert Routing Parity Snapshot
+## Expert Routing Parity Snapshot (2-layer slice)
 
 ```
 JAX_PLATFORM_NAME=cpu \
@@ -66,3 +66,21 @@ poetry run python scripts/gpt_oss_routing_parity.py \
 - Tokenized prompt to a single token (`[3923]`) to match the public routing study.
 - Layer parity (2-layer slice): **100% expert-ID agreement**, gate weight mean diff ≤9.77e-04, max diff 1.95e-03.
 - Script dropped a markdown report at `artifacts/gpt_oss_routing/20251113-075427_summary.md` detailing per-layer stats; keep alongside the ONNX artifact for auditors.
+
+## Expert Routing Parity (Full 24 layers)
+
+```
+JAX_PLATFORM_NAME=cpu \
+poetry run python scripts/gpt_oss_routing_parity.py \
+  --prompt "What is the capital of France?" \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --jax-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/orbax \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --torch-device cpu \
+  --max-tokens 1
+```
+
+- One token flowed through all 24 transformer layers; JAX/PyTorch expert IDs matched in 22/24 layers (**91.7%** overall).
+- Divergent layers (10 & 13) still exhibited tiny gate-weight deltas (mean ≤1.1e-03, max 3.9e-03), consistent with bf16 decision-boundary effects highlighted by the upstream parity study.
+- Aggregate gate-weight stats: mean diff **1.58e-03**, max diff **1.07e-02**.
+- Detailed markdown log: `artifacts/gpt_oss_routing/20251113-081728_summary.md` (captures per-layer metrics plus PASS/FAIL outcome—flagged as FAIL only because those two bf16-boundary layers reorder experts).

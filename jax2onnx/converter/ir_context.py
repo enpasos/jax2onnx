@@ -239,6 +239,7 @@ class IRContext:
         self._call_input_param_literals: dict[str, Any] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
+        self._current_eqn: Any = None
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None

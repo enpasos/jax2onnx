@@ -430,6 +430,7 @@ def to_onnx(
                 raise NotImplementedError(
                     f"[converter] No plugins registered for primitive '{prim_name}'"
                 )
+            ctx._current_eqn = eqn
             builder = ctx.builder
             prev_jax_trace = builder.current_jax_traceback
             prev_plugin_id = builder.current_plugin_identifier
@@ -491,6 +492,7 @@ def to_onnx(
             finally:
                 builder.set_current_jax_traceback(prev_jax_trace)
                 builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
+        ctx._current_eqn = None
 
         # Outputs
         ctx.add_outputs_from_vars(jpr.outvars)

@@ -8,7 +8,6 @@ from typing import ClassVar
 import numpy as np
 
 import jax
-
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,

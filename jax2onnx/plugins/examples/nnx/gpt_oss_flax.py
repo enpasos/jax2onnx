@@ -580,9 +580,9 @@ class MLPBlock(nnx.Module):
                 }
             )
 
-        mlp1_weight = jnp.take(
-            self.mlp1_weight.value, expert_indices, axis=0
-        ).astype(jnp.float32)
+        mlp1_weight = jnp.take(self.mlp1_weight.value, expert_indices, axis=0).astype(
+            jnp.float32
+        )
         mlp1_bias = jnp.take(self.mlp1_bias.value, expert_indices, axis=0).astype(
             jnp.float32
         )
@@ -629,7 +629,7 @@ class MLPBlock(nnx.Module):
             axis=1,
         )
 
-        one_hot = jax.nn.one_hot(
+        jax.nn.one_hot(
             expert_indices,
             cfg.num_experts,
             dtype=jnp.float32,
@@ -806,13 +806,14 @@ def _sdpa_impl(
     """Torch-style SDPA matching the GPT-OSS reference implementation."""
 
     seq_len, kv_heads, q_mult, head_dim = Q.shape
+    kv_len = K.shape[0]
     dtype = Q.dtype
     Q = Q.astype(jnp.float32)
     K = K.astype(jnp.float32)
     V = V.astype(jnp.float32)
 
     K_exp = jnp.expand_dims(K, axis=2)
-    K_exp = jnp.broadcast_to(K_exp, (seq_len, kv_heads, q_mult, head_dim))
+    K_exp = jnp.broadcast_to(K_exp, (kv_len, kv_heads, q_mult, head_dim))
 
     logits = jnp.einsum(
         "qhmd,khmd->hmqk",
@@ -822,15 +823,26 @@ def _sdpa_impl(
     )
     logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
 
-    mask = jnp.triu(
-        jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32), k=1
-    )
-    if sliding_window > 0:
-        mask = mask + jnp.tril(
-            jnp.full((seq_len, seq_len), -jnp.inf, dtype=jnp.float32),
-            k=-sliding_window,
-        )
-    logits = logits + mask[None, None, :, :]
+    if mask is None:
+        if not isinstance(seq_len, (int, np.integer)) or not isinstance(
+            kv_len, (int, np.integer)
+        ):
+            raise ValueError(
+                "sdpa requires an explicit mask when sequence lengths are dynamic"
+            )
+        seq_len_int = int(seq_len)
+        kv_len_int = int(kv_len)
+        query_idx = jnp.expand_dims(jnp.arange(seq_len_int, dtype=jnp.int32), axis=1)
+        key_idx = jnp.expand_dims(jnp.arange(kv_len_int, dtype=jnp.int32), axis=0)
+        mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(jnp.float32)
+        if sliding_window > 0:
+            mask = jnp.where(
+                key_idx < (query_idx - sliding_window),
+                -jnp.inf,
+                mask,
+            )
+    mask_f32 = jnp.asarray(mask, dtype=jnp.float32)
+    logits = logits + mask_f32[None, None, :, :]
 
     sink_logits = S.reshape(kv_heads, q_mult, 1, 1).astype(jnp.float32)
     sink_logits = jnp.broadcast_to(sink_logits, (kv_heads, q_mult, seq_len, 1))
@@ -838,7 +850,7 @@ def _sdpa_impl(
     weights = _softmax_torch_approx(extended, axis=-1)[..., :-1]
 
     V_exp = jnp.expand_dims(V, axis=2)
-    V_exp = jnp.broadcast_to(V_exp, (seq_len, kv_heads, q_mult, head_dim))
+    V_exp = jnp.broadcast_to(V_exp, (kv_len, kv_heads, q_mult, head_dim))
 
     attn = jnp.einsum(
         "hmqk,khmd->qhmd",

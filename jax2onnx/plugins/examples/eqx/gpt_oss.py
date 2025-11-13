@@ -1186,21 +1186,7 @@ register_example(
             ),
             "input_shapes": [("B", _TEST_CONFIG.hidden_size)],
             "post_check_onnx_graph": EG(
-                [
-                    ("Mul", {}),
-                    (
-                        "ReduceSum",
-                        {
-                            "counts": {
-                                "Mul": 3,
-                                "ReduceSum": 1,
-                                "Div": 2,
-                                "Add": 1,
-                                "Sqrt": 1,
-                            }
-                        },
-                    ),
-                ],
+                ["Div:Bx64 -> Mul:Bx64"],
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),

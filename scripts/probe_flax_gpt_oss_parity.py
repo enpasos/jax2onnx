@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Tuple
 
 import flax.serialization as flax_serialization
 import jax
@@ -90,7 +90,9 @@ def _assign_param(param, value):
     param.value = arr
 
 
-def _load_flax_model(config: GPTOSSConfig, params: dict, seq_len: int, seed: int) -> Transformer:
+def _load_flax_model(
+    config: GPTOSSConfig, params: dict, seq_len: int, seed: int
+) -> Transformer:
     cos, sin = _rotary_tables_for_config(config, min_length=seq_len)
     sliding_mask = _causal_mask(seq_len, seq_len, sliding_window=config.sliding_window)
     causal_mask = _causal_mask(seq_len, seq_len, sliding_window=0)
@@ -259,7 +261,9 @@ def _torch_block_debug(block, x: torch.Tensor) -> Dict[str, np.ndarray]:
     return entry
 
 
-def _collect_torch_debug(model: TorchTransformer, tokens: torch.Tensor) -> Tuple[np.ndarray, List[Dict[str, np.ndarray]]]:
+def _collect_torch_debug(
+    model: TorchTransformer, tokens: torch.Tensor
+) -> Tuple[np.ndarray, List[Dict[str, np.ndarray]]]:
     stages: List[Dict[str, np.ndarray]] = []
     with torch.no_grad():
         hidden = model.embedding(tokens)
@@ -275,7 +279,9 @@ def _collect_torch_debug(model: TorchTransformer, tokens: torch.Tensor) -> Tuple
     return logits.detach().to(torch.float32).cpu().numpy(), stages
 
 
-def _collect_flax_debug(model: Transformer, tokens: np.ndarray) -> Tuple[np.ndarray, List[Dict[str, np.ndarray]]]:
+def _collect_flax_debug(
+    model: Transformer, tokens: np.ndarray
+) -> Tuple[np.ndarray, List[Dict[str, np.ndarray]]]:
     block_debug: List[dict] = []
     logits = model(
         jnp.asarray(tokens),

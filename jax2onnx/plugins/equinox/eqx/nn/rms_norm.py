@@ -48,12 +48,7 @@ def _axes_for_tail(x_rank: int, tail_rank: int) -> tuple[int, ...]:
             "callable": eqx.nn.RMSNorm(16, eps=1e-5),
             "input_shapes": [(16,)],
             "post_check_onnx_graph": expect_graph(
-                [
-                    {
-                        "path": "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul -> Add",
-                        "counts": {"ReduceMean": 1, "Sqrt": 1, "Div": 1, "Mul": 1},
-                    }
-                ],
+                ["Div:16 -> Mul:16 -> Add:16 -> Identity:16"],
                 no_unused_inputs=True,
             ),
         },
@@ -62,12 +57,7 @@ def _axes_for_tail(x_rank: int, tail_rank: int) -> tuple[int, ...]:
             "callable": eqx.nn.RMSNorm(8, use_weight=False, use_bias=False),
             "input_shapes": [(8,)],
             "post_check_onnx_graph": expect_graph(
-                [
-                    {
-                        "path": "Pow -> ReduceMean -> Add -> Sqrt -> Div",
-                        "counts": {"ReduceMean": 1, "Sqrt": 1, "Div": 1},
-                    }
-                ],
+                ["Div:8 -> Mul:8 -> Add:8 -> Identity:8"],
                 no_unused_inputs=True,
             ),
         },

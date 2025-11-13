@@ -16,7 +16,8 @@ Build a reproducible pipeline that:
   - Logits `max |diff| ≈ 1.9e-05`
   - Hidden states `max |diff| ≤ 1.5e-04`
   - All MoE debug tensors `max |diff| ≤ 4.5e-04`
-- **Artifacts:** Debug export lives at `/tmp/gpt_oss_transformer_flax_debug.onnx` (paired `.data`). No canonical artifact committed yet—once verified, it will be copied into `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”.
+- **Routing evidence:** `scripts/gpt_oss_routing_parity.py` now has captured both the 2-layer slice (perfect match) and the full 24-layer run (22/24 layers match, remaining layers differ only by ≤4e-03 gate deltas); see `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`.
+- **Artifacts:** Debug export lives at `/tmp/gpt_oss_transformer_flax_debug.onnx` (paired `.data`). No canonical artifact committed yet—once verified, it will be copied into `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”. The committed Baseline5 ONNX has been re-saved so its external data file is `gpt_oss_transformer_flax_baseline5.onnx.data`, meaning no legacy filename shims are required.
 
 ## Reproducing Baseline5
 
