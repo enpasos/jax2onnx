@@ -45,8 +45,42 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_fla
 
 1. **Promote canonical artifact:** Re-export without debug outputs, run `run_flax_gpt_oss_onnx.py` (no compare flags) to capture final logits diff, then place `gpt_oss_transformer_flax.onnx(.data)` under `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”.
 2. **Documentation:** Add a workflow write-up (`docs/readme/gpt_oss/` or similar) describing the checkpoint download → Flax load → ONNX export → parity verification process. Reference the new debug flags.
-3. **Regression coverage:** Create a lightweight pytest (toy config, short seq len) that runs the harness with `--compare-hidden-states`. This protects the instrumentation and keeps future MoE tweaks honest.
-4. **Scaling plan:** Extend beyond the 2-layer checkpoint (full GPT-OSS stack, BF16/FP32 variants) once GPU-backed parity runs are available; reuse the block-debug taps to localize any discrepancies.
+ 3. **Regression coverage:** Create a lightweight pytest (toy config, short seq len) that runs the harness with `--compare-hidden-states`. This protects the instrumentation and keeps future MoE tweaks honest.
+ 4. **Scaling plan:** Extend beyond the 2-layer checkpoint (full GPT-OSS stack, BF16/FP32 variants) once GPU-backed parity runs are available; reuse the block-debug taps to localize any discrepancies.
+
+## ONNX-only smoke test (tokenizer + generation)
+
+- Exported the full 20B model with a reduced window to dodge WSL memory limits:
+
+  ```bash
+  JAX_PLATFORM_NAME=cpu \
+  poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+    --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+    --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+    --output /tmp/gpt_oss_transformer_flax_seq16.onnx \
+    --sequence-length 16 \
+    --skip-validation
+
+  mkdir -p artifacts/gpt_oss_full_seq16
+  mv /tmp/gpt_oss_transformer_flax_seq16.onnx artifacts/gpt_oss_full_seq16/
+  mv /tmp/gpt_oss_transformer_flax_seq16.onnx.data artifacts/gpt_oss_full_seq16/
+  ```
+
+- Ran `scripts/run_onnx_only.py` (now using the official GPT-OSS tokenizer) on a short prompt to keep within the 16-token window:
+
+  ```bash
+  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
+  poetry run python scripts/run_onnx_only.py \
+    --onnx artifacts/gpt_oss_full_seq16/gpt_oss_transformer_flax_seq16.onnx \
+    --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+    --prompt "France capital? Answer:" \
+    --sequence-length 16 \
+    --generate-steps 32
+  ```
+
+- Decoded output includes a clean mention of Paris (e.g., `Decoded tokens:  Paris. So answer: Paris. So ...`). The script now also tries to extract `"text": "..."` segments if the model replies in its usual JSON-wrapped format.
+
+- Takeaway: with the real tokenizer + a short prompt, the ONNX-only path produces human-readable tokens; for longer prompts/responses re-export with a larger `--sequence-length` or add KV cache support to avoid re-running the full window each step.
 
 ## Original (Torch) ↔ JAX Parity Checklist
 

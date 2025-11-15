@@ -93,8 +93,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--generate-steps",
         type=int,
-        default=1,
-        help="Number of autoregressive tokens to generate (default: 1).",
+        default=64,
+        help="Number of autoregressive tokens to generate (default: 64).",
     )
     return parser.parse_args()
 
@@ -131,6 +131,49 @@ def main() -> None:
     print(f"Prompt: {args.prompt!r}")
     print(f"Generated tokens: {generated}")
     print(f"Decoded tokens: {decoded}")
+    _print_plaintext(decoded)
+
+
+def _print_plaintext(decoded: str) -> None:
+    import json
+    import re
+
+    normalized = decoded
+    if normalized.count("'") > normalized.count('"'):
+        normalized = normalized.replace("'", '"')
+    candidates = [normalized]
+    for text in candidates:
+        matches = re.findall(r'"text"\s*:\s*"([^"]+)"', text)
+        if matches:
+            print("Extracted text:")
+            for line in matches:
+                print(line)
+            return
+        try:
+            data = json.loads(text)
+            texts = _extract_text_from_json(data)
+            if texts:
+                print("Extracted text:")
+                for line in texts:
+                    print(line)
+                return
+        except Exception:
+            continue
+    print("No structured text segment found.")
+
+
+def _extract_text_from_json(obj) -> List[str]:
+    result: List[str] = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "text" and isinstance(value, str):
+                result.append(value)
+            else:
+                result.extend(_extract_text_from_json(value))
+    elif isinstance(obj, list):
+        for item in obj:
+            result.extend(_extract_text_from_json(item))
+    return result
 
 
 if __name__ == "__main__":
