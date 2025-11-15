@@ -8,13 +8,14 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Final
+from typing import Any, Final, Sequence
 
 import flax.serialization as flax_serialization
 import jax
 import jax.numpy as jnp
 import numpy as np
-import onnxruntime as ort
+import onnx
+from onnx.reference import ReferenceEvaluator
 
 from jax2onnx.plugins.examples.nnx.gpt_oss_flax import (
     GPTOSSConfig,
@@ -37,6 +38,65 @@ BLOCK_DEBUG_KEYS: Final = (
     "mlp_expert_outputs",
     "mlp_fused",
 )
+
+
+def _value_info_shape(value_info: Any) -> tuple[Any, ...]:
+    tensor_type = value_info.type.tensor_type
+    dims = []
+    for dim in tensor_type.shape.dim:
+        if dim.HasField("dim_value"):
+            dims.append(dim.dim_value)
+        elif dim.HasField("dim_param"):
+            dims.append(dim.dim_param)
+        else:
+            dims.append(None)
+    return tuple(dims)
+
+
+class _SessionAdapter:
+    backend: str
+    input_name: str
+    input_shape: tuple[Any, ...]
+    output_names: Sequence[str]
+
+    def run(self, feeds: dict[str, np.ndarray]) -> list[np.ndarray]:
+        raise NotImplementedError
+
+
+class _OrtSessionAdapter(_SessionAdapter):
+    def __init__(self, model_path: Path) -> None:
+        try:
+            import onnxruntime as ort  # noqa: WPS433
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "onnxruntime is not installed; re-run without "
+                "--use-reference-evaluator or install onnxruntime."
+            ) from exc
+        self.backend = "onnxruntime"
+        self._session = ort.InferenceSession(
+            str(model_path),
+            providers=["CPUExecutionProvider"],
+        )
+        input_info = self._session.get_inputs()[0]
+        self.input_name = input_info.name
+        self.input_shape = tuple(input_info.shape)
+        self.output_names = [out.name for out in self._session.get_outputs()]
+
+    def run(self, feeds: dict[str, np.ndarray]) -> list[np.ndarray]:
+        return self._session.run(None, feeds)
+
+
+class _ReferenceSessionAdapter(_SessionAdapter):
+    def __init__(self, model_path: Path) -> None:
+        self.backend = "onnx.reference.ReferenceEvaluator"
+        model = onnx.load(str(model_path))
+        self._session = ReferenceEvaluator(model)
+        self.input_name = self._session.input_names[0]
+        self.input_shape = _value_info_shape(model.graph.input[0])
+        self.output_names = list(self._session.output_names)
+
+    def run(self, feeds: dict[str, np.ndarray]) -> list[np.ndarray]:
+        return self._session.run(None, feeds)
 
 
 def _load_params(bundle: Path) -> dict:
@@ -128,6 +188,11 @@ def parse_args() -> argparse.Namespace:
             "Requires an ONNX exported with --emit-block-debug."
         ),
     )
+    parser.add_argument(
+        "--use-reference-evaluator",
+        action="store_true",
+        help="Use onnx.reference.ReferenceEvaluator instead of onnxruntime.",
+    )
     return parser.parse_args()
 
 
@@ -138,20 +203,22 @@ def main() -> None:
     allowed = GPTOSSConfig.__annotations__.keys()
     config = GPTOSSConfig(**{k: v for k, v in config_dict.items() if k in allowed})
 
-    sess = ort.InferenceSession(
-        str(args.onnx.expanduser().resolve()),
-        providers=["CPUExecutionProvider"],
-    )
-    onnx_input = sess.get_inputs()[0]
-    onnx_seq_len = onnx_input.shape[0]
-    print(f"[info] ONNX input shape: {onnx_input.shape}", flush=True)
+    onnx_path = args.onnx.expanduser().resolve()
+    if args.use_reference_evaluator:
+        runner: _SessionAdapter = _ReferenceSessionAdapter(onnx_path)
+    else:
+        runner = _OrtSessionAdapter(onnx_path)
+    print(f"[info] Using {runner.backend} backend", flush=True)
+    onnx_input_shape = runner.input_shape
+    print(f"[info] ONNX input shape: {onnx_input_shape}", flush=True)
+    onnx_seq_len = onnx_input_shape[0] if onnx_input_shape else None
     seq_len = args.sequence_length
     if isinstance(onnx_seq_len, int) and onnx_seq_len > 0:
         seq_len = min(seq_len, int(onnx_seq_len))
 
     model = _load_model(config, params, seq_len)
 
-    extra_outputs = sess.get_outputs()
+    output_count = len(runner.output_names)
     need_hidden = args.compare_hidden_states
     need_block_debug = args.compare_block_debug
     expected_outputs = 1
@@ -159,7 +226,7 @@ def main() -> None:
         expected_outputs += config.num_hidden_layers
     if need_block_debug:
         expected_outputs += len(BLOCK_DEBUG_KEYS) * config.num_hidden_layers
-    if len(extra_outputs) != expected_outputs:
+    if output_count != expected_outputs:
         requirement_parts = []
         if need_hidden:
             requirement_parts.append("--emit-hidden-states")
@@ -169,7 +236,7 @@ def main() -> None:
             " and ".join(requirement_parts) if requirement_parts else "standard export"
         )
         raise SystemExit(
-            f"ONNX model exposes {len(extra_outputs)} outputs but {expected_outputs} were expected. "
+            f"ONNX model exposes {output_count} outputs but {expected_outputs} were expected. "
             f"Ensure the model was exported with {requirement}."
         )
 
@@ -204,47 +271,49 @@ def main() -> None:
     print(f"[info] JAX output shape: {jax_out.shape}")
     jax_logits = jax_out[-1]
 
-    ort_outputs = sess.run(None, {sess.get_inputs()[0].name: tokens_padded})
-    ort_logits_full = ort_outputs[0]
-    ort_logits = ort_logits_full[-1]
-    print(f"[info] ORT output shape: {ort_logits_full.shape}")
+    onnx_outputs = runner.run({runner.input_name: tokens_padded})
+    onnx_logits_full = onnx_outputs[0]
+    onnx_logits = onnx_logits_full[-1]
+    print(f"[info] ONNX output shape: {onnx_logits_full.shape}")
     offset = 1
-    ort_hidden = []
+    onnx_hidden = []
     if need_hidden:
-        ort_hidden = ort_outputs[offset : offset + config.num_hidden_layers]
+        onnx_hidden = onnx_outputs[offset : offset + config.num_hidden_layers]
         offset += config.num_hidden_layers
-    ort_block_debug = []
+    onnx_block_debug = []
     if need_block_debug:
         for _ in range(config.num_hidden_layers):
             entry: dict[str, np.ndarray] = {}
             for key in BLOCK_DEBUG_KEYS:
-                entry[key] = ort_outputs[offset]
+                entry[key] = onnx_outputs[offset]
                 offset += 1
-            ort_block_debug.append(entry)
+            onnx_block_debug.append(entry)
 
-    diff = np.max(np.abs(jax_logits - ort_logits))
+    diff = np.max(np.abs(jax_logits - onnx_logits))
     print(f"Prompt: {args.prompt!r}")
     print(f"JAX logits (last token): {jax_logits[:8]} ...")
-    print(f"ORT logits (last token): {ort_logits[:8]} ...")
+    print(f"ONNX logits (last token): {onnx_logits[:8]} ...")
     print(f"Max |diff|: {diff}")
 
     if need_hidden:
-        for layer_idx, (jax_state, ort_state) in enumerate(zip(jax_hidden, ort_hidden)):
-            ort_arr = np.asarray(ort_state)
-            layer_diff = np.max(np.abs(jax_state - ort_arr))
-            mean_diff = float(np.mean(np.abs(jax_state - ort_arr)))
+        for layer_idx, (jax_state, onnx_state) in enumerate(
+            zip(jax_hidden, onnx_hidden)
+        ):
+            onnx_arr = np.asarray(onnx_state)
+            layer_diff = np.max(np.abs(jax_state - onnx_arr))
+            mean_diff = float(np.mean(np.abs(jax_state - onnx_arr)))
             print(
                 f"[hidden] block_{layer_idx}: max |diff|={layer_diff:.6f}, "
                 f"mean |diff|={mean_diff:.6f}"
             )
     if need_block_debug:
-        if len(jax_block_debug) != len(ort_block_debug):
+        if len(jax_block_debug) != len(onnx_block_debug):
             raise SystemExit(
                 f"Expected {len(jax_block_debug)} block debug outputs, "
-                f"but ONNX returned {len(ort_block_debug)}."
+                f"but ONNX returned {len(onnx_block_debug)}."
             )
         for layer_idx, (jax_dbg, ort_dbg) in enumerate(
-            zip(jax_block_debug, ort_block_debug)
+            zip(jax_block_debug, onnx_block_debug)
         ):
             for key in BLOCK_DEBUG_KEYS:
                 j_arr = jax_dbg.get(key)
