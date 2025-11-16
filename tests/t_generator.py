@@ -469,17 +469,10 @@ def make_test_function(tp: dict[str, Any]):
 
     def test_func(self=None):  # Pytest will inject 'self' if it's a method of a class
         configure_logging()
-
         # --- move this UP, before any jax/jnp use ---
         current_enable_double_precision = tp.get(
             "_enable_double_precision_test_setting", False
         )
-
-        if current_enable_double_precision:
-            # set x64 early so all downstream jax/jnp ops see it
-            jax.config.update("jax_enable_x64", True)
-        # --------------------------------------------
-
         callable_factory = tp.get("callable_factory")
         if callable_factory is not None:
             desired_dtype = (
@@ -842,9 +835,10 @@ def make_test_function(tp: dict[str, Any]):
 
                     eval_target_jax_func = jax_func_wrapper
 
-                jax_output_sds = jax.eval_shape(
-                    eval_target_jax_func, *jax_eval_inputs_sds
-                )
+                with _temporary_x64(current_enable_double_precision):
+                    jax_output_sds = jax.eval_shape(
+                        eval_target_jax_func, *jax_eval_inputs_sds
+                    )
                 if not isinstance(jax_output_sds, (list, tuple)):
                     jax_output_sds = [jax_output_sds]
                 expected_onnx_dtype_for_float_outputs = (
@@ -1185,7 +1179,9 @@ def _run_onnx_model_for_shape_check(
         return []
 
     sess_options = onnxruntime.SessionOptions()
-    # Consider adding more providers if needed, e.g., 'CUDAExecutionProvider'
+    # Reduce nondeterminism: run single-threaded.
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
     providers = ["CPUExecutionProvider"]
     model_bytes = model_proto.SerializeToString()
     try:

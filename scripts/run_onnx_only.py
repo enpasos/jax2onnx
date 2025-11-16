@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# scripts/run_onnx_only.py
+
 """Run an exported GPT-OSS ONNX model without Flax parity."""
 
 from __future__ import annotations
@@ -6,10 +8,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 import numpy as np
 import onnx
+from onnx import compose
 from onnx.reference import ReferenceEvaluator
 
 
@@ -96,7 +99,57 @@ def parse_args() -> argparse.Namespace:
         default=64,
         help="Number of autoregressive tokens to generate (default: 64).",
     )
+    parser.add_argument(
+        "--expand-functions",
+        action="store_true",
+        help=(
+            "Inline custom functions (TokenEmbedding, TransformerBlock, etc.) into the main graph. "
+            "Useful when a runtime cannot resolve custom domains in-place."
+        ),
+    )
+    parser.add_argument(
+        "--runtime",
+        choices=["reference", "ort"],
+        default="reference",
+        help="Backend to execute the ONNX model. 'ort' (onnxruntime) is faster and more memory efficient.",
+    )
     return parser.parse_args()
+
+
+def _topo_sort_custom_functions(model: onnx.ModelProto) -> None:
+    """Reorder embedded FunctionProtos so dependencies appear before callers."""
+
+    funcs = list(model.functions)
+
+    def key_for(f):
+        return (f.domain, f.name)
+
+    deps: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for f in funcs:
+        k = key_for(f)
+        deps[k] = {
+            (n.domain, n.op_type) for n in f.node if n.domain.startswith("custom.")
+        }
+
+    ordered: list[onnx.FunctionProto] = []
+    placed: set[tuple[str, str]] = set()
+    remaining = {key_for(f): f for f in funcs}
+
+    # Simple Kahn-style pass; fall back to insertion order if we hit a cycle.
+    while remaining:
+        ready = [
+            k for k, dep in deps.items() if dep.issubset(placed) and k in remaining
+        ]
+        if not ready:
+            # Cycle or unresolved dependency; append the rest as-is.
+            ordered.extend(remaining.values())
+            break
+        for k in ready:
+            ordered.append(remaining.pop(k))
+            placed.add(k)
+
+    del model.functions[:]
+    model.functions.extend(ordered)
 
 
 def main() -> None:
@@ -108,8 +161,37 @@ def main() -> None:
     tokens = encode(args.prompt)
     generated: List[int] = []
 
-    model = onnx.load(str(args.onnx.expanduser().resolve()))
-    session = ReferenceEvaluator(model)
+    onnx_path = args.onnx.expanduser().resolve()
+    if args.runtime == "reference":
+        model = onnx.load(str(onnx_path))
+        _topo_sort_custom_functions(model)
+        if args.expand_functions:
+            model = compose.expand_functions(model)
+        # ReferenceEvaluator consumes custom FunctionProtos embedded in the model.
+        session = ReferenceEvaluator(model)
+        input_name = session.input_names[0]
+
+        def run_inference(feed):
+            return session.run(None, {input_name: feed})[0]
+
+    else:
+        # Prefer onnxruntime for large models; it handles external data efficiently.
+        try:
+            import onnxruntime as ort
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise SystemExit(
+                "onnxruntime is required for --runtime ort. Install with "
+                "'poetry run pip install onnxruntime'"
+            ) from exc
+        sess_opts = ort.SessionOptions()
+        providers = ["CPUExecutionProvider"]
+        session = ort.InferenceSession(
+            str(onnx_path), sess_options=sess_opts, providers=providers
+        )
+        input_name = session.get_inputs()[0].name
+
+        def run_inference(feed):
+            return session.run(None, {input_name: feed})[0]
 
     for _ in range(max(1, args.generate_steps)):
         if len(tokens) == 0:
@@ -117,7 +199,7 @@ def main() -> None:
         window = tokens[-seq_len:]
         padded = np.zeros((seq_len,), dtype=np.int32)
         padded[: len(window)] = np.array(window, dtype=np.int32)[:seq_len]
-        logits = session.run(None, {session.input_names[0]: padded})[0]
+        logits = run_inference(padded)
         last_index = len(window) - 1
         last_logits = logits[last_index]
         pred_id = int(np.argmax(last_logits))

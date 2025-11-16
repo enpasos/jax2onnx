@@ -351,7 +351,12 @@ def to_onnx(
             promote_to_double=enable_double_precision,
         )
 
-    def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
+    def _save_model_proto(
+        model_proto: onnx.ModelProto,
+        dest: str,
+        *,
+        external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
+    ) -> str:
         dest_dir = os.path.dirname(dest)
         if dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
@@ -363,13 +368,17 @@ def to_onnx(
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location=data_location,
-            size_threshold=1024,
+            size_threshold=external_threshold,
             convert_attribute=False,
         )
-        # onnx.save_model writes the external tensor file automatically; ensure it exists
-        if not os.path.exists(data_path):
-            with open(data_path, "wb") as f:
-                f.write(b"")
+        # Only keep the .data sidecar if the export actually referenced external data.
+        if not any(init.external_data for init in model_proto.graph.initializer):
+            # No external payloads; remove an empty sidecar if one was produced.
+            try:
+                if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
+                    os.remove(data_path)
+            except OSError:
+                pass
         return dest
 
     _materialize_input_params_on_ir(result, param_map)
@@ -388,6 +397,8 @@ def onnx_function(
     *,
     unique: bool = False,
     namespace: Optional[str] = None,
+    name: Optional[str] = None,
+    type: Optional[str] = None,  # noqa: A002 - user-facing keyword
 ) -> Union[Callable, type]:
     """
     Decorator to mark a function or class as an ONNX function.
@@ -403,6 +414,11 @@ def onnx_function(
             that share the same callable type and captured parameters.
         namespace: Custom domain prefix for the emitted FunctionProto. Defaults to
             ``"custom"`` when omitted.
+        name: Optional human-readable base name for the ONNX function. When set,
+            this overrides the callable's Python name for the function `op_type`
+            and FunctionProto name; the domain still derives from ``namespace``.
+        type: Alias for ``name``; preferred keyword for setting the function
+            `op_type`/display name in ONNX.
 
     Returns:
         The decorated function or class with ONNX function capabilities.
@@ -421,7 +437,11 @@ def onnx_function(
         >>>         return self.activation(self.dense(x))
     """
 
-    return onnx_function_impl(target, unique=unique, namespace=namespace)
+    # Prefer the explicit `type` override; fall back to `name` for BC.
+    display = type if isinstance(type, str) and type else name
+    return onnx_function_impl(
+        target, unique=unique, namespace=namespace, name=display, type=display
+    )
 
 
 def allclose(
@@ -491,9 +511,14 @@ def _run_allclose(
 ) -> Tuple[bool, str]:
     import onnxruntime as ort
 
+    # Use single-threaded ORT to reduce nondeterminism across runs.
+    sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
     session = ort.InferenceSession(
         model_path,
-        providers=ort.get_available_providers(),
+        sess_options=sess_options,
+        providers=["CPUExecutionProvider"],
     )
 
     ort_inputs = _build_ort_inputs(session, xs, params)

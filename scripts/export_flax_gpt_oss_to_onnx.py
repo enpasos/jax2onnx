@@ -122,14 +122,14 @@ def _assign_param(param: nnx.Param, value: np.ndarray | jax.Array) -> None:
 
 
 def _load_model_params(model: Transformer, params: dict) -> None:
-    _assign_param(model.embedding, params["embedding"]["embedding"])
+    _assign_param(model.token_embedding.embedding, params["embedding"]["embedding"])
 
     for layer_idx in range(model.config.num_hidden_layers):
         block_params = params[f"block_{layer_idx}"]
         block = model.blocks[f"block_{layer_idx}"]
 
         attn_params = block_params["attn"]
-        _assign_param(block.attention.norm.scale, attn_params["norm"]["scale"])
+        _assign_param(block.norm1.scale, attn_params["norm"]["scale"])
         _assign_param(block.attention.qkv_kernel, attn_params["qkv"]["kernel"])
         _assign_param(block.attention.qkv_bias, attn_params["qkv"]["bias"])
         _assign_param(block.attention.out_kernel, attn_params["out"]["kernel"])
@@ -137,7 +137,7 @@ def _load_model_params(model: Transformer, params: dict) -> None:
         _assign_param(block.attention.sinks, attn_params["sinks"])
 
         mlp_params = block_params["mlp"]
-        _assign_param(block.mlp.norm.scale, mlp_params["norm"]["scale"])
+        _assign_param(block.norm2.scale, mlp_params["norm"]["scale"])
         _assign_param(block.mlp.gate_kernel, mlp_params["gate"]["kernel"])
         _assign_param(block.mlp.gate_bias, mlp_params["gate"]["bias"])
         _assign_param(block.mlp.mlp1_weight, mlp_params["mlp1_weight"])

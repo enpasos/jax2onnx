@@ -131,13 +131,13 @@ def _load_model(config: GPTOSSConfig, params: dict, seq_len: int) -> Transformer
         rng=jax.random.PRNGKey(0),
     )
 
-    _assign_param(model.embedding, params["embedding"]["embedding"])
+    _assign_param(model.token_embedding.embedding, params["embedding"]["embedding"])
     for layer_idx in range(config.num_hidden_layers):
         block = model.blocks[f"block_{layer_idx}"]
         params_block = params[f"block_{layer_idx}"]
 
         attn = params_block["attn"]
-        _assign_param(block.attention.norm.scale, attn["norm"]["scale"])
+        _assign_param(block.norm1.scale, attn["norm"]["scale"])
         _assign_param(block.attention.qkv_kernel, attn["qkv"]["kernel"])
         _assign_param(block.attention.qkv_bias, attn["qkv"]["bias"])
         _assign_param(block.attention.out_kernel, attn["out"]["kernel"])
@@ -145,7 +145,7 @@ def _load_model(config: GPTOSSConfig, params: dict, seq_len: int) -> Transformer
         _assign_param(block.attention.sinks, attn["sinks"])
 
         mlp = params_block["mlp"]
-        _assign_param(block.mlp.norm.scale, mlp["norm"]["scale"])
+        _assign_param(block.norm2.scale, mlp["norm"]["scale"])
         _assign_param(block.mlp.gate_kernel, mlp["gate"]["kernel"])
         _assign_param(block.mlp.gate_bias, mlp["gate"]["bias"])
         _assign_param(block.mlp.mlp1_weight, mlp["mlp1_weight"])

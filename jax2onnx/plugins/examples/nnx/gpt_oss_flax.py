@@ -18,6 +18,7 @@ from flax import nnx
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
+    onnx_function,
     register_example,
     with_prng_key,
     with_requested_dtype,
@@ -129,6 +130,7 @@ class GPTOSSConfig:
     swiglu_limit: float = 7.0
 
 
+@onnx_function
 class RMSNorm(nnx.Module):
     def __init__(self, hidden_size: int, *, eps: float = 1e-5):
         self.hidden_size = hidden_size
@@ -154,23 +156,10 @@ _ATTN_CONFIG: Final[GPTOSSConfig] = GPTOSSConfig(
 
 _EXPECT_RMS_GRAPH: Final = EG(
     [
-        (
-            "Pow -> ReduceSum -> Reshape -> Expand -> Div -> Add -> Sqrt -> Div -> Mul",
-            {
-                "counts": {
-                    "Pow": 1,
-                    "ReduceSum": 1,
-                    "Reshape": 1,
-                    "Expand": 1,
-                    "Div": 2,
-                    "Add": 1,
-                    "Sqrt": 1,
-                    "Mul": 1,
-                }
-            },
-        ),
+        "RMSNorm:Bx64",
     ],
-    mode="any",
+    symbols={"B": None},
+    no_unused_inputs=True,
 )
 
 
@@ -381,7 +370,34 @@ register_example(
 )
 
 
-class AttentionBlock(nnx.Module):
+@onnx_function
+class TokenEmbedding(nnx.Module):
+    """Embedding lookup for token ids."""
+
+    embedding: nnx.Param
+
+    def __init__(
+        self,
+        vocab_size: int,
+        hidden_size: int,
+        *,
+        rng: jax.Array,
+        dtype: jnp.dtype = jnp.float32,
+    ):
+        self.embedding = _init_param(
+            rng,
+            _NORMAL_002,
+            (vocab_size, hidden_size),
+            dtype,
+        )
+
+    def __call__(self, tokens: jax.Array) -> jax.Array:
+        token_ids = tokens.astype(jnp.int32)
+        return self.embedding.value[token_ids]
+
+
+@onnx_function
+class AttentionCore(nnx.Module):
     def __init__(
         self,
         *,
@@ -400,7 +416,6 @@ class AttentionBlock(nnx.Module):
         self.mask = nnx.data(mask)
         self.dtype = dtype
 
-        self.norm = RMSNorm(config.hidden_size)
         rng_seq = _KeySeq(rng)
 
         qkv_dim = config.head_dim * (
@@ -426,6 +441,11 @@ class AttentionBlock(nnx.Module):
             (config.num_attention_heads,),
             dtype,
         )
+        self.rope = RotaryEmbedding(
+            head_dim=config.head_dim,
+            cos_table=self.cos_table,
+            sin_table=self.sin_table,
+        )
 
     def __call__(
         self,
@@ -445,10 +465,7 @@ class AttentionBlock(nnx.Module):
             )
         q_mult = cfg.num_attention_heads // cfg.num_key_value_heads
 
-        normed = self.norm(x).astype(jnp.float32)
-        if capture_debug is not None:
-            capture_debug["attn_normed"] = normed
-        qkv = _linear(normed, self.qkv_kernel.value, self.qkv_bias.value)
+        qkv = _linear(x.astype(jnp.float32), self.qkv_kernel.value, self.qkv_bias.value)
 
         q_end = cfg.num_attention_heads * cfg.head_dim
         k_end = q_end + cfg.num_key_value_heads * cfg.head_dim
@@ -464,12 +481,7 @@ class AttentionBlock(nnx.Module):
             capture_debug["attn_k"] = k
             capture_debug["attn_v"] = v
 
-        rope = RotaryEmbedding(
-            head_dim=cfg.head_dim,
-            cos_table=self.cos_table,
-            sin_table=self.sin_table,
-        )
-        q, k = rope(q, k, position_offset=0)
+        q, k = self.rope(q, k, position_offset=0)
 
         sm_scale = float(1.0 / math.sqrt(float(cfg.head_dim)))
         attn_out = sdpa(
@@ -488,10 +500,50 @@ class AttentionBlock(nnx.Module):
         projected = _linear(attn_out, self.out_kernel.value, self.out_bias.value)
         if capture_debug is not None:
             capture_debug["attn_projected"] = projected
+        return projected
+
+
+@onnx_function
+class AttentionBlock(nnx.Module):
+    """Attention with pre-norm and residual (standalone wrapper)."""
+
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        cos_table: jax.Array,
+        sin_table: jax.Array,
+        sequence_length: int,
+        mask: jax.Array,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        self.norm = RMSNorm(config.hidden_size)
+        self.core = AttentionCore(
+            config=config,
+            cos_table=cos_table,
+            sin_table=sin_table,
+            sequence_length=sequence_length,
+            mask=mask,
+            dtype=dtype,
+            rng=rng,
+        )
+
+    def __call__(
+        self,
+        x: jax.Array,
+        *,
+        capture_debug: Optional[dict[str, jax.Array]] = None,
+    ) -> jax.Array:
+        normed = self.norm(x)
+        if capture_debug is not None:
+            capture_debug["attn_normed"] = normed
+        projected = self.core(normed, capture_debug=capture_debug)
         return x + projected
 
 
-class MLPBlock(nnx.Module):
+@onnx_function
+class MLPBlockCore(nnx.Module):
     def __init__(
         self,
         *,
@@ -504,7 +556,6 @@ class MLPBlock(nnx.Module):
         self.sequence_length = sequence_length
         self.param_dtype = dtype
         self.swiglu_limit = float(getattr(config, "swiglu_limit", 7.0))
-        self.norm = RMSNorm(config.hidden_size)
         rng_seq = _KeySeq(rng)
 
         self.gate_kernel = _init_param(
@@ -536,15 +587,12 @@ class MLPBlock(nnx.Module):
 
     def __call__(
         self,
-        x: jax.Array,
+        normed: jax.Array,
         capture_routing: Optional[List[dict]] = None,
         *,
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
         cfg = self.config
-        normed = self.norm(x)
-        if capture_debug is not None:
-            capture_debug["mlp_normed"] = normed
 
         n_tokens = jax_core.concrete_or_error(
             int, normed.shape[0], "MLPBlock requires static token count"
@@ -641,10 +689,48 @@ class MLPBlock(nnx.Module):
             capture_debug["mlp_activated_outputs"] = activated_outputs
             capture_debug["mlp_dense_gate_weights"] = dense_gate_weights
             capture_debug["mlp_fused"] = fused
-        out = x + fused.astype(x.dtype)
-        return out
+        return fused.astype(normed.dtype)
 
 
+@onnx_function
+class MLPBlock(nnx.Module):
+    """MoE MLP with pre-norm and residual (standalone wrapper)."""
+
+    def __init__(
+        self,
+        *,
+        config: GPTOSSConfig,
+        sequence_length: int,
+        dtype: jnp.dtype = jnp.float32,
+        rng: jax.Array | int | None = None,
+    ):
+        self.norm = RMSNorm(config.hidden_size)
+        self.core = MLPBlockCore(
+            config=config,
+            sequence_length=sequence_length,
+            dtype=dtype,
+            rng=rng,
+        )
+
+    def __call__(
+        self,
+        x: jax.Array,
+        capture_routing: Optional[List[dict]] = None,
+        *,
+        capture_debug: Optional[dict[str, jax.Array]] = None,
+    ) -> jax.Array:
+        normed = self.norm(x)
+        if capture_debug is not None:
+            capture_debug["mlp_normed"] = normed
+        fused = self.core(
+            normed,
+            capture_routing=capture_routing,
+            capture_debug=capture_debug,
+        )
+        return x + fused
+
+
+@onnx_function
 class TransformerBlock(nnx.Module):
     def __init__(
         self,
@@ -658,7 +744,9 @@ class TransformerBlock(nnx.Module):
         rng: jax.Array | int | None = None,
     ):
         rng_seq = _KeySeq(rng)
-        self.attention = AttentionBlock(
+        self.norm1 = RMSNorm(config.hidden_size)
+        self.norm2 = RMSNorm(config.hidden_size)
+        self.attention = AttentionCore(
             config=config,
             cos_table=cos_table,
             sin_table=sin_table,
@@ -667,7 +755,7 @@ class TransformerBlock(nnx.Module):
             dtype=dtype,
             rng=rng_seq.next(),
         )
-        self.mlp = MLPBlock(
+        self.mlp = MLPBlockCore(
             config=config,
             sequence_length=sequence_length,
             dtype=dtype,
@@ -681,17 +769,25 @@ class TransformerBlock(nnx.Module):
         *,
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
-        attn_out = self.attention(x, capture_debug=capture_debug)
+        normed_attn = self.norm1(x)
+        if capture_debug is not None:
+            capture_debug["attn_normed"] = normed_attn
+        attn_delta = self.attention(normed_attn, capture_debug=capture_debug)
+        attn_out = x + attn_delta
         if capture_debug is not None:
             capture_debug["post_attention"] = attn_out
-        out = self.mlp(
-            attn_out,
+        normed_mlp = self.norm2(attn_out)
+        if capture_debug is not None:
+            capture_debug["mlp_normed"] = normed_mlp
+        mlp_delta = self.mlp(
+            normed_mlp,
             capture_routing=capture_routing,
             capture_debug=capture_debug,
         )
-        return out
+        return attn_out + mlp_delta
 
 
+@onnx_function(type="GPTOSS_Transformer")
 class Transformer(nnx.Module):
     def __init__(
         self,
@@ -713,11 +809,11 @@ class Transformer(nnx.Module):
         self.mask_causal = nnx.data(mask_causal)
 
         rng_seq = _KeySeq(rng)
-        self.embedding = _init_param(
-            rng_seq.next(),
-            _NORMAL_002,
-            (config.vocab_size, config.hidden_size),
-            dtype,
+        self.token_embedding = TokenEmbedding(
+            config.vocab_size,
+            config.hidden_size,
+            rng=rng_seq.next(),
+            dtype=dtype,
         )
         self.blocks = nnx.Dict()
         for layer_idx in range(config.num_hidden_layers):
@@ -756,8 +852,7 @@ class Transformer(nnx.Module):
             raise ValueError(
                 f"Transformer expected sequence_length={self.sequence_length}, got {num_tokens}"
             )
-        embedding = self.embedding.value
-        hidden = embedding[tokens.astype(jnp.int32)]
+        hidden = self.token_embedding(tokens)
 
         num_blocks = self.config.num_hidden_layers
         if capture_routing is not None and len(capture_routing) != num_blocks:

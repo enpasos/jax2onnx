@@ -69,13 +69,17 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_fla
 - Ran `scripts/run_onnx_only.py` (now using the official GPT-OSS tokenizer) on a short prompt to keep within the 16-token window:
 
   ```bash
+  poetry run pip install onnxruntime  # once, if not already present
+
   LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
   poetry run python scripts/run_onnx_only.py \
     --onnx artifacts/gpt_oss_full_seq16/gpt_oss_transformer_flax_seq16.onnx \
     --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
     --prompt "France capital? Answer:" \
     --sequence-length 16 \
-    --generate-steps 32
+    --generate-steps 8 \
+    --expand-functions \
+    --runtime ort
   ```
 
 - Decoded output includes a clean mention of Paris (e.g., `Decoded tokens:  Paris. So answer: Paris. So ...`). The script now also tries to extract `"text": "..."` segments if the model replies in its usual JSON-wrapped format.

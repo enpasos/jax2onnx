@@ -17,21 +17,24 @@ namespacing, and testing conventions work in practice.
 ## Flags
 
 ```python
-@onnx_function(unique=False, namespace="custom")
+@onnx_function(unique=False, namespace="custom", type="MyFn")
 def my_fn(...):
     ...
 ```
 
 - `unique=True` de-duplicates call-sites that share the same capture signature.
 - `namespace` overrides the domain prefix. When omitted, it defaults to `"custom"`.
+- `type` (preferred) or `name` (alias) overrides the human-readable base
+  name/op_type used for the function. When omitted, the callable’s Python name
+  is used.
 
 ### Domain Naming Rules
 
 - Non-unique functions use `{namespace}.{base}.{counter}`.
 - Unique functions use `{namespace}.{base}.unique` for the first instance and
   `{namespace}.{base}.unique.{N}` for additional variants when the capture differs.
-- `op_type` always equals the sanitized callable name (`base`) so node “types” stay
-  human-friendly.
+- `op_type` equals the sanitized base name (`type`/`name` when provided,
+  otherwise the callable name) so node “types” stay human-friendly.
 
 Examples (default namespace):
 

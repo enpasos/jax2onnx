@@ -96,14 +96,14 @@ uvloop = ["uvloop (>=0.15.2)"]
 
 [[package]]
 name = "certifi"
-version = "2025.10.5"
+version = "2025.11.12"
 description = "Python package for providing Mozilla's CA Bundle."
 optional = false
 python-versions = ">=3.7"
 groups = ["main"]
 files = [
-    {file = "certifi-2025.10.5-py3-none-any.whl", hash = "sha256:0f212c2744a9bb6de0c56639a6f68afe01ecd92d91f14ae897c4fe7bbeeef0de"},
-    {file = "certifi-2025.10.5.tar.gz", hash = "sha256:47c09d31ccf2acf0be3f701ea53595ee7e0b8fa08801c6624be771df09ae7b43"},
+    {file = "certifi-2025.11.12-py3-none-any.whl", hash = "sha256:97de8790030bbd5c2d96b7ec782fc2f7820ef8dba6db909ccf95449f2d062d4b"},
+    {file = "certifi-2025.11.12.tar.gz", hash = "sha256:d8ab5478f2ecd78af242878415affce761ca6bc54a22a27e026d7c25357c3316"},
 ]
 
 [[package]]
@@ -144,14 +144,14 @@ test = ["cloudpickle (==3.1.0)", "dm-tree (>=0.1.9)"]
 
 [[package]]
 name = "click"
-version = "8.3.0"
+version = "8.3.1"
 description = "Composable command line interface toolkit"
 optional = false
 python-versions = ">=3.10"
 groups = ["main", "dev"]
 files = [
-    {file = "click-8.3.0-py3-none-any.whl", hash = "sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc"},
-    {file = "click-8.3.0.tar.gz", hash = "sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4"},
+    {file = "click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6"},
+    {file = "click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a"},
 ]
 
 [package.dependencies]
@@ -435,7 +435,7 @@ jax = ">=0.7.1"
 msgpack = "*"
 numpy = [
     {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
-    {version = ">=1.23.2", markers = "python_version >= \"3.11\""},
+    {version = ">=1.23.2", markers = "python_version == \"3.11\""},
 ]
 optax = "*"
 orbax-checkpoint = "*"
@@ -587,14 +587,14 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "huggingface-hub"
-version = "1.1.2"
+version = "1.1.4"
 description = "Client library to download and publish models, datasets and other repos on the huggingface.co hub"
 optional = false
 python-versions = ">=3.9.0"
 groups = ["main"]
 files = [
-    {file = "huggingface_hub-1.1.2-py3-none-any.whl", hash = "sha256:dfcfa84a043466fac60573c3e4af475490a7b0d7375b22e3817706d6659f61f7"},
-    {file = "huggingface_hub-1.1.2.tar.gz", hash = "sha256:7bdafc432dc12fa1f15211bdfa689a02531d2a47a3cc0d74935f5726cdbcab8e"},
+    {file = "huggingface_hub-1.1.4-py3-none-any.whl", hash = "sha256:867799fbd2ef338b7f8b03d038d9c0e09415dfe45bb2893b48a510d1d746daa5"},
+    {file = "huggingface_hub-1.1.4.tar.gz", hash = "sha256:a7424a766fffa1a11e4c1ac2040a1557e2101f86050fdf06627e7b74cc9d2ad6"},
 ]
 
 [package.dependencies]
@@ -1024,7 +1024,7 @@ files = [
 numpy = [
     {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
     {version = ">=1.26.0", markers = "python_version == \"3.12\""},
-    {version = ">=1.23.3", markers = "python_version == \"3.11\""},
+    {version = ">=1.23.3", markers = "python_version >= \"3.11\""},
 ]
 
 [package.extras]
@@ -1199,13 +1199,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.7.3"
+version = "8.7.4"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.7.3-py3-none-any.whl", hash = "sha256:084813a2380495563d7b09d70121cda0aa805b07a2ffff86c20ded03e1d624e5"},
+    {file = "netron-8.7.4-py3-none-any.whl", hash = "sha256:582f7d0d06fa5c7fb2b9c3adfc78fa0733a0ea4492c7dbf9ccb29acd50c490b9"},
 ]
 
 [[package]]
@@ -1772,22 +1772,22 @@ virtualenv = ">=20.10.0"
 
 [[package]]
 name = "protobuf"
-version = "6.33.0"
+version = "6.33.1"
 description = ""
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "protobuf-6.33.0-cp310-abi3-win32.whl", hash = "sha256:d6101ded078042a8f17959eccd9236fb7a9ca20d3b0098bbcb91533a5680d035"},
-    {file = "protobuf-6.33.0-cp310-abi3-win_amd64.whl", hash = "sha256:9a031d10f703f03768f2743a1c403af050b6ae1f3480e9c140f39c45f81b13ee"},
-    {file = "protobuf-6.33.0-cp39-abi3-macosx_10_9_universal2.whl", hash = "sha256:905b07a65f1a4b72412314082c7dbfae91a9e8b68a0cc1577515f8df58ecf455"},
-    {file = "protobuf-6.33.0-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:e0697ece353e6239b90ee43a9231318302ad8353c70e6e45499fa52396debf90"},
-    {file = "protobuf-6.33.0-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:e0a1715e4f27355afd9570f3ea369735afc853a6c3951a6afe1f80d8569ad298"},
-    {file = "protobuf-6.33.0-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:35be49fd3f4fefa4e6e2aacc35e8b837d6703c37a2168a55ac21e9b1bc7559ef"},
-    {file = "protobuf-6.33.0-cp39-cp39-win32.whl", hash = "sha256:cd33a8e38ea3e39df66e1bbc462b076d6e5ba3a4ebbde58219d777223a7873d3"},
-    {file = "protobuf-6.33.0-cp39-cp39-win_amd64.whl", hash = "sha256:c963e86c3655af3a917962c9619e1a6b9670540351d7af9439d06064e3317cc9"},
-    {file = "protobuf-6.33.0-py3-none-any.whl", hash = "sha256:25c9e1963c6734448ea2d308cfa610e692b801304ba0908d7bfa564ac5132995"},
-    {file = "protobuf-6.33.0.tar.gz", hash = "sha256:140303d5c8d2037730c548f8c7b93b20bb1dc301be280c378b82b8894589c954"},
+    {file = "protobuf-6.33.1-cp310-abi3-win32.whl", hash = "sha256:f8d3fdbc966aaab1d05046d0240dd94d40f2a8c62856d41eaa141ff64a79de6b"},
+    {file = "protobuf-6.33.1-cp310-abi3-win_amd64.whl", hash = "sha256:923aa6d27a92bf44394f6abf7ea0500f38769d4b07f4be41cb52bd8b1123b9ed"},
+    {file = "protobuf-6.33.1-cp39-abi3-macosx_10_9_universal2.whl", hash = "sha256:fe34575f2bdde76ac429ec7b570235bf0c788883e70aee90068e9981806f2490"},
+    {file = "protobuf-6.33.1-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:f8adba2e44cde2d7618996b3fc02341f03f5bc3f2748be72dc7b063319276178"},
+    {file = "protobuf-6.33.1-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:0f4cf01222c0d959c2b399142deb526de420be8236f22c71356e2a544e153c53"},
+    {file = "protobuf-6.33.1-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:8fd7d5e0eb08cd5b87fd3df49bc193f5cfd778701f47e11d127d0afc6c39f1d1"},
+    {file = "protobuf-6.33.1-cp39-cp39-win32.whl", hash = "sha256:023af8449482fa884d88b4563d85e83accab54138ae098924a985bcbb734a213"},
+    {file = "protobuf-6.33.1-cp39-cp39-win_amd64.whl", hash = "sha256:df051de4fd7e5e4371334e234c62ba43763f15ab605579e04c7008c05735cd82"},
+    {file = "protobuf-6.33.1-py3-none-any.whl", hash = "sha256:d595a9fd694fdeb061a62fbe10eb039cc1e444df81ec9bb70c7fc59ebcb1eafa"},
+    {file = "protobuf-6.33.1.tar.gz", hash = "sha256:97f65757e8d09870de6fd973aeddb92f85435607235d20b2dfed93405d00c85b"},
 ]
 
 [[package]]
@@ -2333,33 +2333,33 @@ dev = ["hypothesis (>=6.70.0)", "pytest (>=7.1.0)"]
 
 [[package]]
 name = "tensorstore"
-version = "0.1.78"
+version = "0.1.79"
 description = "Read and write large, multi-dimensional arrays"
 optional = false
-python-versions = ">=3.10"
+python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "tensorstore-0.1.78-cp310-cp310-macosx_10_14_x86_64.whl", hash = "sha256:f1bc58164ad964d9cc298d20b62ca704ab6241639a21015e47ce6ea5b5cae27f"},
-    {file = "tensorstore-0.1.78-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:1910101ea85b6507958da28628ef53712c5311df19a795f449604f82bae6a24b"},
-    {file = "tensorstore-0.1.78-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1e92195db0c8c3ca749f24b1e930ab93382ac27430ac4ad2e3f53fc8f739323f"},
-    {file = "tensorstore-0.1.78-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:90570b867f9100f7405e4116c73910d0bd283a101500ea5680c5a8a881ea05c6"},
-    {file = "tensorstore-0.1.78-cp310-cp310-win_amd64.whl", hash = "sha256:4de9d4ee93d712cb665890af0738f4d74cac3b9b9a0492d477a3ee63fbbf445b"},
-    {file = "tensorstore-0.1.78-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:1c91e7ff93561612bd9868f3ee56702b0e4fecb45079a4c152dff9a6aa751913"},
-    {file = "tensorstore-0.1.78-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:781e123d392b2d9115e94b01849797a4540f54cd6d34c6ee32b9491f2f2a399c"},
-    {file = "tensorstore-0.1.78-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e650d363ad43754626a828a242785e6359a59fedb171276e9a0c66c0bd963cd4"},
-    {file = "tensorstore-0.1.78-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:33fed0ffa7a42ad24ce203486cf039f81b211723b45bd54859ba237a9d3aedb9"},
-    {file = "tensorstore-0.1.78-cp311-cp311-win_amd64.whl", hash = "sha256:c02df3d8de4703d9ee42c8f620b2288f41c19a0fd5ffa907b72a736678e22188"},
-    {file = "tensorstore-0.1.78-cp312-cp312-macosx_10_14_x86_64.whl", hash = "sha256:ce375a8f6621cdb94638b9cdc5266519db16a58353d4c6920e8b9d6bdd419e21"},
-    {file = "tensorstore-0.1.78-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:82f68fa5a3b4c84365a667ea0a7465a53d5d969c4d3909ac990f314d1569ffc3"},
-    {file = "tensorstore-0.1.78-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5dc0bd6361d73e3f67d70980f96f4e8bcbd8e810b5475a01333ca9c37f0785a5"},
-    {file = "tensorstore-0.1.78-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:75a17cef99f05fad9cc6fda37f1a1868d5f1502fd577af13174382931481c948"},
-    {file = "tensorstore-0.1.78-cp312-cp312-win_amd64.whl", hash = "sha256:56271d4652a7cb445879089f620af47801c091765d35a005505d6bfb8d00c535"},
-    {file = "tensorstore-0.1.78-cp313-cp313-macosx_10_14_x86_64.whl", hash = "sha256:8a1d0ae7996c80f2e623be5b8cfbc32a307d08dfef3d2dcb455f592908ecd46d"},
-    {file = "tensorstore-0.1.78-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:311846cfb2d644cd4a7861005e521a79816093e76d7924c83de5d06ca323067e"},
-    {file = "tensorstore-0.1.78-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:630538a66eb9964bd2975c4e09ae83be9984f2e4ebd5f7969983137bfda92071"},
-    {file = "tensorstore-0.1.78-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6886bec93b8ba22f83c4dc9e7c1ee20b11025ea9a5a839de21d0cbf7fd7aada2"},
-    {file = "tensorstore-0.1.78-cp313-cp313-win_amd64.whl", hash = "sha256:e0073de8fa3074bc4cc92ced0210310fd89851899faf42a5ba256f0ba87d095c"},
-    {file = "tensorstore-0.1.78.tar.gz", hash = "sha256:e26074ffe462394cf54197eb76d6569b500f347573cd74da3f4dd5f510a4ad7c"},
+    {file = "tensorstore-0.1.79-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:11a2c62694ea9c21770bc5a09938d3d15c4b9662b738ae6e1e513c26ed96251a"},
+    {file = "tensorstore-0.1.79-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5e152d334bf34fbabdfe8e5bc35b87d1f9947065924ff83c29e659308b36e948"},
+    {file = "tensorstore-0.1.79-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c4230b8fd29795e88e441f749d881973eca8dadf33c5262b367839fb8891f79b"},
+    {file = "tensorstore-0.1.79-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:83072ee0e551d6dca582e154b64c8b8066d276ec0759784e3149c28212a61f18"},
+    {file = "tensorstore-0.1.79-cp311-cp311-win_amd64.whl", hash = "sha256:6c98c6b74c00e00eba7969292144e471d5c45d67088f0dc08e3a4c60a15ee191"},
+    {file = "tensorstore-0.1.79-cp312-cp312-macosx_10_14_x86_64.whl", hash = "sha256:71aa9b45436d888c37b965f7b71195916d15438119b7dccb66a3b0776bfba367"},
+    {file = "tensorstore-0.1.79-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:108c0e867aa2c87d4982cc6325a2de0c4f5bd63c2bea18adb193a370c40594ce"},
+    {file = "tensorstore-0.1.79-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:debd435042c00be68ba1fb3cf59325a7babb3f4a3cf4744c87dde346802cbbb4"},
+    {file = "tensorstore-0.1.79-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:608f7178ec6e4e4a3c26545b0a44f44bf83438d04bf2d960cd0e7699eaa99ef6"},
+    {file = "tensorstore-0.1.79-cp312-cp312-win_amd64.whl", hash = "sha256:a071c6c255b7e412957a6aa563bc4250242c7894edad06ae6358e3d30b7d88ce"},
+    {file = "tensorstore-0.1.79-cp313-cp313-macosx_10_14_x86_64.whl", hash = "sha256:1e8e2d098829919caac6a62cf568902e34789069ceddb28497d6e36ebcb95c0b"},
+    {file = "tensorstore-0.1.79-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:29cf4336153af136ac8ac528e2ed46df19367edae7e14e37bca1a8b7c4848ef2"},
+    {file = "tensorstore-0.1.79-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:94d8fc9df1721b0287046aca7209fd5040889cad4202e7b73a1fdb77cd9b71c6"},
+    {file = "tensorstore-0.1.79-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c9f2dc3342e4686af98f6e259dc9fb377f1bf657b649c247bf6647bbe4f98090"},
+    {file = "tensorstore-0.1.79-cp313-cp313-win_amd64.whl", hash = "sha256:0fd6165f3df49abc7c9de029b2b72d74bebd2ff2481a5ced003607eb61c56d3e"},
+    {file = "tensorstore-0.1.79-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:6f8f5a940eab434a951c2dadcc7c0516c7bef6d8b7a7144054f7a0c56152b5f5"},
+    {file = "tensorstore-0.1.79-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:97756d2cba3c5ce21e15602c2af5a02521cc0ecda7f9fb6d18da2f3bd51827f4"},
+    {file = "tensorstore-0.1.79-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:847982652273fb7b2d694b789205747aaf3e50ae64738c5cb7b5eb03d86a9947"},
+    {file = "tensorstore-0.1.79-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7af9422269c2bfcdecf9dd55309060665ab9c2d7f6c892377ed32c032400feea"},
+    {file = "tensorstore-0.1.79-cp314-cp314-win_amd64.whl", hash = "sha256:bbd8c1ab7d2e3c03ded3d40bb373ee9a67668e33a564484927865ce43b210386"},
+    {file = "tensorstore-0.1.79.tar.gz", hash = "sha256:8dad44a8a7f2952a5d0030a8bd868b3cfdff048bd40ab53e7226f3d8b0881c5e"},
 ]
 
 [package.dependencies]
@@ -2482,7 +2482,7 @@ description = "A language and compiler for custom Deep Learning operations"
 optional = false
 python-versions = "*"
 groups = ["test"]
-markers = "python_version < \"3.13\" and platform_system == \"Linux\" and platform_machine == \"x86_64\""
+markers = "platform_system == \"Linux\" and platform_machine == \"x86_64\" and python_version < \"3.13\""
 files = [
     {file = "triton-3.0.0-1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e1efef76935b2febc365bfadf74bcb65a6f959a9872e5bddf44cc9e0adce1e1a"},
     {file = "triton-3.0.0-1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5ce8520437c602fb633f1324cc3871c47bee3b67acf9756c1a66309b60e3216c"},
@@ -2618,4 +2618,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "06c46ef1064978c76ada2a293ac3c07de1d393a7ad2d46612083ee9859fc63f7"
+content-hash = "3cf950410784453073533e4484b97a2daf06a4556848844dfaaf1340c826763f"

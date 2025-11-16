@@ -1,6 +1,7 @@
 debugvenv
 tmp
 data
+artifacts
 logs
 output
 .idea
