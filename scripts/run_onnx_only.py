@@ -116,6 +116,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _ort_dtype_from_type(type_str: str) -> np.dtype | None:
+    if not type_str.startswith("tensor(") or not type_str.endswith(")"):
+        return None
+    t = type_str[7:-1]
+    mapping = {
+        "float": np.float32,
+        "float16": np.float16,
+        "float64": np.float64,
+        "double": np.float64,
+        "bfloat16": np.float32,  # coerce to float32 for ORT feeds
+        "int64": np.int64,
+        "int32": np.int32,
+        "int16": np.int16,
+        "int8": np.int8,
+        "uint8": np.uint8,
+    }
+    return mapping.get(t)
+
+
 def _topo_sort_custom_functions(model: onnx.ModelProto) -> None:
     """Reorder embedded FunctionProtos so dependencies appear before callers."""
 
@@ -188,9 +207,17 @@ def main() -> None:
         session = ort.InferenceSession(
             str(onnx_path), sess_options=sess_opts, providers=providers
         )
-        input_name = session.get_inputs()[0].name
+        input_meta = session.get_inputs()[0]
+        input_name = input_meta.name
+        input_dtype = _ort_dtype_from_type(getattr(input_meta, "type", ""))
+        input_shape = list(getattr(input_meta, "shape", []) or [])
 
         def run_inference(feed):
+            if input_dtype is not None and feed.dtype != input_dtype:
+                feed = feed.astype(input_dtype, copy=False)
+            # If the model expects a batch dimension but we provided 1D, add it.
+            if len(feed.shape) == 1 and len(input_shape) == 2:
+                feed = feed[None, :]
             return session.run(None, {input_name: feed})[0]
 
     for _ in range(max(1, args.generate_steps)):
@@ -200,8 +227,14 @@ def main() -> None:
         padded = np.zeros((seq_len,), dtype=np.int32)
         padded[: len(window)] = np.array(window, dtype=np.int32)[:seq_len]
         logits = run_inference(padded)
-        last_index = len(window) - 1
-        last_logits = logits[last_index]
+        # Handle outputs with or without batch/time axes.
+        if logits.ndim == 3 and logits.shape[0] == 1:
+            logits = logits[0]
+        if logits.ndim == 2 and logits.shape[0] == 1:
+            last_logits = logits[0]
+        else:
+            last_index = min(len(window) - 1, logits.shape[0] - 1)
+            last_logits = logits[last_index]
         pred_id = int(np.argmax(last_logits))
         pred_id = pred_id % max(1, vocab_size)
         tokens.append(pred_id)

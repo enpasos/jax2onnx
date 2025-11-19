@@ -48,6 +48,15 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_fla
  3. **Regression coverage:** Create a lightweight pytest (toy config, short seq len) that runs the harness with `--compare-hidden-states`. This protects the instrumentation and keeps future MoE tweaks honest.
  4. **Scaling plan:** Extend beyond the 2-layer checkpoint (full GPT-OSS stack, BF16/FP32 variants) once GPU-backed parity runs are available; reuse the block-debug taps to localize any discrepancies.
 
+## Next: Equinox path (baseline 13 target)
+
+- Use the Flax/NNX export (baseline 13) as the behavioral reference: same checkpoint/config/seq_len and prompt as the working ONNX-only run.
+- Stage an Equinox parameter bundle mirroring the Flax config (start with a 2-layer slice for fast iteration).
+- Port the model wiring to Equinox modules; keep weight naming/layout aligned for easy mapping.
+- Build a parity harness against the Flax/NNX baseline: logits + key intermediates (attn projections, gate logits/indices/weights, MLP outputs).
+- Export Equinox → ONNX with the same function structuring (blocks, shared ops); emit a small seq_len (16/32) artifact first.
+- Validate with onnxruntime vs Equinox outputs; only then consider larger layer counts/sequence lengths.
+
 ## ONNX-only smoke test (tokenizer + generation)
 
 - Exported the full 20B model with a reduced window to dodge WSL memory limits:
