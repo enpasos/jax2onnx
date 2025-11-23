@@ -96,7 +96,15 @@ def parse_args() -> argparse.Namespace:
         "--param-dtype",
         choices=("bfloat16", "float32"),
         default="bfloat16",
-        help="Parameter dtype for the Equinox model.",
+        help="Parameter dtype for the Equinox model (can override archive metadata).",
+    )
+    parser.add_argument(
+        "--emit-debug",
+        action="store_true",
+        help=(
+            "Emit block-level debug outputs (attn q/k/v, gate stats, MLP intermediates)"
+            " alongside logits."
+        ),
     )
     parser.add_argument(
         "--skip-onnx",
@@ -130,6 +138,25 @@ def _input_spec(args: argparse.Namespace):
     return [(int(args.batch_size), int(args.seq_len))]
 
 
+DEBUG_KEYS = [
+    "input",
+    "attn_norm",
+    "attn_q",
+    "attn_k",
+    "attn_v",
+    "attn_out",
+    "mlp_norm",
+    "gate_logits",
+    "expert_indices",
+    "expert_weights",
+    "mlp_proj1",
+    "mlp_act",
+    "mlp_proj2",
+    "mlp_output",
+    "output",
+]
+
+
 def main() -> int:
     args = parse_args()
     if args.eqx is None and args.checkpoint is None:
@@ -154,7 +181,10 @@ def main() -> int:
         if not isinstance(config_data, dict):
             raise ValueError(f"Invalid config metadata in {meta_path}")
         config = GPTOSSConfig(**config_data)
-        param_dtype_key = str(metadata.get("param_dtype", param_dtype_key))
+        # Prefer the CLI override when provided; fall back to stored metadata.
+        param_dtype_key = args.param_dtype or str(
+            metadata.get("param_dtype", param_dtype_key)
+        )
         if param_dtype_key not in dtype_map:
             raise ValueError(
                 f"Unsupported param dtype '{param_dtype_key}' recorded in {meta_path}"
@@ -169,6 +199,15 @@ def main() -> int:
         )
         # Allow dtype differences by copying stored leaves onto the template.
         model = eqx.tree_deserialise_leaves(eqx_path, template, is_leaf=lambda _: True)
+        if param_dtype == jnp.float32:
+            model = jax.tree_util.tree_map(
+                lambda x: (
+                    x.astype(jnp.float32)
+                    if isinstance(x, jnp.ndarray) and x.dtype != jnp.float32
+                    else x
+                ),
+                model,
+            )
     else:
         model = load_pretrained_gpt_oss(
             checkpoint=args.checkpoint.expanduser(),
@@ -203,7 +242,19 @@ def main() -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         def fn(tokens):
-            return model(tokens)
+            if args.emit_debug:
+                logits, debug_blocks = model.debug(tokens)
+            else:
+                return model(tokens)
+            outputs: list = [logits]
+            for entry in debug_blocks:
+                for key in DEBUG_KEYS:
+                    if key not in entry:
+                        raise RuntimeError(
+                            f"Missing debug key '{key}' in block capture"
+                        )
+                    outputs.append(entry[key])
+            return tuple(outputs)
 
         to_onnx(
             fn,

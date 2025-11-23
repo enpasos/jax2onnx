@@ -8,6 +8,8 @@ import onnx
 
 from flax import nnx
 
+import jax2onnx.quickstart
+
 from jax2onnx import onnx_function
 from jax2onnx.user_interface import to_onnx
 
@@ -62,6 +64,9 @@ class TestQuickstart:
         assert len(graph.output) == 1
 
     def test_quickstart_docs_models_exist(self):
+        # Generate artifacts if missing to avoid failures on fresh clones.
+        jax2onnx.quickstart.main()
+
         docs_dir = Path(__file__).resolve().parents[2] / "docs" / "onnx"
         for filename in ("my_callable.onnx", "model_with_function.onnx"):
             onnx_path = docs_dir / filename

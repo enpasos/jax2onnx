@@ -441,7 +441,11 @@ class AttentionBlock(eqx.Module):
             keys[2], (self.num_attention_heads,), dtype=param_dtype
         )
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray):
+        out, _ = self.debug(x)
+        return out
+
+    def debug(self, x: jnp.ndarray):
         if x.ndim != 3:
             raise ValueError(
                 "AttentionBlock expects inputs shaped (batch, seq, hidden)."
@@ -477,6 +481,11 @@ class AttentionBlock(eqx.Module):
         )
         k = k.reshape(batch, seq_len, self.num_key_value_heads, self.head_dim)
         v = v.reshape(batch, seq_len, self.num_key_value_heads, self.head_dim)
+        dbg: dict[str, jnp.ndarray] = {}
+        dbg["attn_norm"] = normed
+        dbg["attn_q"] = q
+        dbg["attn_k"] = k
+        dbg["attn_v"] = v
 
         q, k = self.rope(q, k, seq_len=seq_len)
 
@@ -500,8 +509,10 @@ class AttentionBlock(eqx.Module):
             ).astype(jnp.bfloat16)
         else:
             projected = _apply_linear_nd(self.out, attn).astype(jnp.float32)
+        dbg["attn_out"] = projected
         residual = x_compute + projected.astype(x_compute.dtype)
-        return residual.astype(x.dtype)
+        out = residual.astype(x.dtype)
+        return out, dbg
 
 
 @onnx_function
@@ -584,7 +595,11 @@ class MLPBlock(eqx.Module):
             dtype=param_dtype,
         )
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray):
+        out, _ = self.debug(x)
+        return out
+
+    def debug(self, x: jnp.ndarray):
         if x.ndim != 3:
             raise ValueError("MLPBlock expects inputs shaped (batch, seq, hidden).")
         if x.shape[-1] != self.hidden_size:
@@ -594,32 +609,20 @@ class MLPBlock(eqx.Module):
 
         x_compute = x.astype(jnp.float32)
         normed = _apply_pointwise(self.norm, x_compute).astype(jnp.float32)
+        dbg_norm = normed
 
-        if self.param_dtype == jnp.bfloat16:
-            gate_weight = jnp.asarray(self.gate.weight, dtype=jnp.float32)
-            gate_bias = (
-                jnp.asarray(self.gate.bias, dtype=jnp.float32)
-                if self.gate.bias is not None
-                else None
-            )
-            gate_logits = jnp.einsum(
-                "bsh,oh->bso", normed, gate_weight, optimize="optimal"
-            )
-            if gate_bias is not None:
-                gate_logits = gate_logits + gate_bias
-            gate_logits = gate_logits.astype(jnp.bfloat16)
-            expert_scores, expert_indices = jax.lax.top_k(
-                gate_logits, self.experts_per_token
-            )
-            expert_weights = _softmax_torch_approx(expert_scores).astype(jnp.float32)
-        else:
-            gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
-            expert_scores, expert_indices = jax.lax.top_k(
-                gate_logits, self.experts_per_token
-            )
+        gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
+        expert_scores, expert_indices = jax.lax.top_k(
+            gate_logits, self.experts_per_token
+        )
         expert_weights = _softmax_torch_approx(expert_scores, axis=-1).astype(
             jnp.float32
         )
+        dbg: dict[str, jnp.ndarray] = {}
+        dbg["mlp_norm"] = dbg_norm
+        dbg["gate_logits"] = gate_logits
+        dbg["expert_indices"] = expert_indices
+        dbg["expert_weights"] = expert_weights
 
         mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
             jnp.float32
@@ -628,6 +631,8 @@ class MLPBlock(eqx.Module):
         proj1 = jnp.einsum("bskoh,bsh->bsko", mlp1_weight, normed, optimize="optimal")
         proj1 = proj1 + mlp1_bias
         act = _swiglu(proj1, limit=self.swiglu_limit).astype(jnp.float32)
+        dbg["mlp_proj1"] = proj1
+        dbg["mlp_act"] = act
 
         mlp2_weight = jnp.take(self.mlp2_weight, expert_indices, axis=0).astype(
             jnp.float32
@@ -638,8 +643,11 @@ class MLPBlock(eqx.Module):
         combined = jnp.einsum(
             "bskh,bsk->bsh", proj2, expert_weights, optimize="optimal"
         )
+        dbg["mlp_proj2"] = proj2
+        dbg["mlp_output"] = combined
         residual = x_compute + combined
-        return residual.astype(x.dtype)
+        out = residual.astype(x.dtype)
+        return out, dbg
 
 
 @onnx_function
@@ -670,10 +678,18 @@ class TransformerBlock(eqx.Module):
             param_dtype=param_dtype,
         )
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = self.attn(x)
-        x = self.mlp(x)
-        return x
+    def __call__(self, x: jnp.ndarray):
+        out, _ = self.debug(x)
+        return out
+
+    def debug(self, x: jnp.ndarray):
+        dbg: dict = {"input": x}
+        x, attn_dbg = self.attn.debug(x)
+        dbg.update(attn_dbg)
+        x, mlp_dbg = self.mlp.debug(x)
+        dbg.update(mlp_dbg)
+        dbg["output"] = x
+        return x, dbg
 
 
 @onnx_function
@@ -724,7 +740,11 @@ class Transformer(eqx.Module):
             dtype=param_dtype,
         )
 
-    def __call__(self, tokens: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, tokens: jnp.ndarray):
+        out, _ = self.debug(tokens)
+        return out
+
+    def debug(self, tokens: jnp.ndarray):
         tokens = jnp.asarray(tokens, dtype=jnp.int32)
         squeeze_batch = False
         if tokens.ndim == 1:
@@ -734,16 +754,27 @@ class Transformer(eqx.Module):
             raise ValueError("Transformer expects token tensors shaped (batch, seq).")
 
         x = jnp.take(self.embedding.weight, tokens, axis=0)
+        debug_blocks: list = []
         for block in self.blocks:
-            x = block(x)
+            x, dbg = block.debug(x)
+            debug_blocks.append(dbg)
         x = _apply_pointwise(self.norm, x)
         logits = _apply_linear_nd(self.unembedding, x)
         if self.param_dtype == jnp.bfloat16:
             logits = logits.astype(self.param_dtype)
         logits = logits.astype(jnp.float32)
         if squeeze_batch:
-            return logits[0]
-        return logits
+            logits = logits[0]
+            debug_blocks = tuple(
+                {
+                    k: v[0] if isinstance(v, jnp.ndarray) and v.shape[0] == 1 else v
+                    for k, v in dbg.items()
+                }
+                for dbg in debug_blocks
+            )
+        else:
+            debug_blocks = tuple(debug_blocks)
+        return logits, debug_blocks
 
 
 def _config_from_torch_transformer(torch_model: Any) -> GPTOSSConfig:
@@ -940,6 +971,15 @@ def _populate_eqx_from_checkpoint(
                 f"block.{idx}.mlp.gate.bias",
                 dtype=param_dtype,
             ),
+        )
+        # Apply deterministic TopK tie-breaker to the gate bias (prefer lower expert ids).
+        tie_bias = jnp.arange(
+            eqx_model.blocks[idx].mlp.num_experts, dtype=param_dtype
+        ) * jnp.float32(1e-6)
+        eqx_model = eqx.tree_at(
+            lambda m, idx=idx: m.blocks[idx].mlp.gate.bias,
+            eqx_model,
+            eqx_model.blocks[idx].mlp.gate.bias - tie_bias,
         )
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].mlp.mlp1_weight,
