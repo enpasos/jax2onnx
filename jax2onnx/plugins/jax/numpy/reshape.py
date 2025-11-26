@@ -12,12 +12,6 @@ from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax import core
 
-try:  # pragma: no cover - best effort import for shape polymorphism
-    from jax._src.export.shape_poly import _DimExpr as DimExpr
-except Exception:  # pragma: no cover
-    DimExpr = object  # type: ignore[misc,assignment]
-
-
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -25,6 +19,10 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.utils.shape_poly import (
+    dim_expr_constant_value,
+    symbolic_dim_eq,
+)
 
 
 _RESHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.reshape")
@@ -40,14 +38,11 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
     for idx, src in enumerate(input_shape):
         if dim is src:
             return idx
-        if isinstance(dim, DimExpr) and isinstance(src, DimExpr):
-            if str(dim) == str(src):
-                return idx
+        if symbolic_dim_eq(dim, src):
+            return idx
         if hasattr(dim, "_hashable_content") and hasattr(src, "_hashable_content"):
             if dim._hashable_content() == src._hashable_content():  # type: ignore[attr-defined]
                 return idx
-        if str(src) == str(dim):
-            return idx
     return None
 
 
@@ -299,11 +294,19 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 shape_components.append(val)
                 continue
 
+            const_val = dim_expr_constant_value(dim)
+            if const_val is not None:
+                val = _const_i64(
+                    ctx,
+                    np.asarray([const_val], dtype=np.int64),
+                    f"reshape_dim_const_{idx}",
+                )
+                shape_components.append(val)
+                continue
+
             axis_idx = _find_axis_for_dim(dim, input_shape)
             if axis_idx is None:
-                if (
-                    int(getattr(dim, "__int__", lambda: -999)()) == -1
-                ):  # defensive fallback
+                if const_val == -1:
                     val = _const_i64(
                         ctx,
                         np.asarray([-1], dtype=np.int64),

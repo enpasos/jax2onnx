@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Final
 
 import jax
+import jax.extend.core as jax_core_ext
 from jax import core
 import jax.numpy as jnp
 import numpy as np
@@ -24,7 +25,7 @@ from jax2onnx.plugins.jax.numpy._common import (
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 ScalarBound = bool | int | float | np.generic
-JaxValue = core.Var | core.Literal
+JaxValue = jax_core_ext.Var | jax_core_ext.Literal
 
 
 def _np_dtype(x: DTypeLike) -> np.dtype[Any]:

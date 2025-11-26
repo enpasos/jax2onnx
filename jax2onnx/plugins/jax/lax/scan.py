@@ -38,7 +38,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
 )
 
 import jax.extend.core as jax_core_ext
-import jax._src.core as jax_core_internal
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from jax2onnx.converter.ir_context import IRContext
@@ -152,7 +151,6 @@ _JAX_VAR_TYPES: Final[tuple[type, ...]] = tuple(
     for t in (
         _maybe_var_type(jax_core),
         _maybe_var_type(jax_core_ext),
-        _maybe_var_type(jax_core_internal),
     )
     if t is not None
 )
@@ -172,7 +170,6 @@ _DROP_VAR_TYPES: Final[tuple[type, ...]] = tuple(
     for t in (
         _maybe_dropvar_type(jax_core),
         _maybe_dropvar_type(jax_core_ext),
-        _maybe_dropvar_type(jax_core_internal),
     )
     if t is not None
 )

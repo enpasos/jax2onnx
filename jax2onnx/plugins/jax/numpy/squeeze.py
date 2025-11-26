@@ -9,9 +9,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
-from jax import core
+from jax import core, lax
 from jax.interpreters import batching
-from jax._src.lax import lax as lax_internal
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -289,7 +288,46 @@ def _squeeze_batch_rule(
             for idx, dim in enumerate(operand_shape)
             if isinstance(dim, int) and dim == 1
         )
-    return lax_internal._squeeze_batch_rule(batched_args, batch_dims, dimensions=axes)
+    return _apply_squeeze_batch_rule(batched_args, batch_dims, dimensions=axes)
 
 
 batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule
+
+
+def _apply_squeeze_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    dimensions: Sequence[int],
+) -> tuple[jax.Array, BatchDim]:
+    (operand,), (bdim,) = batched_args, batch_dims
+    operand, bdim = batching.move_stacked_axis(operand, bdim, 0)
+    # account for the leading batch dimension
+    dims_with_batch = tuple(int(d) + 1 for d in dimensions)
+    squeezed = lax.squeeze(operand, dimensions=dims_with_batch)
+    ragged_cls = getattr(batching, "RaggedAxis", None)
+    if ragged_cls is not None and isinstance(bdim, ragged_cls):
+        out_stack_dim = bdim.stacked_axis
+    else:
+        out_stack_dim = bdim
+    bdim_shape = batching.bdim_as_shape(bdim, operand.shape)
+    squeezed_shape = _compute_squeeze_shape(bdim_shape, dims_with_batch)
+    bdim_out = batching.shape_as_bdim(out_stack_dim, squeezed_shape)
+    return squeezed, bdim_out
+
+
+def _compute_squeeze_shape(
+    shape: Sequence[object], dimensions: Sequence[int]
+) -> tuple[object, ...]:
+    dims_set = set(dimensions)
+    if len(dims_set) != len(dimensions):
+        raise ValueError(f"dimensions are not unique: {dimensions}")
+    if not all(0 <= d < len(shape) for d in dims_set):
+        raise ValueError(f"dimensions outside range [0, ndim): {dimensions}")
+    for d in dimensions:
+        dim_val = shape[d]
+        if isinstance(dim_val, (int, np.integer)) and dim_val != 1:
+            raise ValueError(
+                f"cannot squeeze axis {d} with size {dim_val}; shape={shape}"
+            )
+    return tuple(s for i, s in enumerate(shape) if i not in dims_set)

@@ -114,10 +114,10 @@ def clone_graph(graph: ir.Graph) -> ir.Graph:
     metadata_props = dict(graph.metadata_props)
     graph_kwargs = _assign_metadata({}, metadata_props)
     cloned_graph = ir.Graph(
-        input_values,  # type: ignore[arg-type]
-        output_values,  # type: ignore[arg-type]
+        input_values,
+        output_values,
         nodes=cloned_nodes,
-        initializers=initializer_values,  # type: ignore[arg-type]
+        initializers=initializer_values,
         doc_string=graph.doc_string,
         opset_imports=dict(graph.opset_imports),
         name=graph.name,
