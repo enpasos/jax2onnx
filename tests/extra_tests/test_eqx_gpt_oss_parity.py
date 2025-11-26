@@ -15,13 +15,6 @@ from jax2onnx.plugins.examples.eqx.gpt_oss import (
     _populate_eqx_from_torch,
 )
 
-pytestmark = pytest.mark.skip(
-    reason=(
-        "Equinox GPT-OSS parity is still being realigned with the torch "
-        "reference; see tracking issue for re-enabling."
-    )
-)
-
 try:
     import torch
     from gpt_oss.torch.model import ModelConfig, Transformer as TorchTransformer

@@ -26,7 +26,7 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/export_
   --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
   --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
   --output /tmp/gpt_oss_transformer_flax_debug.onnx \
-  --sequence-length 32 \
+  --sequence-length 16 \
   --emit-hidden-states \
   --emit-block-debug \
   --skip-validation
@@ -36,7 +36,7 @@ JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_fla
   --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
   --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
   --onnx /tmp/gpt_oss_transformer_flax_debug.onnx \
-  --sequence-length 32 \
+  --sequence-length 16 \
   --compare-hidden-states \
   --compare-block-debug
 ```
@@ -104,11 +104,11 @@ Before trusting ONNX exports we prove that the Flax model reproduces the origina
 # 2) Use the staged Flax params/config emitted by export_flax_gpt_oss_params.py.
 JAX_PLATFORM_NAME=cpu \
 poetry run python scripts/probe_flax_gpt_oss_parity.py \
-  --prompt "What is the capital of France?" \
+  --prompt "France capital? Answer:" \
   --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
   --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
   --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
-  --sequence-length 32 \
+  --sequence-length 16 \
   --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
   --torch-device cpu \
   --torch-max-layers 2
