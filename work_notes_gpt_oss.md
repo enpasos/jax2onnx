@@ -19,6 +19,8 @@ Build a reproducible pipeline that:
 - **Routing evidence:** `scripts/gpt_oss_routing_parity.py` now has captured both the 2-layer slice (perfect match) and the full 24-layer run (22/24 layers match, remaining layers differ only by ≤4e-03 gate deltas); see `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`.
 - **Artifacts:** Debug export lives at `/tmp/gpt_oss_transformer_flax_debug.onnx` (paired `.data`). No canonical artifact committed yet—once verified, it will be copied into `docs/onnx/examples/nnx_gpt_oss/` as “baseline5”. The committed Baseline5 ONNX has been re-saved so its external data file is `gpt_oss_transformer_flax_baseline5.onnx.data`, meaning no legacy filename shims are required.
 
+
+
 ## Reproducing Baseline5
 
 ```bash
@@ -124,3 +126,55 @@ Mirror the Equinox parity workflow when recording evidence:
 - Store the parity transcript next to the promoted ONNX (e.g., `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`) just like we do for the Equinox examples.
 
 Once Original ↔ JAX parity is proven for the checkpoint, the JAX ↔ ONNX harness closes the chain and we can ship the ONNX artifact with confidence.
+
+# [2025-11-27] Systematic Parity Restoration: RoPE & Equinox
+
+**Status:** Blocked on Equinox parity; divergence starts at `block0.attn.q_rot`.
+**Symptoms:**
+- `q` input diff: 0.000000 (bfloat16) — inputs are perfect.
+- `q_rot` output diff: 0.250000 (bfloat16) — critical failure at RoPE.
+- `norm` output diff: 0.016746 (float32) — secondary precision issue (epsilon/dtype).
+
+### Step 1: RoPE Standalone Verification (High Priority)
+Do not keep running full parity probes; isolate RoPE first.
+- [ ] Create `scripts/debug_rope_parity.py` to feed identical `[1, seq_len, head_dim]` inputs to Flax/NNX vs Equinox RoPE.
+- [ ] Compare rotation mode (interleaved pairs vs split halves).
+- [ ] Compare `inv_freq`/sin/cos tables (force float32; CPU numpy vs JAX/XLA).
+- [ ] Fix Equinox RoPE to match Flax/NNX once mismatch is identified; rerun component test.
+
+### Step 2: RMSNorm Precision
+- [ ] Confirm epsilon parity (1e-6 vs 1e-5) with Torch/Flax configs.
+- [ ] Ensure Equinox RMSNorm accumulates in float32 even for bf16 inputs.
+
+### Step 3: Layer 0 Injection Test
+- [ ] Dump block0 intermediates from Flax/NNX (e.g., numpy save).
+- [ ] Add `tests/test_eqx_layer0.py` to load weights + input, assert outputs match dump before moving to full-model probes.
+
+### Notes
+- Attn parity drift likely in SDPA or sinks; RoPE mismatch is the first failing point.
+- Fix RoPE first, then revisit SDPA/MLP once `q_rot` matches.
+
+
+## [2025-11-27] Systematic Parity Plan: Equinox vs Flax/NNX
+
+**Current Blocker:** Divergence detected at `block0.attn.q_rot`.
+**Symptoms:**
+- `q` input diff: 0.000000 (bfloat16)
+- `q_rot` output diff: 0.250000 (bfloat16) -> **CRITICAL FAILURE**
+- `norm` output diff: 0.016746 (float32) -> **PRECISION ISSUE**
+
+### Step 1: RoPE Standalone Verification
+We are 99% confident the Rotary Embedding logic differs.
+- [ ] Create `scripts/debug_rope_parity.py`
+- [ ] **Check Interleaving:** Verify if complex conversion assumes `x[..., ::2], x[..., 1::2]` (interleaved) or `x[..., :d//2], x[..., d//2:]` (halved).
+    - *Note:* LLaMA/GPT-NeoX usually uses "pairs" (interleaved). Standard ViT/RoPE implementations sometimes vary.
+- [ ] **Check Frequencies:** Dump `inv_freq` from both implementations. Verify `base=10000.0` and float precision consistency.
+
+### Step 2: RMSNorm Precision
+- [ ] Audit `RMSNorm` epsilon values in config.
+- [ ] Verify that Equinox `RMSNorm` performs accumulation in `float32` even if input is `bfloat16`.
+
+### Step 3: Layer 0 Injection Test
+Instead of full model probing:
+- [ ] Dump `block0` intermediates from Flax/NNX using `orbax` or `numpy.save`.
+- [ ] Write a test `tests/test_eqx_layer0.py` that loads weights + input and asserts output match against the dump.

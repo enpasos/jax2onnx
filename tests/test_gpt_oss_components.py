@@ -1,3 +1,5 @@
+# tests/test_gpt_oss_components.py
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -5,7 +7,9 @@ import numpy as np
 from jax2onnx.plugins.examples.eqx.gpt_oss import GPTOSSConfig, RotaryEmbedding
 
 
-def _rotate_half_reference(x: np.ndarray, cos: np.ndarray, sin: np.ndarray) -> np.ndarray:
+def _rotate_half_reference(
+    x: np.ndarray, cos: np.ndarray, sin: np.ndarray
+) -> np.ndarray:
     """RotateHalf RoPE reference using cached sin/cos tables."""
 
     x_np = np.asarray(x, dtype=np.float32)
@@ -13,7 +17,7 @@ def _rotate_half_reference(x: np.ndarray, cos: np.ndarray, sin: np.ndarray) -> n
     sin_np = np.asarray(sin, dtype=np.float32)
     seq_len = x_np.shape[1]
     head_dim = x_np.shape[-1]
-    half = head_dim // 2
+    head_dim // 2
 
     x_moved = np.moveaxis(x_np, 1, 0)
     flat = x_moved.reshape(seq_len, -1, head_dim)
@@ -61,12 +65,8 @@ def test_rotary_embedding_uses_float32_math_with_bfloat16_inputs() -> None:
 
     cos_ref = rope._cos_cache[:seq_len]
     sin_ref = rope._sin_cache[:seq_len]
-    q_ref = _rotate_half_reference(q_bf16, cos_ref, sin_ref).astype(
-        jnp.bfloat16
-    )
-    k_ref = _rotate_half_reference(k_bf16, cos_ref, sin_ref).astype(
-        jnp.bfloat16
-    )
+    q_ref = _rotate_half_reference(q_bf16, cos_ref, sin_ref).astype(jnp.bfloat16)
+    k_ref = _rotate_half_reference(k_bf16, cos_ref, sin_ref).astype(jnp.bfloat16)
 
     np.testing.assert_allclose(
         np.asarray(q_rot, dtype=np.float32),

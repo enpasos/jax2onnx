@@ -202,8 +202,19 @@ def _sdpa_torch_style(
     )
     logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
 
-    seq_len_int = int(seq_len)
-    kv_len_int = int(kv_len)
+    try:
+        seq_len_int = int(seq_len)
+    except TypeError:
+        seq_len_int = jax_core.concrete_or_error(
+            int, seq_len, "SDPA requires a static sequence length."
+        )
+    try:
+        kv_len_int = int(kv_len)
+    except TypeError:
+        kv_len_int = jax_core.concrete_or_error(
+            int, kv_len, "SDPA requires a static key/value length."
+        )
+
     query_idx = jnp.expand_dims(jnp.arange(seq_len_int, dtype=jnp.int32), axis=1)
     key_idx = jnp.expand_dims(jnp.arange(kv_len_int, dtype=jnp.int32), axis=0)
     mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(jnp.float32)
@@ -212,7 +223,7 @@ def _sdpa_torch_style(
     logits = logits + mask[None, None, :, :]
 
     sink_logits = sinks.reshape(num_kv, q_mult, 1, 1).astype(jnp.float32)
-    sink_logits = jnp.broadcast_to(sink_logits, (num_kv, q_mult, seq_len, 1))
+    sink_logits = jnp.broadcast_to(sink_logits, (num_kv, q_mult, seq_len_int, 1))
     extended_logits = jnp.concatenate([logits, sink_logits], axis=-1)
     weights = _softmax_torch_approx(extended_logits, axis=-1)[..., :-1]
 
@@ -225,7 +236,7 @@ def _sdpa_torch_style(
         v_expanded,
         optimize="optimal",
     )
-    attn = attn.reshape(seq_len, num_kv * q_mult * head_dim)
+    attn = attn.reshape(seq_len_int, num_kv * q_mult * head_dim)
     return attn.astype(dtype)
 
 
@@ -236,14 +247,15 @@ class RMSNorm(eqx.Module):
     weight: jnp.ndarray
     eps: jnp.ndarray
 
-    def __init__(self, hidden_size: int, *, eps: float = 1e-5):
+    def __init__(self, hidden_size: int, *, eps: float = 1e-6):
         self.weight = jnp.ones((hidden_size,), dtype=jnp.float32)
         self.eps = jnp.asarray(eps, dtype=jnp.float32)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x_f32 = x.astype(jnp.float32)
+        eps_f32 = jnp.asarray(self.eps, dtype=jnp.float32)
         rms = jnp.mean(jnp.square(x_f32), axis=-1, keepdims=True)
-        normalized = x_f32 * jax.lax.rsqrt(rms + self.eps)
+        normalized = x_f32 * jax.lax.rsqrt(rms + eps_f32)
         scaled = normalized * self.weight
         return scaled.astype(x.dtype)
 
@@ -314,12 +326,8 @@ class RotaryEmbedding(eqx.Module):
         max_len = int(self.initial_context_length)
         positions = np.arange(max_len, dtype=np.float32)
         freqs = np.outer(positions, inv_freq)
-        self._cos_cache = jnp.array(
-            np.cos(freqs) * concentration, dtype=jnp.float32
-        )
-        self._sin_cache = jnp.array(
-            np.sin(freqs) * concentration, dtype=jnp.float32
-        )
+        self._cos_cache = jnp.array(np.cos(freqs) * concentration, dtype=jnp.float32)
+        self._sin_cache = jnp.array(np.sin(freqs) * concentration, dtype=jnp.float32)
 
     def compute_sin_cos(self, seq_len: int) -> tuple[jnp.ndarray, jnp.ndarray]:
         try:
@@ -369,7 +377,9 @@ class RotaryEmbedding(eqx.Module):
         first, second = jnp.split(flat, 2, axis=-1)
         out_first = first * cos_flat - second * sin_flat
         out_second = second * cos_flat + first * sin_flat
-        rotated_flat = jnp.concatenate([out_first, out_second], axis=-1)
+        rotated_flat = jnp.concatenate([out_first, out_second], axis=-1).reshape(
+            flat.shape
+        )
 
         rotated = rotated_flat.reshape((seq_len,) + leading_shape + (head_dim,))
         rotated = jnp.moveaxis(rotated, 0, seq_axis)
@@ -446,7 +456,7 @@ class AttentionBlock(eqx.Module):
             self.num_attention_heads + 2 * self.num_key_value_heads
         )
         keys = jax.random.split(key, 3)
-        self.norm = RMSNorm(config.hidden_size, eps=1e-6)
+        self.norm = RMSNorm(config.hidden_size, eps=1e-5)
         self.rope = RotaryEmbedding(config, dtype=np.float32)
         self.qkv = eqx.nn.Linear(
             config.hidden_size,
@@ -462,8 +472,9 @@ class AttentionBlock(eqx.Module):
             key=keys[1],
             dtype=param_dtype,
         )
-        self.sinks = jax.random.normal(
-            keys[2], (self.num_attention_heads,), dtype=param_dtype
+        self.sinks = (
+            jax.random.normal(keys[2], (self.num_attention_heads,), dtype=param_dtype)
+            * jnp.asarray(0.02, dtype=param_dtype)
         )
 
     def __call__(self, x: jnp.ndarray):
@@ -482,9 +493,13 @@ class AttentionBlock(eqx.Module):
             )
         seq_len = _resolve_seq_length(seq_len_dim, x)
 
-        x_compute = x.astype(jnp.bfloat16)
-        normed = _apply_pointwise(self.norm, x_compute).astype(jnp.bfloat16)
-        qkv = _apply_linear_float32_accum(self.qkv, normed).astype(jnp.bfloat16)
+        compute_dtype = jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        x_compute = x.astype(compute_dtype)
+        normed = _apply_pointwise(self.norm, x_compute).astype(compute_dtype)
+        if compute_dtype == jnp.bfloat16:
+            qkv = _apply_linear_float32_accum(self.qkv, normed).astype(compute_dtype)
+        else:
+            qkv = _apply_linear_nd(self.qkv, normed).astype(compute_dtype)
 
         split_q = self.num_attention_heads * self.head_dim
         split_k = split_q + self.num_key_value_heads * self.head_dim
@@ -511,7 +526,7 @@ class AttentionBlock(eqx.Module):
 
         sinks = self.sinks.reshape(
             self.num_key_value_heads, self.query_multiplicity
-        ).astype(jnp.bfloat16)
+        ).astype(compute_dtype)
 
         attn = jax.vmap(
             lambda q_s, k_s, v_s: _sdpa_torch_style(
@@ -523,11 +538,14 @@ class AttentionBlock(eqx.Module):
                 sliding_window=self.sliding_window,
             )
         )(q, k, v)
-        projected = _apply_linear_float32_accum(
-            self.out, attn.astype(jnp.bfloat16)
-        ).astype(jnp.bfloat16)
+        if compute_dtype == jnp.bfloat16:
+            projected = _apply_linear_float32_accum(
+                self.out, attn.astype(compute_dtype)
+            ).astype(compute_dtype)
+        else:
+            projected = _apply_linear_nd(self.out, attn).astype(compute_dtype)
         dbg["attn_out"] = projected
-        residual = x_compute + projected.astype(jnp.bfloat16)
+        residual = x_compute + projected.astype(compute_dtype)
         out = residual.astype(x.dtype)
         return out, dbg
 
@@ -624,11 +642,17 @@ class MLPBlock(eqx.Module):
                 f"Hidden size mismatch: expected {self.hidden_size}, got {x.shape[-1]}."
             )
 
-        x_compute = x.astype(jnp.bfloat16)
-        normed = _apply_pointwise(self.norm, x_compute).astype(jnp.bfloat16)
+        compute_dtype = jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        x_compute = x.astype(compute_dtype)
+        normed = _apply_pointwise(self.norm, x_compute).astype(compute_dtype)
         dbg_norm = normed
 
-        gate_logits = _apply_linear_float32_accum(self.gate, normed).astype(jnp.float32)
+        if compute_dtype == jnp.bfloat16:
+            gate_logits = _apply_linear_float32_accum(self.gate, normed).astype(
+                jnp.float32
+            )
+        else:
+            gate_logits = _apply_linear_nd(self.gate, normed).astype(jnp.float32)
         expert_scores, expert_indices = jax.lax.top_k(
             gate_logits, self.experts_per_token
         )
@@ -675,7 +699,7 @@ class MLPBlock(eqx.Module):
         )
         dbg["mlp_proj2"] = proj2
         dbg["mlp_output"] = combined
-        residual = x_compute + combined.astype(jnp.bfloat16)
+        residual = x_compute + combined.astype(compute_dtype)
         out = residual.astype(x.dtype)
         return out, dbg
 
