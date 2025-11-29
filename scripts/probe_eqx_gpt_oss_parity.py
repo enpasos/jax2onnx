@@ -56,9 +56,10 @@ def _randomise_torch_model(model: TorchTransformer, *, seed: int) -> None:
     generator = torch.Generator().manual_seed(seed)
     for name, param in model.named_parameters():
         if param.data.dtype.is_floating_point:
-            noise = torch.randn(
-                param.data.shape, generator=generator, dtype=torch.float32
-            ) * 0.02
+            noise = (
+                torch.randn(param.data.shape, generator=generator, dtype=torch.float32)
+                * 0.02
+            )
             param.data.copy_(noise.to(param.data.dtype))
         else:
             param.data.zero_()

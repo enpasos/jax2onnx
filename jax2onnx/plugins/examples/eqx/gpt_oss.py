@@ -179,7 +179,7 @@ def _sdpa_torch_style(
     *,
     sinks: jnp.ndarray,
     sm_scale: float,
-    sliding_window: int,
+    mask: jnp.ndarray,
 ) -> jnp.ndarray:
     """Replicate the torch GPT-OSS SDPA routine for a single batch element."""
 
@@ -202,25 +202,13 @@ def _sdpa_torch_style(
     )
     logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
 
+    # Mask is pre-computed and passed in
+    logits = logits + mask
+
     try:
         seq_len_int = int(seq_len)
     except TypeError:
-        seq_len_int = jax_core.concrete_or_error(
-            int, seq_len, "SDPA requires a static sequence length."
-        )
-    try:
-        kv_len_int = int(kv_len)
-    except TypeError:
-        kv_len_int = jax_core.concrete_or_error(
-            int, kv_len, "SDPA requires a static key/value length."
-        )
-
-    query_idx = jnp.expand_dims(jnp.arange(seq_len_int, dtype=jnp.int32), axis=1)
-    key_idx = jnp.expand_dims(jnp.arange(kv_len_int, dtype=jnp.int32), axis=0)
-    mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(jnp.float32)
-    if sliding_window > 0:
-        mask = jnp.where(key_idx < (query_idx - sliding_window), -jnp.inf, mask)
-    logits = logits + mask[None, None, :, :]
+        seq_len_int = seq_len
 
     sink_logits = sinks.reshape(num_kv, q_mult, 1, 1).astype(jnp.float32)
     sink_logits = jnp.broadcast_to(sink_logits, (num_kv, q_mult, seq_len_int, 1))
@@ -525,6 +513,39 @@ class AttentionBlock(eqx.Module):
 
         q, k = self.rope(q, k, seq_len=seq_len)
 
+        # Compute mask outside vmap to avoid dynamic shape issues
+        max_len = self.config.initial_context_length
+        try:
+            seq_len_int = int(seq_len)
+        except TypeError:
+            seq_len_int = seq_len
+
+        # Use dynamic_slice for robust dynamic shape support
+        # Use iota instead of arange to avoid jax2onnx plugin issues
+        query_idx = jax.lax.dynamic_slice(
+            jax.lax.iota(jnp.int32, max_len), (0,), (seq_len_int,)
+        )
+        query_idx = jnp.expand_dims(query_idx, axis=1)
+
+        # For self-attention, k and v have same length as q (unless cached, but here we don't cache)
+        # Wait, GPT-OSS usually has kv_len = seq_len for non-cached inference?
+        # Yes, in this implementation x has shape (batch, seq, hidden).
+        kv_len_int = seq_len_int
+
+        key_idx = jax.lax.dynamic_slice(
+            jax.lax.iota(jnp.int32, max_len), (0,), (kv_len_int,)
+        )
+        key_idx = jnp.expand_dims(key_idx, axis=0)
+
+        mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(compute_dtype)
+        if self.sliding_window > 0:
+            mask = jnp.where(
+                key_idx < (query_idx - self.sliding_window), -jnp.inf, mask
+            )
+
+        # Broadcast mask to (1, 1, seq, kv) for vmap
+        mask = mask[None, None, :, :]
+
         sinks = self.sinks.reshape(
             self.num_key_value_heads, self.query_multiplicity
         ).astype(compute_dtype)
@@ -536,7 +557,7 @@ class AttentionBlock(eqx.Module):
                 v_s,
                 sinks=sinks,
                 sm_scale=self.sm_scale,
-                sliding_window=self.sliding_window,
+                mask=mask,
             )
         )(q, k, v)
         if compute_dtype == jnp.bfloat16:
@@ -672,6 +693,11 @@ class MLPBlock(eqx.Module):
             jnp.float32
         )
         mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(jnp.float32)
+
+        print(f"DEBUG: mlp1_weight shape: {mlp1_weight.shape}")
+        print(f"DEBUG: normed shape: {normed.shape}")
+        print(f"DEBUG: expert_indices shape: {expert_indices.shape}")
+
         proj1 = jnp.einsum(
             "bskoh,bsh->bsko",
             mlp1_weight,
