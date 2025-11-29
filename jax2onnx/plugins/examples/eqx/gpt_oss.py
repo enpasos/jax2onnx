@@ -472,10 +472,9 @@ class AttentionBlock(eqx.Module):
             key=keys[1],
             dtype=param_dtype,
         )
-        self.sinks = (
-            jax.random.normal(keys[2], (self.num_attention_heads,), dtype=param_dtype)
-            * jnp.asarray(0.02, dtype=param_dtype)
-        )
+        self.sinks = jax.random.normal(
+            keys[2], (self.num_attention_heads,), dtype=param_dtype
+        ) * jnp.asarray(0.02, dtype=param_dtype)
 
     def __call__(self, x: jnp.ndarray):
         out, _ = self.debug(x)
@@ -493,7 +492,9 @@ class AttentionBlock(eqx.Module):
             )
         seq_len = _resolve_seq_length(seq_len_dim, x)
 
-        compute_dtype = jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        compute_dtype = (
+            jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        )
         x_compute = x.astype(compute_dtype)
         normed = _apply_pointwise(self.norm, x_compute).astype(compute_dtype)
         if compute_dtype == jnp.bfloat16:
@@ -642,7 +643,9 @@ class MLPBlock(eqx.Module):
                 f"Hidden size mismatch: expected {self.hidden_size}, got {x.shape[-1]}."
             )
 
-        compute_dtype = jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        compute_dtype = (
+            jnp.bfloat16 if self.param_dtype == jnp.bfloat16 else jnp.float32
+        )
         x_compute = x.astype(compute_dtype)
         normed = _apply_pointwise(self.norm, x_compute).astype(compute_dtype)
         dbg_norm = normed

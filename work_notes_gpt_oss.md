@@ -178,5 +178,22 @@ We are 99% confident the Rotary Embedding logic differs.
 
 ### Step 3: Layer 0 Injection Test
 Instead of full model probing:
-- [ ] Dump `block0` intermediates from Flax/NNX using `orbax` or `numpy.save`.
-- [ ] Write a test `tests/test_eqx_layer0.py` that loads weights + input and asserts output match against the dump.
+- [x] Dump `block0` intermediates from Flax/NNX using `orbax` or `numpy.save`.
+- [x] Write a test `tests/test_eqx_layer0.py` that loads weights + input and asserts output match against the dump.
+
+## [2025-11-29] Equinox Parity Resolution
+
+**Status:** Parity Achieved.
+**Root Cause:** The probe script initialized weights with `std=1.0` (Torch default), causing massive activations (~15k) and softmax overflow.
+**Fix:** Scaled initialization to `std=0.02` (GPT-OSS default).
+
+**Final Diffs (bfloat16):**
+- `logits`: 0.000061
+- `attn_core`: 0.000244
+- `norm`: 0.000977
+
+**Final Diffs (float32):**
+- `logits`: 0.000072
+- `block0.attn.norm`: 0.000236
+
+The pipeline is now ready for full model porting and export verification.

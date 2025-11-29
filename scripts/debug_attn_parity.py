@@ -1,3 +1,5 @@
+# scripts/debug_attn_parity.py
+
 """Debug helper to stress-test SDPA with large sinks."""
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from jax2onnx.plugins.examples.eqx.gpt_oss import _sdpa_torch_style
 
 
 def main() -> None:
-    B, H, M, T, D = 1, 4, 2, 8, 16
+    _B, H, M, T, D = 1, 4, 2, 8, 16
     dtype = jnp.bfloat16
 
     k1, k2, k3, k4 = jax.random.split(jax.random.PRNGKey(0), 4)

@@ -1,9 +1,10 @@
+# scripts/debug_norm_parity.py
+
 """Debug helper to compare Equinox RMSNorm against a NumPy reference."""
 
 from __future__ import annotations
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import numpy as np
 

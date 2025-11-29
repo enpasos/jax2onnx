@@ -1,3 +1,5 @@
+# scripts/debug_rope_parity.py
+
 """Debug helper to compare Equinox and Flax/NNX RotaryEmbedding outputs.
 
 Run directly:
@@ -6,7 +8,6 @@ Run directly:
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -42,7 +43,9 @@ def main() -> None:
 
     # Equinox RoPE
     rope_eqx = RotaryEmbedding(config, dtype=np.float32)
-    q_rot_eqx, k_rot_eqx = rope_eqx(q.astype(jnp.bfloat16), k.astype(jnp.bfloat16), seq_len=seq_len)
+    q_rot_eqx, k_rot_eqx = rope_eqx(
+        q.astype(jnp.bfloat16), k.astype(jnp.bfloat16), seq_len=seq_len
+    )
 
     # Flax/NNX RoPE (no batch dimension)
     cos_table, sin_table = _rotary_tables(
@@ -64,8 +67,18 @@ def main() -> None:
     q_rot_flax = q_rot_flax[None, ...]
     k_rot_flax = k_rot_flax[None, ...]
 
-    q_diff = np.max(np.abs(np.asarray(q_rot_eqx, dtype=np.float32) - np.asarray(q_rot_flax, dtype=np.float32)))
-    k_diff = np.max(np.abs(np.asarray(k_rot_eqx, dtype=np.float32) - np.asarray(k_rot_flax, dtype=np.float32)))
+    q_diff = np.max(
+        np.abs(
+            np.asarray(q_rot_eqx, dtype=np.float32)
+            - np.asarray(q_rot_flax, dtype=np.float32)
+        )
+    )
+    k_diff = np.max(
+        np.abs(
+            np.asarray(k_rot_eqx, dtype=np.float32)
+            - np.asarray(k_rot_flax, dtype=np.float32)
+        )
+    )
 
     print("q_rot max |diff|:", float(q_diff))
     print("k_rot max |diff|:", float(k_diff))

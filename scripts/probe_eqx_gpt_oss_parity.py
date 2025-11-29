@@ -58,7 +58,7 @@ def _randomise_torch_model(model: TorchTransformer, *, seed: int) -> None:
         if param.data.dtype.is_floating_point:
             noise = torch.randn(
                 param.data.shape, generator=generator, dtype=torch.float32
-            )
+            ) * 0.02
             param.data.copy_(noise.to(param.data.dtype))
         else:
             param.data.zero_()
@@ -416,7 +416,9 @@ def main(seed: int) -> None:
         sinks_mean = torch_model.block[0].attn.sinks.abs().mean().item()
     except Exception:
         sinks_mean = "UNKNOWN"
-    torch_eps = getattr(torch_model.norm, "eps", getattr(torch_model.norm, "epsilon", "UNKNOWN"))
+    torch_eps = getattr(
+        torch_model.norm, "eps", getattr(torch_model.norm, "epsilon", "UNKNOWN")
+    )
     attn_eps = getattr(torch_model.block[0].attn.norm, "eps", "UNKNOWN")
     print("DEBUG DIAGNOSTICS:")
     print(f"  > Sinks Mean Abs: {sinks_mean}")
