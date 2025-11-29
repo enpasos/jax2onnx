@@ -129,7 +129,7 @@ def _mul_scalars(ctx: Any, lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.V
         ctx,
         "Mul",
         [lhs, rhs],
-        name_hint=name_hint,
+        name_hint=ctx.fresh_name(name_hint),
         dtype=dtype,
         shape=(),
     )
@@ -145,7 +145,7 @@ def _make_constant_of_shape(
         ctx,
         "ConstantOfShape",
         [shape_tensor],
-        name_hint=name_hint,
+        name_hint=ctx.fresh_name(name_hint),
         dtype=ir.DataType.INT64,
         shape=(None,),
         attributes={"value": ir.tensor(value)},
