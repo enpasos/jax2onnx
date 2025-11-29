@@ -456,9 +456,18 @@ def _run_allclose(
 ) -> Tuple[bool, str]:
     import onnxruntime as ort
 
+    sess_opts = ort.SessionOptions()
+    # Disable ORT graph rewrites (e.g., QuickGelu fusion) that may not support
+    # float64 and can break validation for otherwise valid models.
+    sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    # Avoid buffer re-use across dynamic shapes (Range/If) that can trigger ORT
+    # shape mismatch errors during validation.
+    sess_opts.enable_mem_pattern = False
+
     session = ort.InferenceSession(
         model_path,
-        providers=ort.get_available_providers(),
+        sess_options=sess_opts,
+        providers=["CPUExecutionProvider"],
     )
 
     ort_inputs = _build_ort_inputs(session, xs, params)

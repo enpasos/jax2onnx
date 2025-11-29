@@ -39,7 +39,30 @@ def _const_i64(
         getattr(ctx, "_inside_function_scope", False)
         or getattr(ctx, "_function_mode", False)
     )
-    if builder is not None and not inside_function and not builder_mode:
+    if builder is not None and (inside_function or builder_mode):
+        tensor_obj = ir.tensor(arr)
+        tensor_obj = ir.tensor(arr)
+        val_name = ctx.fresh_name(name_hint)
+        val = ir.Value(
+            name=val_name,
+            type=ir.TensorType(ir.DataType.INT64),
+            shape=ir.Shape(arr.shape),
+            const_value=tensor_obj,
+        )
+        attributes = [ir.Attr("value", ir.AttributeType.TENSOR, tensor_obj)]
+        node = ir.Node(
+            op_type="Constant",
+            domain="",
+            inputs=[],
+            outputs=[val],
+            name=ctx.fresh_name("Constant"),
+            attributes=attributes,
+        )
+        builder.nodes.append(node)
+        _ensure_value_metadata(ctx, val)
+        return val
+
+    if builder is not None:
         add_initializer = getattr(builder, "add_initializer_from_array", None)
         if callable(add_initializer):
             return add_initializer(base_name, arr)
@@ -75,29 +98,15 @@ def _scalar_i64(ctx: Any, value: int, name_hint: str) -> ir.Value:
 
 
 def _cast_to_i64(ctx: Any, tensor_val: ir.Value, name_hint: str) -> ir.Value:
-    """Cast the provided value to INT64 using CastLike (scalar safe)."""
-    exemplar = _scalar_i64(ctx, 0, f"{name_hint}_exemplar")
-    out = ctx.cast_like(tensor_val, exemplar, name_hint=name_hint)
-    out.dtype = getattr(exemplar, "dtype", ir.DataType.INT64)
-    shape_obj = getattr(tensor_val, "shape", None)
-    dims: Sequence[Any] | None = None
-    if shape_obj is None:
-        dims = ()
-    else:
-        dims_attr = getattr(shape_obj, "dims", None)
-        if dims_attr is not None:
-            try:
-                dims = tuple(dims_attr)
-            except Exception:
-                dims = tuple(dims_attr)
-        else:
-            try:
-                dims = tuple(shape_obj)  # type: ignore[arg-type]
-            except Exception:
-                dims = ()
-    _stamp_type_and_shape(out, dims or ())
-    _ensure_value_metadata(ctx, out)
-    return out
+    """Cast the provided value to INT64 using Cast."""
+    return _builder_op(
+        ctx,
+        "Cast",
+        [tensor_val],
+        name_hint=name_hint,
+        dtype=ir.DataType.INT64,
+        attributes={"to": int(ir.DataType.INT64.value)},
+    )
 
 
 def _infer_rank(value: ir.Value, axis_hint: int) -> int:

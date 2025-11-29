@@ -9,6 +9,7 @@ import numpy as np
 
 import jax
 
+from jax._src import core as jcore
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -41,22 +42,80 @@ class JitPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar = None
 
+    @staticmethod
+    def _freshen_closed_jaxpr(closed):
+        """Clone a ClosedJaxpr with fresh Vars so multiple jit bodies don't alias."""
+
+        inner_jaxpr = getattr(closed, "jaxpr", closed)
+        consts = getattr(closed, "consts", ())
+
+        var_map: dict[jcore.Var, jcore.Var] = {}
+
+        def _fresh_var(v):
+            if not isinstance(v, jcore.Var):
+                return v
+            if v in var_map:
+                return var_map[v]
+            var_map[v] = jcore.Var(
+                v.aval,
+                getattr(v, "initial_qdd", None),
+                getattr(v, "final_qdd", None),
+            )
+            return var_map[v]
+
+        def _map_vars(seq):
+            return [_fresh_var(v) for v in seq]
+
+        constvars = _map_vars(inner_jaxpr.constvars)
+        invars = _map_vars(inner_jaxpr.invars)
+        outvars = _map_vars(inner_jaxpr.outvars)
+        eqns = [
+            eqn.replace(
+                invars=_map_vars(eqn.invars),
+                outvars=_map_vars(eqn.outvars),
+            )
+            for eqn in inner_jaxpr.eqns
+        ]
+        cloned = jcore.Jaxpr(
+            constvars=constvars,
+            invars=invars,
+            outvars=outvars,
+            eqns=eqns,
+            effects=inner_jaxpr.effects,
+            debug_info=inner_jaxpr.debug_info,
+            is_high=getattr(inner_jaxpr, "is_high", False),
+        )
+        return jcore.ClosedJaxpr(cloned, consts)
+
     def lower(self, ctx, eqn):  # type: ignore[override]
-        closed = eqn.params.get("call_jaxpr")
+        closed: SimpleNamespace | jcore.ClosedJaxpr | None = eqn.params.get(
+            "call_jaxpr"
+        )
         if closed is None:
             thunk = eqn.params.get("call_jaxpr_thunk")
             if thunk is not None:
                 closed = thunk()
         if closed is None:
             maybe_jaxpr = eqn.params.get("jaxpr")
-            if maybe_jaxpr is not None:
+            # Newer JAX passes a ClosedJaxpr directly via `jaxpr`.
+            if isinstance(maybe_jaxpr, jcore.ClosedJaxpr):
+                closed = maybe_jaxpr
+            elif maybe_jaxpr is not None:
                 consts = eqn.params.get("consts", ())
                 closed = SimpleNamespace(jaxpr=maybe_jaxpr, consts=consts)
         if closed is None:
             raise ValueError("jit lowering requires call_jaxpr parameter")
 
-        inner_jaxpr = getattr(closed, "jaxpr", closed)
-        consts = getattr(closed, "consts", eqn.params.get("consts", ()))
+        fresh_closed = self._freshen_closed_jaxpr(
+            closed
+            if closed is not None
+            else SimpleNamespace(
+                jaxpr=getattr(closed, "jaxpr", closed),
+                consts=eqn.params.get("consts", ()),
+            )
+        )
+        inner_jaxpr = fresh_closed.jaxpr
+        consts = fresh_closed.consts
 
         for const_var, const_val in zip(inner_jaxpr.constvars, consts):
             ctx.bind_const_for_var(const_var, np.asarray(const_val))
