@@ -34,6 +34,14 @@ _EINSUM_MODULE_PRIM: Final[Primitive] = Primitive("nnx_einsum_module")
 _EINSUM_MODULE_PRIM.multiple_results = False
 
 
+class _MockParam:
+    def __init__(self, value):
+        self.value = value
+
+    def __getitem__(self, item):
+        return self.value[item]
+
+
 EXPECT_EINSUM_ONLY: Final = EG(
     [
         (
@@ -296,8 +304,8 @@ def _runtime_einsum(
     sanitized_bias_shape = getattr(bias, "shape", None) if bias is not None else None
 
     dummy = SimpleNamespace(
-        kernel=SimpleNamespace(value=kernel),
-        bias=SimpleNamespace(value=bias) if bias is not None else None,
+        kernel=_MockParam(kernel),
+        bias=_MockParam(bias) if bias is not None else None,
         einsum_str=einsum_str,
         _einsum_str_check=lambda s: None,
         _infer_broadcasted_bias_shape=infer_bias_shape,

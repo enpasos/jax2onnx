@@ -446,9 +446,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
             from types import SimpleNamespace
 
+            class MockParam:
+                def __init__(self, value):
+                    self.value = value
+
+                def __getitem__(self, item):
+                    return self.value[item]
+
             dummy = SimpleNamespace(
-                kernel=SimpleNamespace(value=kv),
-                bias=None if bv is None else SimpleNamespace(value=bv),
+                kernel=MockParam(kv),
+                bias=None if bv is None else MockParam(bv),
                 dimension_numbers=dimension_numbers,
                 batch_axis={},  # len(self.batch_axis) is used
                 axis=dimension_numbers[0][0],  # lhs contracting axes
