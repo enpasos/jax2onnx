@@ -1,0 +1,70 @@
+WARNING:2025-11-29 10:13:10,733:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+/home/enpasos/projects/jax2onnx/verify_fix.py:32: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  x = jnp.zeros((3,), dtype=jnp.float64)
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:107: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((5, 208, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:109: UserWarning: Explicitly requested dtype float64 requested in full is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.full((5, 200, 1, 1), 2.0, dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:130: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((3, 150, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:132: UserWarning: Explicitly requested dtype float64 requested in full is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.full((3, 140, 1, 1), 2.0, dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:153: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((8, 50, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:155: UserWarning: Explicitly requested dtype float64 requested in full is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:176: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((5, 208, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:178: UserWarning: Explicitly requested dtype float64 requested in full is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.full((5, 4, 1, 1), 2.0, dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:207: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((8, 50, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_mul.py:209: UserWarning: Explicitly requested dtype float64 requested in full is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:127: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:129: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((5, 200, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:152: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.zeros((3, 150, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:154: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((3, 140, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:177: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:179: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:202: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:204: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((5, 4, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:235: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scatter_add.py:237: UserWarning: Explicitly requested dtype float64 requested in ones is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scan.py:476: UserWarning: Explicitly requested dtype float64 requested in asarray is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
+/home/enpasos/projects/jax2onnx/debugvenv/lib/python3.12/site-packages/jax/_src/numpy/lax_numpy.py:5947: UserWarning: Explicitly requested dtype float64 requested in arange is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  return _arange(start, stop=stop, step=step, dtype=dtype,
+/home/enpasos/projects/jax2onnx/jax2onnx/plugins/jax/lax/scan.py:670: UserWarning: Explicitly requested dtype float64 requested in asarray is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  lambda xs, dt=jnp.asarray([0.1, -0.2], dtype=jnp.float64): (
+/home/enpasos/projects/jax2onnx/verify_fix.py:22: UserWarning: Explicitly requested dtype float64 requested in zeros is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  operand = jnp.zeros((3,), dtype=jnp.float64)
+/home/enpasos/projects/jax2onnx/verify_fix.py:23: UserWarning: Explicitly requested dtype int64 requested in array is not available, and will be truncated to dtype int32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  indices = jnp.array([[1]], dtype=jnp.int64)
+/home/enpasos/projects/jax2onnx/verify_fix.py:24: UserWarning: Explicitly requested dtype float64 requested in array is not available, and will be truncated to dtype float32. To enable more dtypes, set the jax_enable_x64 configuration option or the JAX_ENABLE_X64 shell environment variable. See https://github.com/jax-ml/jax#current-gotchas for more.
+  updates = jnp.array([1.0], dtype=jnp.float64)
+2025-11-29 10:13:13.071171704 [W:onnxruntime:, graph.cc:4885 CleanUnusedInitializersAndNodeArgs] Removing initializer 'cond_else_0/const_val_0'. It is not used by any node and should be removed from the model.
+Traceback (most recent call last):
+  File "/home/enpasos/projects/jax2onnx/verify_fix.py", line 50, in <module>
+    test_scatter_add_in_cond_float64()
+  File "/home/enpasos/projects/jax2onnx/verify_fix.py", line 45, in test_scatter_add_in_cond_float64
+    outputs = sess.run(None, inputs)
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/enpasos/projects/jax2onnx/debugvenv/lib/python3.12/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py", line 287, in run
+    return self._sess.run(output_names, input_feed, run_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+onnxruntime.capi.onnxruntime_pybind11_state.InvalidArgument: [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Unexpected input data type. Actual: (tensor(double)) , expected: (tensor(float))
+Testing scatter_add_in_cond_float64 with local jax2onnx...
+Converting to ONNX...
+Running with ONNX Runtime...
+FAILED with error: [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Unexpected input data type. Actual: (tensor(double)) , expected: (tensor(float))

@@ -102,7 +102,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
-                ["CastLike:2x2 -> Reshape:?x2 -> ScatterND:4x3"],
+                ["Cast:2x2 -> Reshape:?x2 -> ScatterND:4x3"],
                 no_unused_inputs=True,
             ),
         },
@@ -120,7 +120,7 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
-                ["CastLike:2x2 -> Reshape:?x2 -> ScatterND:2x3x4x5"],
+                ["Cast:2x2 -> Reshape:?x2 -> ScatterND:2x3x4x5"],
                 no_unused_inputs=True,
             ),
         },

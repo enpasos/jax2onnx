@@ -30,6 +30,10 @@ torch = "==2.4.0"
 
 
 [tool.poetry]
+name = "jax2onnx"
+version = "0.10.1"
+description = "export JAX to ONNX"
+authors = ["enpasos <matthias.unverzagt@enpasos.ai>"]
 packages = [
     { include = "jax2onnx" }
 ]

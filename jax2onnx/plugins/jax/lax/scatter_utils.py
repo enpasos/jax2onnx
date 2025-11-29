@@ -129,7 +129,7 @@ def _mul_scalars(ctx: Any, lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.V
         ctx,
         "Mul",
         [lhs, rhs],
-        name_hint=ctx.fresh_name(name_hint),
+        name_hint=name_hint,
         dtype=dtype,
         shape=(),
     )
@@ -145,7 +145,7 @@ def _make_constant_of_shape(
         ctx,
         "ConstantOfShape",
         [shape_tensor],
-        name_hint=ctx.fresh_name(name_hint),
+        name_hint=name_hint,
         dtype=ir.DataType.INT64,
         shape=(None,),
         attributes={"value": ir.tensor(value)},
@@ -499,9 +499,25 @@ def _compute_window_sizes(
     for axis in range(operand_rank):
         upd_axis = operand_to_update.get(axis)
         if upd_axis is not None:
-            size_scalar = _gather_int_scalar(
-                ctx, updates_shape_val, upd_axis, f"scatter_window_size_{axis}"
-            )
+            size_scalar = None
+            upd_shape_dims = getattr(getattr(updates_val, "shape", None), "dims", None)
+            if (
+                upd_shape_dims is not None
+                and len(upd_shape_dims) > upd_axis
+                and upd_shape_dims[upd_axis] is not None
+            ):
+                try:
+                    upd_dim_int = int(upd_shape_dims[upd_axis])
+                except Exception:
+                    upd_dim_int = None
+                if upd_dim_int is not None:
+                    size_scalar = _scalar_i64(
+                        ctx, upd_dim_int, f"scatter_window_size_static_{axis}"
+                    )
+            if size_scalar is None:
+                size_scalar = _gather_int_scalar(
+                    ctx, updates_shape_val, upd_axis, f"scatter_window_size_{axis}"
+                )
             if os.environ.get("J2O_DEBUG_SCATTER_SIZES") == "1":
                 print(
                     "[scatter_window_size]",
@@ -571,6 +587,14 @@ def _build_window_offsets_matrix(
             "Range",
             [zero_scalar, size_scalar, one_scalar],
             name_hint=f"scatter_range_axis{axis}",
+            dtype=ir.DataType.INT64,
+            shape=(None,),
+        )
+        range_out = _builder_op(
+            ctx,
+            "Identity",
+            [range_out],
+            name_hint=f"scatter_range_identity_{axis}",
             dtype=ir.DataType.INT64,
             shape=(None,),
         )
