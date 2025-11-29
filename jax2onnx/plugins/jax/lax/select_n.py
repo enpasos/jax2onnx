@@ -100,7 +100,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "expected_output_shapes": [(4,)],
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
-                ["CastLike:4 -> Equal:4 -> Where:4"],
+                ["Cast:4 -> Equal:4 -> Where:4"],
                 no_unused_inputs=True,
             ),
         },
@@ -119,7 +119,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "expected_output_shapes": [(6,)],
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
-                ["CastLike:6 -> Equal:6 -> Where:6"],
+                ["Cast:6 -> Equal:6 -> Where:6"],
                 no_unused_inputs=True,
             ),
         },

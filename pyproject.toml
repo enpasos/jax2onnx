@@ -37,6 +37,10 @@ jax = { version = ">=0.7.2", extras = ["cuda12_pip"] }
 
 
 [tool.poetry]
+name = "jax2onnx"
+version = "0.10.1"
+description = "export JAX to ONNX"
+authors = ["enpasos <matthias.unverzagt@enpasos.ai>"]
 packages = [
     { include = "jax2onnx" }
 ]
