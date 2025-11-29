@@ -585,7 +585,7 @@ class MLPBlock(eqx.Module):
         self.param_dtype = param_dtype
 
         keys = jax.random.split(key, 4)
-        self.norm = RMSNorm(self.hidden_size, eps=1e-6)
+        self.norm = RMSNorm(self.hidden_size, eps=1e-5)
         self.gate = eqx.nn.Linear(
             self.hidden_size,
             self.num_experts,
@@ -785,7 +785,7 @@ class Transformer(eqx.Module):
             )
             for i in range(num_blocks)
         )
-        self.norm = RMSNorm(config.hidden_size, eps=1e-6)
+        self.norm = RMSNorm(config.hidden_size, eps=1e-5)
         self.unembedding = eqx.nn.Linear(
             config.hidden_size,
             config.vocab_size,

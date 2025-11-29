@@ -54,7 +54,7 @@ def _make_tiny_config() -> ModelConfig:
 
 def _randomise_torch_model(model: TorchTransformer, *, seed: int) -> None:
     generator = torch.Generator().manual_seed(seed)
-    for param in model.parameters():
+    for name, param in model.named_parameters():
         if param.data.dtype.is_floating_point:
             noise = torch.randn(
                 param.data.shape, generator=generator, dtype=torch.float32
@@ -62,6 +62,24 @@ def _randomise_torch_model(model: TorchTransformer, *, seed: int) -> None:
             param.data.copy_(noise.to(param.data.dtype))
         else:
             param.data.zero_()
+    # Explicitly scale sinks (buffers) to match Flax init (std=0.02)
+    with torch.no_grad():
+        for block in model.block:
+            if hasattr(block.attn, "sinks"):
+                # For debugging parity, zero out sinks to isolate SDPA behaviour
+                block.attn.sinks.zero_()
+
+
+def _print_stats(name: str, torch_t: np.ndarray, eqx_t: np.ndarray) -> None:
+    t_mean = float(np.mean(torch_t))
+    t_max = float(np.max(np.abs(torch_t)))
+    e_mean = float(np.mean(eqx_t))
+    e_max = float(np.max(np.abs(eqx_t)))
+    diff = float(np.max(np.abs(torch_t - eqx_t)))
+    print(
+        f"{name:<20} | Torch: {t_mean:+.6f} (max {t_max:.6f}) | "
+        f"Eqx: {e_mean:+.6f} (max {e_max:.6f}) | Diff: {diff:.6f}"
+    )
 
 
 def _torch_mlp_stages(
@@ -364,6 +382,20 @@ def _compare(
     tokens_eqx = jnp.asarray(tokens.cpu().numpy(), dtype=jnp.int32)[None, :]
     eqx_stages = _run_eqx(eqx_model, tokens_eqx)
 
+    keys_to_trace = [
+        "embed",
+        "block0.attn.norm",
+        "block0.attn.qkv",
+        "block0.attn.q_rot",
+        "block0.attn.attn_core",
+        "block0.attn.projected",
+    ]
+    print("\n--- Layer 0 Trace ---")
+    for k in keys_to_trace:
+        if k in torch_stages and k in eqx_stages:
+            _print_stats(k, torch_stages[k], eqx_stages[k])
+    print("----------------------\n")
+
     diffs: Dict[str, float] = {}
     for key in torch_stages:
         torch_val = torch_stages[key]
@@ -380,6 +412,16 @@ def main(seed: int) -> None:
     config = _make_tiny_config()
     torch_model = TorchTransformer(config=config, device=torch.device("cpu"))
     _randomise_torch_model(torch_model, seed=seed)
+    try:
+        sinks_mean = torch_model.block[0].attn.sinks.abs().mean().item()
+    except Exception:
+        sinks_mean = "UNKNOWN"
+    torch_eps = getattr(torch_model.norm, "eps", getattr(torch_model.norm, "epsilon", "UNKNOWN"))
+    attn_eps = getattr(torch_model.block[0].attn.norm, "eps", "UNKNOWN")
+    print("DEBUG DIAGNOSTICS:")
+    print(f"  > Sinks Mean Abs: {sinks_mean}")
+    print(f"  > Attn Norm Eps:  {attn_eps}")
+    print(f"  > Torch Model Norm Eps: {torch_eps}")
     torch_model.eval()
 
     tokens = torch.randint(

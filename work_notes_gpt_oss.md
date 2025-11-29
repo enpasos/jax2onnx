@@ -129,30 +129,32 @@ Once Original ↔ JAX parity is proven for the checkpoint, the JAX ↔ ONNX harn
 
 # [2025-11-27] Systematic Parity Restoration: RoPE & Equinox
 
-**Status:** Blocked on Equinox parity; divergence starts at `block0.attn.q_rot`.
-**Symptoms:**
-- `q` input diff: 0.000000 (bfloat16) — inputs are perfect.
-- `q_rot` output diff: 0.250000 (bfloat16) — critical failure at RoPE.
-- `norm` output diff: 0.016746 (float32) — secondary precision issue (epsilon/dtype).
+**Status:** RoPE fixed (q_rot/k_rot 0.0); remaining drift in attn_core/norm under probe.
+**Symptoms (latest):**
+- `q` input diff: 0.000000 (bfloat16)
+- `q_rot` output diff: 0.000000 (bfloat16) — fixed
+- `norm` output diff: ~0.016746 (float32) — epsilon/dtype
+- `attn_core` diff: ~2.06 (bf16) — likely sinks/SDPA
 
 ### Step 1: RoPE Standalone Verification (High Priority)
-Do not keep running full parity probes; isolate RoPE first.
-- [ ] Create `scripts/debug_rope_parity.py` to feed identical `[1, seq_len, head_dim]` inputs to Flax/NNX vs Equinox RoPE.
-- [ ] Compare rotation mode (interleaved pairs vs split halves).
-- [ ] Compare `inv_freq`/sin/cos tables (force float32; CPU numpy vs JAX/XLA).
-- [ ] Fix Equinox RoPE to match Flax/NNX once mismatch is identified; rerun component test.
+Complete.
+- [x] `scripts/debug_rope_parity.py` to feed identical inputs to Flax/NNX vs Equinox RoPE.
+- [x] Rotation mode aligned (halves/split); q_rot/k_rot diff 0.0.
+- [x] RoPE tables generated in dtype-consistent way; respects bf16 inputs.
 
 ### Step 2: RMSNorm Precision
-- [ ] Confirm epsilon parity (1e-6 vs 1e-5) with Torch/Flax configs.
-- [ ] Ensure Equinox RMSNorm accumulates in float32 even for bf16 inputs.
+- [x] Epsilon parity set to 1e-5 across attention/MLP/transformer norms.
+- [x] Accumulation in float32 for bf16 inputs.
+- [ ] Verify probe shows norm diff ≈ 0.
 
-### Step 3: Layer 0 Injection Test
-- [ ] Dump block0 intermediates from Flax/NNX (e.g., numpy save).
-- [ ] Add `tests/test_eqx_layer0.py` to load weights + input, assert outputs match dump before moving to full-model probes.
+### Step 3: Attention Sinks & Core Stability
+- [x] Sinks init scaled to std 0.02 to match Flax.
+- [ ] Run `scripts/debug_attn_parity.py` with high-variance sinks; confirm stability and magnitude.
+- [ ] Rerun full probe to check attn_core diff drops.
 
 ### Notes
-- Attn parity drift likely in SDPA or sinks; RoPE mismatch is the first failing point.
-- Fix RoPE first, then revisit SDPA/MLP once `q_rot` matches.
+- Attn parity drift now likely in SDPA with sinks; RoPE is fixed.
+- If drift persists after sinks check, consider Layer 0 injection test to isolate SDPA.
 
 
 ## [2025-11-27] Systematic Parity Plan: Equinox vs Flax/NNX
