@@ -305,9 +305,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
             def dot_general(a, b, dimension_numbers=None, precision=None, **kwargs):
                 return jax.lax.dot_general(a, b, dimension_numbers)
 
+            class MockParam:
+                def __init__(self, value):
+                    self.value = value
+
+                def __getitem__(self, item):
+                    return self.value[item]
+
             dummy = SimpleNamespace(
-                kernel=SimpleNamespace(value=kv),
-                bias=SimpleNamespace(value=bv) if use_bias else None,
+                kernel=MockParam(kv),
+                bias=MockParam(bv) if use_bias else None,
                 use_bias=use_bias,
                 axis=-1,
                 in_features=kv.shape[0],

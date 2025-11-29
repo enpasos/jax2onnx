@@ -154,6 +154,17 @@ to_onnx(
   * Enhancing support for **physics-based simulations**
 
 
+### **Upcoming Version**
+
+* **0.10.2**:
+
+  * Masked softmax now lowers `where`-masked calls to ONNX Softmax + Where while zeroing masked positions.
+  * Symbolic-dimension support strengthened via DimExpr lowering/shape-polynomial helpers to stabilize broadcast/loop/gather shapes.
+  * IR return-mode/input_param materialization fixed (and legacy `serde_onnx` removed) to keep IR-only output deterministic.
+  * Typing overhaul: shared `typing_support` protocols, stricter mypy coverage, and helper scripts (`check_typing.sh`, `report_rng_traces.py`), plus Flax NNX compatibility tweaks for new Linear/Einsum param access.
+
+  
+
 ### **Current Productive Version**
 
 * **0.10.1** *(PyPI)*:
@@ -215,8 +226,8 @@ We warmly welcome contributions!
 
 | Library       | Versions |  
 |:--------------|:---------| 
-| `JAX`         | 0.8.0    | 
-| `Flax`        | 0.12.0   | 
+| `JAX`         | 0.8.1    | 
+| `Flax`        | 0.12.1   | 
 | `Equinox`     | 0.13.2   | 
 | `onnx-ir`     | 0.1.12   | 
 | `onnx`        | 1.19.1   |  
