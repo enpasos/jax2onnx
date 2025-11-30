@@ -197,3 +197,20 @@ Instead of full model probing:
 - `block0.attn.norm`: 0.000236
 
 The pipeline is now ready for full model porting and export verification.
+
+## [2025-11-30] Dynamic Shape Export Issues
+
+**Status:** Debugging `AttributeError` / `TypeError` during dynamic shape tracing.
+**Symptoms:**
+- Tests fail with `AttributeError: '_DynamicDimSentinel' object has no attribute 'min'`.
+- Reproduction script fails with `TypeError` when using `reshape` or `expand_dims` on dynamic sentinels.
+
+**Fixes Applied:**
+- Refactored `_swiglu` to use `reshape` + `take` instead of strided slicing.
+- Refactored `RotaryEmbedding.compute_sin_cos` to use `arange` + `take` for dynamic shapes.
+- Refactored `_sdpa_torch_style` to use `dynamic_slice` (then `arange` + `take`) instead of python slicing.
+- Refactored `_broadcast_cache` to use `expand_dims` (failed) and `reshape` (failed).
+
+**Next Steps:**
+- Fix `_broadcast_cache` to handle dynamic shapes robustly without triggering sentinel comparisons.
+- Verify if `jax.lax.broadcast_in_dim` can be used with careful shape construction that avoids `int()` or sentinel arithmetic.

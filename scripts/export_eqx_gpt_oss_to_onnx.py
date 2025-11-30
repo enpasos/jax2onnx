@@ -7,7 +7,6 @@ import argparse
 import json
 from dataclasses import fields
 from pathlib import Path
-from typing import Final
 
 import equinox as eqx
 import jax
@@ -69,9 +68,7 @@ def _load_config(config_path: Path) -> GPTOSSConfig:
     allowed = {field.name for field in fields(GPTOSSConfig)}
     filtered = {k: v for k, v in data.items() if k in allowed}
     if "hidden_size" not in filtered:
-        raise ValueError(
-            f"Config file '{config_path}' does not define 'hidden_size'."
-        )
+        raise ValueError(f"Config file '{config_path}' does not define 'hidden_size'.")
     return GPTOSSConfig(**filtered)
 
 
@@ -91,7 +88,7 @@ def _populate_eqx_from_flax_params(model: Transformer, params: dict) -> Transfor
     # Blocks
     for layer_idx in range(model.config.num_hidden_layers):
         block_params = params[f"block_{layer_idx}"]
-        
+
         # Attention
         attn_params = block_params["attn"]
         model = eqx.tree_at(
@@ -149,7 +146,7 @@ def _populate_eqx_from_flax_params(model: Transformer, params: dict) -> Transfor
         # Let's check `jax2onnx/plugins/examples/eqx/gpt_oss.py`.
         # MLPBlock init: mlp1_weight is (num_experts, intermediate*2, hidden) -> (experts, out, in)
         # So we need to transpose the last two dims.
-        
+
         model = eqx.tree_at(
             lambda m, i=layer_idx: m.blocks[i].mlp.mlp1_weight,
             model,
@@ -198,9 +195,7 @@ def main() -> None:
     config_path = args.config or params_path.with_suffix(".config.json")
     config_path = config_path.expanduser().resolve()
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Config file '{config_path}' not found."
-        )
+        raise FileNotFoundError(f"Config file '{config_path}' not found.")
     config = _load_config(config_path)
 
     # Initialize model with dummy key (weights will be overwritten)
@@ -210,7 +205,7 @@ def main() -> None:
         key=jax.random.PRNGKey(0),
         param_dtype=jnp.bfloat16,
     )
-    
+
     # Populate params
     model = _populate_eqx_from_flax_params(model, params)
 

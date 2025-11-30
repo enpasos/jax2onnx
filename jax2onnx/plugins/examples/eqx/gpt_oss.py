@@ -15,7 +15,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import nn, lax
+from jax import nn
 import jax.core as jax_core
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -55,8 +55,12 @@ def _swiglu(x: jnp.ndarray, *, limit: float, alpha: float = 1.702) -> jnp.ndarra
 
     dtype = x.dtype
     # GPT-OSS uses interleaved slices rather than contiguous halves
-    x_glu = x[..., ::2]
-    x_linear = x[..., 1::2]
+    # x shape is (..., intermediate_size * 2)
+    # Reshape to (..., intermediate_size, 2) to separate glu/linear parts
+    x_reshaped = x.reshape(x.shape[:-1] + (-1, 2))
+    x_glu = jnp.take(x_reshaped, 0, axis=-1)
+    x_linear = jnp.take(x_reshaped, 1, axis=-1)
+
     x_glu = jnp.clip(x_glu, a_min=None, a_max=limit).astype(dtype)
     x_linear = jnp.clip(x_linear, a_min=-limit, a_max=limit).astype(dtype)
     out_glu = x_glu * nn.sigmoid(alpha * x_glu).astype(dtype)
@@ -102,11 +106,16 @@ def _resolve_seq_length(length, query: jnp.ndarray) -> int:
     if shape is not None and len(shape) > 1 and isinstance(shape[1], (int, np.integer)):
         return int(shape[1])
 
-    return jax_core.concrete_or_error(
-        int,
-        length,
-        "RotaryEmbedding requires a static sequence length.",
-    )
+    try:
+        return jax_core.concrete_or_error(
+            int,
+            length,
+            "RotaryEmbedding requires a static sequence length.",
+        )
+    except Exception:
+        # If we can't concretize, assume it's a dynamic dimension (Tracer/Sentinel)
+        # and return it as is. The caller (RotaryEmbedding) handles this.
+        return length
 
 
 def _apply_linear_nd(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
@@ -117,19 +126,15 @@ def _apply_linear_nd(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.ndarray:
         jnp.asarray(linear.bias, dtype=jnp.float32) if linear.bias is not None else None
     )
 
-    orig_shape = x.shape[:-1]
-    features_in = weight.shape[1]
-    x_flat = jnp.reshape(x, (-1, features_in)).astype(jnp.float32)
-    y_flat = jax.lax.dot_general(
-        x_flat,
+    x_f32 = x.astype(jnp.float32)
+    y = jax.lax.dot_general(
+        x_f32,
         weight.T,
-        dimension_numbers=(((1,), (0,)), ((), ())),
+        dimension_numbers=(((x.ndim - 1,), (0,)), ((), ())),
         precision=jax.lax.Precision.HIGHEST,
     )
     if bias is not None:
-        y_flat = y_flat + bias
-
-    y = jnp.reshape(y_flat, orig_shape + (weight.shape[0],))
+        y = y + bias
     target_dtype = getattr(linear.weight, "dtype", None)
     if target_dtype is not None:
         y = y.astype(target_dtype)
@@ -144,20 +149,16 @@ def _apply_linear_float32_accum(linear: eqx.nn.Linear, x: jnp.ndarray) -> jnp.nd
         jnp.asarray(linear.bias, dtype=jnp.float32) if linear.bias is not None else None
     )
 
-    orig_shape = x.shape[:-1]
-    features_in = weight.shape[1]
-    x_flat = jnp.reshape(x, (-1, features_in)).astype(jnp.float32)
-    y_flat = jax.lax.dot_general(
-        x_flat,
+    x_f32 = x.astype(jnp.float32)
+    y = jax.lax.dot_general(
+        x_f32,
         weight.T,
-        dimension_numbers=(((1,), (0,)), ((), ())),
+        dimension_numbers=(((x.ndim - 1,), (0,)), ((), ())),
         precision=jax.lax.Precision.HIGHEST,
         preferred_element_type=jnp.float32,
     )
     if bias is not None:
-        y_flat = y_flat + bias
-
-    y = jnp.reshape(y_flat, orig_shape + (weight.shape[0],))
+        y = y + bias
     target_dtype = getattr(linear.weight, "dtype", None)
     if target_dtype is not None:
         y = y.astype(target_dtype)
@@ -179,7 +180,8 @@ def _sdpa_torch_style(
     *,
     sinks: jnp.ndarray,
     sm_scale: float,
-    mask: jnp.ndarray,
+    sliding_window: int,
+    max_len: int = 4096,
 ) -> jnp.ndarray:
     """Replicate the torch GPT-OSS SDPA routine for a single batch element."""
 
@@ -202,18 +204,52 @@ def _sdpa_torch_style(
     )
     logits = logits * jnp.asarray(sm_scale, dtype=jnp.float32)
 
-    # Mask is pre-computed and passed in
-    logits = logits + mask
-
     try:
         seq_len_int = int(seq_len)
     except TypeError:
         seq_len_int = seq_len
+    try:
+        kv_len_int = int(kv_len)
+    except TypeError:
+        kv_len_int = kv_len
+
+    static_lengths = isinstance(seq_len_int, (int, np.integer)) and isinstance(
+        kv_len_int, (int, np.integer)
+    )
+    if static_lengths:
+        # Materialize as constants to avoid dynamic-dim sentinels inside arange.
+        query_idx = jnp.asarray(np.arange(seq_len_int, dtype=np.int32)).reshape(
+            seq_len_int, 1
+        )
+        key_idx = jnp.asarray(np.arange(kv_len_int, dtype=np.int32)).reshape(
+            1, kv_len_int
+        )
+    else:
+        # Dynamic fallback (kept for completeness, but dynamic dims may still
+        # trigger sentinel-based shapes).
+        query_idx = jnp.arange(seq_len_int, dtype=jnp.int32)
+        query_idx = jnp.expand_dims(query_idx, axis=1)
+
+        key_idx = jnp.arange(kv_len_int, dtype=jnp.int32)
+        key_idx = jnp.expand_dims(key_idx, axis=0)
+
+    # Ensure mask is float32 to match original parity
+    mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(jnp.float32)
+    if sliding_window > 0:
+        mask = jnp.where(key_idx < (query_idx - sliding_window), -jnp.inf, mask)
+    # Broadcast mask to (1, 1, seq, kv)
+    mask = jnp.expand_dims(mask, axis=(0, 1))
+    logits = logits + mask
 
     sink_logits = sinks.reshape(num_kv, q_mult, 1, 1).astype(jnp.float32)
     sink_logits = jnp.broadcast_to(sink_logits, (num_kv, q_mult, seq_len_int, 1))
     extended_logits = jnp.concatenate([logits, sink_logits], axis=-1)
-    weights = _softmax_torch_approx(extended_logits, axis=-1)[..., :-1]
+    weights = _softmax_torch_approx(extended_logits, axis=-1)
+
+    # Slice off the sink column. The last dim is seq_len + 1.
+    # We want the first seq_len elements.
+    # weights shape is (num_kv, q_mult, seq_len, seq_len + 1)
+    weights = weights[..., :seq_len_int]
 
     v_expanded = jnp.expand_dims(v_f32, axis=2)
     v_expanded = jnp.broadcast_to(v_expanded, (kv_len, num_kv, q_mult, head_dim))
@@ -224,7 +260,7 @@ def _sdpa_torch_style(
         v_expanded,
         optimize="optimal",
     )
-    attn = attn.reshape(seq_len_int, num_kv * q_mult * head_dim)
+    attn = attn.reshape(-1, num_kv * q_mult * head_dim)
     return attn.astype(dtype)
 
 
@@ -318,26 +354,32 @@ class RotaryEmbedding(eqx.Module):
         self._sin_cache = jnp.array(np.sin(freqs) * concentration, dtype=jnp.float32)
 
     def compute_sin_cos(self, seq_len: int) -> tuple[jnp.ndarray, jnp.ndarray]:
-        try:
-            seq_len_int = int(seq_len)
-        except TypeError:
-            seq_len_int = jax_core.concrete_or_error(
-                int,
-                seq_len,
-                "RotaryEmbedding requires a static sequence length.",
-            )
-
-        cos = jnp.asarray(self._cos_cache[:seq_len_int], dtype=self.dtype)
-        sin = jnp.asarray(self._sin_cache[:seq_len_int], dtype=self.dtype)
+        if isinstance(seq_len, int):
+            # Static path
+            seq_len_int = seq_len
+            cos = jnp.asarray(self._cos_cache[:seq_len_int], dtype=self.dtype)
+            sin = jnp.asarray(self._sin_cache[:seq_len_int], dtype=self.dtype)
+        else:
+            # Dynamic path
+            # Use arange (handled by jax2onnx plugin) + take
+            indices = jnp.arange(seq_len, dtype=jnp.int32)
+            cos = jnp.take(self._cos_cache.astype(self.dtype), indices, axis=0)
+            sin = jnp.take(self._sin_cache.astype(self.dtype), indices, axis=0)
         return cos, sin
 
     @staticmethod
     def _broadcast_cache(cache: jnp.ndarray, target_ndim: int) -> jnp.ndarray:
-        seq_len = int(cache.shape[0])
-        half = int(cache.shape[1])
-        target_shape = (1, seq_len) + (1,) * max(target_ndim - 3, 0) + (half,)
-        broadcast_dims = (1, len(target_shape) - 1)
-        return lax.broadcast_in_dim(cache, target_shape, broadcast_dims)
+        # cache shape is (seq_len, half)
+        # We want (1, seq_len, 1..., half)
+        # Use slicing with None (newaxis) to insert dimensions
+
+        num_inner_dims = max(target_ndim - 3, 0)
+        # (None, slice(None)) -> (1, seq_len)
+        # (None,) * num_inner_dims -> (1, ..., 1)
+        # (slice(None),) -> (half,)
+
+        slices = (None, slice(None)) + (None,) * num_inner_dims + (slice(None),)
+        return cache[slices]
 
     @staticmethod
     def _apply_rotary(
@@ -359,12 +401,17 @@ class RotaryEmbedding(eqx.Module):
         leading_shape = tensor_moved.shape[1:-1]
 
         flat = tensor_moved.reshape(seq_len, -1, head_dim)
-        cos_flat = cos_moved.reshape(seq_len, 1, half).astype(tensor_dtype)
-        sin_flat = sin_moved.reshape(seq_len, 1, half).astype(tensor_dtype)
+        cos_flat = cos_moved.reshape(seq_len, 1, half).astype(jnp.float32)
+        sin_flat = sin_moved.reshape(seq_len, 1, half).astype(jnp.float32)
 
         first, second = jnp.split(flat, 2, axis=-1)
+        # Perform rotation in float32 for precision
+        first = first.astype(jnp.float32)
+        second = second.astype(jnp.float32)
+
         out_first = first * cos_flat - second * sin_flat
         out_second = second * cos_flat + first * sin_flat
+
         rotated_flat = jnp.concatenate([out_first, out_second], axis=-1).reshape(
             flat.shape
         )
@@ -492,9 +539,11 @@ class AttentionBlock(eqx.Module):
 
         split_q = self.num_attention_heads * self.head_dim
         split_k = split_q + self.num_key_value_heads * self.head_dim
-        q = qkv[..., :split_q]
-        k = qkv[..., split_q:split_k]
-        v = qkv[..., split_k:]
+
+        # Use split instead of slicing to avoid issues with dynamic shapes and '...'
+        # qkv shape is (..., qkv_dim)
+        # We want to split at split_q and split_k
+        q, k, v = jnp.split(qkv, [split_q, split_k], axis=-1)
 
         q = q.reshape(
             batch,
@@ -513,39 +562,6 @@ class AttentionBlock(eqx.Module):
 
         q, k = self.rope(q, k, seq_len=seq_len)
 
-        # Compute mask outside vmap to avoid dynamic shape issues
-        max_len = self.config.initial_context_length
-        try:
-            seq_len_int = int(seq_len)
-        except TypeError:
-            seq_len_int = seq_len
-
-        # Use dynamic_slice for robust dynamic shape support
-        # Use iota instead of arange to avoid jax2onnx plugin issues
-        query_idx = jax.lax.dynamic_slice(
-            jax.lax.iota(jnp.int32, max_len), (0,), (seq_len_int,)
-        )
-        query_idx = jnp.expand_dims(query_idx, axis=1)
-
-        # For self-attention, k and v have same length as q (unless cached, but here we don't cache)
-        # Wait, GPT-OSS usually has kv_len = seq_len for non-cached inference?
-        # Yes, in this implementation x has shape (batch, seq, hidden).
-        kv_len_int = seq_len_int
-
-        key_idx = jax.lax.dynamic_slice(
-            jax.lax.iota(jnp.int32, max_len), (0,), (kv_len_int,)
-        )
-        key_idx = jnp.expand_dims(key_idx, axis=0)
-
-        mask = jnp.where(key_idx > query_idx, -jnp.inf, 0.0).astype(compute_dtype)
-        if self.sliding_window > 0:
-            mask = jnp.where(
-                key_idx < (query_idx - self.sliding_window), -jnp.inf, mask
-            )
-
-        # Broadcast mask to (1, 1, seq, kv) for vmap
-        mask = mask[None, None, :, :]
-
         sinks = self.sinks.reshape(
             self.num_key_value_heads, self.query_multiplicity
         ).astype(compute_dtype)
@@ -557,7 +573,8 @@ class AttentionBlock(eqx.Module):
                 v_s,
                 sinks=sinks,
                 sm_scale=self.sm_scale,
-                mask=mask,
+                sliding_window=self.sliding_window,
+                max_len=self.config.initial_context_length,
             )
         )(q, k, v)
         if compute_dtype == jnp.bfloat16:
@@ -688,15 +705,10 @@ class MLPBlock(eqx.Module):
         dbg["gate_logits"] = gate_logits
         dbg["expert_indices"] = expert_indices
         dbg["expert_weights"] = expert_weights
-
         mlp1_weight = jnp.take(self.mlp1_weight, expert_indices, axis=0).astype(
             jnp.float32
         )
         mlp1_bias = jnp.take(self.mlp1_bias, expert_indices, axis=0).astype(jnp.float32)
-
-        print(f"DEBUG: mlp1_weight shape: {mlp1_weight.shape}")
-        print(f"DEBUG: normed shape: {normed.shape}")
-        print(f"DEBUG: expert_indices shape: {expert_indices.shape}")
 
         proj1 = jnp.einsum(
             "bskoh,bsh->bsko",
@@ -831,7 +843,7 @@ class Transformer(eqx.Module):
         tokens = jnp.asarray(tokens, dtype=jnp.int32)
         squeeze_batch = False
         if tokens.ndim == 1:
-            tokens = tokens[None, :]
+            tokens = jnp.expand_dims(tokens, axis=0)
             squeeze_batch = True
         elif tokens.ndim != 2:
             raise ValueError("Transformer expects token tensors shaped (batch, seq).")
