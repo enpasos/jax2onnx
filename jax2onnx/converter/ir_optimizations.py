@@ -1335,6 +1335,98 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
     return arr
 
 
+def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
+    """
+    Rewrite Mul/Div(rsqrt) patterns into a single Div for cleaner graphs.
+    """
+
+    nodes, persist = _get_node_seq_and_setter(graph)
+    if not nodes:
+        return
+
+    print("rewrite_mul_rsqrt_as_div_ir start")
+
+    def _is_scalar_one(val: Optional[ir.Value]) -> bool:
+        arr = _to_numpy_from_any(val)
+        if arr is None or arr.size != 1:
+            return False
+        try:
+            return bool(np.isclose(arr.reshape(()), 1.0))
+        except Exception:
+            return False
+
+    updated = False
+    changed = True
+    while changed:
+        changed = False
+        prod_obj, prod_name, cons_obj, cons_name = _build_use_maps(nodes)
+        for idx, node in enumerate(nodes):
+            if node.op_type != "Mul":
+                continue
+            mul_inputs = _node_inputs(node)
+            if len(mul_inputs) != 2:
+                continue
+            for inv_pos in (0, 1):
+                inv_val = mul_inputs[inv_pos]
+                other_val = mul_inputs[1 - inv_pos]
+                div_idx = _producer_idx_for(inv_val, prod_obj, prod_name)
+                if div_idx is None:
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: no producer", _v_name(inv_val))
+                    continue
+                div_node = nodes[div_idx]
+                if div_node.op_type != "Div":
+                    if DEBUG:
+                        _dbg(
+                            "rewrite_mul_rsqrt skip: producer not Div", div_node.op_type
+                        )
+                    continue
+                consumers = _all_consumers(cons_obj, cons_name, inv_val)
+                if consumers - {idx}:
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: shared consumers", consumers)
+                    continue
+                div_inputs = _node_inputs(div_node)
+                if len(div_inputs) != 2:
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: div arity", len(div_inputs))
+                    continue
+                numerator, denominator = div_inputs
+                if not _is_scalar_one(numerator):
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: numerator not one")
+                    continue
+                denom_prod_idx = _producer_idx_for(denominator, prod_obj, prod_name)
+                if denom_prod_idx is None:
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: denominator producer missing")
+                    continue
+                denom_producer = nodes[denom_prod_idx]
+                if denom_producer.op_type != "Sqrt":
+                    if DEBUG:
+                        _dbg(
+                            "rewrite_mul_rsqrt skip: denominator producer not Sqrt",
+                            denom_producer.op_type,
+                        )
+                    continue
+                if other_val is None or denominator is None:
+                    if DEBUG:
+                        _dbg("rewrite_mul_rsqrt skip: missing inputs")
+                    continue
+                node.op_type = "Div"
+                _set_node_inputs(node, [other_val, denominator])
+                if DEBUG:
+                    _dbg("rewrite_mul_rsqrt_as_div", _v_name(_node_output(node)))
+                changed = True
+                updated = True
+                break
+            if changed:
+                break
+
+    if updated:
+        persist(nodes)
+
+
 def _as_scalar_bool(payload: object) -> Optional[bool]:
     if isinstance(payload, (bool, np.bool_)):
         return bool(payload)
@@ -1501,6 +1593,16 @@ def _graph_outputs_list(graph: ir.Graph) -> List["ir.Value"]:
     return list(graph.outputs)
 
 
+def _graph_initializers_list(graph: ir.Graph) -> List["ir.Value"]:
+    try:
+        initializers = graph.initializers
+    except AttributeError:
+        return []
+    if isinstance(initializers, Mapping):
+        return [init for init in initializers.values() if isinstance(init, ir.Value)]
+    return list(initializers)
+
+
 # ---------------- DCE ----------------
 
 
@@ -1556,6 +1658,83 @@ def remove_dead_nodes_ir(graph: ir.Graph) -> None:
         dropped = [n.op_type for i, n in enumerate(nodes) if i not in live_nodes]
         print("[dce] removed", len(nodes) - len(new_nodes), "nodes:", dropped)
     persist(new_nodes)
+
+
+def ensure_unique_value_names_ir(graph: ir.Graph) -> None:
+    """
+    Ensure every ir.Value inside `graph` owns a unique non-empty name.
+    ONNX requires value names to be globally unique per graph, and exporting
+    invalid graphs causes ORT loads to fail. We fix collisions deterministically
+    so downstream tooling always receives legal models.
+    """
+
+    nodes, _ = _get_node_seq_and_setter(graph)
+    if not nodes:
+        nodes = []
+
+    seen: dict[str, int] = {}
+    visited: set[int] = set()
+
+    def _next_unique(name: str) -> str:
+        counter = seen.get(name)
+        if counter is None:
+            seen[name] = 1
+            return name
+        candidate = f"{name}__{counter}"
+        counter += 1
+        while candidate in seen:
+            candidate = f"{name}__{counter}"
+            counter += 1
+        seen[name] = counter
+        seen[candidate] = 1
+        return candidate
+
+    def _rename_value(value: Optional[ir.Value]) -> None:
+        if value is None or not isinstance(value, ir.Value):
+            return
+        vid = id(value)
+        if vid in visited:
+            return
+        visited.add(vid)
+        current = getattr(value, "name", None)
+        if not current:
+            return
+        fresh = _next_unique(current)
+        if fresh != current:
+            value.name = fresh
+
+    for initializer in _graph_initializers_list(graph):
+        _rename_value(initializer)
+    for g_input in _graph_inputs_list(graph):
+        _rename_value(g_input)
+    for node in nodes:
+        if node is None:
+            continue
+        for out_val in _node_outputs(node):
+            _rename_value(out_val)
+        for attr in _iter_node_attrs(node):
+            kind = _attr_kind(attr)
+            if kind == "GRAPH":
+                sub_graph = None
+                if isinstance(attr, ir.Attr):
+                    try:
+                        sub_graph = attr.as_graph()
+                    except Exception:
+                        sub_graph = None
+                if sub_graph is not None:
+                    ensure_unique_value_names_ir(sub_graph)
+            elif kind == "GRAPHS":
+                graphs: tuple[ir.Graph, ...] = ()
+                if isinstance(attr, ir.Attr):
+                    try:
+                        graphs = tuple(attr.as_graphs())
+                    except Exception:
+                        graphs = ()
+                for sub in graphs:
+                    if sub is not None:
+                        ensure_unique_value_names_ir(sub)
+    for g_output in _graph_outputs_list(graph):
+        _rename_value(g_output)
 
 
 # ---------------- Prune unused graph inputs (top graph only) ----------------
@@ -1704,13 +1883,16 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
+    print("optimize_graph invoked")
     # Top graph
     try:
         gr = ir_model.graph
+        ensure_unique_value_names_ir(gr)
         remove_redundant_casts_ir(gr)
         remove_redundant_transpose_pairs_ir(gr)
         remove_redundant_reshape_pairs_ir(gr)
         remove_identity_reshapes_ir(gr)
+        rewrite_mul_rsqrt_as_div_ir(gr)
         inline_dropout_training_mode_constants_ir(gr)
         propagate_unary_shapes_ir(gr)
         remove_redundant_casts_ir(gr)
@@ -1731,10 +1913,12 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         for fn in values:
             fgr = fn.graph
             try:
+                ensure_unique_value_names_ir(fgr)
                 remove_redundant_casts_ir(fgr)
                 remove_redundant_transpose_pairs_ir(fgr)
                 remove_redundant_reshape_pairs_ir(fgr)
                 remove_identity_reshapes_ir(fgr)
+                rewrite_mul_rsqrt_as_div_ir(fgr)
                 inline_dropout_training_mode_constants_ir(fgr)
                 propagate_unary_shapes_ir(fgr)
                 remove_redundant_casts_ir(fgr)

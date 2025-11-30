@@ -15,10 +15,11 @@ dependencies = [
     "orbax-export>=0.0.6",
     "netron>=8.2.9",
     "onnx>=1.17.0",
-    "onnxruntime>=1.23.1",
+    "onnxruntime>=1.19.2",
     "einops>=0.8.1",
     "equinox>=0.13.1",
     "onnx-ir>=0.1.10",
+    "huggingface-hub (>=1.1.2,<2.0.0)",
 ]
 
 [tool.poetry.group.test]
@@ -27,6 +28,12 @@ optional = true
 [tool.poetry.group.test.dependencies]
 treescope = ">=0.1.8"
 torch = "==2.4.0"   
+
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+jax = { version = ">=0.7.2", extras = ["cuda12_pip"] }
 
 
 [tool.poetry]
@@ -42,6 +49,12 @@ packages = [
 name = "jax-releases"
 url = "https://storage.googleapis.com/jax-releases/jax_releases.html"
 priority = "supplemental"
+
+
+
+
+
+
 
 
 [tool.poetry.group.dev.dependencies]
@@ -61,6 +74,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 addopts = "--disable-warnings"
+testpaths = ["tests"]
+norecursedirs = ["tmp", "scripts"]
 
 
 [tool.black]

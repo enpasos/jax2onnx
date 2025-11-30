@@ -51,6 +51,7 @@ Keep these handy—most deep-dives live there instead of here.
 - **Single-use PRNG keys:** split before handing keys to separate consumers. Turn on `jax.config.update("jax_debug_key_reuse", True)` while developing if you suspect violations.
 - **Metadata parity:** tests expect `expect_graph` specs to mirror real lowering. Keep structural expectations beside metadata entries and regenerate via `scripts/emit_expect_graph.py` when behaviour changes.
 - **Follow the dev guides:** IR builder, subgraph wiring, optimizer, and plugin guardrails are enforced by policy tests—read the relevant guide before editing those areas.
+- **Do not commit ONNX artifacts:** `.onnx` / `.onnx.data` files (including under `docs/onnx/`) must not land in git. Keep generated models local; they bloat the repo.
 
 ---
 

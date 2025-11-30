@@ -2,6 +2,7 @@
 
 import logging
 import os
+from contextlib import contextmanager
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -43,6 +44,18 @@ _VALID_RETURN_MODES = {"proto", "ir", "file"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
+
+
+@contextmanager
+def _temporary_x64(enabled: bool) -> None:
+    prev = jax.config.jax_enable_x64
+    try:
+        if enabled != prev:
+            jax.config.update("jax_enable_x64", enabled)
+        yield
+    finally:
+        if jax.config.jax_enable_x64 != prev:
+            jax.config.update("jax_enable_x64", prev)
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -321,27 +334,53 @@ def to_onnx(
                 )
             param_map[key] = value
 
-    result = to_onnx_impl(
-        fn=fn,
-        inputs=normalized_inputs,
-        input_params=param_map,
-        model_name=model_name,
-        opset=opset,
-        enable_double_precision=enable_double_precision,
-        record_primitive_calls_file=record_primitive_calls_file,
-    )
+    with _temporary_x64(enable_double_precision):
+        result = to_onnx_impl(
+            fn=fn,
+            inputs=normalized_inputs,
+            input_params=param_map,
+            model_name=model_name,
+            opset=opset,
+            enable_double_precision=enable_double_precision,
+            record_primitive_calls_file=record_primitive_calls_file,
+            protective_clone=(normalized_mode == "ir"),
+        )
 
-    def _save_model_proto(model_proto: onnx.ModelProto, dest: str) -> str:
+        postprocess_ir_model(
+            result,
+            promote_to_double=enable_double_precision,
+        )
+
+    def _save_model_proto(
+        model_proto: onnx.ModelProto,
+        dest: str,
+        *,
+        external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
+    ) -> str:
         dest_dir = os.path.dirname(dest)
         if dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
-        onnx.save(model_proto, dest)
+        data_location = os.path.basename(dest) + ".data"
+        data_path = os.path.join(dest_dir or ".", data_location)
+        onnx.save_model(
+            model_proto,
+            dest,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_location,
+            size_threshold=external_threshold,
+            convert_attribute=False,
+        )
+        # Only keep the .data sidecar if the export actually referenced external data.
+        if not any(init.external_data for init in model_proto.graph.initializer):
+            # No external payloads; remove an empty sidecar if one was produced.
+            try:
+                if os.path.exists(data_path) and os.path.getsize(data_path) == 0:
+                    os.remove(data_path)
+            except OSError:
+                pass
         return dest
 
-    postprocess_ir_model(
-        result,
-        promote_to_double=enable_double_precision,
-    )
     _materialize_input_params_on_ir(result, param_map)
     if normalized_mode == "ir":
         return result
@@ -358,6 +397,8 @@ def onnx_function(
     *,
     unique: bool = False,
     namespace: Optional[str] = None,
+    name: Optional[str] = None,
+    type: Optional[str] = None,  # noqa: A002 - user-facing keyword
 ) -> Union[Callable, type]:
     """
     Decorator to mark a function or class as an ONNX function.
@@ -373,6 +414,11 @@ def onnx_function(
             that share the same callable type and captured parameters.
         namespace: Custom domain prefix for the emitted FunctionProto. Defaults to
             ``"custom"`` when omitted.
+        name: Optional human-readable base name for the ONNX function. When set,
+            this overrides the callable's Python name for the function `op_type`
+            and FunctionProto name; the domain still derives from ``namespace``.
+        type: Alias for ``name``; preferred keyword for setting the function
+            `op_type`/display name in ONNX.
 
     Returns:
         The decorated function or class with ONNX function capabilities.
@@ -391,7 +437,11 @@ def onnx_function(
         >>>         return self.activation(self.dense(x))
     """
 
-    return onnx_function_impl(target, unique=unique, namespace=namespace)
+    # Prefer the explicit `type` override; fall back to `name` for BC.
+    display = type if isinstance(type, str) and type else name
+    return onnx_function_impl(
+        target, unique=unique, namespace=namespace, name=display, type=display
+    )
 
 
 def allclose(
@@ -401,6 +451,8 @@ def allclose(
     input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
+    *,
+    enable_double_precision: bool = False,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs remain numerically close.
@@ -412,6 +464,8 @@ def allclose(
         input_params: Optional keyword arguments applied to both call sites.
         rtol: Relative tolerance for floating-point comparisons.
         atol: Absolute tolerance for floating-point comparisons.
+        enable_double_precision: Temporarily enable `jax_enable_x64` while running the
+            comparison. Defaults to False.
 
     Returns:
         `(is_match, message)` where `is_match` indicates success and `message`
@@ -442,7 +496,9 @@ def allclose(
         xs = list(inputs)
 
     params = dict(input_params or {})
-    return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
+    with _temporary_x64(enable_double_precision):
+        with jax.default_matmul_precision("float32"):
+            return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
 
 
 def _run_allclose(
@@ -464,9 +520,21 @@ def _run_allclose(
     # shape mismatch errors during validation.
     sess_opts.enable_mem_pattern = False
 
+    sess_opts = ort.SessionOptions()
+    # Disable ORT graph rewrites (e.g., QuickGelu fusion) that may not support
+    # float64 and can break validation for otherwise valid models.
+    sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    # Avoid buffer re-use across dynamic shapes (Range/If) that can trigger ORT
+    # shape mismatch errors during validation.
+    sess_opts.enable_mem_pattern = False
+
+    # Use single-threaded ORT to reduce nondeterminism across runs.
+    sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
     session = ort.InferenceSession(
         model_path,
-        sess_options=sess_opts,
+        sess_options=sess_options,
         providers=["CPUExecutionProvider"],
     )
 

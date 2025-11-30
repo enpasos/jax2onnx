@@ -462,6 +462,9 @@ class FunctionPlugin(PrimitivePlugin):
         self.target = target
         self.unique = bool(unique)
         self.namespace = _normalize_namespace(namespace)
+        # Optional human-readable override for the function base name/op_type.
+        # When unset, we fall back to the underlying callable name.
+        self.display_name = None  # type: ignore[assignment]
         self._qualified_target = _qualname_of_target(target)
         self.primitive = Primitive(primitive_name)
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
@@ -642,6 +645,9 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _friendly_name_base(self) -> str:
         """Human-readable base name for this function (class or function name)."""
+        override = getattr(self, "display_name", None)
+        if isinstance(override, str) and override:
+            return override
         tgt = self.target
         try:
             if inspect.isclass(tgt):
@@ -1189,6 +1195,8 @@ def onnx_function(
     *,
     unique: bool = False,
     namespace: str | None = None,
+    name: str | None = None,
+    type: str | None = None,  # noqa: A002 - allow user-facing keyword 'type'
 ):
     """
     Mark a class or free function as an ONNX function boundary.
@@ -1203,10 +1211,17 @@ def onnx_function(
         prim_name = f"onnx_fn::{qual}"
         plugin = PLUGIN_REGISTRY.get(prim_name)
         normalized_ns = _normalize_namespace(namespace)
+        # Prefer `type` override; fall back to `name` for backwards compatibility.
+        override_name = type if isinstance(type, str) and type else name
         if plugin is None:
             fp = FunctionPlugin(
-                prim_name, actual_target, unique=unique, namespace=normalized_ns
+                prim_name,
+                actual_target,
+                unique=unique,
+                namespace=normalized_ns,
             )
+            if isinstance(override_name, str) and override_name:
+                fp.display_name = override_name
             ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
             PLUGIN_REGISTRY[prim_name] = fp
             plugin = fp
@@ -1216,6 +1231,16 @@ def onnx_function(
                     f"@onnx_function namespace mismatch for {qual}: "
                     f"{plugin.namespace} vs {normalized_ns}"
                 )
+            # Allow a late name/type override if none was set; otherwise reject conflicts.
+            if isinstance(override_name, str) and override_name:
+                current = getattr(plugin, "display_name", None)
+                if current is None or current == "":
+                    plugin.display_name = override_name
+                elif current != override_name:
+                    raise ValueError(
+                        f"@onnx_function name/type mismatch for {qual}: "
+                        f"{current} vs {override_name}"
+                    )
             if unique:
                 plugin.unique = True
         try:
@@ -1223,6 +1248,9 @@ def onnx_function(
             if unique:
                 setattr(actual_target, "__j2o_onnx_function_unique__", True)
             setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_ns)
+            if isinstance(override_name, str) and override_name:
+                setattr(actual_target, "__j2o_onnx_function_name__", override_name)
+                setattr(actual_target, "__j2o_onnx_function_type__", override_name)
         except Exception:
             pass
         return actual_target

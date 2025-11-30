@@ -9,6 +9,7 @@ import jax
 import jax.extend.core as jax_core_ext
 from jax import core
 import jax.numpy as jnp
+from jax.interpreters import batching as jax_batching
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
@@ -262,3 +263,10 @@ def _clip_impl(x: ArrayLike, a_min: ArrayLike, a_max: ArrayLike) -> jax.Array:
 
 
 JnpClipPlugin._PRIM.def_abstract_eval(JnpClipPlugin.abstract_eval)
+
+
+def _clip_batching_rule(args, dims):
+    return jax_batching.broadcast_batcher(JnpClipPlugin._PRIM, args, dims)
+
+
+jax_batching.primitive_batchers[JnpClipPlugin._PRIM] = _clip_batching_rule

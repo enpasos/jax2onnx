@@ -332,6 +332,7 @@ def to_onnx(
     opset: int,
     enable_double_precision: bool,
     record_primitive_calls_file: Optional[str],
+    protective_clone: bool = True,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -429,6 +430,7 @@ def to_onnx(
                 raise NotImplementedError(
                     f"[converter] No plugins registered for primitive '{prim_name}'"
                 )
+            ctx._current_eqn = eqn
             builder = ctx.builder
             prev_jax_trace = builder.current_jax_traceback
             prev_plugin_id = builder.current_plugin_identifier
@@ -490,13 +492,16 @@ def to_onnx(
             finally:
                 builder.set_current_jax_traceback(prev_jax_trace)
                 builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
+        ctx._current_eqn = None
 
         # Outputs
         ctx.add_outputs_from_vars(jpr.outvars)
 
         # Build IR model
         ir_model = ctx.builder.to_ir_model(
-            name=model_name, ir_version=_ORT_SAFE_IR_VERSION
+            name=model_name,
+            ir_version=_ORT_SAFE_IR_VERSION,
+            protective_clone=protective_clone,
         )
 
         # Attach any native ir.Functions collected on ctx
