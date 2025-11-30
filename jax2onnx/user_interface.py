@@ -498,9 +498,7 @@ def allclose(
     params = dict(input_params or {})
     with _temporary_x64(enable_double_precision):
         with jax.default_matmul_precision("float32"):
-            return _run_allclose(
-                fn, onnx_model_path, xs, params, rtol=rtol, atol=atol
-            )
+            return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
 
 
 def _run_allclose(
