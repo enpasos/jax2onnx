@@ -113,6 +113,16 @@ to_onnx(
 
 ## SotA examples 🚀 
 
+- Language: [GPT-OSS](https://huggingface.co/openai/gpt-oss-20b) (open-source MoE Transformer)
+  - Architecture: Flax/NNX + Equinox reference stacks with gating/routing capture, MoE MLP rebuilds, and deterministic ONNX exporters (see `jax2onnx/plugins/examples/nnx/gpt_oss_flax.py` and `jax2onnx/plugins/examples/eqx/gpt_oss.py`).
+  - Structural graphs:
+    - [gpt_oss_transformer_flax ↗](https://netron.app/?url=https://raw.githubusercontent.com/enpasos/jax2onnx/main/docs/onnx/examples/nnx_gpt_oss/gpt_oss_transformer_flax.onnx)
+    - [gpt_oss_transformer_block_flax ↗](https://netron.app/?url=https://raw.githubusercontent.com/enpasos/jax2onnx/main/docs/onnx/examples/nnx_gpt_oss/gpt_oss_transformer_block_flax.onnx)
+    - [gpt_oss_sdpa_flax ↗](https://netron.app/?url=https://raw.githubusercontent.com/enpasos/jax2onnx/main/docs/onnx/examples/nnx_gpt_oss/gpt_oss_sdpa_flax.onnx)
+  - How-to: [Getting GPT-OSS weights into jax2onnx](./docs/readme/gpt_oss/getting_weights.md)
+  - Equivalence check: [Routing parity harness](scripts/gpt_oss_routing_parity.py) · [Flax parity tests](tests/extra_tests/test_flax_routing_parity.py) · [Equinox parity tests](tests/extra_tests/test_eqx_gpt_oss_parity.py)
+  - Optional pretrained weights: [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) · [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b) *(weights and model cards list `license: apache-2.0`)*
+
 - Vision: [DINOv3](https://ai.meta.com/dinov3/)
   - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104)
   - Structural graphs:
@@ -154,27 +164,20 @@ to_onnx(
   * Enhancing support for **physics-based simulations**
 
 
-### **Upcoming Version**
+### **Current Productive Version**
 
-* **0.10.2**:
+* **0.10.2** *(PyPI)*:
 
+  * GPT-OSS export stack: Equinox + Flax/NNX reference modules, parity harnesses, exporter scripts, and docs so the open MoE transformer can be converted end-to-end and validated numerically.
+  * New primitive coverage: `lax.top_k`, `lax.rsqrt`, and Equinox `RMSNorm` lowerings land with tests.
   * Masked softmax now lowers `where`-masked calls to ONNX Softmax + Where while zeroing masked positions.
+  * Scatter operations embedded in `cond`/`scan` now preserve ONNX-compliant initializers/types via the renewed index helpers, fixing the Issue #139 regression suite.
   * Symbolic-dimension support strengthened via DimExpr lowering/shape-polynomial helpers to stabilize broadcast/loop/gather shapes.
   * IR return-mode/input_param materialization fixed (and legacy `serde_onnx` removed) to keep IR-only output deterministic.
   * Typing overhaul: shared `typing_support` protocols, stricter mypy coverage, and helper scripts (`check_typing.sh`, `report_rng_traces.py`), plus Flax NNX compatibility tweaks for new Linear/Einsum param access.
+  * Dependency stack bumped to JAX 0.8.1 / Flax 0.12.1 with corresponding NNX plugin updates so upcoming releases match the supported upstream versions.
 
-  
-
-### **Current Productive Version**
-
-* **0.10.1** *(PyPI)*:
-
-    * **Complex numbers:** unified packed layout (`[..., 2]`), helper stack for packing/dtype reconciliation, and the first wave of plugin coverage: elementwise (`lax`/`jnp` add/sub/mul/div), conjugation (`lax.conj`, `jnp.conj`), bilinear ops (`lax.dot_general`, `jnp.matmul`, `lax.conv_general_dilated`), plus FFTs via an ONNX-compliant DFT lowering. See `docs/dev_guides/complex_numbers.md` for the full playbook (helpers, roadmap, future optimizations).
-    * Add **stacktrace metadata** toggles (`pkg.jax2onnx.callsite` / `pkg.jax2onnx.plugin`) with optional full Python/JAX traces.
-    * `lax.dot_general`: add `Einsum` fallback 
-    * `lax.broadcast_in_dim`: keep constant folding on handler infrastructure, preserve loop extent metadata, and always emit the Expand node for deterministic IR.
-    * `lax.reduce_window_sum`: new Conv-based lowering that handles strides, window dilation, integer operands (via cast wrappers), and static base dilation expansion.
-
+ 
  
 
 ### **Past Versions**

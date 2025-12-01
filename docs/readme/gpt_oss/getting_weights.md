@@ -156,6 +156,84 @@ containing per-layer match rates and gate diffs. Adjust `--max-layers` and
 `--max-tokens` to keep runs developer-friendly, and prefer `--torch-device cpu`
 to avoid CUDA OOMs during PyTorch checkpoint loading.
 
+## Baseline parity snapshot (Baseline5, 2-layer slice)
+
+- Instrumentation: `export_flax_gpt_oss_to_onnx.py` supports `--emit-hidden-states` and `--emit-block-debug`; `run_flax_gpt_oss_onnx.py` compares hidden states and block-debug tensors (attention I/O, MoE norms/gates/experts, fused outputs).
+- Parity (2-layer checkpoint, seq_len=32, debug export): logits max |Δ| ≈ 1.9e-05; hidden states ≤ 1.5e-04; MoE debug tensors ≤ 4.5e-04.
+- Routing evidence: `scripts/gpt_oss_routing_parity.py` captures both a 2-layer slice (exact match) and a full 24-layer run (22/24 layers match; remaining layers differ by ≤ 4e-03 gate deltas). See `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`.
+- Artifacts: debug export at `/tmp/gpt_oss_transformer_flax_debug.onnx` (with `.data`). The committed Baseline5 artifact lives under `docs/onnx/examples/nnx_gpt_oss/` with external data named `gpt_oss_transformer_flax_baseline5.onnx.data`.
+
+### Reproduce the Baseline5 debug export and parity check
+
+```bash
+JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --output /tmp/gpt_oss_transformer_flax_debug.onnx \
+  --sequence-length 16 \
+  --emit-hidden-states \
+  --emit-block-debug \
+  --skip-validation
+
+JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_flax_gpt_oss_onnx.py \
+  --prompt "What is the capital of France?" \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --onnx /tmp/gpt_oss_transformer_flax_debug.onnx \
+  --sequence-length 16 \
+  --compare-hidden-states \
+  --compare-block-debug
+```
+
+### Original (Torch) ↔ Flax parity checklist
+
+Prove the staged Flax bundle matches the Torch checkpoint before shipping ONNX:
+
+```bash
+JAX_PLATFORM_NAME=cpu \
+poetry run python scripts/probe_flax_gpt_oss_parity.py \
+  --prompt "France capital? Answer:" \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --sequence-length 16 \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --torch-device cpu \
+  --torch-max-layers 2
+```
+
+The script tokenizes the prompt, runs both frameworks, and reports logits/stage tensor deltas. Store the transcript next to the promoted ONNX (e.g., `docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md`).
+
+### ONNX-only smoke test (tokenizer + generation)
+
+For a short-window ONNX-only run (no JAX/Torch in memory):
+
+```bash
+JAX_PLATFORM_NAME=cpu \
+poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+  --output /tmp/gpt_oss_transformer_flax_seq16.onnx \
+  --sequence-length 16 \
+  --skip-validation
+
+mkdir -p artifacts/gpt_oss_full_seq16
+mv /tmp/gpt_oss_transformer_flax_seq16.onnx artifacts/gpt_oss_full_seq16/
+mv /tmp/gpt_oss_transformer_flax_seq16.onnx.data artifacts/gpt_oss_full_seq16/
+
+LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
+poetry run python scripts/run_onnx_only.py \
+  --onnx artifacts/gpt_oss_full_seq16/gpt_oss_transformer_flax_seq16.onnx \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+  --prompt "France capital? Answer:" \
+  --sequence-length 16 \
+  --generate-steps 8 \
+  --expand-functions \
+  --runtime ort
+```
+
+For longer prompts/responses, re-export with a larger `--sequence-length` or add KV cache support to avoid re-running the full window.
+
 ## 5. (Legacy) Export the Equinox example to ONNX
 
 Use the helper script to load the checkpoint, mirror it into the IR-only Equinox
