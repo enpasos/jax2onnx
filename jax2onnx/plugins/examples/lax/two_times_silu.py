@@ -19,7 +19,7 @@ def two_times_silu(x: jax.Array) -> jax.Array:
 register_example(
     component="two_times_silu",
     description="Regression for calling jax.nn.silu twice (issue #139).",
-    since="v0.10.0",
+    since="v0.10.2",
     context="examples.lax",
     children=["jax.nn.silu"],
     testcases=[

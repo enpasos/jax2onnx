@@ -25,7 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         {"component": "Sqrt", "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html"},
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="v0.11.0",
+    since="v0.10.2",
     context="primitives.lax",
     component="rsqrt",
     testcases=[

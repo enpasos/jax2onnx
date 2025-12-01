@@ -181,7 +181,7 @@ register_example(
     component="FlaxRMSNorm",
     description="Flax RMSNorm used in the GPT-OSS JAX port.",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=[],
     testcases=[
@@ -348,7 +348,7 @@ register_example(
     component="FlaxRotaryEmbedding",
     description="Rotary position embedding helper from the GPT-OSS Flax port.",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=[],
     testcases=[
@@ -1026,7 +1026,7 @@ register_example(
     component="FlaxSDPA",
     description="JIT sdpa helper from the GPT-OSS Flax port.",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=[],
     testcases=[
@@ -1083,7 +1083,7 @@ register_example(
     component="FlaxAttentionBlock",
     description="Attention block from the GPT-OSS Flax reference (no KV cache).",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=["FlaxRMSNorm", "FlaxRotaryEmbedding", "FlaxSDPA"],
     testcases=[
@@ -1142,7 +1142,7 @@ register_example(
     component="FlaxMLPBlock",
     description="Mixture-of-experts MLP block from the GPT-OSS Flax port.",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=["FlaxRMSNorm"],
     testcases=[
@@ -1209,7 +1209,7 @@ register_example(
     component="FlaxTransformerBlock",
     description="Single GPT-OSS Flax transformer block (attention + MoE MLP).",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=[
         "FlaxAttentionBlock",
@@ -1287,7 +1287,7 @@ register_example(
     component="FlaxTransformer",
     description="Full GPT-OSS Flax transformer (embedding, blocks, head).",
     source="https://github.com/openai/gpt-oss/pull/217",
-    since="v0.12.0",
+    since="v0.10.2",
     context="examples.nnx_gpt_oss",
     children=[
         "FlaxTransformerBlock",
