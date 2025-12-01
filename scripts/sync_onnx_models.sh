@@ -19,7 +19,23 @@ git checkout main
 git pull
 
 # 2. Ensure LFS handles ONNX assets (idempotent). Sync only .onnx (no .onnx.data).
-git lfs install --local
+if ! command -v git-lfs >/dev/null 2>&1; then
+  echo "git-lfs not found; install Git LFS before syncing models." >&2
+  exit 1
+fi
+
+HOOK="$DST_DIR/.git/hooks/pre-push"
+# Refresh the LFS hook if an older pre-push hook blocks installation.
+if ! git lfs install --local; then
+  if [ -f "$HOOK" ] && grep -q "git lfs pre-push" "$HOOK"; then
+    echo "Refreshing existing Git LFS hook with 'git lfs update --force'..."
+    git lfs update --force
+    git lfs install --local --force
+  else
+    echo "Pre-push hook at $HOOK is not an LFS hook. Merge manually via 'git lfs update --manual'." >&2
+    exit 1
+  fi
+fi
 git lfs track "*.onnx" "examples/**/*.onnx" "primitives/**/*.onnx" "docs/onnx/**/*.onnx"
 git add .gitattributes
 
@@ -31,7 +47,16 @@ find . -type f -name "*.onnx.data" -delete
 rsync -av --include='*/' --include='*.onnx' --exclude='*' "$SRC_DIR"/ "$DST_DIR"/
 
 # 5. Commit and force-push (scope to synced assets + attributes)
-git add .gitattributes *.onnx docs/onnx examples primitives
+TRACK_TARGETS=(".gitattributes")
+if compgen -G "*.onnx" >/dev/null; then
+  TRACK_TARGETS+=(*.onnx)
+fi
+for dir in docs/onnx examples primitives; do
+  if [ -d "$dir" ]; then
+    TRACK_TARGETS+=("$dir")
+  fi
+done
+git add "${TRACK_TARGETS[@]}"
 git status --short
 git commit -m "🔁 Replace all ONNX test models with latest output"
 git push --force
