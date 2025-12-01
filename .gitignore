@@ -15,8 +15,5 @@ python-venv
 jax2onnx.log
 *.onnx
 *.onnx.data
-<<<<<<< HEAD
 /jax2onnx.iml  
-=======
-/jax2onnx.iml  
->>>>>>> 8b282113d7201c3a7fd949703bf9b4184037dd51
+ 
