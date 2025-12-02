@@ -115,25 +115,17 @@ to_onnx(
 
 - Language: [GPT-OSS](https://huggingface.co/openai/gpt-oss-20b) (open-source MoE Transformer)
   - Architecture: Flax/NNX + Equinox reference stacks with gating/routing capture, MoE MLP rebuilds, and deterministic ONNX exporters (see `jax2onnx/plugins/examples/nnx/gpt_oss_flax.py` and `jax2onnx/plugins/examples/eqx/gpt_oss.py`).
-  - Structural graphs:
+  - Structural graph:
     - [gpt_oss_transformer_flax ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_transformer_flax.onnx)
-    - [gpt_oss_transformer_block_flax ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_transformer_block_flax.onnx)
-    - [gpt_oss_sdpa_flax ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_sdpa_flax.onnx)
   - How-to: [Getting GPT-OSS weights into jax2onnx](./docs/readme/gpt_oss/getting_weights.md)
   - Equivalence check: [Routing parity harness](scripts/gpt_oss_routing_parity.py) · [Flax parity tests](tests/extra_tests/test_flax_routing_parity.py) · [Equinox parity tests](tests/extra_tests/test_eqx_gpt_oss_parity.py)
   - Optional pretrained weights: [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) · [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b) *(weights and model cards list `license: apache-2.0`)*
 
 - Vision: [DINOv3](https://ai.meta.com/dinov3/)
   - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104)
-  - Structural graphs:
+  - Structural graphs (selected examples):
     - [eqx_dinov3_vit_Ti14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14.onnx)
     - [eqx_dinov3_vit_Ti14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14_dynamic.onnx)
-    - [eqx_dinov3_vit_S14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14.onnx)
-    - [eqx_dinov3_vit_S14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14_dynamic.onnx)
-    - [eqx_dinov3_vit_B14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14.onnx)
-    - [eqx_dinov3_vit_B14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14_dynamic.onnx)
-    - [eqx_dinov3_vit_S16 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16.onnx)
-    - [eqx_dinov3_vit_S16_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16_dynamic.onnx)
   - How-to: [Getting Meta weights into jax2onnx](./docs/readme/dinov3/getting_weights.md)
   - Equivalence check: [Comparing Meta vs jax2onnx ONNX](./docs/readme/dinov3/compare_meta_vs_jax2onnx.md)
   - Optional pretrained weights (Meta AI): [facebook/dinov3-vitb16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) (other variants live under the same namespace) — DINOv3 license applies; review before downloading or redistributing.
