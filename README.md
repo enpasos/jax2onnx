@@ -255,7 +255,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 
-✨ Special thanks to [@atveit](https://github.com/atveit) for introducing us to [`gpt-oss-jax-vs-torch-numerical-comparison`](https://github.com/enpasos/jax2onnx/issues/129).
+✨ Special thanks to [@atveit](https://github.com/atveit) for introducing us to [gpt-oss-jax-vs-torch-numerical-comparison](https://github.com/atveit/gpt-oss-jax-vs-torch-numerical-comparison).
 
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
