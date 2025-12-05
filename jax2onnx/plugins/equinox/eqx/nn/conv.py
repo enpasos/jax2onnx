@@ -24,7 +24,7 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
+from jax2onnx.plugins._utils import inline_reshape_initializer
 from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -218,7 +218,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("eqx_conv_b"))
 
         b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("eqx_conv_b"))
-        
+
         target_dtype = _dtype_to_ir(
             np.dtype(getattr(out_var.aval, "dtype", np.float32)),
             builder.enable_double_precision,

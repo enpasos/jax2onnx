@@ -1883,7 +1883,7 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
-    print("optimize_graph invoked")
+    _dbg("optimize_graph invoked")
     # Top graph
     try:
         gr = ir_model.graph

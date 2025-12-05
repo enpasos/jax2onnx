@@ -76,7 +76,7 @@ def _flip_spatial_dims(
         return val
 
     starts = [shape[i] - 1 for i in spatial_axes]
-    ends = [-2**63] * len(spatial_axes)
+    ends = [-(2**63)] * len(spatial_axes)
     axes = spatial_axes
     steps = [-1] * len(spatial_axes)
 
