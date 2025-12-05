@@ -64,6 +64,53 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     return befores + afters
 
 
+def _flip_spatial_dims(
+    ctx: "IRContext",
+    val: ir.Value,
+    shape: tuple[int, ...],
+    layout: str,
+    name_hint: str,
+) -> ir.Value:
+    spatial_axes = [i for i, c in enumerate(layout) if c not in "OI"]
+    if not spatial_axes:
+        return val
+
+    starts = [shape[i] - 1 for i in spatial_axes]
+    ends = [-2**63] * len(spatial_axes)
+    axes = spatial_axes
+    steps = [-1] * len(spatial_axes)
+
+    starts_val = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_hint}_starts"),
+        array=np.array(starts, dtype=np.int64),
+    )
+    ends_val = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_hint}_ends"),
+        array=np.array(ends, dtype=np.int64),
+    )
+    axes_val = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_hint}_axes"),
+        array=np.array(axes, dtype=np.int64),
+    )
+    steps_val = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_hint}_steps"),
+        array=np.array(steps, dtype=np.int64),
+    )
+
+    flipped = ctx.builder.Slice(
+        val,
+        starts_val,
+        ends_val,
+        axes_val,
+        steps_val,
+        _outputs=[ctx.fresh_name(name_hint)],
+    )
+    flipped.type = ir.TensorType(val.dtype)
+    _stamp_type_and_shape(flipped, shape)
+    _ensure_value_metadata(ctx, flipped)
+    return flipped
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.conv_general_dilated_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html",
@@ -308,6 +355,11 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         strides = params.get("window_strides", (1, 1))
         conv_kwargs["strides"] = [int(s) for s in strides]
 
+        lhs_dilation = params.get("lhs_dilation")
+        is_transpose = lhs_dilation and any(d > 1 for d in lhs_dilation)
+        op_type = "ConvTranspose" if is_transpose else "Conv"
+        target_kernel_layout = "IOHW" if is_transpose else "OIHW"
+
         padding = params.get("padding", "VALID")
         if isinstance(padding, str):
             pad_mode = padding.upper()
@@ -342,9 +394,62 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         if rhs_dilation:
             conv_kwargs["dilations"] = [int(d) for d in rhs_dilation]
 
+        if is_transpose and "pads" in conv_kwargs:
+            # JAX conv_general_dilated padding for transpose conv is "input padding" (on dilated input),
+            # while ONNX ConvTranspose pads are "output padding" (reducing output size).
+            # Formula: pad_onnx = kernel_effective - 1 - pad_jax
+            pads_jax = conv_kwargs["pads"]
+            num_spatial = len(pads_jax) // 2
+            pads_jax_starts = pads_jax[:num_spatial]
+            pads_jax_ends = pads_jax[num_spatial:]
+
+            (
+                rhs_shape[2:] if rhs_layout == "OIHW" else rhs_shape[:2]
+            )  # Assuming 2D spatial
+            # Actually we should use rhs_layout to find spatial dims.
+            # But we can infer from len(pads_jax).
+            # rhs_shape is N-D.
+            # If layout is OIHW, spatial is [2:].
+            # If layout is HWIO, spatial is [:-2].
+            spatial_dims_indices = [
+                i for i, c in enumerate(rhs_layout) if c not in "OI"
+            ]
+            kernel_spatial = [rhs_shape[i] for i in spatial_dims_indices]
+
+            dilations = conv_kwargs.get("dilations", [1] * num_spatial)
+            kernel_effective = [
+                (k - 1) * d + 1 for k, d in zip(kernel_spatial, dilations)
+            ]
+
+            pads_onnx_starts = [
+                k - 1 - p for k, p in zip(kernel_effective, pads_jax_starts)
+            ]
+            pads_onnx_ends = [
+                k - 1 - p for k, p in zip(kernel_effective, pads_jax_ends)
+            ]
+
+            conv_kwargs["pads"] = pads_onnx_starts + pads_onnx_ends
+
+            # JAX conv_transpose implies a spatial flip of the kernel relative to conv_general_dilated.
+            # We need to flip it back (or forward?) to match ONNX ConvTranspose semantics.
+            # Empirical evidence shows flipping is required.
+            rhs_val = _flip_spatial_dims(
+                ctx, rhs_val, rhs_shape, rhs_layout, "conv_rhs_transpose"
+            )
+
         groups = params.get("feature_group_count", 1)
         if groups != 1:
             conv_kwargs["group"] = int(groups)
+
+        conv_dtype_enum = _dtype_to_ir(
+            np.dtype(
+                getattr(
+                    out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)
+                )
+            ),
+            ctx.builder.enable_double_precision,
+        )
+        print(f"DEBUG: conv_dtype_enum={conv_dtype_enum}")
 
         if self._maybe_lower_complex(
             ctx,
@@ -361,6 +466,8 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             rhs_layout,
             out_layout,
             conv_kwargs,
+            op_type,
+            target_kernel_layout,
         ):
             return
 
@@ -380,11 +487,11 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             canonical_input = transposed
 
         canonical_kernel = rhs_val
-        if rhs_layout != "OIHW":
-            perm = _perm(rhs_layout, "OIHW")
+        if rhs_layout != target_kernel_layout:
+            perm = _perm(rhs_layout, target_kernel_layout)
             transposed = ctx.builder.Transpose(
                 rhs_val,
-                _outputs=[ctx.fresh_name("conv_rhs_oihw")],
+                _outputs=[ctx.fresh_name(f"conv_rhs_{target_kernel_layout.lower()}")],
                 perm=perm,
             )
             rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
@@ -399,26 +506,33 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             _perm(out_layout, "NCHW") if need_output_transpose else None
         )
 
+        canonical_input = cast_real_tensor(
+            ctx, canonical_input, conv_dtype_enum, name_hint="conv_lhs_cast"
+        )
+        canonical_kernel = cast_real_tensor(
+            ctx, canonical_kernel, conv_dtype_enum, name_hint="conv_rhs_cast"
+        )
+
         conv_output_name = (
             ctx.fresh_name("conv_out_nchw")
             if need_output_transpose
-            else (getattr(out_spec, "name", None) or ctx.fresh_name("Conv"))
+            else (getattr(out_spec, "name", None) or ctx.fresh_name(op_type))
         )
-        conv_result = ctx.builder.Conv(
-            canonical_input,
-            canonical_kernel,
-            _outputs=[conv_output_name],
-            **conv_kwargs,
-        )
+        if op_type == "ConvTranspose":
+            conv_result = ctx.builder.ConvTranspose(
+                canonical_input,
+                canonical_kernel,
+                _outputs=[conv_output_name],
+                **conv_kwargs,
+            )
+        else:
+            conv_result = ctx.builder.Conv(
+                canonical_input,
+                canonical_kernel,
+                _outputs=[conv_output_name],
+                **conv_kwargs,
+            )
 
-        conv_dtype_enum = _dtype_to_ir(
-            np.dtype(
-                getattr(
-                    out_var.aval, "dtype", getattr(lhs_var.aval, "dtype", np.float32)
-                )
-            ),
-            ctx.builder.enable_double_precision,
-        )
         if need_output_transpose:
             assert perm_to_nchw is not None
             conv_shape_intermediate = tuple(out_shape[i] for i in perm_to_nchw)
@@ -459,6 +573,8 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         rhs_layout: str,
         out_layout: str,
         conv_kwargs: dict[str, object],
+        op_type: str,
+        target_kernel_layout: str,
     ) -> bool:
         def _is_complex_var(var) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)

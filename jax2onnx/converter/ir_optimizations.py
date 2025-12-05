@@ -1344,7 +1344,7 @@ def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
     if not nodes:
         return
 
-    print("rewrite_mul_rsqrt_as_div_ir start")
+    _dbg("rewrite_mul_rsqrt_as_div_ir start")
 
     def _is_scalar_one(val: Optional[ir.Value]) -> bool:
         arr = _to_numpy_from_any(val)

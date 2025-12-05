@@ -225,7 +225,7 @@ We warmly welcome contributions!
 | `Flax`        | 0.12.1   | 
 | `Equinox`     | 0.13.2   | 
 | `onnx-ir`     | 0.1.12   | 
-| `onnx`        | 1.19.1   |  
+| `onnx`        | 1.20.0   |  
 | `onnxruntime` | 1.23.2   |  
 
 *For exact pins and extras, see `pyproject.toml`.*
