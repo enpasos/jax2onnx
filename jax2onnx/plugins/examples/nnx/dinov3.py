@@ -1,4 +1,4 @@
-# jax2onnx/plugins/examples/nnx/dino.py
+# jax2onnx/plugins/examples/nnx/dinov3.py
 
 """Flax/NNX implementation of the DINOv3 Vision Transformer for ONNX export."""
 

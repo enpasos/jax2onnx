@@ -122,7 +122,7 @@ to_onnx(
   - Optional pretrained weights: [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) · [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b) *(weights and model cards list `license: apache-2.0`)*
 
 - Vision: [DINOv3](https://ai.meta.com/dinov3/)
-  - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104). Flax/NNX parity modules now live under `jax2onnx/plugins/examples/nnx/dino.py` (randomly initialised example stack for IR-only exports).
+  - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104). Flax/NNX parity modules now live under `jax2onnx/plugins/examples/nnx/dinov3.py` (randomly initialised example stack for IR-only exports).
   - Structural graphs (selected examples):
     - [eqx_dinov3_vit_Ti14 ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14.onnx)
     - [eqx_dinov3_vit_Ti14_dynamic ↗](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14_dynamic.onnx)

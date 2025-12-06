@@ -10,7 +10,7 @@
 - Validate with focused pytest + ruff/mypy before adding to any release notes.
 
 ## Implementation status
-- Equinox example + scripts/docs exist; Flax/NNX variant scaffolded in `jax2onnx/plugins/examples/nnx/dino.py` (DinoRoPE, rotary process_heads, PatchEmbed, Attention/Block, VisionTransformer with nnx.List/nnx.Param usage).
+- Equinox example + scripts/docs exist; Flax/NNX variant scaffolded in `jax2onnx/plugins/examples/nnx/dinov3.py` (DinoRoPE, rotary process_heads, PatchEmbed, Attention/Block, VisionTransformer with nnx.List/nnx.Param usage).
 - README vision section now references the NNX DINO example; still need to add any Netron artifacts/expect_graph snippets once exports are validated.
 - Added eqx↔nnx weight-transfer parity test (`tests/extra_tests/examples/test_nnx_dino_parity.py`) using a small 56x56/14-patch/64-dim/2-layer config; copies Conv/Linear/LayerNorm/LayerScale params and validates forward outputs.
 - Focused check: `PYTHONPATH=.:debugvenv/lib/python3.12/site-packages JAX_PLATFORMS=cpu poetry run pytest -q tests/extra_tests/examples/test_nnx_dino_parity.py` ✅

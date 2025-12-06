@@ -8,7 +8,9 @@ import numpy as np
 from flax import nnx
 
 from jax2onnx.plugins.examples.eqx.dino import VisionTransformer as EqxVisionTransformer
-from jax2onnx.plugins.examples.nnx.dino import VisionTransformer as NnxVisionTransformer
+from jax2onnx.plugins.examples.nnx.dinov3 import (
+    VisionTransformer as NnxVisionTransformer,
+)
 
 
 def _copy_conv2d(eqx_conv, nnx_conv) -> None:
@@ -56,7 +58,9 @@ def _copy_block(eqx_block, nnx_block) -> None:
     _copy_layerscale(eqx_block.ls2, nnx_block.ls2)
 
 
-def _copy_eqx_to_nnx(eqx_model: EqxVisionTransformer, nnx_model: NnxVisionTransformer) -> None:
+def _copy_eqx_to_nnx(
+    eqx_model: EqxVisionTransformer, nnx_model: NnxVisionTransformer
+) -> None:
     _copy_conv2d(eqx_model.patch_embed.proj, nnx_model.patch_embed.proj)
     nnx_model.cls_token = nnx.Param(jnp.asarray(eqx_model.cls_token))
     if eqx_model.storage_tokens is not None and nnx_model.storage_tokens is not None:
