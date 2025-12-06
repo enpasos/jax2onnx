@@ -13,6 +13,7 @@ from jax2onnx.plugins._complex_utils import (
     pack_native_complex,
     _shape_tuple,
     _base_dtype_for_complex,
+    conjugate_packed_tensor,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -432,8 +433,10 @@ def _gather_channel(
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
                 [
-                    {"path": "DFT", "counts": {"DFT": 1}},
-                    {"path": "Gather", "counts": {"Gather": 2}},
+                    {
+                        "inputs": {1: {"const": 8.0}},
+                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT -> Gather -> Reshape:1x8 -> Reshape:8",
+                    }
                 ],
                 no_unused_inputs=True,
             ),
@@ -457,8 +460,10 @@ def _gather_channel(
             "expected_output_dtypes": [np.float64],
             "post_check_onnx_graph": EG(
                 [
-                    {"path": "DFT", "counts": {"DFT": 1}},
-                    {"path": "Gather", "counts": {"Gather": 2}},
+                    {
+                        "inputs": {1: {"const": 8.0}},
+                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT -> Gather -> Reshape:1x8 -> Reshape:8",
+                    }
                 ],
                 no_unused_inputs=True,
             ),
@@ -726,26 +731,12 @@ class FFTPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(mirror_vals, tuple(mirror_dims))
                 _ensure_value_metadata(ctx, mirror_vals)
 
-                scale_dtype = (
-                    np.float64 if base_dtype == ir.DataType.DOUBLE else np.float32
-                )
-                conj_scale_arr = np.asarray([1.0, -1.0], dtype=scale_dtype)
-                conj_scale = ctx.builder.add_initializer_from_array(
-                    name=ctx.fresh_name("irfft_conj_scale"),
-                    array=conj_scale_arr,
-                )
-                conj_scale.type = ir.TensorType(base_dtype)
-                _stamp_type_and_shape(conj_scale, (2,))
-                _ensure_value_metadata(ctx, conj_scale)
-
-                mirror_conj = ctx.builder.Mul(
+                mirror_conj = conjugate_packed_tensor(
+                    ctx,
                     mirror_vals,
-                    conj_scale,
-                    _outputs=[ctx.fresh_name("irfft_conj")],
+                    base_dtype,
+                    prefix="irfft_mirror",
                 )
-                mirror_conj.type = ir.TensorType(base_dtype)
-                _stamp_type_and_shape(mirror_conj, tuple(mirror_dims))
-                _ensure_value_metadata(ctx, mirror_conj)
 
                 full_dims = list(packed_dims)
                 full_dims[axis_index] = target_len

@@ -1344,7 +1344,12 @@ def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
     if not nodes:
         return
 
-    print("rewrite_mul_rsqrt_as_div_ir start")
+    _dbg("rewrite_mul_rsqrt_as_div_ir start")
+
+    # Disabled by default: parity drift was observed on some eqx_dino variants.
+    # Re-enable via env flag when you explicitly want this rewrite.
+    if os.getenv("JAX2ONNX_ENABLE_REWRITE_MUL_RSQRT", "0") in ("", "0"):
+        return
 
     def _is_scalar_one(val: Optional[ir.Value]) -> bool:
         arr = _to_numpy_from_any(val)
@@ -1883,7 +1888,7 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 
 
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
-    print("optimize_graph invoked")
+    _dbg("optimize_graph invoked")
     # Top graph
     try:
         gr = ir_model.graph

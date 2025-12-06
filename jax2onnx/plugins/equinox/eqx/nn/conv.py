@@ -8,7 +8,9 @@ import equinox as eqx
 import jax
 import jax.core as jax_core
 import jax.numpy as jnp
+import numpy as np
 import onnx_ir as ir
+from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax import ShapeDtypeStruct
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
@@ -22,7 +24,8 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
+from jax2onnx.plugins._utils import inline_reshape_initializer
+from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -214,9 +217,16 @@ class ConvPlugin(PrimitiveLeafPlugin):
         )
         b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("eqx_conv_b"))
 
-        x_val = cast_param_like(ctx, x_val, x_val, name_hint="eqx_conv_x_cast")
-        w_val = cast_param_like(ctx, w_val, x_val, name_hint="eqx_conv_w_cast")
-        b_val = cast_param_like(ctx, b_val, x_val, name_hint="eqx_conv_b_cast")
+        b_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("eqx_conv_b"))
+
+        target_dtype = _dtype_to_ir(
+            np.dtype(getattr(out_var.aval, "dtype", np.float32)),
+            builder.enable_double_precision,
+        )
+
+        x_val = cast_real_tensor(ctx, x_val, target_dtype, name_hint="eqx_conv_x_cast")
+        w_val = cast_real_tensor(ctx, w_val, target_dtype, name_hint="eqx_conv_w_cast")
+        b_val = cast_real_tensor(ctx, b_val, target_dtype, name_hint="eqx_conv_b_cast")
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         has_batch = len(x_shape) == num_spatial + 2

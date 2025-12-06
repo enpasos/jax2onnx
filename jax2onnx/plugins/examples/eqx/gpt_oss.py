@@ -1348,7 +1348,7 @@ register_example(
             ),
             "input_shapes": [("B", _TEST_CONFIG.hidden_size)],
             "post_check_onnx_graph": EG(
-                ["Div:Bx64 -> Mul:Bx64"],
+                ["Mul:Bx64 -> Mul:Bx64"],
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
