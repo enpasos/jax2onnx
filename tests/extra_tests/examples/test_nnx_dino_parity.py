@@ -26,9 +26,16 @@ def _copy_conv2d(eqx_conv, nnx_conv) -> None:
 
 def _copy_linear(eqx_linear, nnx_linear) -> None:
     """Map Equinox Linear (out x in) params to nnx.Linear (in x out)."""
-    nnx_linear.kernel = nnx.Param(jnp.asarray(eqx_linear.weight).T)
-    if eqx_linear.bias is not None:
-        nnx_linear.bias = nnx.Param(jnp.asarray(eqx_linear.bias))
+    w = jnp.asarray(eqx_linear.weight)
+    b = jnp.asarray(eqx_linear.bias) if eqx_linear.bias is not None else None
+    if hasattr(nnx_linear, "kernel"):
+        nnx_linear.kernel = nnx.Param(w.T)
+        if b is not None:
+            nnx_linear.bias = nnx.Param(b)
+    else:
+        nnx_linear.weight = nnx.Param(w)
+        if b is not None:
+            nnx_linear.bias = nnx.Param(b)
 
 
 def _copy_layer_norm(eqx_ln, nnx_ln) -> None:

@@ -211,7 +211,6 @@ def _dino_rope_inference_sincos(
     return sin, cos
 
 
-@onnx_function
 class DinoRotaryProcessHeads(nnx.Module):
     """process_heads adapter that rotates only the patch grid tokens."""
 
@@ -314,11 +313,26 @@ class LayerScale(nnx.Module):
         return x * gamma
 
 
+class LinearLastDim(nnx.Module):
+    """Simple linear layer over the last dimension."""
+
+    def __init__(self, in_dim: int, out_dim: int, *, rngs: nnx.Rngs):
+        k_w, k_b = rngs.params(), rngs.params()
+        self.weight = nnx.Param(jax.random.normal(k_w, (out_dim, in_dim)))
+        self.bias = nnx.Param(jax.random.normal(k_b, (out_dim,)))
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        out = jnp.matmul(x, jnp.transpose(self.weight.value))
+        out = out + self.bias.value
+        return out
+
+
 @onnx_function
 class DinoMlp(nnx.Module):
     def __init__(self, dim: int, hidden_dim: int, *, rngs: nnx.Rngs):
-        self.fc1 = nnx.Linear(dim, hidden_dim, rngs=rngs)
-        self.fc2 = nnx.Linear(hidden_dim, dim, rngs=rngs)
+        keys = _KeySeq(rngs.params())
+        self.fc1 = LinearLastDim(dim, hidden_dim, rngs=nnx.Rngs(keys.next()))
+        self.fc2 = LinearLastDim(hidden_dim, dim, rngs=nnx.Rngs(keys.next()))
 
     def __call__(self, x: jax.Array) -> jax.Array:
         hidden = self.fc1(x)
@@ -358,10 +372,10 @@ class PatchEmbed(nnx.Module):
 
 
 register_example(
-    component="PatchEmbed",
+    component="NnxDinoPatchEmbed",
     description="Image to Patch Embedding.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="v0.10.3",
     context="examples.nnx_dino",
     children=["flax.nnx.Conv"],
     testcases=[
@@ -426,10 +440,10 @@ class AttentionCore(nnx.Module):
 
 
 register_example(
-    component="AttentionCore",
+    component="NnxDinoAttentionCore",
     description="Multi-Head Self-Attention without rotary processing.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="v0.10.3",
     context="examples.nnx_dino",
     children=[
         "flax.nnx.Linear",
@@ -483,10 +497,10 @@ class MultiHeadAttention(nnx.Module):
 
 
 register_example(
-    component="Attention",
+    component="NnxDinoAttention",
     description="Multi-Head Self-Attention using Flax/NNX modules.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="v0.10.3",
     context="examples.nnx_dino",
     children=[
         "AttentionCore",
@@ -593,10 +607,10 @@ class Block(nnx.Module):
 
 
 register_example(
-    component="Block",
+    component="NnxDinoBlock",
     description="Transformer Block.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="v0.10.3",
     context="examples.nnx_dino",
     children=["flax.nnx.LayerNorm", "Attention", "DinoMlp"],
     testcases=[
@@ -833,10 +847,10 @@ def _get_test_cases():
 
 
 register_example(
-    component="DINOv3VisionTransformer",
+    component="FlaxDINOv3VisionTransformer",
     description="DINOv3 Vision Transformer",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="v0.10.3",
     context="examples.nnx_dino",
     children=["PatchEmbed", "Block"],
     testcases=_get_test_cases(),
