@@ -254,8 +254,8 @@ class DinoRotaryProcessHeads(nnx.Module):
                 )
             else:
                 x_prefix, x_tail = jnp.split(x, [prefix], axis=2)
-            sin_b = sin[None, None, :, None]
-            cos_b = cos[None, None, :, None]
+            sin_b = sin[None, None, :, :]
+            cos_b = cos[None, None, :, :]
             rotated_tail = _rotate_half_last_dim(x_tail)
             x_tail = (x_tail * cos_b) + (rotated_tail * sin_b)
             return jnp.concatenate([x_prefix, x_tail], axis=2)
@@ -536,7 +536,9 @@ class Block(nnx.Module):
         self.post_attn_norm = None
         self.norm2 = nnx.LayerNorm(dim, rngs=nnx.Rngs(keys.next()))
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = DinoMlp(dim=dim, hidden_dim=mlp_hidden_dim, rngs=nnx.Rngs(keys.next()))
+        self.mlp = DinoMlp(
+            dim=dim, hidden_dim=mlp_hidden_dim, rngs=nnx.Rngs(keys.next())
+        )
         self.ls1 = LayerScale(dim)
         self.ls2 = LayerScale(dim)
 
@@ -565,7 +567,9 @@ class Block(nnx.Module):
     ) -> tuple[jax.Array, dict[str, jax.Array]]:
         attn_in = self.norm1(x)
         attn_raw = self.attn(attn_in, process_heads=process_heads)
-        attn_norm = attn_raw if self.post_attn_norm is None else self.post_attn_norm(attn_raw)
+        attn_norm = (
+            attn_raw if self.post_attn_norm is None else self.post_attn_norm(attn_raw)
+        )
         attn_scaled = self.ls1(attn_norm)
         post_attn = x + attn_scaled
 
@@ -638,14 +642,10 @@ class VisionTransformer(nnx.Module):
             embed_dim=embed_dim,
             rngs=nnx.Rngs(key_seq.next()),
         )
-        self.cls_token = nnx.Param(
-            jax.random.normal(key_seq.next(), (1, 1, embed_dim))
-        )
+        self.cls_token = nnx.Param(jax.random.normal(key_seq.next(), (1, 1, embed_dim)))
         if num_storage_tokens > 0:
             self.storage_tokens = nnx.Param(
-                jax.random.normal(
-                    key_seq.next(), (1, num_storage_tokens, embed_dim)
-                )
+                jax.random.normal(key_seq.next(), (1, num_storage_tokens, embed_dim))
             )
         else:
             self.storage_tokens = None
@@ -674,7 +674,9 @@ class VisionTransformer(nnx.Module):
 
     def _encode(self, x: jax.Array, *, capture: bool = False):
         x = self.patch_embed(x)
-        cls_tokens = jnp.broadcast_to(self.cls_token.value, (x.shape[0], 1, x.shape[-1]))
+        cls_tokens = jnp.broadcast_to(
+            self.cls_token.value, (x.shape[0], 1, x.shape[-1])
+        )
         if self.num_storage_tokens and self.storage_tokens is not None:
             storage_tokens = jnp.broadcast_to(
                 self.storage_tokens.value,
