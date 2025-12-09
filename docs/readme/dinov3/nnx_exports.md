@@ -62,5 +62,7 @@ PY
 
 ## Notes
 
+- The example registry now keys by `context::component`, and the NNX DINO components use explicit names (`NnxDinoPatchEmbed`, `NnxDinoAttentionCore`, `NnxDinoAttention`, `NnxDinoBlock`, `FlaxDINOv3VisionTransformer`) so generated test files and ONNX artifacts stay unambiguous.
+- To capture the submodules (PatchEmbed/Attention/Block) alongside the full ViT, run `poetry run pytest tests/examples/test_nnx_dino.py` and pick up the emitted models under `docs/onnx/examples/nnx_dino/`.
 - Parity with the Equinox DINO example is covered by `tests/extra_tests/examples/test_nnx_dino_parity.py` (weight copy + forward check).
 - Keep generated artifacts local; `docs/onnx/examples/nnx_dino/.gitignore` prevents accidental commits.
