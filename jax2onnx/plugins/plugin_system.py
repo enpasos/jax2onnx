@@ -1273,7 +1273,16 @@ def register_example(**metadata: Any) -> dict[str, Any]:
     comp = metadata.get("component")
     if not isinstance(comp, str) or not comp:
         raise ValueError("register_example requires a non-empty 'component' string.")
-    EXAMPLE_REGISTRY[comp] = metadata
+    ctx = metadata.get("context")
+    key = f"{ctx}::{comp}" if isinstance(ctx, str) and ctx else comp
+    if key in EXAMPLE_REGISTRY:
+        logger.warning(
+            "register_example overriding existing entry for key %s (component=%s, context=%s)",
+            key,
+            comp,
+            ctx,
+        )
+    EXAMPLE_REGISTRY[key] = metadata
 
     return metadata
 
