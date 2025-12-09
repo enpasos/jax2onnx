@@ -158,16 +158,12 @@ to_onnx(
 
 ### **Current Productive Version**
 
-* **0.10.2** *(PyPI)*:
+* **0.10.3** *(PyPI)*:
 
-  * GPT-OSS export stack: Equinox + Flax/NNX reference modules, parity harnesses, exporter scripts, and docs so the open MoE transformer can be converted end-to-end and validated numerically.
-  * New primitive coverage: `lax.top_k`, `lax.rsqrt`, and Equinox `RMSNorm` lowerings land with tests.
-  * Masked softmax now lowers `where`-masked calls to ONNX Softmax + Where while zeroing masked positions.
-  * Scatter operations embedded in `cond`/`scan` now preserve ONNX-compliant initializers/types via the renewed index helpers, fixing the Issue #139 regression suite.
-  * Symbolic-dimension support strengthened via DimExpr lowering/shape-polynomial helpers to stabilize broadcast/loop/gather shapes.
-  * IR return-mode/input_param materialization fixed (and legacy `serde_onnx` removed) to keep IR-only output deterministic.
-  * Typing overhaul: shared `typing_support` protocols, stricter mypy coverage, and helper scripts (`check_typing.sh`, `report_rng_traces.py`), plus Flax NNX compatibility tweaks for new Linear/Einsum param access.
-  * Dependency stack bumped to JAX 0.8.1 / Flax 0.12.1 with corresponding NNX plugin updates so upcoming releases match the supported upstream versions.
+  * Added a Flax/NNX DINOv3 VisionTransformer example stack (`plugins/examples/nnx/dinov3.py`) with deterministic rng helpers, rotary cache capture, and expect_graph coverage across ViT variants.
+  * Introduced Equinox→NNX parity testing for DINOv3 (weight copy + forward check) to keep the Equinox and Flax paths aligned.
+  * Example registry keys are now context-aware (`context::component`) with override warnings to avoid collisions between example stacks.
+  * Documented NNX DINO exports (static/dynamic batch) and kept generated ONNX artifacts out of git via a dedicated `.gitignore`.
 
  
  
