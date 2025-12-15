@@ -12,6 +12,7 @@ from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
 from jax import core
+from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -123,6 +124,13 @@ def _as_int64(
                 ["Gather:3x2"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "take_vmap_batching",
+            "callable": lambda x: jax.vmap(
+                lambda y: jnp.take(y, np.array([0, 2], dtype=np.int32), axis=0)
+            )(x),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
@@ -247,3 +255,49 @@ def _take_impl(
 
 
 JnpTakePlugin._PRIM.def_abstract_eval(JnpTakePlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _take_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int | None = None,
+    mode: str | None = None,
+) -> tuple[jax.Array, BatchDim]:
+    arr, indices = batched_args
+    arr_bdim, indices_bdim = batch_dims
+
+    mapped = [
+        (arg, bd)
+        for arg, bd in zip(batched_args, batch_dims)
+        if bd is not batching.not_mapped
+    ]
+    if not mapped:
+        out = JnpTakePlugin._PRIM.bind(arr, indices, axis=axis, mode=mode)
+        return out, batching.not_mapped
+
+    sample_arg, sample_bd = mapped[0]
+    batch_size = sample_arg.shape[sample_bd]
+
+    if arr_bdim is not batching.not_mapped:
+        arr = batching.bdim_at_front(arr, arr_bdim, batch_size)
+    if indices_bdim is not batching.not_mapped:
+        indices = batching.bdim_at_front(indices, indices_bdim, batch_size)
+
+    in_axes = (
+        0 if arr_bdim is not batching.not_mapped else None,
+        0 if indices_bdim is not batching.not_mapped else None,
+    )
+    orig = get_orig_impl(JnpTakePlugin._PRIM, JnpTakePlugin._FUNC_NAME)
+
+    def _call_single(a_slice: jax.Array, i_slice: jax.Array) -> jax.Array:
+        return orig(a_slice, i_slice, axis=axis, mode=mode)
+
+    result = jax.vmap(_call_single, in_axes=in_axes)(arr, indices)
+    return result, 0
+
+
+batching.primitive_batchers[JnpTakePlugin._PRIM] = _take_batch_rule

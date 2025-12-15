@@ -155,6 +155,11 @@ to_onnx(
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
 
+### **Upcoming Version**
+
+* **0.10.4**:
+
+  * Fix `vmap` batching for `jax.numpy.reshape`/`transpose` and several other `jax.numpy` primitives.
 
 ### **Current Productive Version**
 

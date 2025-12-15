@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -243,6 +244,11 @@ def _create_problematic_where_sequence(cond_input, data_input):
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "where_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.where(y > 0, y, -y))(x),
+            "input_shapes": [(3, 4)],
+        },
     ],
 )
 class JnpWherePlugin(PrimitiveLeafPlugin):
@@ -399,3 +405,10 @@ def _where_impl(condition, x=None, y=None):
 
 
 JnpWherePlugin._PRIM.def_abstract_eval(JnpWherePlugin.abstract_eval)
+
+
+def _where_batch_rule(args, dims, **params):
+    return batching.broadcast_batcher(JnpWherePlugin._PRIM, args, dims, **params)
+
+
+batching.primitive_batchers[JnpWherePlugin._PRIM] = _where_batch_rule

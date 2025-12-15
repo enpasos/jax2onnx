@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 from jax import core
+import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import batching
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -58,6 +60,11 @@ _CONJ_PRIM: Final = make_jnp_primitive("jax.numpy.conj")
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "conj_vmap_batching",
+            "callable": lambda x: jax.vmap(jnp.conj)(x),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
@@ -160,3 +167,12 @@ def _conj_impl(x: ArrayLike) -> ArrayLike:
 JnpConjPlugin._PRIM.def_abstract_eval(
     lambda x: core.ShapedArray(getattr(x, "shape", ()), getattr(x, "dtype", None))
 )
+
+
+def _conj_batch_rule(args, dims, **params):
+    (x,), (bdim,) = args, dims
+    out = JnpConjPlugin._PRIM.bind(x, **params)
+    return out, bdim
+
+
+batching.primitive_batchers[JnpConjPlugin._PRIM] = _conj_batch_rule

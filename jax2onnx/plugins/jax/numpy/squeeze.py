@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
-from jax import core, lax
+from jax import core
 from jax.interpreters import batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -150,6 +150,11 @@ def _normalize_axes(axes: int | Sequence[int] | None, rank: int) -> tuple[int, .
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "squeeze_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.squeeze(y, axis=0))(x),
+            "input_shapes": [(3, 1, 4)],
+        },
     ],
 )
 class JnpSqueezePlugin(PrimitiveLeafPlugin):
@@ -178,7 +183,7 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
         rank = len(arr_shape)
 
         axes = _normalize_axes(axis_param, rank)
-        if not axes:
+        if axis_param is None:
             # Squeeze all singleton dims
             axes = tuple(
                 i for i, d in enumerate(arr_shape) if isinstance(d, int) and d == 1
@@ -278,56 +283,27 @@ def _squeeze_batch_rule(
     *,
     axis: int | Sequence[int] | None = None,
 ) -> tuple[jax.Array, BatchDim]:
-    (operand,), (_bdim,) = batched_args, batch_dims
-    operand_shape = getattr(operand, "shape", ())
-    rank = len(operand_shape)
-    axes = _normalize_axes(axis, rank)
-    if not axes:
-        axes = tuple(
-            idx
-            for idx, dim in enumerate(operand_shape)
-            if isinstance(dim, int) and dim == 1
+    (operand,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        out = JnpSqueezePlugin._PRIM.bind(operand, axis=axis)
+        return out, batching.not_mapped
+
+    batch_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, batch_size)
+
+    slice_rank = operand.ndim - 1
+    if axis is None:
+        slice_shape = operand.shape[1:]
+        axes_slice = tuple(
+            i for i, dim in enumerate(slice_shape) if isinstance(dim, int) and dim == 1
         )
-    return _apply_squeeze_batch_rule(batched_args, batch_dims, dimensions=axes)
+    else:
+        axes_slice = _normalize_axes(axis, slice_rank)
+
+    axes_full = tuple(int(ax) + 1 for ax in axes_slice)
+    out = JnpSqueezePlugin._PRIM.bind(operand, axis=axes_full)
+    return out, 0
 
 
 batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule
-
-
-def _apply_squeeze_batch_rule(
-    batched_args: tuple[jax.Array, ...],
-    batch_dims: tuple[BatchDim, ...],
-    *,
-    dimensions: Sequence[int],
-) -> tuple[jax.Array, BatchDim]:
-    (operand,), (bdim,) = batched_args, batch_dims
-    operand, bdim = batching.move_stacked_axis(operand, bdim, 0)
-    # account for the leading batch dimension
-    dims_with_batch = tuple(int(d) + 1 for d in dimensions)
-    squeezed = lax.squeeze(operand, dimensions=dims_with_batch)
-    ragged_cls = getattr(batching, "RaggedAxis", None)
-    if ragged_cls is not None and isinstance(bdim, ragged_cls):
-        out_stack_dim = bdim.stacked_axis
-    else:
-        out_stack_dim = bdim
-    bdim_shape = batching.bdim_as_shape(bdim, operand.shape)
-    squeezed_shape = _compute_squeeze_shape(bdim_shape, dims_with_batch)
-    bdim_out = batching.shape_as_bdim(out_stack_dim, squeezed_shape)
-    return squeezed, bdim_out
-
-
-def _compute_squeeze_shape(
-    shape: Sequence[object], dimensions: Sequence[int]
-) -> tuple[object, ...]:
-    dims_set = set(dimensions)
-    if len(dims_set) != len(dimensions):
-        raise ValueError(f"dimensions are not unique: {dimensions}")
-    if not all(0 <= d < len(shape) for d in dims_set):
-        raise ValueError(f"dimensions outside range [0, ndim): {dimensions}")
-    for d in dimensions:
-        dim_val = shape[d]
-        if isinstance(dim_val, (int, np.integer)) and dim_val != 1:
-            raise ValueError(
-                f"cannot squeeze axis {d} with size {dim_val}; shape={shape}"
-            )
-    return tuple(s for i, s in enumerate(shape) if i not in dims_set)

@@ -9,6 +9,7 @@ from jax import core
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import batching
 from jax2onnx.plugins.jax.lax.add import lower_add
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -65,6 +66,11 @@ _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "add_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.add(y, 1.0))(x),
+            "input_shapes": [(3, 4)],
+        },
     ],
 )
 class JnpAddPlugin(PrimitiveLeafPlugin):
@@ -92,3 +98,10 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
 def _add_impl(*args: object, **kwargs: object) -> object:
     orig = get_orig_impl(JnpAddPlugin._PRIM, JnpAddPlugin._FUNC_NAME)
     return orig(*args, **kwargs)
+
+
+def _add_batch_rule(args, dims, **params):
+    return batching.broadcast_batcher(JnpAddPlugin._PRIM, args, dims, **params)
+
+
+batching.primitive_batchers[JnpAddPlugin._PRIM] = _add_batch_rule

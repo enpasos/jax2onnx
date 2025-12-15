@@ -7,6 +7,7 @@ from typing import Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
+from jax.interpreters import batching
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
@@ -44,6 +45,14 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
             if dim._hashable_content() == src._hashable_content():  # type: ignore[attr-defined]
                 return idx
     return None
+
+
+def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
+    height, width, channels = inputs.shape
+    new_depth = channels // (block_size * block_size)
+    outputs = jnp.reshape(inputs, [height, width, block_size, block_size, new_depth])
+    outputs = jnp.transpose(outputs, [0, 2, 1, 3, 4])
+    return jnp.reshape(outputs, [height * block_size, width * block_size, new_depth])
 
 
 @register_primitive(
@@ -188,6 +197,18 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "reshape_vmap_batching_issue_144",
+            "callable": lambda x: jax.vmap(
+                _depth_to_space_issue_144, in_axes=(0, None)
+            )(x, 2),
+            "input_shapes": [(1, 4, 4, 4)],
+            "expected_output_shapes": [(1, 8, 8, 1)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:1x4x4x2x2x1 -> Transpose:1x4x2x4x2x1 -> Reshape:1x8x8x1"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class JnpReshapePlugin(PrimitiveLeafPlugin):
@@ -204,7 +225,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
     ) -> core.ShapedArray:
         if order not in (None, "C"):
             raise NotImplementedError("Only C-order reshape is supported")
-        storage_slot = f"__orig_impl__{JnpReshapePlugin._FUNC_NAME}"
+        storage_slot = f"__orig_impl___{JnpReshapePlugin._FUNC_NAME}"
         orig = getattr(JnpReshapePlugin._PRIM, storage_slot, jnp.reshape)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         result = jax.eval_shape(lambda arr: orig(arr, newshape, order=order), spec)
@@ -394,7 +415,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls):
-        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+        storage_slot = f"__orig_impl___{cls._FUNC_NAME}"
 
         def _make_value(
             orig: Callable[..., jax.Array] | None,
@@ -437,6 +458,30 @@ def _reshape_impl(
 ) -> jax.Array:
     orig = get_orig_impl(JnpReshapePlugin._PRIM, JnpReshapePlugin._FUNC_NAME)
     return orig(a, newshape, order=order)
+
+
+def _reshape_batch(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[int | type(batching.not_mapped), ...],
+    *,
+    newshape: Sequence[int | object] | int | object,
+    order: str | None = "C",
+) -> tuple[jax.Array, int | type(batching.not_mapped)]:
+    (a,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        return _reshape_impl(a, newshape, order=order), batching.not_mapped
+
+    batch_size = a.shape[bdim]
+    a = batching.bdim_at_front(a, bdim, batch_size)
+
+    orig = get_orig_impl(JnpReshapePlugin._PRIM, JnpReshapePlugin._FUNC_NAME)
+    bs = tuple(_iter_newshape(newshape))
+    res = orig(a, (a.shape[0],) + bs, order=order)
+    return res, 0
+
+
+batching.primitive_batchers[JnpReshapePlugin._PRIM] = _reshape_batch
 
 
 JnpReshapePlugin._PRIM.def_abstract_eval(JnpReshapePlugin.abstract_eval)

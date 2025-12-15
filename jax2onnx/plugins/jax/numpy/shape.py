@@ -8,7 +8,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core
+from jax import core, lax
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -58,6 +59,13 @@ def _shape_eval(x):
                 symbols={"B": None, "T": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "shape_vmap_batching",
+            "callable": lambda x: jax.vmap(
+                lambda y: jnp.asarray(jnp.shape(y), dtype=jnp.int32)
+            )(x),
+            "input_shapes": [(3, 2, 4)],
         },
     ],
 )
@@ -166,3 +174,28 @@ def _shape_impl(a: ArrayLike) -> ArrayLike:
 
 
 JnpShapePlugin._PRIM.def_abstract_eval(JnpShapePlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _shape_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+) -> tuple[jax.Array, BatchDim]:
+    (operand,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        out = JnpShapePlugin._PRIM.bind(operand)
+        return out, batching.not_mapped
+
+    batch_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, batch_size)
+
+    full_shape = JnpShapePlugin._PRIM.bind(operand)
+    slice_shape = lax.slice_in_dim(full_shape, 1, operand.ndim, axis=0)
+    broadcast = jnp.broadcast_to(slice_shape, (batch_size,) + slice_shape.shape)
+    return broadcast, 0
+
+
+batching.primitive_batchers[JnpShapePlugin._PRIM] = _shape_batch_rule

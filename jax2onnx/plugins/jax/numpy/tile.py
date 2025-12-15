@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
+from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import (
@@ -195,6 +196,11 @@ def _tile_with_symbolic_repeats(a):
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "tile_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.tile(y, 2))(x),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
@@ -477,3 +483,47 @@ def _tile_impl(a, *, repeats):
 
 
 JnpTilePlugin._PRIM.def_abstract_eval(JnpTilePlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _tile_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    repeats: ArrayLike,
+    **_: object,
+) -> tuple[jax.Array, BatchDim]:
+    if len(batched_args) != 1:
+        raise NotImplementedError(
+            "vmap batching for dynamic tile repeats is not supported"
+        )
+
+    (operand,), (bdim,) = batched_args, batch_dims
+    repeats_tuple = tuple(repeats)
+
+    if bdim is batching.not_mapped:
+        out = JnpTilePlugin._PRIM.bind(operand, repeats=repeats_tuple)
+        return out, batching.not_mapped
+
+    batch_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, batch_size)
+
+    slice_rank = operand.ndim - 1
+    repeats_rank = len(repeats_tuple)
+
+    if repeats_rank > slice_rank:
+        extra_axes = repeats_rank - slice_rank
+        new_shape = (operand.shape[0],) + (1,) * extra_axes + operand.shape[1:]
+        operand = jnp.reshape(operand, new_shape)
+        repeats_full = (1,) + repeats_tuple
+    else:
+        padded = (1,) * (slice_rank - repeats_rank) + repeats_tuple
+        repeats_full = (1,) + padded
+
+    out = JnpTilePlugin._PRIM.bind(operand, repeats=repeats_full)
+    return out, 0
+
+
+batching.primitive_batchers[JnpTilePlugin._PRIM] = _tile_batch_rule

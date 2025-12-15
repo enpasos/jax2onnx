@@ -7,6 +7,7 @@ from typing import ClassVar, Final
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -101,6 +102,11 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "power_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.power(y, 2.0))(x),
+            "input_shapes": [(3, 4)],
+        },
     ],
 )
 class JnpPowerPlugin(_BaseJnpPow):
@@ -152,6 +158,11 @@ _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "pow_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.pow(y, 2.0))(x),
+            "input_shapes": [(3, 4)],
+        },
     ],
 )
 class JnpPowPlugin(_BaseJnpPow):
@@ -163,3 +174,18 @@ class JnpPowPlugin(_BaseJnpPow):
 def _pow_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpPowPlugin._PRIM, JnpPowPlugin._FUNC_NAME)
     return orig(x, y)
+
+
+def _make_pow_batch_rule(prim):
+    def _batch_rule(args, dims, **params):
+        return batching.broadcast_batcher(prim, args, dims, **params)
+
+    return _batch_rule
+
+
+batching.primitive_batchers[JnpPowerPlugin._PRIM] = _make_pow_batch_rule(
+    JnpPowerPlugin._PRIM
+)
+batching.primitive_batchers[JnpPowPlugin._PRIM] = _make_pow_batch_rule(
+    JnpPowPlugin._PRIM
+)

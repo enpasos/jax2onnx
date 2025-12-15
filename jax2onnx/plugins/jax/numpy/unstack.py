@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import core
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -122,6 +123,11 @@ def _normalize_axis(axis: int, rank: int) -> int:
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "unstack_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.unstack(y, axis=0))(x),
+            "input_shapes": [(3, 2, 4)],
         },
     ],
 )
@@ -244,3 +250,36 @@ def _unstack_impl(x: ArrayLike, axis: int = 0):
 
 
 JnpUnstackPlugin._PRIM.def_abstract_eval(JnpUnstackPlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _unstack_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int = 0,
+) -> tuple[tuple[jax.Array, ...], tuple[BatchDim, ...]]:
+    (operand,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        outs = JnpUnstackPlugin._PRIM.bind(operand, axis=axis)
+        return outs, tuple(batching.not_mapped for _ in outs)
+
+    batch_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, batch_size)
+
+    slice_rank = operand.ndim - 1
+    axis_int = int(axis)
+    if slice_rank:
+        axis_norm = axis_int % slice_rank
+    else:
+        axis_norm = 0
+    axis_full = axis_norm + 1
+
+    outs = JnpUnstackPlugin._PRIM.bind(operand, axis=axis_full)
+    return outs, tuple(0 for _ in outs)
+
+
+batching.primitive_batchers[JnpUnstackPlugin._PRIM] = _unstack_batch_rule

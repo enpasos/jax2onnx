@@ -11,6 +11,7 @@ from numpy.typing import ArrayLike
 import jax
 from jax import core
 import jax.numpy as jnp
+from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -122,6 +123,11 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "prod_vmap_batching",
+            "callable": lambda x: jax.vmap(jnp.prod)(x),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
@@ -274,3 +280,41 @@ def _prod_impl(
 
 
 JnpProdPlugin._PRIM.def_abstract_eval(JnpProdPlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _prod_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axes: tuple[int, ...] | None = None,
+    axes_is_tuple: bool = False,
+    dtype: np.dtype[Any] | type | None = None,
+    keepdims: bool = False,
+) -> tuple[jax.Array, BatchDim]:
+    (operand,), (bdim,) = batched_args, batch_dims
+    axis_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, axis_size)
+
+    slice_rank = operand.ndim - 1
+    if axes is None:
+        axes_full = tuple(range(1, operand.ndim))
+        axes_is_tuple = True
+    else:
+        axes_norm = tuple(int(ax) % slice_rank for ax in axes)
+        axes_full = tuple(ax + 1 for ax in axes_norm)
+        axes_is_tuple = True
+
+    out = JnpProdPlugin._PRIM.bind(
+        operand,
+        axes=axes_full,
+        axes_is_tuple=axes_is_tuple,
+        dtype=dtype,
+        keepdims=keepdims,
+    )
+    return out, 0
+
+
+batching.primitive_batchers[JnpProdPlugin._PRIM] = _prod_batch_rule

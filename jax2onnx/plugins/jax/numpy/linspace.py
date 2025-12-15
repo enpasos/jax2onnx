@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -254,6 +255,11 @@ def _maybe_cast(
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "linspace_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda t: jnp.linspace(0.0, t, num=4))(x),
+            "input_shapes": [(3,)],
         },
     ],
 )
@@ -528,3 +534,67 @@ def _linspace_impl(
 
 
 JnpLinspacePlugin._PRIM.def_abstract_eval(JnpLinspacePlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _linspace_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    num: int = 50,
+    endpoint: bool = True,
+    retstep: bool = False,
+    dtype=None,
+    axis: int = 0,
+) -> tuple[jax.Array, BatchDim]:
+    start, stop = batched_args
+    start_bdim, stop_bdim = batch_dims
+    mapped = [
+        (arg, bd)
+        for arg, bd in zip(batched_args, batch_dims)
+        if bd is not batching.not_mapped
+    ]
+    if not mapped:
+        out = JnpLinspacePlugin._PRIM.bind(
+            start,
+            stop,
+            num=num,
+            endpoint=endpoint,
+            retstep=retstep,
+            dtype=dtype,
+            axis=axis,
+        )
+        return out, batching.not_mapped
+
+    sample_arg, sample_bd = mapped[0]
+    batch_size = sample_arg.shape[sample_bd]
+
+    if start_bdim is not batching.not_mapped:
+        start = batching.bdim_at_front(start, start_bdim, batch_size)
+    if stop_bdim is not batching.not_mapped:
+        stop = batching.bdim_at_front(stop, stop_bdim, batch_size)
+
+    in_axes = (
+        0 if start_bdim is not batching.not_mapped else None,
+        0 if stop_bdim is not batching.not_mapped else None,
+    )
+    orig = get_orig_impl(JnpLinspacePlugin._PRIM, JnpLinspacePlugin._FUNC_NAME)
+
+    def _call_single(s, t):
+        return orig(
+            s,
+            t,
+            num=num,
+            endpoint=endpoint,
+            retstep=retstep,
+            dtype=dtype,
+            axis=axis,
+        )
+
+    result = jax.vmap(_call_single, in_axes=in_axes)(start, stop)
+    return result, 0
+
+
+batching.primitive_batchers[JnpLinspacePlugin._PRIM] = _linspace_batch_rule

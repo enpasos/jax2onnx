@@ -12,6 +12,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax import core
+from jax.interpreters import batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -91,6 +92,13 @@ def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
                 ["Where:2 -> Where:2 -> Identity:2"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "select_vmap_batching",
+            "callable": lambda x: jax.vmap(
+                lambda y: jnp.select([y > 0], [y], default=-y)
+            )(x),
+            "input_shapes": [(3, 4)],
         },
     ],
 )
@@ -280,3 +288,10 @@ def _select_impl(
 
 
 JnpSelectPlugin._PRIM.def_abstract_eval(JnpSelectPlugin.abstract_eval)
+
+
+def _select_batch_rule(args, dims, **params):
+    return batching.broadcast_batcher(JnpSelectPlugin._PRIM, args, dims, **params)
+
+
+batching.primitive_batchers[JnpSelectPlugin._PRIM] = _select_batch_rule

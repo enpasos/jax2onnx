@@ -8,6 +8,7 @@ import jax
 from jax import core
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -42,6 +43,11 @@ _OUTER_PRIM: Final = make_jnp_primitive("jax.numpy.outer")
             "testcase": "outer",
             "callable": lambda a, b: jnp.outer(a, b),
             "input_shapes": [(3,), (5,)],
+        },
+        {
+            "testcase": "outer_vmap_batching",
+            "callable": lambda a, b: jax.vmap(jnp.outer)(a, b),
+            "input_shapes": [(3, 3), (3, 4)],
         },
     ],
 )
@@ -115,3 +121,45 @@ def _outer_impl(a: ArrayLike, b: ArrayLike) -> jax.Array:
 
 
 JnpOuterPlugin._PRIM.def_abstract_eval(JnpOuterPlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _outer_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+) -> tuple[jax.Array, BatchDim]:
+    a, b = batched_args
+    a_bdim, b_bdim = batch_dims
+    mapped = [
+        (arg, bd)
+        for arg, bd in zip(batched_args, batch_dims)
+        if bd is not batching.not_mapped
+    ]
+    if not mapped:
+        out = JnpOuterPlugin._PRIM.bind(a, b)
+        return out, batching.not_mapped
+
+    sample_arg, sample_bd = mapped[0]
+    batch_size = sample_arg.shape[sample_bd]
+
+    if a_bdim is not batching.not_mapped:
+        a = batching.bdim_at_front(a, a_bdim, batch_size)
+    if b_bdim is not batching.not_mapped:
+        b = batching.bdim_at_front(b, b_bdim, batch_size)
+
+    in_axes = (
+        0 if a_bdim is not batching.not_mapped else None,
+        0 if b_bdim is not batching.not_mapped else None,
+    )
+    orig = get_orig_impl(JnpOuterPlugin._PRIM, JnpOuterPlugin._FUNC_NAME)
+
+    def _call_single(a_slice: jax.Array, b_slice: jax.Array) -> jax.Array:
+        return orig(a_slice, b_slice)
+
+    result = jax.vmap(_call_single, in_axes=in_axes)(a, b)
+    return result, 0
+
+
+batching.primitive_batchers[JnpOuterPlugin._PRIM] = _outer_batch_rule

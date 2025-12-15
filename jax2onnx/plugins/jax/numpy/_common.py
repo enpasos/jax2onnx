@@ -60,5 +60,10 @@ def get_orig_impl(
     storage_slot = f"{store_attr}_{func_name}"
     orig = cast(BoundCallable | None, getattr(prim, storage_slot, None))
     if orig is None:
+        # Backwards-compatible: older plugins stored without the underscore separator
+        # (e.g., "__orig_impl__reshape" instead of "__orig_impl___reshape").
+        legacy_slot = f"{store_attr}{func_name}"
+        orig = cast(BoundCallable | None, getattr(prim, legacy_slot, None))
+    if orig is None:
         raise RuntimeError(f"Original implementation for jnp.{func_name} not captured")
     return orig

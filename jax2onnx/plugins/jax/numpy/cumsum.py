@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -96,6 +97,11 @@ _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "cumsum_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.cumsum(y, axis=0))(x),
+            "input_shapes": [(3, 5)],
         },
     ],
 )
@@ -256,6 +262,40 @@ def _cumsum_impl(
 
     result = jax.lax.cumsum(arr, axis=axis_index, reverse=reverse, **cumsum_kwargs)
     return result
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _cumsum_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    **params: Any,
+) -> tuple[jax.Array, BatchDim]:
+    (operand,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        out = JnpCumSumPlugin._PRIM.bind(operand, **params)
+        return out, batching.not_mapped
+
+    batch_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, batch_size)
+
+    slice_rank = operand.ndim - 1
+    axis_param = params.get("axis", 0)
+    if axis_param is None:
+        axis_norm = slice_rank - 1 if slice_rank else 0
+    else:
+        axis_int = int(axis_param)
+        axis_norm = axis_int % slice_rank if slice_rank else 0
+
+    params = dict(params)
+    params["axis"] = axis_norm + 1
+    out = JnpCumSumPlugin._PRIM.bind(operand, **params)
+    return out, 0
+
+
+batching.primitive_batchers[JnpCumSumPlugin._PRIM] = _cumsum_batch_rule
 
 
 _ORIGINAL_JNP_CUMSUM: Final[Optional[Callable[..., Any]]] = getattr(jnp, "cumsum", None)

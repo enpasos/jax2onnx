@@ -8,6 +8,7 @@ from typing import Callable, ClassVar, Final
 import jax
 import jax.numpy as jnp
 from jax import core
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -135,6 +136,11 @@ def _normalize_axes(axes: AxesArg, rank: int) -> tuple[int, ...]:
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "transpose_vmap_batching",
+            "callable": lambda x: jax.vmap(lambda y: jnp.transpose(y, (1, 0)))(x),
+            "input_shapes": [(3, 2, 4)],
+        },
     ],
 )
 class JnpTransposePlugin(PrimitiveLeafPlugin):
@@ -193,7 +199,7 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+        storage_slot = f"__orig_impl___{cls._FUNC_NAME}"
 
         def _make_value(
             orig: Callable[..., jax.Array] | None,
@@ -229,3 +235,28 @@ def _transpose_impl(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
 
 
 JnpTransposePlugin._PRIM.def_abstract_eval(JnpTransposePlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _transpose_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axes: Sequence[int],
+) -> tuple[jax.Array, BatchDim]:
+    (a,), (bdim,) = batched_args, batch_dims
+
+    if bdim is batching.not_mapped:
+        out = JnpTransposePlugin._PRIM.bind(a, axes=axes)
+        return out, batching.not_mapped
+
+    batch_size = a.shape[bdim]
+    a = batching.bdim_at_front(a, bdim, batch_size)
+    perm = (0,) + tuple(int(ax) + 1 for ax in axes)
+    out = JnpTransposePlugin._PRIM.bind(a, axes=perm)
+    return out, 0
+
+
+batching.primitive_batchers[JnpTransposePlugin._PRIM] = _transpose_batch_rule

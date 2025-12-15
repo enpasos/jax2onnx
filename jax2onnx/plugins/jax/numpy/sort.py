@@ -8,6 +8,7 @@ import jax
 from jax import core
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -65,6 +66,11 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
                 ["TopK:3x4 -> Identity:3x4"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "sort_vmap_batching",
+            "callable": lambda x: jax.vmap(jnp.sort)(x),
+            "input_shapes": [(3, 5)],
         },
     ],
 )
@@ -200,3 +206,33 @@ def _sort_impl(
 
 
 JnpSortPlugin._PRIM.def_abstract_eval(JnpSortPlugin.abstract_eval)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _sort_batch_rule(
+    batched_args: tuple[jax.Array, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    axis: int = -1,
+    kind: str | None = None,
+    order: Any | None = None,
+) -> tuple[jax.Array, BatchDim]:
+    (operand,), (bdim,) = batched_args, batch_dims
+    axis_size = operand.shape[bdim]
+    operand = batching.bdim_at_front(operand, bdim, axis_size)
+
+    slice_rank = operand.ndim - 1
+    axis_int = int(axis)
+    if slice_rank == 0:
+        axis_norm = 0
+    else:
+        axis_norm = axis_int % slice_rank
+    axis_full = axis_norm + 1
+
+    out = JnpSortPlugin._PRIM.bind(operand, axis=axis_full, kind=kind, order=order)
+    return out, 0
+
+
+batching.primitive_batchers[JnpSortPlugin._PRIM] = _sort_batch_rule

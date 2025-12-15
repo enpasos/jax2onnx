@@ -9,6 +9,7 @@ import jax.extend.core as jax_core_ext
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax import core
+from jax.interpreters import batching
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -138,6 +139,11 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
                 [{"path": "MatMul", "counts": {"MatMul": 4}}],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "matmul_vmap_batching",
+            "callable": lambda a, b: jax.vmap(jnp.matmul)(a, b),
+            "input_shapes": [(3, 2, 4), (3, 4, 5)],
         },
     ],
 )
@@ -353,3 +359,10 @@ def _matmul_impl(a: ArrayLike, b: ArrayLike) -> ArrayLike:
 
 
 JnpMatmulPlugin._PRIM.def_abstract_eval(JnpMatmulPlugin.abstract_eval)
+
+
+def _matmul_batch_rule(args, dims, **params):
+    return batching.broadcast_batcher(JnpMatmulPlugin._PRIM, args, dims, **params)
+
+
+batching.primitive_batchers[JnpMatmulPlugin._PRIM] = _matmul_batch_rule
