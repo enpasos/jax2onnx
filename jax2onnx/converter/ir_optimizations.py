@@ -1844,8 +1844,7 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
     keep: List[ir.Value] = []
     removed: List[str] = []
     for value in original_inputs:
-        name = value.name
-        if _should_always_keep(name):
+        if _should_always_keep(value.name):
             keep.append(value)
         elif value.uses():
             keep.append(value)
