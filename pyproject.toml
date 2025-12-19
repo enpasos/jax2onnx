@@ -7,7 +7,7 @@ authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.11,<4.0"  # required by flax
 dependencies = [
-    "jax>=0.7.2",  
+    "jax>=0.7.2",
     "flax>=0.12.1",
     "ml_dtypes>=0.5.1",
     "optax>=0.2.4",
@@ -19,7 +19,7 @@ dependencies = [
     "einops>=0.8.1",
     "equinox>=0.13.1",
     "onnx-ir>=0.1.10",
-    "huggingface-hub (>=1.1.2,<2.0.0)",
+    "huggingface-hub>=1.1.2,<2.0.0",
 ]
 
 [tool.poetry.group.test]
@@ -45,12 +45,6 @@ packages = [
 name = "jax-releases"
 url = "https://storage.googleapis.com/jax-releases/jax_releases.html"
 priority = "supplemental"
-
-
-
-
-
-
 
 
 [tool.poetry.group.dev.dependencies]

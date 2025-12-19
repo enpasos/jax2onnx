@@ -23,6 +23,7 @@ from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     make_jnp_primitive,
 )
+from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 ScalarBound = bool | int | float | np.generic
@@ -266,7 +267,7 @@ JnpClipPlugin._PRIM.def_abstract_eval(JnpClipPlugin.abstract_eval)
 
 
 def _clip_batching_rule(args, dims):
-    return jax_batching.broadcast_batcher(JnpClipPlugin._PRIM, args, dims)
+    return broadcast_batcher_compat(JnpClipPlugin._PRIM, args, dims)
 
 
 jax_batching.primitive_batchers[JnpClipPlugin._PRIM] = _clip_batching_rule

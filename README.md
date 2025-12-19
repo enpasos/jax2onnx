@@ -1,5 +1,8 @@
 # jax2onnx 🌟
 
+[![CI](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml/badge.svg)](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/jax2onnx.svg)](https://pypi.org/project/jax2onnx/)
+
 `jax2onnx` converts your [JAX](https://docs.jax.dev/), [Flax NNX](https://flax.readthedocs.io/en/latest/), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
@@ -222,10 +225,10 @@ We warmly welcome contributions!
 
 | Library       | Versions |  
 |:--------------|:---------| 
-| `JAX`         | 0.8.1    | 
-| `Flax`        | 0.12.1   | 
+| `JAX`         | 0.8.2    | 
+| `Flax`        | 0.12.2   | 
 | `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.12   | 
+| `onnx-ir`     | 0.1.13   | 
 | `onnx`        | 1.20.0   |  
 | `onnxruntime` | 1.23.2   |  
 
