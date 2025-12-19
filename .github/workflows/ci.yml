@@ -38,7 +38,7 @@ jobs:
     - name: Install dependencies
       run: poetry install --no-interaction
 
-    - name: Run tests with pytest
+    - name: Generate tests
       run: poetry run python scripts/generate_tests.py
 
     - name: Run tests with pytest
