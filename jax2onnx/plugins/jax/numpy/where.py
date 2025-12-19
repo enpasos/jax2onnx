@@ -15,6 +15,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -408,7 +409,7 @@ JnpWherePlugin._PRIM.def_abstract_eval(JnpWherePlugin.abstract_eval)
 
 
 def _where_batch_rule(args, dims, **params):
-    return batching.broadcast_batcher(JnpWherePlugin._PRIM, args, dims, **params)
+    return broadcast_batcher_compat(JnpWherePlugin._PRIM, args, dims, **params)
 
 
 batching.primitive_batchers[JnpWherePlugin._PRIM] = _where_batch_rule

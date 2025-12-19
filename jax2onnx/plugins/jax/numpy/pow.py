@@ -17,6 +17,7 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
+from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -178,7 +179,7 @@ def _pow_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
 
 def _make_pow_batch_rule(prim):
     def _batch_rule(args, dims, **params):
-        return batching.broadcast_batcher(prim, args, dims, **params)
+        return broadcast_batcher_compat(prim, args, dims, **params)
 
     return _batch_rule
 
