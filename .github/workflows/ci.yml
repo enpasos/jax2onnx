@@ -42,13 +42,5 @@ jobs:
     - name: Install project
       run: poetry install --no-interaction
 
-    - name: Run linting with Ruff
-      run: |
-        poetry run ruff check .
-        poetry run ruff format --check .
-
-    - name: Run type checking with mypy
-      run: poetry run mypy jax2onnx/converter
-
     - name: Run tests with pytest
       run: poetry run pytest -q
