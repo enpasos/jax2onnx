@@ -5,12 +5,18 @@ on:
     branches: [ main ]
     paths-ignore:
       - 'README.md'
-      - 'docs/**'
+      - 'docs/**' 
+      - 'AGENTS.md'
+      - 'work_notes**'
+      - 'scripts/**'
   pull_request:
     branches: [ main ]
     paths-ignore:
       - 'README.md'
-      - 'docs/**'
+      - 'docs/**' 
+      - 'AGENTS.md'
+      - 'work_notes**'
+      - 'scripts/**'
 
 jobs:
   test:
@@ -29,7 +35,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install Poetry
-      run: pip install "poetry>=1.8,<2.0"
+      run: pip install "poetry>=2.0,<3.0"
 
     - name: Install dependencies
       run: poetry install --no-interaction
