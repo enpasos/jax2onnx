@@ -7,8 +7,7 @@ on:
       - 'README.md'
       - 'docs/**' 
       - 'AGENTS.md'
-      - 'work_notes**'
-      - 'scripts/**'
+      - 'work_notes**' 
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -16,10 +15,9 @@ on:
       - 'docs/**' 
       - 'AGENTS.md'
       - 'work_notes**'
-      - 'scripts/**'
 
 jobs:
-  test:
+  test: 
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -39,6 +37,9 @@ jobs:
 
     - name: Install dependencies
       run: poetry install --no-interaction
+
+    - name: Run tests with pytest
+      run: poetry run scripts/generate_tests.py
 
     - name: Run tests with pytest
       run: poetry run pytest
