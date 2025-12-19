@@ -39,7 +39,7 @@ jobs:
       run: poetry install --no-interaction
 
     - name: Run tests with pytest
-      run: poetry run scripts/generate_tests.py
+      run: poetry run python scripts/generate_tests.py
 
     - name: Run tests with pytest
       run: poetry run pytest
