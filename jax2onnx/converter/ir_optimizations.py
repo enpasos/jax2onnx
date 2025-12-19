@@ -1829,19 +1829,9 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
     Remove graph inputs that are not consumed by any node and are not graph outputs.
     (We do NOT run this on function bodies to avoid changing function signatures.)
     """
-    nodes, _ = _get_node_seq_and_setter(graph)
-    used: Set[str] = set()
-    _collect_used_value_names(graph, used)
-    for ov in _graph_outputs_list(graph):
-        nm = _v_name(ov)
-        if nm:
-            used.add(nm)
-
-    output_names = {nm for nm in (_v_name(v) for v in _graph_outputs_list(graph)) if nm}
-
     def _should_always_keep(name: Optional[str]) -> bool:
         if not name:
-            return False
+            return True
         # Preserve positional graph inputs that correspond to original JAX
         # function arguments (named ``in_<index>`` by IRContext.add_input_for_invar).
         if name.startswith("in_"):
@@ -1850,36 +1840,27 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
                 return True
         return False
 
-    inputs_container = graph.inputs
-    original_inputs = list(inputs_container)
+    original_inputs = list(graph.inputs)
     keep: List[ir.Value] = []
     removed: List[str] = []
     for value in original_inputs:
-        name = _v_name(value)
-        if not name:
-            keep.append(value)
-            continue
-
-        should_keep = False
+        name = value.name
         if _should_always_keep(name):
-            should_keep = True
-        elif name in output_names:
-            should_keep = True
-        elif _count_consumers(nodes or [], name, value) > 0:
-            should_keep = True
-        elif name in used:
-            should_keep = True
-
-        if should_keep:
+            keep.append(value)
+        elif value.uses():
+            keep.append(value)
+        elif value.is_graph_output():
+            # A graph input cannot be a direct graph output. But for the sake of completeness
             keep.append(value)
         else:
-            removed.append(name)
+            removed.append(value.name)
 
     if removed and DEBUG:
         _dbg(f"prune_unused_graph_inputs_ir removed: {removed}")
 
     if keep != original_inputs:
-        inputs_container[:] = keep
+        graph.inputs.clear()
+        graph.inputs.extend(keep)
 
 
 # ---------------------------------------------------------------------------
