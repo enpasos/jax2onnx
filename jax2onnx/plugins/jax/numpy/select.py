@@ -20,6 +20,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -291,7 +292,7 @@ JnpSelectPlugin._PRIM.def_abstract_eval(JnpSelectPlugin.abstract_eval)
 
 
 def _select_batch_rule(args, dims, **params):
-    return batching.broadcast_batcher(JnpSelectPlugin._PRIM, args, dims, **params)
+    return broadcast_batcher_compat(JnpSelectPlugin._PRIM, args, dims, **params)
 
 
 batching.primitive_batchers[JnpSelectPlugin._PRIM] = _select_batch_rule

@@ -20,6 +20,7 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
+from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -101,7 +102,7 @@ def _add_impl(*args: object, **kwargs: object) -> object:
 
 
 def _add_batch_rule(args, dims, **params):
-    return batching.broadcast_batcher(JnpAddPlugin._PRIM, args, dims, **params)
+    return broadcast_batcher_compat(JnpAddPlugin._PRIM, args, dims, **params)
 
 
 batching.primitive_batchers[JnpAddPlugin._PRIM] = _add_batch_rule

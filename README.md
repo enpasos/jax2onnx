@@ -225,10 +225,10 @@ We warmly welcome contributions!
 
 | Library       | Versions |  
 |:--------------|:---------| 
-| `JAX`         | 0.8.1    | 
-| `Flax`        | 0.12.1   | 
+| `JAX`         | 0.8.2    | 
+| `Flax`        | 0.12.2   | 
 | `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.12   | 
+| `onnx-ir`     | 0.1.13   | 
 | `onnx`        | 1.20.0   |  
 | `onnxruntime` | 1.23.2   |  
 
