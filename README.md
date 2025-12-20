@@ -165,8 +165,7 @@ to_onnx(
   * Fix `vmap` batching for `jax.numpy.reshape`/`transpose` and several other `jax.numpy` primitives.
   * Refactored IR optimizer to use `onnx-ir` public APIs (`value.consumers()`, `graph.remove()`) instead of internal helpers.
   * Added Common Subexpression Elimination (CSE) and Constant Lifting passes to `ir_optimizations.py`.
-  * Enforced strong typing in optimization passes using `onnx-ir` types (`ir.Value`, `ir.Attr`, `ir.Shape`).
-  * Documented conversion pipeline architecture in `docs/design.md` and `docs/dev_guides/ir_optimizer.md`.
+
 
 ### **Current Productive Version**
 
