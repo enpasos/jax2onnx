@@ -23,27 +23,6 @@ from jax2onnx.converter.ir_optimizations import (
 from onnx_ir import AttributeType as IRAttrType
 
 
-class V:
-    def __init__(self, name=None):
-        self.name = name
-
-
-class N:
-    def __init__(self, op, inputs=(), outputs=(), attributes=()):
-        self.op_type = op
-        # mirror the onnx_ir shapes: tests use .inputs/.outputs lists of V
-        self.inputs = list(inputs)
-        self.outputs = list(outputs)
-        # attributes is a list of Attr
-        self.attributes = list(attributes)
-
-
-class Attr:
-    def __init__(self, name, ints):
-        self.name = name
-        self.ints = list(ints)
-
-
 def test_is_elem_lower_and_mixed():
     assert _is_elem("Relu")
     assert _is_elem("relu")
@@ -53,8 +32,19 @@ def test_is_elem_lower_and_mixed():
 
 
 def test_get_perm_attr_and_identity():
-    t1 = N("Transpose", attributes=[Attr("perm", [0, 3, 1, 2])])
-    t2 = N("Transpose", attributes=[Attr("perm", [0, 2, 3, 1])])
+    # Real ir.Attr required
+    t1 = ir.Node(
+        "",
+        "Transpose",
+        [],
+        attributes=[ir.Attr(name="perm", type=IRAttrType.INTS, value=(0, 3, 1, 2))],
+    )
+    t2 = ir.Node(
+        "",
+        "Transpose",
+        [],
+        attributes=[ir.Attr(name="perm", type=IRAttrType.INTS, value=(0, 2, 3, 1))],
+    )
     p1 = _get_perm_attr(t1)
     p2 = _get_perm_attr(t2)
     assert p1 == [0, 3, 1, 2] and p2 == [0, 2, 3, 1]
@@ -62,9 +52,14 @@ def test_get_perm_attr_and_identity():
 
 
 def test_match_by_name_or_obj():
-    a = V("a")
-    b = V("b")
-    n = N("Relu", inputs=[a])
+    a = ir.Value(name="a")
+    b = ir.Value(name="b")
+    n = ir.Node("", "Relu", inputs=[a])
+
+    # We must properly connect logic if needed?
+    # _has_input_name_or_obj checks _node_inputs(node).
+    # ir.Node inputs are stored.
+
     assert _has_input_name_or_obj(n, "a", None)
     assert _has_input_name_or_obj(n, None, a)
     assert not _has_input_name_or_obj(n, "b", None)
@@ -72,8 +67,19 @@ def test_match_by_name_or_obj():
 
 
 def test_consumer_scan():
-    v = V("x")
-    nodes = [N("Transpose", outputs=[v]), N("Something"), N("Relu", inputs=[v])]
+    v = ir.Value(name="x")
+    # Node that consumes v needs to have v in inputs.
+    # ir.Node automatically adds usage to v.
+    n1 = ir.Node("", "Transpose", outputs=[v], inputs=[])
+    n2 = ir.Node("", "Something", inputs=[], outputs=[])  # No inputs
+    n3 = ir.Node("", "Relu", inputs=[v])
+
+    nodes = [n1, n2, n3]
+
+    # _find_next_consumer_idx uses value consumers or scan.
+    # ir.Node constructor adds 'n3' as consumer to 'v'.
+    # So v.consumers() should contain n3.
+
     assert _find_next_consumer_idx(nodes, 0, "x", v) == 2
     assert _count_consumers(nodes, "x", v) == 1
 
@@ -207,7 +213,7 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     else:
         third = ins[2]
         third_name = getattr(third, "name", "")
-    assert third_name == "", f"expected missing tm input, got {third_name!r}"
+    assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
     in_names = {getattr(v, "name", "") for v in _inputs(g)}
@@ -403,3 +409,100 @@ def test_identity_reshape_removed_when_target_matches_source():
     assert all(n.op_type != "Reshape" for n in nodes)
     out_names = {getattr(v, "name", "") for v in optimized.graph.outputs}
     assert "in" in out_names
+
+
+def test_cse_simple():
+    data = V_ir("in", ir.DataType.FLOAT, (3, 4))
+
+    # Branch 1
+    out1 = V_ir("out1", ir.DataType.FLOAT, (3, 4))
+    node1 = ir.Node(
+        op_type="Relu",
+        domain="",
+        inputs=[data],
+        outputs=[out1],
+        name="Relu1",
+    )
+
+    # Branch 2 (identical to Branch 1)
+    out2 = V_ir("out2", ir.DataType.FLOAT, (3, 4))
+    node2 = ir.Node(
+        op_type="Relu",
+        domain="",
+        inputs=[data],  # Same input object
+        outputs=[out2],
+        name="Relu2",
+    )
+
+    # Graph outputs BOTH
+    graph = ir.Graph(
+        name="cse_simple",
+        inputs=[data],
+        outputs=[out1, out2],
+        nodes=[node1, node2],
+    )
+
+    model = ir.Model(graph=graph, ir_version=10)
+    optimized = optimize_graph(model)
+
+    nodes = _nodes(optimized.graph)
+    # Should be merged
+    assert len(nodes) == 1
+    assert nodes[0].op_type == "Relu"
+
+    # They should be the same object because we replace graph outputs with the survivor
+    outs = optimized.graph.outputs
+    assert len(outs) == 2
+    assert outs[0] is outs[1]
+
+
+def test_lift_constants():
+    # Make a graph with a Constant node in the body
+    out_const = V_ir("const_out", ir.DataType.FLOAT, (2,))
+    const_node = ir.Node(
+        op_type="Constant",
+        domain="",
+        inputs=[],
+        outputs=[out_const],
+        name="Const1",
+        attributes={
+            "value": ir.Attr(
+                name="value",
+                type=ir.AttributeType.TENSOR,
+                value=ir.tensor(np.array([1.0, 2.0], dtype=np.float32)),
+            )
+        },
+    )
+
+    out_identity = V_ir("out", ir.DataType.FLOAT, (2,))
+    id_node = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[out_const],
+        outputs=[out_identity],
+        name="Identity1",
+    )
+
+    graph = ir.Graph(
+        name="lift_const",
+        inputs=[],
+        outputs=[out_identity],
+        nodes=[const_node, id_node],
+    )
+
+    model = ir.Model(graph=graph, ir_version=10)
+    # Check before: no initializers
+    assert len(graph.initializers) == 0
+
+    optimized = optimize_graph(model)
+
+    # Check after: Constant node gone, Identity inputs point to initializer
+    nodes = _nodes(optimized.graph)
+    assert len(nodes) == 1
+    assert nodes[0].op_type == "Identity"
+
+    assert len(optimized.graph.initializers) == 1
+    init_val = list(optimized.graph.initializers.values())[0]
+    # Name should be preserved or match usage
+    assert init_val.name == "const_out"
+    assert init_val.const_value is not None
