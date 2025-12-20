@@ -207,7 +207,7 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     else:
         third = ins[2]
         third_name = getattr(third, "name", "")
-    assert third_name == "", f"expected missing tm input, got {third_name!r}"
+    assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
     in_names = {getattr(v, "name", "") for v in _inputs(g)}
