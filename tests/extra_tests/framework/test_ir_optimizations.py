@@ -403,3 +403,48 @@ def test_identity_reshape_removed_when_target_matches_source():
     assert all(n.op_type != "Reshape" for n in nodes)
     out_names = {getattr(v, "name", "") for v in optimized.graph.outputs}
     assert "in" in out_names
+
+
+def test_cse_simple():
+    data = V_ir("in", ir.DataType.FLOAT, (3, 4))
+
+    # Branch 1
+    out1 = V_ir("out1", ir.DataType.FLOAT, (3, 4))
+    node1 = ir.Node(
+        op_type="Relu",
+        domain="",
+        inputs=[data],
+        outputs=[out1],
+        name="Relu1",
+    )
+
+    # Branch 2 (identical to Branch 1)
+    out2 = V_ir("out2", ir.DataType.FLOAT, (3, 4))
+    node2 = ir.Node(
+        op_type="Relu",
+        domain="",
+        inputs=[data],  # Same input object
+        outputs=[out2],
+        name="Relu2",
+    )
+
+    # Graph outputs BOTH
+    graph = ir.Graph(
+        name="cse_simple",
+        inputs=[data],
+        outputs=[out1, out2],
+        nodes=[node1, node2],
+    )
+
+    model = ir.Model(graph=graph, ir_version=10)
+    optimized = optimize_graph(model)
+
+    nodes = _nodes(optimized.graph)
+    # Should be merged
+    assert len(nodes) == 1
+    assert nodes[0].op_type == "Relu"
+
+    # They should be the same object because we replace graph outputs with the survivor
+    outs = optimized.graph.outputs
+    assert len(outs) == 2
+    assert outs[0] is outs[1]

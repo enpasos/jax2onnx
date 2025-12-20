@@ -1748,6 +1748,128 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------- CSE ----------------
+
+
+def _is_non_deterministic_op(node: ir.Node) -> bool:
+    non_deterministic_ops = {
+        "RandomUniform",
+        "RandomNormal",
+        "RandomUniformLike",
+        "RandomNormalLike",
+        "Multinomial",
+    }
+    return node.op_type in non_deterministic_ops and (
+        not node.domain or node.domain == "ai.onnx"
+    )
+
+
+def remove_common_subexpressions_ir(graph: ir.Graph) -> None:
+    """
+    Eliminate common subexpressions (duplicate nodes) in the graph.
+    Nodes are considered identical if they have:
+    - Same op_type and domain
+    - Same inputs (by value identity)
+    - Same attributes (by value)
+    """
+    # Map signature -> Node
+    # signature: (op_type, domain, num_outputs, input_ids_tuple, attr_tuple)
+    seen_nodes: Dict[
+        Tuple[str, str, int, Tuple[int, ...], Tuple[Tuple[str, Any], ...]], ir.Node
+    ] = {}
+
+    nodes = list(graph)
+    if not nodes:
+        return
+
+    for node in nodes:
+        if _is_non_deterministic_op(node):
+            continue
+
+        # Skip control flow for now (has graph attributes)
+        has_graph_attr = False
+        attrs_list = []
+        if hasattr(node, "attributes"):
+            attr_map = node.attributes
+        else:
+            attr_map = {}
+
+        for name, value in sorted(attr_map.items()):
+            if isinstance(value, ir.Attr):
+                # Unwrap Attr if possible or check type
+                if value.type in (ir.AttributeType.GRAPH, ir.AttributeType.GRAPHS):
+                    has_graph_attr = True
+                    break
+                val_to_hash = value.value
+            else:
+                val_to_hash = value
+
+            # Skip large tensors (heuristic)
+            if hasattr(val_to_hash, "size") and val_to_hash.size > 100:
+                # Skip large constant folding for CSE to avoid overhead?
+                # Reference uses size_limit=10.
+                pass
+
+            # We need a hashable representation.
+            val_hashable = val_to_hash
+            if isinstance(val_to_hash, (list, tuple)):
+                val_hashable = tuple(val_to_hash)
+            elif isinstance(val_to_hash, np.ndarray):
+                val_hashable = (
+                    val_to_hash.shape,
+                    str(val_to_hash.dtype),
+                    val_to_hash.tobytes(),
+                )
+            elif hasattr(val_to_hash, "numpy"):  # tensor
+                try:
+                    arr = val_to_hash.numpy()
+                    val_hashable = (arr.shape, str(arr.dtype), arr.tobytes())
+                except Exception:
+                    # If we can't hash it, we can't CSE it safely
+                    has_graph_attr = True  # Treat as 'skip'
+                    break
+
+            # Attributes are name-value pairs
+            attrs_list.append((name, val_hashable))
+
+        if has_graph_attr:
+            continue
+
+        # Build signature
+        inputs = _node_inputs(node)
+        input_ids = tuple(id(v) for v in inputs)
+
+        sig = (
+            node.op_type,
+            node.domain or "",
+            len(_node_outputs(node)),
+            input_ids,
+            tuple(attrs_list),
+        )
+
+        if sig in seen_nodes:
+            # Match found!
+            existing = seen_nodes[sig]
+
+            # Replace all outputs of 'node' with outputs of 'existing'
+            outs_existing = _node_outputs(existing)
+            outs_node = _node_outputs(node)
+
+            if len(outs_existing) != len(outs_node):
+                continue
+
+            # Perform replacement
+            for old_out, new_out in zip(outs_node, outs_existing):
+                # Use our safe replacement ordering!
+                _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_out)
+                _replace_everywhere(nodes, old_out, _v_name(old_out), new_out)
+
+            # Remove the node
+            graph.remove(node)
+        else:
+            seen_nodes[sig] = node
+
+
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
     # Top graph
@@ -1758,6 +1880,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         remove_redundant_transpose_pairs_ir(gr)
         remove_redundant_reshape_pairs_ir(gr)
         remove_identity_reshapes_ir(gr)
+        remove_common_subexpressions_ir(gr)
         rewrite_mul_rsqrt_as_div_ir(gr)
         inline_dropout_training_mode_constants_ir(gr)
         propagate_unary_shapes_ir(gr)
