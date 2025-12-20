@@ -2,6 +2,23 @@
 
 The converter runs a lightweight, IR-only optimization sweep after lowering and before serialization. Passes must be structure-only (no op-specific math) and safe across `onnx_ir` variants. This guide documents the current canon and the invariants each pass must respect.
 
+## Pipeline Placement
+
+The optimizer runs as **Step 2** in the conversion pipeline (see [design.md](../design.md#conversion-pipeline-detailed)):
+
+1. Build raw IR (`to_onnx`)
+2. **`optimize_graph`** ← runs here
+3. Late attribute overrides
+4. Shape inference (no-op currently)
+5. Finalize shapes
+6. Return from `conversion_api`
+7. Post-process (shape loosening, export prep)
+
+This placement ensures:
+- Optimization sees the raw, unpatched graph for maximum benefit.
+- Late overrides only patch nodes that survived optimization.
+- Shape finalization operates on an already-optimized graph.
+
 ---
 
 ## Transpose Pair Folding
