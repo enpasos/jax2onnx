@@ -448,3 +448,55 @@ def test_cse_simple():
     outs = optimized.graph.outputs
     assert len(outs) == 2
     assert outs[0] is outs[1]
+
+
+def test_lift_constants():
+    # Make a graph with a Constant node in the body
+    out_const = V_ir("const_out", ir.DataType.FLOAT, (2,))
+    const_node = ir.Node(
+        op_type="Constant",
+        domain="",
+        inputs=[],
+        outputs=[out_const],
+        name="Const1",
+        attributes={
+            "value": ir.Attr(
+                name="value",
+                type=ir.AttributeType.TENSOR,
+                value=ir.tensor(np.array([1.0, 2.0], dtype=np.float32)),
+            )
+        },
+    )
+
+    out_identity = V_ir("out", ir.DataType.FLOAT, (2,))
+    id_node = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[out_const],
+        outputs=[out_identity],
+        name="Identity1",
+    )
+
+    graph = ir.Graph(
+        name="lift_const",
+        inputs=[],
+        outputs=[out_identity],
+        nodes=[const_node, id_node],
+    )
+
+    model = ir.Model(graph=graph, ir_version=10)
+    # Check before: no initializers
+    assert len(graph.initializers) == 0
+
+    optimized = optimize_graph(model)
+
+    # Check after: Constant node gone, Identity inputs point to initializer
+    nodes = _nodes(optimized.graph)
+    assert len(nodes) == 1
+    assert nodes[0].op_type == "Identity"
+
+    assert len(optimized.graph.initializers) == 1
+    init_val = list(optimized.graph.initializers.values())[0]
+    # Name should be preserved or match usage
+    assert init_val.name == "const_out"
+    assert init_val.const_value is not None

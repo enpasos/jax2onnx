@@ -1870,6 +1870,108 @@ def remove_common_subexpressions_ir(graph: ir.Graph) -> None:
             seen_nodes[sig] = node
 
 
+# ---------------- Constant Lifting ----------------
+
+
+def lift_constants_to_initializers_ir(graph: ir.Graph) -> None:
+    """
+    Lift Constant nodes into graph Initializers.
+    This simplifies the graph structure by removing nodes that just produce static data.
+    """
+    nodes = list(graph)
+    if not nodes:
+        return
+
+    for node in nodes:
+        if node.op_type != "Constant":
+            continue
+
+        out_val = _node_output(node)
+        if out_val is None:
+            continue
+
+        if out_val.is_graph_output():
+            continue
+
+        tensor = None
+
+        # Check standard attributes
+        if "value" in node.attributes:
+            attr = node.attributes["value"]
+            if hasattr(attr, "as_tensor"):
+                try:
+                    tensor = attr.as_tensor()
+                except Exception:
+                    pass
+        # Fallbacks
+        elif "value_float" in node.attributes:
+            attr = node.attributes["value_float"]
+            try:
+                val = attr.as_float()
+                tensor = ir.tensor(val, dtype=ir.DataType.FLOAT)
+            except Exception:
+                pass
+        elif "value_int" in node.attributes:
+            attr = node.attributes["value_int"]
+            try:
+                val = attr.as_int()
+                tensor = ir.tensor(val, dtype=ir.DataType.INT64)
+            except Exception:
+                pass
+        elif "value_floats" in node.attributes:
+            attr = node.attributes["value_floats"]
+            try:
+                val = tuple(attr.as_floats())
+                tensor = ir.tensor(val, dtype=ir.DataType.FLOAT)
+            except Exception:
+                pass
+        elif "value_ints" in node.attributes:
+            attr = node.attributes["value_ints"]
+            try:
+                val = tuple(attr.as_ints())
+                tensor = ir.tensor(val, dtype=ir.DataType.INT64)
+            except Exception:
+                pass
+
+        if tensor is None:
+            continue
+
+        # Create a new Initializer Value
+        # We use the same name if possible, or a new one.
+        # But if we reuse the name, we must ensure the old value releases it?
+        # Actually, replace_all_uses_with handles wiring.
+        # If we use the same name, onnx-ir might complain about duplicate names?
+        # The reference impl: initializer_name = node.outputs[0].name.
+        # But it creates a NEW Value with that name.
+
+        # We need to preserve the name for the downstream users.
+        name = out_val.name
+
+        # New initializer value
+        # Note: In onnx-ir, we can have a value that is just an initializer.
+        init_val = ir.Value(
+            name=name,
+            type=ir.TensorType(tensor.dtype),
+            shape=ir.Shape(tensor.shape),
+            const_value=tensor,
+        )
+
+        # Register it
+        graph.register_initializer(init_val)
+
+        # Replace uses
+        # replace_all_uses_with(old, new)
+        # Note: we might need to handle graph outputs if the constant was a graph output
+        # But we already skipped graph outputs.
+
+        # However, out_val MUST NOT be a graph output for this pass (checked above).
+
+        ir_convenience.replace_all_uses_with(out_val, init_val)
+
+        # Remove the node
+        graph.remove(node)
+
+
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
     # Top graph
@@ -1881,6 +1983,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         remove_redundant_reshape_pairs_ir(gr)
         remove_identity_reshapes_ir(gr)
         remove_common_subexpressions_ir(gr)
+        lift_constants_to_initializers_ir(gr)
         rewrite_mul_rsqrt_as_div_ir(gr)
         inline_dropout_training_mode_constants_ir(gr)
         propagate_unary_shapes_ir(gr)
