@@ -34,7 +34,7 @@ def export_quickstart_model(output_path: str | Path | None = None) -> Path:
 
 
 @onnx_function
-class _FnBlock(nnx.Module):
+class MLPBlock(nnx.Module):
     def __init__(self, dim: int, *, rngs: nnx.Rngs):
         self.linear1 = nnx.Linear(dim, dim, rngs=rngs)
         self.linear2 = nnx.Linear(dim, dim, rngs=rngs)
@@ -46,8 +46,8 @@ class _FnBlock(nnx.Module):
 
 class FnModel(nnx.Module):
     def __init__(self, dim: int, *, rngs: nnx.Rngs):
-        self.block1 = _FnBlock(dim, rngs=rngs)
-        self.block2 = _FnBlock(dim, rngs=rngs)
+        self.block1 = MLPBlock(dim, rngs=rngs)
+        self.block2 = MLPBlock(dim, rngs=rngs)
 
     def __call__(self, x):
         return self.block2(self.block1(x))
