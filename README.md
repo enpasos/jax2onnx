@@ -158,25 +158,17 @@ to_onnx(
   * Expanding coverage of JAX, Flax NNX and Equinox components.
   * Enhancing support for **physics-based simulations**
 
-### **Upcoming Version**
 
-* **0.10.4**:
+### **Current Productive Version**
+
+* **0.10.4** *(PyPI)*:
 
   * Fix `vmap` batching for `jax.numpy.reshape`/`transpose` and several other `jax.numpy` primitives.
   * Refactored IR optimizer to use `onnx-ir` public APIs (`value.consumers()`, `graph.remove()`) instead of internal helpers.
   * Added Common Subexpression Elimination (CSE) and Constant Lifting passes to `ir_optimizations.py`.
+  * Added GitHub Actions CI workflow for automated testing.
 
 
-### **Current Productive Version**
-
-* **0.10.3** *(PyPI)*:
-
-  * Added a Flax/NNX DINOv3 VisionTransformer example stack (`plugins/examples/nnx/dinov3.py`) with deterministic rng helpers, rotary cache capture, and expect_graph coverage across ViT variants.
-  * Introduced Equinox→NNX parity testing for DINOv3 (weight copy + forward check) to keep the Equinox and Flax paths aligned.
-  * Example registry keys are now context-aware (`context::component`) with override warnings to avoid collisions between example stacks.
-  * Documented NNX DINO exports (static/dynamic batch) and kept generated ONNX artifacts out of git via a dedicated `.gitignore`.
-
- 
  
 
 ### **Past Versions**
