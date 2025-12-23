@@ -321,7 +321,7 @@ def _shape_dims_key(
 def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     if not isinstance(val, ir.Value):
         return None
-    arr = _to_numpy_from_any(getattr(val, "const_value", None))
+    arr = _to_numpy_from_any(val.const_value)
     if arr is None:
         return None
     np_arr = np.asarray(arr)
@@ -676,7 +676,7 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
     def _value_dims(val: Optional[ir.Value]) -> Optional[Tuple[object, ...]]:
         if val is None:
             return None
-        return _shape_dims_seq(getattr(val, "shape", None))
+        return _shape_dims_seq(val.shape)
 
     changed = True
     while changed:
