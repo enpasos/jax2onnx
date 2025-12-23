@@ -9,26 +9,14 @@ import onnx_ir as ir
 
 # import the functions to test
 from jax2onnx.converter.ir_optimizations import (
-    _is_elem,
     _get_perm_attr,
-    _perms_compose_identity,
     _has_input_name_or_obj,
-    _count_consumers,
-    _find_next_consumer_idx,
     _to_numpy_from_any,
     _as_scalar_bool,
     optimize_graph,
 )
 
 from onnx_ir import AttributeType as IRAttrType
-
-
-def test_is_elem_lower_and_mixed():
-    assert _is_elem("Relu")
-    assert _is_elem("relu")
-    assert _is_elem("Cast")
-    assert _is_elem("castlike")
-    assert not _is_elem("AveragePool")
 
 
 def test_get_perm_attr_and_identity():
@@ -48,7 +36,6 @@ def test_get_perm_attr_and_identity():
     p1 = _get_perm_attr(t1)
     p2 = _get_perm_attr(t2)
     assert p1 == [0, 3, 1, 2] and p2 == [0, 2, 3, 1]
-    assert _perms_compose_identity(p1, p2)
 
 
 def test_match_by_name_or_obj():
@@ -64,24 +51,6 @@ def test_match_by_name_or_obj():
     assert _has_input_name_or_obj(n, None, a)
     assert not _has_input_name_or_obj(n, "b", None)
     assert not _has_input_name_or_obj(n, None, b)
-
-
-def test_consumer_scan():
-    v = ir.Value(name="x")
-    # Node that consumes v needs to have v in inputs.
-    # ir.Node automatically adds usage to v.
-    n1 = ir.Node("", "Transpose", outputs=[v], inputs=[])
-    n2 = ir.Node("", "Something", inputs=[], outputs=[])  # No inputs
-    n3 = ir.Node("", "Relu", inputs=[v])
-
-    nodes = [n1, n2, n3]
-
-    # _find_next_consumer_idx uses value consumers or scan.
-    # ir.Node constructor adds 'n3' as consumer to 'v'.
-    # So v.consumers() should contain n3.
-
-    assert _find_next_consumer_idx(nodes, 0, "x", v) == 2
-    assert _count_consumers(nodes, "x", v) == 1
 
 
 def test_to_numpy_and_scalar_bool_from_tensor_and_attr():
@@ -171,10 +140,7 @@ def build_graph_with_not_tm():
         nodes=[const_node, n1, n2, n3, n4, n5, n6],
     )
     m = ir.Model(graph=g, ir_version=10)
-    try:
-        m.opset_imports = {"": 21}
-    except Exception:
-        pass
+    m.opset_imports[""] = 21
     return m
 
 
@@ -296,10 +262,7 @@ def build_graph_with_identity_cast(dtype: ir.DataType = ir.DataType.FLOAT):
 
     g = ir.Graph(name="g", inputs=[x], outputs=[relu_out], nodes=[cast_node, relu_node])
     m = ir.Model(graph=g, ir_version=10)
-    try:
-        m.opset_imports = {"": 21}
-    except Exception:
-        pass
+    m.opset_imports[""] = 21
     return m
 
 
@@ -360,10 +323,7 @@ def test_identity_cast_removed_inside_function_body():
         except Exception:
             attached = False
     assert attached, "Could not attach function to test model"
-    try:
-        model.opset_imports = {"": 21}
-    except Exception:
-        pass
+    model.opset_imports[""] = 21
 
     optimized = optimize_graph(model)
     funcs = getattr(optimized, "functions", None) or getattr(
