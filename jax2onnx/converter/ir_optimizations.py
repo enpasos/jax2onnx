@@ -20,7 +20,6 @@ import numpy as np
 
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
-from onnx_ir import convenience as ir_convenience
 from onnx_ir.passes import common as common_passes
 
 # ---------------- Config ----------------
@@ -98,6 +97,7 @@ def _dbg_tm(*a: object) -> None:
 
 
 # ---------------- Public helper shims (restored for unit tests) ----------------
+
 
 def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     """
@@ -346,234 +346,6 @@ def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
     return True
 
 
-def _replace_everywhere(
-    nodes: List[ir.Node],
-    old_v: Optional[ir.Value],
-    old_name: Optional[str],
-    new_v: ir.Value,
-) -> None:
-    """
-    Rewire a value across a specific node subset.
-
-    Several optimizations (reshape/transposed pair folding, dropout rewrites,
-    etc.) need to redirect an intermediate edge only for the linear chain of
-    nodes they touch, while other consumers of the same value must remain
-    unchanged.  The global helper ``ir.convenience.replace_all_uses_with`` would
-    rewrite every consumer in the graph, so we keep this scoped helper:
-
-    * When ``old_v`` is present we rely on the IR helper (safe because the pass
-      already knows all consumers that should be updated share that object).
-    * When the pass only tracked the value name (older ONNX exports may expose
-      strings or name copies), we manually scan the provided ``nodes`` and
-      update inputs that match either the cached object or the cached name.
-    * String-name rewrites also handle the case where ONNX IR stored a raw
-      string in the input list.
-    """
-    if old_v is not None:
-        ir_convenience.replace_all_uses_with(
-            old_v,
-            new_v,
-        )
-        if old_name is None:
-            old_name = _v_name(old_v)
-    new_name = _v_name(new_v)
-    for m in nodes:
-        ins = _node_inputs(m)
-        changed = False
-        for i, iv in enumerate(ins):
-            if (old_v is not None and iv is old_v) or (
-                old_name and _v_name(iv) == old_name
-            ):
-                ins[i] = new_v
-                changed = True
-            elif isinstance(iv, str) and old_name and iv == old_name:
-                ins[i] = new_name if new_name is not None else ""
-                changed = True
-        if changed:
-            _set_node_inputs(m, ins)
-        if old_name and new_name and old_name != new_name:
-            _propagate_value_name_to_subgraphs(m, old_name, new_name)
-
-
-def _propagate_value_name_to_subgraphs(
-    node: ir.Node, old_name: str, new_name: str
-) -> None:
-    """
-    Ensure nested Graph/Graphs attributes no longer reference ``old_name``.
-
-    When upstream rewrites replace a producer with a different value, we need
-    to mirror that rename inside control-flow/function subgraphs.  Those
-    subgraphs hold independent ``ir.Value`` clones that only stay connected to
-    the parent graph via shared symbol names.
-    """
-
-    def _maybe_rename(val: Optional[ir.Value]) -> None:
-        if val is None:
-            return
-        if not isinstance(val, ir.Value):
-            return
-        if _v_name(val) == old_name:
-            try:
-                val.name = new_name
-            except Exception:
-                pass
-
-    def _walk_graph(graph: Optional[ir.Graph], seen: Set[int]) -> None:
-        if graph is None:
-            return
-        gid = id(graph)
-        if gid in seen:
-            return
-        seen.add(gid)
-
-        for g_in in graph.inputs:
-            _maybe_rename(g_in)
-        for g_out in graph.outputs:
-            _maybe_rename(g_out)
-
-        init_container = graph.initializers
-        init_values: Iterable[ir.Value]
-        if isinstance(init_container, Mapping):
-            init_values = init_container.values()
-        elif isinstance(init_container, Sequence):
-            init_values = init_container
-        else:
-            init_values = ()
-        for init in init_values:
-            if isinstance(init, ir.Value):
-                _maybe_rename(init)
-
-        for sub_node in list(graph):
-            for iv in _node_inputs(sub_node):
-                _maybe_rename(iv)
-            for ov in _node_outputs(sub_node):
-                _maybe_rename(ov)
-            for attr in _iter_node_attrs(sub_node):
-                kind = _attr_kind(attr)
-                if kind == "GRAPH":
-                    try:
-                        sub_graph = attr.as_graph()
-                    except Exception:
-                        sub_graph = None
-                    _walk_graph(sub_graph, seen)
-                elif kind == "GRAPHS":
-                    try:
-                        sub_graphs = tuple(attr.as_graphs())
-                    except Exception:
-                        sub_graphs = ()
-                    for sub_graph in sub_graphs:
-                        _walk_graph(sub_graph, seen)
-
-    seen_graphs: Set[int] = set()
-    for attr in _iter_node_attrs(node):
-        kind = _attr_kind(attr)
-        if kind == "GRAPH":
-            try:
-                sub = attr.as_graph()
-            except Exception:
-                sub = None
-            _walk_graph(sub, seen_graphs)
-        elif kind == "GRAPHS":
-            try:
-                subs = tuple(attr.as_graphs())
-            except Exception:
-                subs = ()
-            for sub in subs:
-                _walk_graph(sub, seen_graphs)
-
-    # Simplified graph walk that doesn't rely on _get_node_seq_and_setter
-    def _walk_graph_simple(graph: Optional[ir.Graph], seen: Set[int]) -> None:
-        if graph is None:
-            return
-        gid = id(graph)
-        if gid in seen:
-            return
-        seen.add(gid)
-
-        for g_in in graph.inputs:
-            _maybe_rename(g_in)
-        for g_out in graph.outputs:
-            _maybe_rename(g_out)
-
-        # Initializers
-        init_container = graph.initializers
-        if isinstance(init_container, Mapping):
-            for init in init_container.values():
-                if isinstance(init, ir.Value):
-                    _maybe_rename(init)
-        elif isinstance(init_container, Sequence):
-            for init in init_container:
-                if isinstance(init, ir.Value):
-                    _maybe_rename(init)
-
-        # Nodes
-        for sub_node in graph:
-            for iv in _node_inputs(sub_node):
-                _maybe_rename(iv)
-            for ov in _node_outputs(sub_node):
-                _maybe_rename(ov)
-            for attr in _iter_node_attrs(sub_node):
-                kind = _attr_kind(attr)
-                if kind == "GRAPH":
-                    try:
-                        sub_graph = attr.as_graph()
-                    except Exception:
-                        sub_graph = None
-                    _walk_graph_simple(sub_graph, seen)
-                elif kind == "GRAPHS":
-                    try:
-                        sub_graphs = tuple(attr.as_graphs())
-                    except Exception:
-                        sub_graphs = ()
-                    for sub_graph in sub_graphs:
-                        _walk_graph_simple(sub_graph, seen)
-
-
-def _replace_in_graph_outputs(
-    graph: ir.Graph,
-    old_v: Optional[ir.Value],
-    old_name: Optional[str],
-    new_v: ir.Value,
-) -> None:
-    """
-    Swap a graph output from ``old_v`` to ``new_v`` while keeping string-name fallbacks.
-
-    Optimizer passes sometimes redirect the final node in a chain (e.g.
-    collapsing Reshape→Reshape). If the old value fed a graph output we must
-    update the graph outputs list; otherwise ONNX still sees the stale symbol.
-
-    Parameters
-    ----------
-    graph:
-        The graph whose outputs need updating.
-    old_v:
-        The value being replaced. When present we let the IR helper rewrite all
-        consumers (graph outputs included).
-    old_name:
-        Fallback when only the value name is known. Some onnx_ir builds expose
-        string inputs, so we still scan for matching names.
-    new_v:
-        The replacement value that should now feed the graph outputs.
-    """
-    graph_outputs = graph.outputs
-    # Attempt IR-level replacement first
-    graph_outputs = graph.outputs
-    # Fallback: ensure graph outputs list is actually updated.
-    # We DO NOT call replace_all_uses_with here because it is handled by _replace_everywhere
-    # (or the global replacement pass), and calling it twice can cause ValueErrors if the
-    # value is already gone from inputs.
-    if old_v is not None:
-        for idx, ov in enumerate(graph_outputs):
-            if ov is old_v:
-                graph_outputs[idx] = new_v
-
-    # Name-based fallback (or if replace_all_uses_with missed the output list)
-    if old_name:
-        for idx, ov in enumerate(graph_outputs):
-            if _v_name(ov) == old_name:
-                graph_outputs[idx] = new_v
-
-
 # ---------------- Attr access ----------------
 
 
@@ -696,11 +468,8 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                             if next_target is not None and next_target == src_dtype:
                                 final_out = next_outs[0]
                                 src_val = ins[0]
-                                _replace_in_graph_outputs(
-                                    graph, final_out, _v_name(final_out), src_val
-                                )
-                                _replace_everywhere(
-                                    nodes, final_out, _v_name(final_out), src_val
+                                ir.convenience.replace_all_uses_with(
+                                    final_out, src_val, replace_graph_outputs=True
                                 )
                                 graph.remove([n, next_node])
                                 changed = True
@@ -716,8 +485,9 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                 continue
             src_val = ins[0]
             out_val = outs[0]
-            _replace_in_graph_outputs(graph, out_val, _v_name(out_val), src_val)
-            _replace_everywhere(nodes, out_val, _v_name(out_val), src_val)
+            ir.convenience.replace_all_uses_with(
+                out_val, src_val, replace_graph_outputs=True
+            )
             graph.remove(n)
             changed = True
             break
@@ -798,17 +568,18 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 i += 1
                 continue
             if allowed_nodes:
-                first_allowed = allowed_nodes[0]
                 last_allowed = allowed_nodes[-1]
-                _replace_everywhere(
-                    [first_allowed], _node_output(T1), _v_name(_node_output(T1)), t1_in
+                ir.convenience.replace_all_uses_with(
+                    _node_output(T1), t1_in, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or t1_in
             else:
                 new_src = t1_in
             old_out = _node_output(T2)
-            _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
-            _replace_everywhere(nodes, old_out, _v_name(old_out), new_src)
+            assert old_out is not None
+            ir.convenience.replace_all_uses_with(
+                old_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, T2])
             changed = True
             break
@@ -868,17 +639,17 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                     _shape_tuple(dst),
                 )
             if allowed_fwd:
-                first_allowed = allowed_fwd[0]
                 last_allowed = allowed_fwd[-1]
-                _replace_everywhere(
-                    [first_allowed], _node_output(T1), _v_name(_node_output(T1)), src
+                ir.convenience.replace_all_uses_with(
+                    _node_output(T1), src, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
             old_out = _node_output(T2)
-            _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
-            _replace_everywhere(nodes, old_out, _v_name(old_out), new_src)
+            ir.convenience.replace_all_uses_with(
+                old_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, T2])
             changed = True
             break
@@ -936,8 +707,9 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             dst_dims = _value_dims(dst_val)
             if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
                 continue
-            _replace_in_graph_outputs(graph, dst_val, _v_name(dst_val), data_val)
-            _replace_everywhere(nodes, dst_val, _v_name(dst_val), data_val)
+            ir.convenience.replace_all_uses_with(
+                dst_val, data_val, replace_graph_outputs=True
+            )
             graph.remove(node)
             changed = True
             break
@@ -1373,11 +1145,8 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     ins_new = list(ins)
                     ins_new[2] = rep_val
                     old_not_out = _node_output(producer)
-                    _replace_in_graph_outputs(
-                        graph, old_not_out, _v_name(old_not_out), rep_val
-                    )
-                    _replace_everywhere(
-                        nodes, old_not_out, _v_name(old_not_out), rep_val
+                    ir.convenience.replace_all_uses_with(
+                        old_not_out, rep_val, replace_graph_outputs=True
                     )
                     _set_node_inputs(n, ins_new)
                     changed = True
@@ -1433,34 +1202,7 @@ def remove_dead_nodes_ir(model: ir.Model) -> None:
     common_passes.RemoveUnusedNodesPass()(model)
 
 
-def ensure_unique_value_names_ir(graph: ir.Graph) -> None:
-
-
-
 # ---------------- Prune unused graph inputs (top graph only) ----------------
-
-
-def _attr_kind(attr: Optional[ir.Attr]) -> Optional[str]:
-    if attr is None:
-        return None
-    if not isinstance(attr, ir.Attr):
-        return None
-
-    atype = attr.type
-    if isinstance(atype, IRAttrType):
-        return str(atype.name)
-    if isinstance(atype, str):
-        return atype.upper()
-    return None
-
-
-def _iter_node_attrs(node: ir.Node) -> Iterable[ir.Attr]:
-    attrs = node.attributes
-    if isinstance(attrs, Mapping):
-        return [attr for attr in attrs.values() if isinstance(attr, ir.Attr)]
-    if isinstance(attrs, Sequence):
-        return [attr for attr in attrs if isinstance(attr, ir.Attr)]
-    return []
 
 
 def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
@@ -1507,230 +1249,6 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
-# ---------------- CSE ----------------
-
-
-def _is_non_deterministic_op(node: ir.Node) -> bool:
-    non_deterministic_ops = {
-        "RandomUniform",
-        "RandomNormal",
-        "RandomUniformLike",
-        "RandomNormalLike",
-        "Multinomial",
-    }
-    return node.op_type in non_deterministic_ops and (
-        not node.domain or node.domain == "ai.onnx"
-    )
-
-
-def remove_common_subexpressions_ir(graph: ir.Graph) -> None:
-    """
-    Eliminate common subexpressions (duplicate nodes) in the graph.
-    Nodes are considered identical if they have:
-    - Same op_type and domain
-    - Same inputs (by value identity)
-    - Same attributes (by value)
-    """
-    # Map signature -> Node
-    # signature: (op_type, domain, num_outputs, input_ids_tuple, attr_tuple)
-    seen_nodes: Dict[
-        Tuple[str, str, int, Tuple[int, ...], Tuple[Tuple[str, Any], ...]], ir.Node
-    ] = {}
-
-    nodes = list(graph)
-    if not nodes:
-        return
-
-    for node in nodes:
-        if _is_non_deterministic_op(node):
-            continue
-
-        # Skip control flow for now (has graph attributes)
-        has_graph_attr = False
-        attrs_list: List[Tuple[str, Any]] = []
-
-        # ir.Node.attributes is _graph_containers.Attributes which is a MutableMapping
-        if not isinstance(node, ir.Node):
-            continue
-
-        for name, attr in sorted(node.attributes.items()):
-            if not isinstance(attr, ir.Attr):
-                # Should not happen in valid IR, but safe to skip or just include value?
-                # If it's not an Attr, we can't efficiently check type.
-                # Assuming all values in attributes are Attr objects.
-                # But sticking to strong typing:
-                continue
-
-            if attr.type in (IRAttrType.GRAPH, IRAttrType.GRAPHS):
-                has_graph_attr = True
-                break
-
-            val_to_hash = attr.value
-
-            # Skip large tensors (heuristic)
-            if isinstance(val_to_hash, ir.TensorProtocol) and val_to_hash.size > 100:
-                # Skip large constant folding for CSE to avoid overhead?
-                pass
-
-            # We need a hashable representation.
-            val_hashable: Any
-            if isinstance(val_to_hash, (list, tuple)):
-                val_hashable = tuple(val_to_hash)
-            elif isinstance(val_to_hash, np.ndarray):
-                val_hashable = (
-                    val_to_hash.shape,
-                    str(val_to_hash.dtype),
-                    val_to_hash.tobytes(),
-                )
-            elif isinstance(val_to_hash, ir.TensorProtocol):  # tensor
-                try:
-                    arr = val_to_hash.numpy()
-                    val_hashable = (arr.shape, str(arr.dtype), arr.tobytes())
-                except Exception:
-                    # If we can't hash it, we can't CSE it safely
-                    has_graph_attr = True  # Treat as 'skip'
-                    break
-            else:
-                val_hashable = val_to_hash
-
-            # Attributes are name-value pairs
-            attrs_list.append((name, val_hashable))
-
-        if has_graph_attr:
-            continue
-
-        # Build signature
-        inputs = _node_inputs(node)
-        input_ids = tuple(id(v) for v in inputs)
-
-        sig = (
-            node.op_type,
-            node.domain or "",
-            len(_node_outputs(node)),
-            input_ids,
-            tuple(attrs_list),
-        )
-
-        if sig in seen_nodes:
-            # Match found!
-            existing = seen_nodes[sig]
-
-            # Replace all outputs of 'node' with outputs of 'existing'
-            outs_existing = _node_outputs(existing)
-            outs_node = _node_outputs(node)
-
-            if len(outs_existing) != len(outs_node):
-                continue
-
-            # Perform replacement
-            for old_out, new_out in zip(outs_node, outs_existing):
-                # Use our safe replacement ordering!
-                _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_out)
-                _replace_everywhere(nodes, old_out, _v_name(old_out), new_out)
-
-            # Remove the node
-            graph.remove(node)
-        else:
-            seen_nodes[sig] = node
-
-
-# ---------------- Constant Lifting ----------------
-
-
-def lift_constants_to_initializers_ir(graph: ir.Graph) -> None:
-    """
-    Lift Constant nodes into graph Initializers.
-    This simplifies the graph structure by removing nodes that just produce static data.
-    """
-    nodes = list(graph)
-    if not nodes:
-        return
-
-    for node in nodes:
-        if node.op_type != "Constant":
-            continue
-
-        if not isinstance(node, ir.Node):
-            continue
-
-        out_val = _node_output(node)
-        if out_val is None:
-            continue
-
-        if out_val.is_graph_output():
-            continue
-
-        tensor: Optional[ir.TensorProtocol] = None
-
-        # Check standard attributes in order of precedence/likelihood
-        attrs = node.attributes
-
-        # 1. TENSOR value
-        if "value" in attrs:
-            attr = attrs["value"]
-            if isinstance(attr, ir.Attr) and attr.type == IRAttrType.TENSOR:
-                if isinstance(attr.value, ir.TensorProtocol):
-                    tensor = attr.value
-
-        # 2. Scalar Float
-        elif "value_float" in attrs:
-            attr = attrs["value_float"]
-            if isinstance(attr, ir.Attr) and attr.type == IRAttrType.FLOAT:
-                # attr.value is standard float
-                if isinstance(attr.value, float):
-                    tensor = ir.tensor(attr.value, dtype=ir.DataType.FLOAT)
-
-        # 3. Scalar Int
-        elif "value_int" in attrs:
-            attr = attrs["value_int"]
-            if isinstance(attr, ir.Attr) and attr.type == IRAttrType.INT:
-                # attr.value is standard int
-                if isinstance(attr.value, int):
-                    tensor = ir.tensor(attr.value, dtype=ir.DataType.INT64)
-
-        # 4. Floats (1D)
-        elif "value_floats" in attrs:
-            attr = attrs["value_floats"]
-            if isinstance(attr, ir.Attr) and attr.type == IRAttrType.FLOATS:
-                if isinstance(
-                    attr.value, tuple
-                ):  # verified as tuple of floats in Attr.__init__
-                    tensor = ir.tensor(attr.value, dtype=ir.DataType.FLOAT)
-
-        # 5. Ints (1D)
-        elif "value_ints" in attrs:
-            attr = attrs["value_ints"]
-            if isinstance(attr, ir.Attr) and attr.type == IRAttrType.INTS:
-                if isinstance(attr.value, tuple):  # tuple of ints
-                    tensor = ir.tensor(attr.value, dtype=ir.DataType.INT64)
-
-        if tensor is None:
-            continue
-
-        # Create a new Initializer Value
-        # We need to preserve the name for the downstream users.
-        name = out_val.name
-
-        # New initializer value
-        # Note: In onnx-ir, we can have a value that is just an initializer.
-        init_val = ir.Value(
-            name=name,
-            type=ir.TensorType(tensor.dtype),
-            shape=ir.Shape(tensor.shape),
-            const_value=tensor,
-        )
-
-        # Register it
-        graph.register_initializer(init_val)
-
-        # Replace uses
-        # However, out_val MUST NOT be a graph output for this pass (checked above).
-        ir_convenience.replace_all_uses_with(out_val, init_val)
-
-        # Remove the node
-        graph.remove(node)
-
-
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
     # Top graph
@@ -1764,7 +1282,6 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         for fn in values:
             fgr = fn.graph
             try:
-                ensure_unique_value_names_ir(fgr)
                 remove_redundant_casts_ir(fgr)
                 remove_redundant_transpose_pairs_ir(fgr)
                 remove_redundant_reshape_pairs_ir(fgr)
@@ -1773,7 +1290,6 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
                 inline_dropout_training_mode_constants_ir(fgr)
                 propagate_unary_shapes_ir(fgr)
                 remove_redundant_casts_ir(fgr)
-                remove_dead_nodes_ir(fgr)
             except Exception as _fe:
                 _dbg("optimize_graph: function pass skipped:", _fe)
     except Exception as _e:
