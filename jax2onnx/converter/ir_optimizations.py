@@ -1255,7 +1255,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     remove_redundant_reshape_pairs_ir(gr)
     remove_identity_reshapes_ir(gr)
     common_passes.CommonSubexpressionEliminationPass()(ir_model)
-    common_passes.LiftConstantsToInitializersPass()(ir_model)
+    common_passes.LiftConstantsToInitializersPass(size_limit=0)(ir_model)
     rewrite_mul_rsqrt_as_div_ir(gr)
     inline_dropout_training_mode_constants_ir(gr)
     propagate_unary_shapes_ir(gr)

@@ -77,6 +77,7 @@ def test_literal_false_strings_roundtrip():
 
 # --------- Integration test for constant Not removal (current) ---------
 
+
 def build_graph_with_not_tm():
     # graph IO
     x = ir.val("x", ir.DataType.FLOAT, (3, 30))
@@ -346,12 +347,20 @@ def test_cse_simple():
         name="Relu2",
     )
 
+    node3 = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[out2],
+        outputs=[ir.val("out3", ir.DataType.FLOAT, (3, 4))],
+        name="Identity1",
+    )
+
     # Graph outputs BOTH
     graph = ir.Graph(
         name="cse_simple",
         inputs=[data],
-        outputs=[out1, out2],
-        nodes=[node1, node2],
+        outputs=[out1, node3.outputs[0]],
+        nodes=[node1, node2, node3],
     )
 
     model = ir.Model(graph=graph, ir_version=10)
@@ -359,13 +368,13 @@ def test_cse_simple():
 
     nodes = optimized.graph
     # Should be merged
-    assert len(nodes) == 1
+    assert len(nodes) == 2
     assert nodes[0].op_type == "Relu"
+    assert nodes[1].op_type == "Identity"
 
-    # They should be the same object because we replace graph outputs with the survivor
+    # ONNX graph outputs cannot share the same Value object, so both must remain
     outs = optimized.graph.outputs
     assert len(outs) == 2
-    assert outs[0] is outs[1]
 
 
 def test_lift_constants():
