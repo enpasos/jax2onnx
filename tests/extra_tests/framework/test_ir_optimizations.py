@@ -77,31 +77,26 @@ def test_literal_false_strings_roundtrip():
 
 # --------- Integration test for constant Not removal (current) ---------
 
-
-def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
-    return ir.Value(name=name, type=ir.TensorType(dtype), shape=ir.Shape(shape))
-
-
 def build_graph_with_not_tm():
     # graph IO
-    x = V_ir("x", ir.DataType.FLOAT, (3, 30))
-    ratio = V_ir("ratio", ir.DataType.FLOAT, ())
-    y = V_ir("y", ir.DataType.FLOAT, (3, 10))
+    x = ir.val("x", ir.DataType.FLOAT, (3, 30))
+    ratio = ir.val("ratio", ir.DataType.FLOAT, ())
+    y = ir.val("y", ir.DataType.FLOAT, (3, 10))
 
     # keep a dangling graph input 'deterministic' so prune pass can remove it
-    det = V_ir("deterministic", ir.DataType.BOOL, ())
+    det = ir.val("deterministic", ir.DataType.BOOL, ())
 
     # intermediates
-    a = V_ir("after_gemm", ir.DataType.FLOAT, (3, 20))
-    b = V_ir("after_bn", ir.DataType.FLOAT, (3, 20))
-    not_out = V_ir("not_out", ir.DataType.BOOL, ())
-    d_out = V_ir("drop_out", ir.DataType.FLOAT, (3, 20))
-    g_out = V_ir("gelu_out", ir.DataType.FLOAT, (3, 20))
+    a = ir.val("after_gemm", ir.DataType.FLOAT, (3, 20))
+    b = ir.val("after_bn", ir.DataType.FLOAT, (3, 20))
+    not_out = ir.val("not_out", ir.DataType.BOOL, ())
+    d_out = ir.val("drop_out", ir.DataType.FLOAT, (3, 20))
+    g_out = ir.val("gelu_out", ir.DataType.FLOAT, (3, 20))
 
     # Constant True for training-mode corridor, so Not(True) → can be inlined.
     # Make the scalar readable in a build-agnostic way: attach it directly to
     # the Value via `const_value`. The optimizer always checks this first.
-    const_true = V_ir("const_true", ir.DataType.BOOL, ())
+    const_true = ir.val("const_true", ir.DataType.BOOL, ())
     # Attach constant payload directly; skip tricky Attr/Attributes handling.
     const_true.const_value = ir.tensor(np.asarray(True, dtype=np.bool_))
     const_node = ir.Node(
@@ -144,23 +139,11 @@ def build_graph_with_not_tm():
     return m
 
 
-def _nodes(g):
-    return list(getattr(g, "nodes", getattr(g, "_nodes", [])))
-
-
-def _inputs(g):
-    arr = getattr(g, "inputs", None) or getattr(g, "input", None) or []
-    try:
-        return list(arr)
-    except Exception:
-        return []
-
-
 def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     m = build_graph_with_not_tm()
     m = optimize_graph(m)
     g = m.graph
-    nodes = _nodes(g)
+    nodes = list(g)
 
     # Not must be gone
     assert "Not" not in [n.op_type for n in nodes]
@@ -182,20 +165,20 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
-    in_names = {getattr(v, "name", "") for v in _inputs(g)}
+    in_names = {v.name for v in g.inputs}
     assert "deterministic" not in in_names
     assert "x" in in_names
     assert "ratio" in in_names
 
 
 def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
-    top_in = V_ir("in_0", ir.DataType.FLOAT, (2, 4))
-    det_top = V_ir("deterministic", ir.DataType.BOOL, ())
-    top_out = V_ir("out", ir.DataType.FLOAT, (2, 4))
+    top_in = ir.val("in_0", ir.DataType.FLOAT, (2, 4))
+    det_top = ir.val("deterministic", ir.DataType.BOOL, ())
+    top_out = ir.val("out", ir.DataType.FLOAT, (2, 4))
 
-    inner_data = V_ir("payload", ir.DataType.FLOAT, (2, 4))
-    inner_det = V_ir("deterministic", ir.DataType.BOOL, ())
-    inner_out = V_ir("inner_out", ir.DataType.FLOAT, (2, 4))
+    inner_data = ir.val("payload", ir.DataType.FLOAT, (2, 4))
+    inner_det = ir.val("deterministic", ir.DataType.BOOL, ())
+    inner_out = ir.val("inner_out", ir.DataType.FLOAT, (2, 4))
     inner_node = ir.Node(
         op_type="Identity",
         domain="",
@@ -229,7 +212,7 @@ def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
 
     model = ir.Model(graph=top_graph, ir_version=10)
     optimized = optimize_graph(model)
-    input_names = {getattr(v, "name", "") for v in _inputs(optimized.graph)}
+    input_names = {v.name for v in optimized.graph.inputs}
 
     assert "deterministic" not in input_names
     assert "in_0" in input_names
@@ -240,9 +223,9 @@ def _cast_attr(dtype: ir.DataType) -> ir.Attr:
 
 
 def build_graph_with_identity_cast(dtype: ir.DataType = ir.DataType.FLOAT):
-    x = V_ir("x", dtype, (2,))
-    cast_out = V_ir("x_cast", dtype, (2,))
-    relu_out = V_ir("y", dtype, (2,))
+    x = ir.val("x", dtype, (2,))
+    cast_out = ir.val("x_cast", dtype, (2,))
+    relu_out = ir.val("y", dtype, (2,))
 
     cast_node = ir.Node(
         op_type="Cast",
@@ -270,7 +253,7 @@ def test_identity_cast_removed_and_consumers_rewired():
     m = build_graph_with_identity_cast()
     m = optimize_graph(m)
     g = m.graph
-    nodes = _nodes(g)
+    nodes = list(g)
     assert [n.op_type for n in nodes] == ["Relu"]
     relu = nodes[0]
     relu_inputs = getattr(relu, "inputs", None) or getattr(relu, "input", [])
@@ -279,8 +262,8 @@ def test_identity_cast_removed_and_consumers_rewired():
 
 def test_identity_cast_removed_inside_function_body():
     inner_model = build_graph_with_identity_cast()
-    top_in = V_ir("top_in", ir.DataType.FLOAT, (2,))
-    top_out = V_ir("top_out", ir.DataType.FLOAT, (2,))
+    top_in = ir.val("top_in", ir.DataType.FLOAT, (2,))
+    top_out = ir.val("top_out", ir.DataType.FLOAT, (2,))
     passthrough = ir.Node(
         op_type="Identity",
         domain="",
@@ -292,55 +275,24 @@ def test_identity_cast_removed_inside_function_body():
         name="top", inputs=[top_in], outputs=[top_out], nodes=[passthrough]
     )
 
-    class Fn:
-        pass
+    fn = ir.Function(
+        domain="custom",
+        name="identity_cast",
+        graph=inner_model.graph,
+        attributes=(),
+    )
 
-    fn = Fn()
-    fn.domain = "custom"
-    fn.name = "identity_cast"
-    fn.graph = inner_model.graph
-
-    model = ir.Model(graph=top_graph, ir_version=10)
-    attached = False
-    cont = getattr(model, "functions", None)
-    try:
-        if isinstance(cont, list):
-            cont.append(fn)
-            attached = True
-        elif isinstance(cont, dict):
-            cont[(fn.domain, fn.name, "")] = fn
-            attached = True
-    except Exception:
-        attached = False
-    if not attached:
-        try:
-            existing = getattr(model, "_functions", None)
-            if isinstance(existing, list):
-                existing.append(fn)
-            else:
-                setattr(model, "_functions", [fn])
-            attached = True
-        except Exception:
-            attached = False
-    assert attached, "Could not attach function to test model"
+    model = ir.Model(graph=top_graph, ir_version=10, functions=[fn])
     model.opset_imports[""] = 21
 
     optimized = optimize_graph(model)
-    funcs = getattr(optimized, "functions", None) or getattr(
-        optimized, "_functions", None
-    )
-    if isinstance(funcs, dict):
-        fn_graph = next(iter(funcs.values())).graph
-    elif isinstance(funcs, list):
-        fn_graph = funcs[0].graph
-    else:
-        raise AssertionError("optimized model has no function registry")
-    fn_nodes = _nodes(fn_graph)
-    assert [n.op_type for n in fn_nodes] == ["Relu"]
+    assert [n.op_type for n in optimized.functions["custom", "identity_cast", ""]] == [
+        "Relu"
+    ]
 
 
 def test_identity_reshape_removed_when_target_matches_source():
-    data = V_ir("in", ir.DataType.FLOAT, (3, 4))
+    data = ir.val("in", ir.DataType.FLOAT, (3, 4))
     shape_tensor = ir.tensor(np.asarray([3, 4], dtype=np.int64))
     shape_val = ir.Value(
         name="shape",
@@ -348,7 +300,7 @@ def test_identity_reshape_removed_when_target_matches_source():
         shape=ir.Shape((2,)),
         const_value=shape_tensor,
     )
-    out_val = V_ir("out", ir.DataType.FLOAT, (3, 4))
+    out_val = ir.val("out", ir.DataType.FLOAT, (3, 4))
     reshape = ir.Node(
         op_type="Reshape",
         domain="",
@@ -365,17 +317,17 @@ def test_identity_reshape_removed_when_target_matches_source():
     )
     model = ir.Model(graph=graph, ir_version=10)
     optimized = optimize_graph(model)
-    nodes = _nodes(optimized.graph)
+    nodes = optimized.graph
     assert all(n.op_type != "Reshape" for n in nodes)
-    out_names = {getattr(v, "name", "") for v in optimized.graph.outputs}
+    out_names = {v.name for v in optimized.graph.outputs}
     assert "in" in out_names
 
 
 def test_cse_simple():
-    data = V_ir("in", ir.DataType.FLOAT, (3, 4))
+    data = ir.val("in", ir.DataType.FLOAT, (3, 4))
 
     # Branch 1
-    out1 = V_ir("out1", ir.DataType.FLOAT, (3, 4))
+    out1 = ir.val("out1", ir.DataType.FLOAT, (3, 4))
     node1 = ir.Node(
         op_type="Relu",
         domain="",
@@ -385,7 +337,7 @@ def test_cse_simple():
     )
 
     # Branch 2 (identical to Branch 1)
-    out2 = V_ir("out2", ir.DataType.FLOAT, (3, 4))
+    out2 = ir.val("out2", ir.DataType.FLOAT, (3, 4))
     node2 = ir.Node(
         op_type="Relu",
         domain="",
@@ -405,7 +357,7 @@ def test_cse_simple():
     model = ir.Model(graph=graph, ir_version=10)
     optimized = optimize_graph(model)
 
-    nodes = _nodes(optimized.graph)
+    nodes = optimized.graph
     # Should be merged
     assert len(nodes) == 1
     assert nodes[0].op_type == "Relu"
@@ -418,7 +370,7 @@ def test_cse_simple():
 
 def test_lift_constants():
     # Make a graph with a Constant node in the body
-    out_const = V_ir("const_out", ir.DataType.FLOAT, (2,))
+    out_const = ir.val("const_out", ir.DataType.FLOAT, (2,))
     const_node = ir.Node(
         op_type="Constant",
         domain="",
@@ -434,7 +386,7 @@ def test_lift_constants():
         },
     )
 
-    out_identity = V_ir("out", ir.DataType.FLOAT, (2,))
+    out_identity = ir.val("out", ir.DataType.FLOAT, (2,))
     id_node = ir.Node(
         op_type="Identity",
         domain="",
@@ -457,7 +409,7 @@ def test_lift_constants():
     optimized = optimize_graph(model)
 
     # Check after: Constant node gone, Identity inputs point to initializer
-    nodes = _nodes(optimized.graph)
+    nodes = optimized.graph
     assert len(nodes) == 1
     assert nodes[0].op_type == "Identity"
 
