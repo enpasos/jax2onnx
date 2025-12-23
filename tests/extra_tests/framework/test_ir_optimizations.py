@@ -153,16 +153,13 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     drops = [n for n in nodes if n.op_type == "Dropout"]
     assert len(drops) == 1
     d = drops[0]
-    # read inputs from either .inputs or .input
-    ins = getattr(d, "inputs", None)
-    if ins is None:
-        ins = getattr(d, "input", [])
+    ins = d.inputs
     # If .input stores names instead of Values, normalize to names only
     if ins and isinstance(ins[0], str):
         third_name = ins[2]
     else:
         third = ins[2]
-        third_name = getattr(third, "name", "")
+        third_name = third.name
     assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
@@ -257,8 +254,8 @@ def test_identity_cast_removed_and_consumers_rewired():
     nodes = list(g)
     assert [n.op_type for n in nodes] == ["Relu"]
     relu = nodes[0]
-    relu_inputs = getattr(relu, "inputs", None) or getattr(relu, "input", [])
-    assert relu_inputs and getattr(relu_inputs[0], "name", relu_inputs[0]) == "x"
+
+    assert relu.inputs[0].name == "x"
 
 
 def test_identity_cast_removed_inside_function_body():
