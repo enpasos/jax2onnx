@@ -9,7 +9,6 @@ from typing import (
     Optional,
     Tuple,
     Set,
-    Iterable,
     Any,
     TypeAlias,
     cast,
@@ -328,10 +327,7 @@ def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     np_arr = np.asarray(arr)
     if np_arr.dtype is None or np_arr.dtype.kind not in {"i"}:
         return None
-    try:
-        return tuple(int(x) for x in np_arr.reshape(-1).tolist())
-    except Exception:
-        return None
+    return tuple(int(x) for x in np_arr.reshape(-1).tolist())
 
 
 def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
@@ -1252,47 +1248,33 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
     # Top graph
-    try:
-        gr = ir_model.graph
-        common_passes.NameFixPass()(ir_model)
-        remove_redundant_casts_ir(gr)
-        remove_redundant_transpose_pairs_ir(gr)
-        remove_redundant_reshape_pairs_ir(gr)
-        remove_identity_reshapes_ir(gr)
-        common_passes.CommonSubexpressionEliminationPass()(ir_model)
-        common_passes.LiftConstantsToInitializersPass()(ir_model)
-        rewrite_mul_rsqrt_as_div_ir(gr)
-        inline_dropout_training_mode_constants_ir(gr)
-        propagate_unary_shapes_ir(gr)
-        remove_redundant_casts_ir(gr)
-        remove_dead_nodes_ir(ir_model)
-        prune_unused_graph_inputs_ir(gr)
-    except Exception as _e:
-        _dbg("optimize_graph: top-graph pass skipped:", _e)
+    gr = ir_model.graph
+    common_passes.NameFixPass()(ir_model)
+    remove_redundant_casts_ir(gr)
+    remove_redundant_transpose_pairs_ir(gr)
+    remove_redundant_reshape_pairs_ir(gr)
+    remove_identity_reshapes_ir(gr)
+    common_passes.CommonSubexpressionEliminationPass()(ir_model)
+    common_passes.LiftConstantsToInitializersPass()(ir_model)
+    rewrite_mul_rsqrt_as_div_ir(gr)
+    inline_dropout_training_mode_constants_ir(gr)
+    propagate_unary_shapes_ir(gr)
+    remove_redundant_casts_ir(gr)
+    remove_dead_nodes_ir(ir_model)
+    prune_unused_graph_inputs_ir(gr)
+
+    # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
-    try:
-        funcs_container = ir_model.functions
-        if isinstance(funcs_container, dict):
-            values: Iterable[Any] = funcs_container.values()
-        elif funcs_container is None:
-            values = ()
-        else:
-            values = funcs_container
-        for fn in values:
-            fgr = fn.graph
-            try:
-                remove_redundant_casts_ir(fgr)
-                remove_redundant_transpose_pairs_ir(fgr)
-                remove_redundant_reshape_pairs_ir(fgr)
-                remove_identity_reshapes_ir(fgr)
-                rewrite_mul_rsqrt_as_div_ir(fgr)
-                inline_dropout_training_mode_constants_ir(fgr)
-                propagate_unary_shapes_ir(fgr)
-                remove_redundant_casts_ir(fgr)
-            except Exception as _fe:
-                _dbg("optimize_graph: function pass skipped:", _fe)
-    except Exception as _e:
-        _dbg("optimize_graph: functions traversal skipped:", _e)
+    for fn in ir_model.functions.values():
+        fgr = fn.graph
+        remove_redundant_casts_ir(fgr)
+        remove_redundant_transpose_pairs_ir(fgr)
+        remove_redundant_reshape_pairs_ir(fgr)
+        remove_identity_reshapes_ir(fgr)
+        rewrite_mul_rsqrt_as_div_ir(fgr)
+        inline_dropout_training_mode_constants_ir(fgr)
+        propagate_unary_shapes_ir(fgr)
+        remove_redundant_casts_ir(fgr)
 
     return ir_model
