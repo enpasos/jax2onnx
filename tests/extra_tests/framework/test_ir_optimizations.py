@@ -372,6 +372,7 @@ def test_cse_simple():
     # ONNX graph outputs cannot share the same Value object, so both must remain
     outs = optimized.graph.outputs
     assert len(outs) == 2
+    assert outs[0] is not outs[1]
 
 
 def test_lift_constants():
