@@ -21,7 +21,8 @@ import numpy as np
 
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
-from onnx_ir import convenience as ir_convenience
+from onnx_ir.passes import common as common_passes
+
 
 # ---------------- Config ----------------
 
@@ -100,13 +101,6 @@ def _dbg_tm(*a: object) -> None:
 # ---------------- Public helper shims (restored for unit tests) ----------------
 
 
-def _is_elem(op_type: str) -> bool:
-    """
-    Return True if op_type is a benign elementwise op (case-insensitive).
-    """
-    return op_type.lower() in ALLOWED_ELEMENTWISE_OPS
-
-
 def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     """
     Return the Transpose 'perm' attribute as a list of ints, or None.
@@ -123,22 +117,6 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
 
     # Fallback: attribute not found or not an Attr object
     return None
-
-
-def _perms_compose_identity(p1: Sequence[int], p2: Sequence[int]) -> bool:
-    """
-    Return True if composing p1 after p2 yields identity.
-    (i.e., composed[i] = p1[p2[i]] equals range(len(p1)))
-    """
-    if not (isinstance(p1, list) and isinstance(p2, list)):
-        return False
-    if len(p1) != len(p2):
-        return False
-    try:
-        composed = [p1[p] for p in p2]
-        return composed == list(range(len(p1)))
-    except Exception:
-        return False
 
 
 def _value_identity(
@@ -180,64 +158,6 @@ def _has_input_name_or_obj(
             if ivn == target_name:
                 return True
     return False
-
-
-def _count_consumers(
-    nodes: Sequence[ir.Node], name: Optional[str], obj: Optional[ir.Value]
-) -> int:
-    """
-    Count how many nodes consume the given value (by name or object).
-    """
-    if isinstance(obj, ir.Value):
-        consumers = obj.consumers()
-        if consumers:
-            return len(consumers)
-    count = 0
-    for node in nodes:
-        if _has_input_name_or_obj(node, name, obj):
-            count += 1
-    return count
-
-
-def _find_next_consumer_idx(
-    nodes: Sequence[ir.Node],
-    start_idx: int,
-    name: Optional[str],
-    obj: Optional[ir.Value],
-) -> Optional[int]:
-    """
-    Find the index of the next node (after start_idx) that consumes the given
-    value (by name or object). Return None if not found.
-    """
-    if isinstance(obj, ir.Value):
-        consumers = obj.consumers()
-        if consumers:
-            # Note: consumers() returns a set/list of nodes.
-            # We need to find their index in the 'nodes' list.
-            # This logic assumes 'nodes' contains all nodes in the graph in order.
-            node_index = {node: idx for idx, node in enumerate(nodes)}
-            valid_indices = []
-            for consumer in consumers:
-                if consumer in node_index:
-                    valid_indices.append(node_index[consumer])
-
-            # Find first valid index > start_idx
-            valid_indices.sort()
-            for idx in valid_indices:
-                if idx > start_idx:
-                    return idx
-            # If explicit consumers found but none after start_idx, return None?
-            # Or fallout to name scan?
-            # Reference implementation fell back only if consumers() was empty?
-            # "if consumers: ... return idx"
-            # It returned inside the loop. My logic:
-            # If consumers exist, we TRUST it.
-            pass
-
-    for idx in range(start_idx + 1, len(nodes)):
-        if _has_input_name_or_obj(nodes[idx], name, obj):
-            return idx
-    return None
 
 
 def _consumer_nodes(
@@ -365,7 +285,7 @@ def _shape_dims_seq(
         return None
     if isinstance(shape, ir.Shape):
         return tuple(shape.dims)
-    if isinstance(shape, SequenceABC) and not isinstance(shape, (str, bytes)):
+    if isinstance(shape, Sequence) and not isinstance(shape, (str, bytes)):
         return tuple(shape)
     return None
 
@@ -404,28 +324,29 @@ def _shape_dims_key(
 def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     if not isinstance(val, ir.Value):
         return None
-    arr = _to_numpy_from_any(getattr(val, "const_value", None))
+    arr = _to_numpy_from_any(val.const_value)
     if arr is None:
         return None
     np_arr = np.asarray(arr)
     if np_arr.dtype is None or np_arr.dtype.kind not in {"i"}:
         return None
-    try:
-        return tuple(int(x) for x in np_arr.reshape(-1).tolist())
-    except Exception:
-        return None
+    return tuple(int(x) for x in np_arr.reshape(-1).tolist())
 
 
 def _shapes_compatible(a: Optional[ir.Value], b: Optional[ir.Value]) -> bool:
-    ta, tb = _shape_tuple(a), _shape_tuple(b)
-    if ta is None or tb is None or len(ta) != len(tb):
-        return False
-    for da, db in zip(ta, tb):
-        if da == -1 or db == -1:
-            continue
-        if da != db:
+    try:
+        da = _shape_dims_seq(a.shape) if a else None
+        db = _shape_dims_seq(b.shape) if b else None
+        if da is None or db is None:
             return False
-    return True
+        if len(da) != len(db):
+            return False
+        for x, y in zip(da, db):
+            if isinstance(x, int) and isinstance(y, int) and x != y:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def _replace_everywhere(
@@ -452,7 +373,7 @@ def _replace_everywhere(
       string in the input list.
     """
     if old_v is not None:
-        ir_convenience.replace_all_uses_with(
+        ir.convenience.replace_all_uses_with(
             old_v,
             new_v,
         )
@@ -889,6 +810,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             else:
                 new_src = t1_in
             old_out = _node_output(T2)
+            assert old_out is not None
             _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_src)
             _replace_everywhere(nodes, old_out, _v_name(old_out), new_src)
             graph.remove([T1, T2])
@@ -991,7 +913,7 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
     def _value_dims(val: Optional[ir.Value]) -> Optional[Tuple[object, ...]]:
         if val is None:
             return None
-        return _shape_dims_seq(getattr(val, "shape", None))
+        return _shape_dims_seq(val.shape)
 
     changed = True
     while changed:
@@ -1607,7 +1529,7 @@ def ensure_unique_value_names_ir(graph: ir.Graph) -> None:
         if vid in visited:
             return
         visited.add(vid)
-        current = getattr(value, "name", None)
+        current = value.name
         if not current:
             return
         fresh = _next_unique(current)
@@ -1729,130 +1651,6 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------- CSE ----------------
 
 
-def _is_non_deterministic_op(node: ir.Node) -> bool:
-    non_deterministic_ops = {
-        "RandomUniform",
-        "RandomNormal",
-        "RandomUniformLike",
-        "RandomNormalLike",
-        "Multinomial",
-    }
-    return node.op_type in non_deterministic_ops and (
-        not node.domain or node.domain == "ai.onnx"
-    )
-
-
-def remove_common_subexpressions_ir(graph: ir.Graph) -> None:
-    """
-    Eliminate common subexpressions (duplicate nodes) in the graph.
-    Nodes are considered identical if they have:
-    - Same op_type and domain
-    - Same inputs (by value identity)
-    - Same attributes (by value)
-    """
-    # Map signature -> Node
-    # signature: (op_type, domain, num_outputs, input_ids_tuple, attr_tuple)
-    seen_nodes: Dict[
-        Tuple[str, str, int, Tuple[int, ...], Tuple[Tuple[str, Any], ...]], ir.Node
-    ] = {}
-
-    nodes = list(graph)
-    if not nodes:
-        return
-
-    for node in nodes:
-        if _is_non_deterministic_op(node):
-            continue
-
-        # Skip control flow for now (has graph attributes)
-        has_graph_attr = False
-        attrs_list: List[Tuple[str, Any]] = []
-
-        # ir.Node.attributes is _graph_containers.Attributes which is a MutableMapping
-        if not isinstance(node, ir.Node):
-            continue
-
-        for name, attr in sorted(node.attributes.items()):
-            if not isinstance(attr, ir.Attr):
-                # Should not happen in valid IR, but safe to skip or just include value?
-                # If it's not an Attr, we can't efficiently check type.
-                # Assuming all values in attributes are Attr objects.
-                # But sticking to strong typing:
-                continue
-
-            if attr.type in (IRAttrType.GRAPH, IRAttrType.GRAPHS):
-                has_graph_attr = True
-                break
-
-            val_to_hash = attr.value
-
-            # Skip large tensors (heuristic)
-            if isinstance(val_to_hash, ir.TensorProtocol) and val_to_hash.size > 100:
-                # Skip large constant folding for CSE to avoid overhead?
-                pass
-
-            # We need a hashable representation.
-            val_hashable: Any
-            if isinstance(val_to_hash, (list, tuple)):
-                val_hashable = tuple(val_to_hash)
-            elif isinstance(val_to_hash, np.ndarray):
-                val_hashable = (
-                    val_to_hash.shape,
-                    str(val_to_hash.dtype),
-                    val_to_hash.tobytes(),
-                )
-            elif isinstance(val_to_hash, ir.TensorProtocol):  # tensor
-                try:
-                    arr = val_to_hash.numpy()
-                    val_hashable = (arr.shape, str(arr.dtype), arr.tobytes())
-                except Exception:
-                    # If we can't hash it, we can't CSE it safely
-                    has_graph_attr = True  # Treat as 'skip'
-                    break
-            else:
-                val_hashable = val_to_hash
-
-            # Attributes are name-value pairs
-            attrs_list.append((name, val_hashable))
-
-        if has_graph_attr:
-            continue
-
-        # Build signature
-        inputs = _node_inputs(node)
-        input_ids = tuple(id(v) for v in inputs)
-
-        sig = (
-            node.op_type,
-            node.domain or "",
-            len(_node_outputs(node)),
-            input_ids,
-            tuple(attrs_list),
-        )
-
-        if sig in seen_nodes:
-            # Match found!
-            existing = seen_nodes[sig]
-
-            # Replace all outputs of 'node' with outputs of 'existing'
-            outs_existing = _node_outputs(existing)
-            outs_node = _node_outputs(node)
-
-            if len(outs_existing) != len(outs_node):
-                continue
-
-            # Perform replacement
-            for old_out, new_out in zip(outs_node, outs_existing):
-                # Use our safe replacement ordering!
-                _replace_in_graph_outputs(graph, old_out, _v_name(old_out), new_out)
-                _replace_everywhere(nodes, old_out, _v_name(old_out), new_out)
-
-            # Remove the node
-            graph.remove(node)
-        else:
-            seen_nodes[sig] = node
-
-
 # ---------------- Constant Lifting ----------------
 
 
@@ -1944,7 +1742,7 @@ def lift_constants_to_initializers_ir(graph: ir.Graph) -> None:
 
         # Replace uses
         # However, out_val MUST NOT be a graph output for this pass (checked above).
-        ir_convenience.replace_all_uses_with(out_val, init_val)
+        ir.convenience.replace_all_uses_with(out_val, init_val)
 
         # Remove the node
         graph.remove(node)
@@ -1960,7 +1758,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         remove_redundant_transpose_pairs_ir(gr)
         remove_redundant_reshape_pairs_ir(gr)
         remove_identity_reshapes_ir(gr)
-        remove_common_subexpressions_ir(gr)
+        common_passes.CommonSubexpressionEliminationPass()(ir_model)
         lift_constants_to_initializers_ir(gr)
         rewrite_mul_rsqrt_as_div_ir(gr)
         inline_dropout_training_mode_constants_ir(gr)
@@ -1991,8 +1789,8 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
                 rewrite_mul_rsqrt_as_div_ir(fgr)
                 inline_dropout_training_mode_constants_ir(fgr)
                 propagate_unary_shapes_ir(fgr)
-                remove_redundant_casts_ir(fgr)
                 remove_dead_nodes_ir(fgr)
+                remove_redundant_casts_ir(fgr)
             except Exception as _fe:
                 _dbg("optimize_graph: function pass skipped:", _fe)
     except Exception as _e:

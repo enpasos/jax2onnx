@@ -439,9 +439,16 @@ def to_onnx(
             plugin_identifier: Optional[str] = None
             plugin_line: Optional[str] = None
             if builder.stacktrace_metadata_enabled:
-                source_info = getattr(eqn, "source_info", None)
+                try:
+                    source_info = eqn.source_info
+                except AttributeError:
+                    source_info = None
+
                 if source_info is not None:
-                    tb = getattr(source_info, "traceback", None)
+                    try:
+                        tb = source_info.traceback
+                    except AttributeError:
+                        tb = None
                     if tb is not None:
                         try:
                             jax_trace = str(tb)
@@ -449,10 +456,15 @@ def to_onnx(
                             jax_trace = None
                 try:
                     if isinstance(plugin_ref, PrimitiveLowering):
-                        lower_fn = getattr(plugin_ref, "lower")
+                        lower_fn = plugin_ref.lower
+                        try:
+                            func_name = lower_fn.__name__
+                        except AttributeError:
+                            func_name = "lower"
+
                         plugin_identifier = (
                             f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
-                            f"{getattr(lower_fn, '__name__', 'lower')}"
+                            f"{func_name}"
                         )
                         try:
                             _, start_line = _ins.getsourcelines(lower_fn)
@@ -519,7 +531,11 @@ def to_onnx(
             if isinstance(functions_store, dict):
                 for fn_ir in ir_funcs:
                     identifier: object | None = None
-                    identifier_fn = getattr(fn_ir, "identifier", None)
+                    try:
+                        identifier_fn = fn_ir.identifier
+                    except AttributeError:
+                        identifier_fn = None
+
                     if callable(identifier_fn):
                         try:
                             identifier = identifier_fn()
