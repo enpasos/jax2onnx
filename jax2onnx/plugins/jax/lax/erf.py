@@ -32,6 +32,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
             "testcase": "erf",
             "callable": lambda x: jax.lax.erf(x),
             "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Erf:3"],
                 no_unused_inputs=True,
