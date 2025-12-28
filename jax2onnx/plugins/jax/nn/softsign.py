@@ -109,6 +109,18 @@ class SoftsignPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="soft_sign",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="soft_sign",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 

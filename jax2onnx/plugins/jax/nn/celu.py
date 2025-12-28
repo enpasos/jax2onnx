@@ -123,6 +123,18 @@ class CeluPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="celu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="celu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 
