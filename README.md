@@ -3,7 +3,7 @@
 [![CI](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml/badge.svg)](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/jax2onnx.svg)](https://pypi.org/project/jax2onnx/)
 
-`jax2onnx` converts your [JAX](https://docs.jax.dev/), [Flax NNX](https://flax.readthedocs.io/en/latest/), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
+`jax2onnx` converts your [JAX](https://docs.jax.dev/),  [Flax NNX](https://flax.readthedocs.io/en/latest/), [Flax Linen](https://flax.readthedocs.io/en/latest/api_reference/flax.linen.html), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
 ![jax2onnx.svg](https://enpasos.github.io/jax2onnx/readme/images/jax2onnx.svg)
@@ -155,8 +155,17 @@ to_onnx(
 
 ### **Planned**
 
-  * Expanding coverage of JAX, Flax NNX and Equinox components.
-  * Enhancing support for **physics-based simulations**
+  * Broaden coverage of JAX, Flax NNX/Linen, and Equinox components.
+  * Expand SotA example support for vision and language models.
+  * Improve support for **physics-based simulations**
+
+
+
+### **Upcoming Version**
+
+* **0.11.0**:
+  * Added Flax Linen support (Dense, Conv, BatchNorm, Dropout, GELU) plus Linen MLP example coverage.
+  * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
 
 
 ### **Current Productive Version**
