@@ -45,6 +45,28 @@ _GEMM_ONLY_COUNTS: Final[dict[str, int]] = {
     "Add": 0,  # Optimization should remove Add
 }
 
+_RGR_COUNTS: Final[dict[str, int]] = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 0,
+    "Slice": 0,
+    "Concat": 0,
+    "CastLike": 0,
+    "Transpose": 0,
+    "Add": 0,
+}
+
+_DYNAMIC_RGR_COUNTS: Final[dict[str, int]] = {
+    "Reshape": 2,
+    "Gemm": 1,
+    "Shape": 1,
+    "Slice": 1,
+    "Concat": 1,
+    "CastLike": 0,
+    "Transpose": 0,
+    "Add": 0,
+}
+
 
 def _linear_expect(
     path: str,
@@ -62,6 +84,23 @@ EXPECT_GEMM_ONLY: Final = _linear_expect(
     "Gemm:Bx64",
     symbols={"B": None},
     counts=_GEMM_ONLY_COUNTS,
+)
+
+EXPECT_RGR_STATIC_3: Final = _linear_expect(
+    "Reshape:30x128 -> Gemm:30x64 -> Reshape:3x10x64",
+    counts=_RGR_COUNTS,
+)
+
+EXPECT_RGR_STATIC_2: Final = _linear_expect(
+    "Reshape:20x128 -> Gemm:20x64 -> Reshape:2x10x64",
+    counts=_RGR_COUNTS,
+)
+
+EXPECT_DYNAMIC_RGR: Final = _linear_expect(
+    "Reshape:?x128 -> Gemm:?x64 -> Reshape:Bx10x64",
+    counts=_DYNAMIC_RGR_COUNTS,
+    symbols={"B": None},
+    extra_specs=("Shape -> Slice -> Concat -> Reshape",),
 )
 
 
@@ -130,6 +169,55 @@ def _linear_output_dims(
             "input_shapes": [("B", 32)],
             "expected_output_shapes": [("B", 64)],
             "post_check_onnx_graph": EXPECT_GEMM_ONLY,
+        },
+        {
+            "testcase": "dense_high_rank_dynamic",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.Dense,
+                input_shape=(1, 10, 128),
+                features=64,
+                dtype=with_requested_dtype(),
+                kernel_init=nn.initializers.ones,
+                bias_init=nn.initializers.zeros,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 10, 128)],
+            "expected_output_shapes": [("B", 10, 64)],
+            "run_only_dynamic": True,
+            "post_check_onnx_graph": EXPECT_DYNAMIC_RGR,
+        },
+        {
+            "testcase": "dense_high_rank_static",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.Dense,
+                input_shape=(3, 10, 128),
+                features=64,
+                dtype=with_requested_dtype(),
+                kernel_init=nn.initializers.ones,
+                bias_init=nn.initializers.zeros,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 10, 128)],
+            "expected_output_shapes": [(3, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_3,
+        },
+        {
+            "testcase": "dense_high_rank_no_bias",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.Dense,
+                input_shape=(2, 10, 128),
+                features=64,
+                use_bias=False,
+                dtype=with_requested_dtype(),
+                kernel_init=nn.initializers.ones,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 10, 128)],
+            "expected_output_shapes": [(2, 10, 64)],
+            "post_check_onnx_graph": EXPECT_RGR_STATIC_2,
         },
         {
             "testcase": "dense_no_bias",
