@@ -43,7 +43,7 @@ To produce a cleaner and more efficient ONNX model, we implemented a custom IR o
 -   **Fusion:**
     -   Extracts the bias constant.
     -   Modifies the `Gemm` node to accept this bias as its 3rd input (`C`).
-    -   **Important:** Explicitly removes the redundant `Add` node AND the peeling `Reshape` node to prevent disconnected nodes from lingering in the graph.
+    -   **Important:** Explicitly removes the redundant `Add` node AND the intermediate `Reshape` node to prevent disconnected nodes from lingering in the graph.
 -   **Result:** A single `Gemm(A, B, C)` node.
 
 **File:** `jax2onnx/converter/ir_optimizations.py`
@@ -67,7 +67,8 @@ def linen_to_nnx(module_cls, input_shape=(1, 32), dtype=jnp.float32, rngs=None, 
     module = module_cls(**kwargs)
     model = bridge.ToNNX(module, rngs=rngs)
     dummy_x = jnp.zeros(input_shape, dtype=dtype)
-    return model.lazy_init(dummy_x)
+    model.lazy_init(dummy_x)
+    return model
 ```
 
 ### Registration

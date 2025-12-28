@@ -1,7 +1,5 @@
 # jax2onnx/plugins/jax/lax/erf.py
 
-# jax2onnx/plugins/jax/lax/erf.py
-
 from typing import Any
 
 from jax import core
@@ -46,9 +44,9 @@ class ErfPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("erf_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("erf_out"))
+        out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("erf_out"))
 
-        result = ctx.builder.Erf(x_val, _outputs=[out_spec.name])
-        result.type = out_spec.type
-        result.shape = out_spec.shape
+        result = ctx.builder.Erf(x_val, _outputs=[out_val.name])
+        result.type = out_val.type
+        result.shape = out_val.shape
         ctx.bind_value_for_var(out_var, result)

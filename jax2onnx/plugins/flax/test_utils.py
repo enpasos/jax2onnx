@@ -25,7 +25,7 @@ def linen_to_nnx(
 ):
     """Wrap a Linen module as NNX and initialize it with a dummy input."""
     module = module_cls(**kwargs)
-    model = bridge.ToNNX(module, rngs=None)
+    model = bridge.ToNNX(module, rngs=rngs)
     dummy_x = jnp.zeros(input_shape, dtype=dtype)
     if isinstance(rngs, nnx.Rngs):
         # Avoid mutating NNX RNG state during JAX tracing by using a raw key.
@@ -34,7 +34,7 @@ def linen_to_nnx(
         elif "default" in rngs:
             rngs = rngs["default"].key.value
         else:
-            raise ValueError("NNX Rngs must define a 'params' or 'default' stream.")
+            raise ValueError("NNX RNGs must define a 'params' or 'default' stream.")
     if rngs is None:
         model.lazy_init(dummy_x)
         return model

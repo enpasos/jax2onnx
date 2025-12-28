@@ -64,8 +64,6 @@ EXPECT_GEMM_ONLY: Final = _linear_expect(
     counts=_GEMM_ONLY_COUNTS,
 )
 
-# ... (Include other expectation helpers if needed, starting with basic GEMM)
-
 
 def _linear_output_dims(
     x_val: ir.Value,
@@ -74,7 +72,9 @@ def _linear_output_dims(
     out_shape: tuple,
     fallback_last: int,
 ):
-    # ... (Same as before)
+    # Derive output dimension labels for a linear layer, preserving batch
+    # dimensions and using fallback_last as the final dimension when metadata
+    # is unavailable.
     out_rank = len(out_shape)
     batch_rank = max(len(x_shape) - 1, 0)
     if out_rank:
@@ -162,7 +162,6 @@ class DensePlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(out_shape, x.dtype)
 
     def lower(self, ctx: Any, eqn):
-        # ... (Existing logic)
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder")
@@ -358,7 +357,8 @@ class DensePlugin(PrimitiveLeafPlugin):
                     if bias is None and self.use_bias:
                         bias = jnp.zeros((self.features,), dtype=inputs.dtype)
                     elif not self.use_bias:
-                        bias = jnp.zeros((), dtype=inputs.dtype)
+                        # Use a consistently shaped fallback bias even when not applied.
+                        bias = jnp.zeros((self.features,), dtype=inputs.dtype)
 
                     dn = (((inputs.ndim - 1,), (0,)), ((), ()))
                     return prim.bind(
