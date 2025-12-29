@@ -11,7 +11,7 @@
 ## ✨ Key Features
 
 - **simple API**  
-  Easily convert JAX callables—including Flax NNX and Equinox models—into ONNX format using `to_onnx(...)`.
+  Easily convert JAX callables—including Flax NNX, Flax Linen and Equinox models—into ONNX format using `to_onnx(...)`.
 
 - **model structure preserved**  
   With `@onnx_function`, submodules appear as named functions in the ONNX graph (e.g. in Netron). Useful for readability and reuse.
