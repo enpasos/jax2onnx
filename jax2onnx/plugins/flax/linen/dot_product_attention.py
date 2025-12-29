@@ -46,12 +46,24 @@ def _masked_softmax(weights, mask_bool):
     jaxpr_primitive="linen.dot_product_attention_weights",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.dot_product_attention_weights",
     onnx=[
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
-        {"component": "ReduceSum", "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
+        {
+            "component": "ReduceSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
+        },
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
     since="v0.11.0",
@@ -184,11 +196,23 @@ class DotProductAttentionWeightsPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.dot_product_attention",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.dot_product_attention",
     onnx=[
-        {"component": "Transpose", "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html"},
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "Transpose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
+        },
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
-        {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
     ],
     since="v0.11.0",
     context="primitives.linen",
