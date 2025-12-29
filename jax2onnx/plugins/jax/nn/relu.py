@@ -113,6 +113,18 @@ class ReluPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 

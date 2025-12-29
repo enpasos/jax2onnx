@@ -4,6 +4,7 @@ data
 artifacts
 logs
 output
+**/checkpoints/
 .idea
 dist
 **/__pycache__/

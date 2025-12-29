@@ -109,6 +109,18 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="softplus",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="softplus",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 

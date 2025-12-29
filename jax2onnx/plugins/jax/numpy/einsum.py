@@ -194,7 +194,9 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
         precision: Any | None = None,
         optimize: Any | None = None,
         preferred_element_type: Any | None = None,
+        _dot_general: Any | None = None,
     ) -> core.ShapedArray:
+        del _dot_general
         shape, dtype = _einsum_shape(avals, equation)
         return core.ShapedArray(shape, dtype)
 
@@ -299,7 +301,12 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
     def binding_specs(cls):
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        allowed_kwargs = {"precision", "optimize", "preferred_element_type"}
+        allowed_kwargs = {
+            "precision",
+            "optimize",
+            "preferred_element_type",
+            "_dot_general",
+        }
 
         def _make_value(
             orig: Callable[..., jax.Array] | None,
@@ -349,6 +356,7 @@ def _einsum_impl(
     precision: Any | None = None,
     optimize: Any | None = None,
     preferred_element_type: Any | None = None,
+    _dot_general: Any | None = None,
 ) -> jax.Array:
     try:
         orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
@@ -361,6 +369,8 @@ def _einsum_impl(
         kwargs["optimize"] = optimize
     if preferred_element_type is not None:
         kwargs["preferred_element_type"] = preferred_element_type
+    if _dot_general is not None:
+        kwargs["_dot_general"] = _dot_general
     return orig(equation, *operands, **kwargs)
 
 

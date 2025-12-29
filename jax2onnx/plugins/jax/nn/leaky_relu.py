@@ -126,6 +126,18 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="leaky_relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="leaky_relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 

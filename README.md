@@ -3,7 +3,7 @@
 [![CI](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml/badge.svg)](https://github.com/enpasos/jax2onnx/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/jax2onnx.svg)](https://pypi.org/project/jax2onnx/)
 
-`jax2onnx` converts your [JAX](https://docs.jax.dev/), [Flax NNX](https://flax.readthedocs.io/en/latest/), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
+`jax2onnx` converts your [JAX](https://docs.jax.dev/),  [Flax NNX](https://flax.readthedocs.io/en/latest/), [Flax Linen](https://flax.readthedocs.io/en/latest/api_reference/flax.linen.html), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
 ![jax2onnx.svg](https://enpasos.github.io/jax2onnx/readme/images/jax2onnx.svg)
@@ -155,22 +155,20 @@ to_onnx(
 
 ### **Planned**
 
-  * Expanding coverage of JAX, Flax NNX and Equinox components.
-  * Enhancing support for **physics-based simulations**
+  * Broaden coverage of JAX, Flax NNX/Linen, and Equinox components.
+  * Expand SotA example support for vision and language models.
+  * Improve support for **physics-based simulations**
+
 
 
 ### **Current Productive Version**
 
-* **0.10.4** *(PyPI)*:
-
-  * Fix `vmap` batching for `jax.numpy.reshape`/`transpose` and several other `jax.numpy` primitives.
-  * Refactored IR optimizer to use `onnx-ir` public APIs (`value.consumers()`, `graph.remove()`) instead of internal helpers.
-  * Added Common Subexpression Elimination (CSE) and Constant Lifting passes to `ir_optimizations.py`.
-  * Added GitHub Actions CI workflow for automated testing.
+* **0.11.0**:
+  * Initial Flax Linen support: core layers (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm), Dropout, Einsum/Embed, spectral/weight norm wrappers, activation coverage (GELU plus glu/hard_*/log_*/relu6/silu-swish/tanh/normalize/one_hot), attention stack (dot_product_attention, dot_product_attention_weights, make_attention_mask/make_causal_mask, SelfAttention, MultiHeadDotProductAttention, MultiHeadAttention), recurrent stack (SimpleCell, GRUCell, MGUCell, LSTMCell, OptimizedLSTMCell, ConvLSTMCell, RNN, Bidirectional), and Linen examples (MLP/CNN/Sequential).
+  * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
 
 
  
-
 ### **Past Versions**
 
 See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.

@@ -111,6 +111,18 @@ class SeluPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="selu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
+                attr="selu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 
