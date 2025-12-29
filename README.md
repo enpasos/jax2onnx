@@ -161,25 +161,14 @@ to_onnx(
 
 
 
-### **Upcoming Version**
+### **Current Productive Version**
 
 * **0.11.0**:
-  * Expanded Flax Linen support (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm, Dropout, GELU/activations, Einsum/Embed) and added Linen MLP/CNN/Sequential examples.
+  * Initial Flax Linen support: core layers (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm), Dropout, Einsum/Embed, spectral/weight norm wrappers, activation coverage (GELU plus glu/hard_*/log_*/relu6/silu-swish/tanh/normalize/one_hot), attention stack (dot_product_attention, dot_product_attention_weights, make_attention_mask/make_causal_mask, SelfAttention, MultiHeadDotProductAttention, MultiHeadAttention), recurrent stack (SimpleCell, GRUCell, MGUCell, LSTMCell, OptimizedLSTMCell, ConvLSTMCell, RNN, Bidirectional), and Linen examples (MLP/CNN/Sequential).
   * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
 
 
-### **Current Productive Version**
-
-* **0.10.4** *(PyPI)*:
-
-  * Fix `vmap` batching for `jax.numpy.reshape`/`transpose` and several other `jax.numpy` primitives.
-  * Refactored IR optimizer to use `onnx-ir` public APIs (`value.consumers()`, `graph.remove()`) instead of internal helpers.
-  * Added Common Subexpression Elimination (CSE) and Constant Lifting passes to `ir_optimizations.py`.
-  * Added GitHub Actions CI workflow for automated testing.
-
-
  
-
 ### **Past Versions**
 
 See [`past_versions`](https://enpasos.github.io/jax2onnx/readme/past_versions) for the full release archive.
