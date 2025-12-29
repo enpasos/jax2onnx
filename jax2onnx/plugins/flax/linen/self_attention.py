@@ -71,10 +71,16 @@ def _project_output(x, kernel, bias, *, precision=None):
             "component": "Transpose",
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
             "component": "Reshape",
@@ -181,7 +187,10 @@ class SelfAttentionPlugin(PrimitiveLeafPlugin):
                     return orig_fn(self, inputs, *args, **kwargs)
 
             attention_fn = getattr(self, "attention_fn", None)
-            if attention_fn is not None and attention_fn is not jax.nn.dot_product_attention:
+            if (
+                attention_fn is not None
+                and attention_fn is not jax.nn.dot_product_attention
+            ):
                 fn_name = getattr(attention_fn, "__name__", "")
                 if fn_name != "dot_product_attention":
                     return orig_fn(self, inputs, *args, **kwargs)
@@ -196,14 +205,24 @@ class SelfAttentionPlugin(PrimitiveLeafPlugin):
             k_params = _get_param_group(params, "key")
             v_params = _get_param_group(params, "value")
             o_params = _get_param_group(params, "out")
-            if q_params is None or k_params is None or v_params is None or o_params is None:
+            if (
+                q_params is None
+                or k_params is None
+                or v_params is None
+                or o_params is None
+            ):
                 return orig_fn(self, inputs, *args, **kwargs)
 
             q_kernel = q_params.get("kernel")
             k_kernel = k_params.get("kernel")
             v_kernel = v_params.get("kernel")
             o_kernel = o_params.get("kernel")
-            if q_kernel is None or k_kernel is None or v_kernel is None or o_kernel is None:
+            if (
+                q_kernel is None
+                or k_kernel is None
+                or v_kernel is None
+                or o_kernel is None
+            ):
                 return orig_fn(self, inputs, *args, **kwargs)
 
             use_bias = bool(getattr(self, "use_bias", True))
