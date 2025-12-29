@@ -164,7 +164,7 @@ to_onnx(
 ### **Upcoming Version**
 
 * **0.11.0**:
-  * Added Flax Linen support (Dense, Conv, BatchNorm, Dropout, GELU) plus Linen MLP example coverage.
+  * Expanded Flax Linen support (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm, Dropout, GELU/activations, Einsum/Embed) and added Linen MLP/CNN/Sequential examples.
   * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
 
 
