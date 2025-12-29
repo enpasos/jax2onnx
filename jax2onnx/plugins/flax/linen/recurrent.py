@@ -264,9 +264,7 @@ class OptimizedLSTMCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.conv_lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.ConvLSTMCell",
     onnx=_RECURRENT_ONNX
-    + [
-        {"component": "Conv", "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html"}
-    ],
+    + [{"component": "Conv", "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html"}],
     since="v0.11.0",
     context="primitives.linen",
     component="conv_lstm_cell",
@@ -370,7 +368,10 @@ class RNNPlugin(PrimitiveLeafPlugin):
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.Bidirectional",
     onnx=[
         {"component": "Loop", "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html"},
-        {"component": "Concat", "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html"},
+        {
+            "component": "Concat",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
+        },
     ],
     since="v0.11.0",
     context="primitives.linen",
