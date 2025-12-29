@@ -171,6 +171,8 @@ class SelfAttentionPlugin(PrimitiveLeafPlugin):
                 return orig_fn(self, inputs, *args, **kwargs)
             if bias is None:
                 bias = attention_bias
+            if bias is not None:
+                return orig_fn(self, inputs, *args, **kwargs)
 
             if inputs.ndim != 3:
                 return orig_fn(self, inputs, *args, **kwargs)

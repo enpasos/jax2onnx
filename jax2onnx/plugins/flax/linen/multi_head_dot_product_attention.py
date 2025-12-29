@@ -97,6 +97,7 @@ def _make_mha_patch(orig_fn: Callable):
         deterministic = kwargs.get("deterministic", None)
         decode_kw = kwargs.get("decode", None)
         sow_attention_weights = kwargs.get("sow_attention_weights", False)
+        dropout_rng = kwargs.get("dropout_rng", None)
         allowed_keys = {
             "mask",
             "bias",
@@ -112,6 +113,8 @@ def _make_mha_patch(orig_fn: Callable):
             return _fallback()
         if bias is None:
             bias = attention_bias
+        if bias is not None:
+            return _fallback()
 
         kv_inputs = inputs_q if inputs_kv is None else inputs_kv
 
@@ -136,6 +139,8 @@ def _make_mha_patch(orig_fn: Callable):
             if det is None:
                 det = getattr(self, "deterministic", None)
             if det is not True:
+                return _fallback()
+            if dropout_rng is not None:
                 return _fallback()
 
         attention_fn = getattr(self, "attention_fn", None)
@@ -164,12 +169,7 @@ def _make_mha_patch(orig_fn: Callable):
         k_kernel = k_params.get("kernel")
         v_kernel = v_params.get("kernel")
         o_kernel = o_params.get("kernel")
-        if (
-            q_kernel is None
-            or k_kernel is None
-            or v_kernel is None
-            or o_kernel is None
-        ):
+        if q_kernel is None or k_kernel is None or v_kernel is None or o_kernel is None:
             return _fallback()
 
         use_bias = bool(getattr(self, "use_bias", True))
@@ -245,10 +245,16 @@ def _make_mha_patch(orig_fn: Callable):
             "component": "Transpose",
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
             "component": "Reshape",

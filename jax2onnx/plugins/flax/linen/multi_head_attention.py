@@ -28,10 +28,16 @@ from jax2onnx.plugins.plugin_system import (
             "component": "Transpose",
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
-        {"component": "MatMul", "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html"},
+        {
+            "component": "MatMul",
+            "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
+        },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
-        {"component": "Softmax", "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html"},
+        {
+            "component": "Softmax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
         {
             "component": "Reshape",
@@ -108,4 +114,3 @@ class MultiHeadAttentionPlugin(PrimitiveLeafPlugin):
     def _make_patch(orig_fn: Callable):
         MultiHeadAttentionPlugin._ORIGINAL_CALL = orig_fn
         return _make_mha_patch(orig_fn)
-
