@@ -13,8 +13,10 @@ from jax2onnx.plugins._axis0_utils import (
     stamp_axis0_binary_result,
 )
 from jax2onnx.plugins._complex_utils import (
+    COMPLEX_DTYPES,
     cast_real_tensor,
     ensure_packed_real_pair,
+    is_packed_complex_tensor,
     resolve_common_real_dtype,
     split_packed_real_imag,
     pack_real_imag_pair,
@@ -140,11 +142,27 @@ class MulPlugin(PrimitiveLeafPlugin):
             ctx, a_val, b_val, out_spec, out_var
         )
 
-        complex_types = {
-            ir.DataType.COMPLEX64,
-            ir.DataType.COMPLEX128,
-        }
-        if a_val.dtype in complex_types and b_val.dtype in complex_types:
+        def _is_complex_var(var) -> bool:
+            aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
+            if aval_dtype is None:
+                return False
+            try:
+                return np.issubdtype(np.dtype(aval_dtype), np.complexfloating)
+            except TypeError:
+                return False
+
+        complex_var_hint = (
+            _is_complex_var(out_var) or _is_complex_var(x_var) or _is_complex_var(y_var)
+        )
+        complex_dtype_hint = a_val.dtype in COMPLEX_DTYPES or b_val.dtype in COMPLEX_DTYPES
+        packed_hint = False
+        if complex_var_hint or complex_dtype_hint:
+            packed_hint = is_packed_complex_tensor(a_val) or is_packed_complex_tensor(
+                b_val
+            )
+        complex_route = complex_var_hint or complex_dtype_hint or packed_hint
+
+        if complex_route:
             result, result_dtype = self._lower_complex_mul(ctx, a_val, b_val)
             if getattr(out_spec, "type", None) is not None:
                 out_spec.type = ir.TensorType(result_dtype)

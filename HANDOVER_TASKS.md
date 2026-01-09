@@ -24,8 +24,8 @@
 
 ## 3. Future Work
 - [ ] **Expand Model Coverage**:
-    - Currently defaults are limited to `["llama2-7b.yml", "gemma-2b.yml"]` unless `JAX2ONNX_MAXTEXT_MODELS` is set.
-    - Once these pass, expand the default list or set `JAX2ONNX_MAXTEXT_MODELS=all` to cover all compatible models.
+    - Currently defaults include `["llama2-7b.yml", "llama2-13b.yml", "llama2-70b.yml", "gemma-2b.yml", "gemma-7b.yml", "mistral-7b.yml", "mixtral-8x7b.yml"]` unless `JAX2ONNX_MAXTEXT_MODELS` is set.
+    - Once these pass, expand further or set `JAX2ONNX_MAXTEXT_MODELS=all` to cover all compatible models.
 - [ ] **CI Integration**: 
     - Ensure MaxText is available via dependency install or set `JAX2ONNX_MAXTEXT_SRC` in CI to point at a checked-out copy.
 - [ ] **Mocking**: 

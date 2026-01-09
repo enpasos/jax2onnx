@@ -34,6 +34,11 @@ _COMPLEX_TO_NP_DTYPE: Final[Dict[ir.DataType, np.dtype]] = {
     ir.DataType.COMPLEX128: np.dtype(np.complex128),
 }
 
+_REAL_BASE_NP_DTYPE: Final[Dict[ir.DataType, np.dtype]] = {
+    ir.DataType.FLOAT: np.dtype(np.float32),
+    ir.DataType.DOUBLE: np.dtype(np.float64),
+}
+
 COMPLEX_DTYPES: Final[frozenset[ir.DataType]] = frozenset(_COMPLEX_PAIR.keys())
 REAL_PAIR_DTYPES: Final[frozenset[ir.DataType]] = frozenset(
     {ir.DataType.FLOAT, ir.DataType.DOUBLE}
@@ -230,9 +235,42 @@ def ensure_packed_real_pair(
         if base_dtype is None:
             raise ValueError("Packed complex tensor missing dtype metadata")
         return value, base_dtype
-    raise ValueError(
-        f"Expected complex dtype or packed tensor with trailing channel, got {dtype}"
+    if dtype is not None and dtype.is_floating_point():
+        base_dtype = ir.DataType.DOUBLE if dtype == ir.DataType.DOUBLE else ir.DataType.FLOAT
+    elif dtype is not None and (dtype.is_integer() or dtype.is_bool()):
+        base_dtype = ir.DataType.FLOAT
+    else:
+        raise ValueError(
+            f"Expected complex dtype or packed tensor with trailing channel, got {dtype}"
+        )
+
+    real_val = (
+        value
+        if value.dtype == base_dtype
+        else cast_real_tensor(ctx, value, base_dtype, name_hint=f"{name_hint}_real_cast")
     )
+    zero_np = np.asarray(0, dtype=_REAL_BASE_NP_DTYPE[base_dtype])
+    zero_const = ctx.bind_const_for_var(object(), zero_np)
+    zero_val = cast(
+        ir.Value,
+        ctx.builder.Mul(
+            real_val,
+            zero_const,
+            _outputs=[ctx.fresh_name(f"{name_hint}_imag")],
+        ),
+    )
+    zero_val.type = ir.TensorType(base_dtype)
+    zero_val.dtype = base_dtype
+    _stamp_type_and_shape(zero_val, coerce_dim_values(_shape_tuple(real_val)))
+    _ensure_value_metadata(ctx, zero_val)
+    packed = pack_real_imag_pair(
+        ctx,
+        real_val,
+        zero_val,
+        base_dtype,
+        name_hint=f"{name_hint}_pack",
+    )
+    return packed, base_dtype
 
 
 def resolve_common_real_dtype(lhs: ir.DataType, rhs: ir.DataType) -> ir.DataType:

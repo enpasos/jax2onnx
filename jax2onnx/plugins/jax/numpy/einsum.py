@@ -27,10 +27,17 @@ _JNP_EINSUM_ORIG: Final = jnp.einsum
 def _einsum_shape(
     avals: Sequence[core.AbstractValue], equation: str
 ) -> tuple[tuple[Any, ...], np.dtype[Any]]:
+    equation = _normalize_equation(equation)
     specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
     orig = getattr(_EINSUM_PRIM, "__orig_impl__einsum", jnp.einsum)
     result = jax.eval_shape(lambda *args: orig(equation, *args), *specs)
     return result.shape, result.dtype
+
+
+def _normalize_equation(equation: str) -> str:
+    if not isinstance(equation, str):
+        return equation
+    return "".join(equation.split())
 
 
 @register_primitive(
@@ -197,12 +204,13 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
         _dot_general: Any | None = None,
     ) -> core.ShapedArray:
         del _dot_general
+        equation = _normalize_equation(equation)
         shape, dtype = _einsum_shape(avals, equation)
         return core.ShapedArray(shape, dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
-        equation = params["equation"]
+        equation = _normalize_equation(params["equation"])
 
         input_vals = []
         for var in eqn.invars:

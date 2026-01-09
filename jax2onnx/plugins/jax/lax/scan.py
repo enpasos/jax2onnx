@@ -626,7 +626,7 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Range -> Shape -> Gather -> Squeeze -> Loop"],
+                ["Range -> Loop"],
                 no_unused_inputs=True,
             ),
             "check_onnx_load": True,
@@ -639,7 +639,7 @@ def _two_scans_diff_len_with_broadcast_f32():
             "expected_output_dtypes": [jnp.float64],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
-                ["Range -> Shape -> Gather -> Squeeze -> Loop"],
+                ["Range -> Loop"],
                 no_unused_inputs=True,
             ),
             "check_onnx_load": True,

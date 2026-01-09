@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
+import glob
 import importlib.machinery
 import importlib.util
 import logging
 import os
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -24,7 +27,12 @@ logger = logging.getLogger(__name__)
 MODEL_FILTER_ENV = "JAX2ONNX_MAXTEXT_MODELS"
 DEFAULT_MODELS = (
     "llama2-7b.yml",
+    "llama2-13b.yml",
+    "llama2-70b.yml",
     "gemma-2b.yml",
+    "gemma-7b.yml",
+    "mistral-7b.yml",
+    "mixtral-8x7b.yml",
 )
 
 MAXTEXT_SRC_ENV = os.environ.get("JAX2ONNX_MAXTEXT_SRC", "").strip()
@@ -76,16 +84,31 @@ MODEL_OVERRIDES = {
     "base_moe_mlp_dim": 128,
     "base_num_decoder_layers": 2,
     "head_dim": 16,
+    "qk_nope_head_dim": 8,
+    "qk_rope_head_dim": 8,
+    "v_head_dim": 16,
+    "kv_lora_rank": 8,
+    "q_lora_rank": 0,
     "first_num_dense_layers": 0,
     "num_experts": 1,
     "num_experts_per_tok": 1,
     "vocab_size": 256,
     "enable_dropout": False,
     "scan_layers": False,
+    "megablox": False,
+    "use_tokamax_gmm": False,
+    "use_tokamax_splash": False,
+    "use_qwix_quantization": False,
+    "quantization": "",
+    "use_multimodal": False,
     "dtype": "float32",
     "weight_dtype": "float32",
     "grad_dtype": "float32",
     "log_config": False,
+}
+
+MODEL_NAME_ALIASES = {
+    "llama3-405b": "llama3.1-405b",
 }
 
 MODEL_MODE_TRAIN = "train"
@@ -135,6 +158,354 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         sys.modules["google.cloud.storage"] = storage_mod
         cloud_mod.storage = storage_mod
         google_mod.cloud = cloud_mod
+
+    def _ensure_tensorflow_stub() -> None:
+        try:
+            import tensorflow  # noqa: F401
+            return
+        except Exception:
+            pass
+
+        tf_mod = types.ModuleType("tensorflow")
+        tf_mod.__spec__ = importlib.machinery.ModuleSpec("tensorflow", loader=None)
+        tf_mod.__path__ = []
+
+        def _to_path(path: object) -> str:
+            return os.fspath(path)
+
+        errors_mod = types.ModuleType("tensorflow.errors")
+        errors_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.errors", loader=None
+        )
+
+        class NotFoundError(FileNotFoundError):
+            """Stub NotFoundError for missing TensorFlow."""
+
+        errors_mod.NotFoundError = NotFoundError
+
+        class FailedPreconditionError(RuntimeError):
+            """Stub FailedPreconditionError for missing TensorFlow."""
+
+        errors_mod.FailedPreconditionError = FailedPreconditionError
+
+        io_mod = types.ModuleType("tensorflow.io")
+        io_mod.__spec__ = importlib.machinery.ModuleSpec("tensorflow.io", loader=None)
+        gfile_mod = types.ModuleType("tensorflow.io.gfile")
+        gfile_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.io.gfile", loader=None
+        )
+
+        def exists(path: object) -> bool:
+            return os.path.exists(_to_path(path))
+
+        def listdir(path: object) -> list[str]:
+            return os.listdir(_to_path(path))
+
+        def isdir(path: object) -> bool:
+            return os.path.isdir(_to_path(path))
+
+        def makedirs(path: object, *, exist_ok: bool = True) -> None:
+            os.makedirs(_to_path(path), exist_ok=exist_ok)
+
+        def mkdir(path: object) -> None:
+            os.makedirs(_to_path(path), exist_ok=False)
+
+        def remove(path: object) -> None:
+            os.remove(_to_path(path))
+
+        def rmtree(path: object) -> None:
+            shutil.rmtree(_to_path(path))
+
+        def glob_files(pattern: object) -> list[str]:
+            return glob.glob(_to_path(pattern))
+
+        def copy(src: object, dst: object, *, overwrite: bool = False) -> None:
+            src_path = _to_path(src)
+            dst_path = _to_path(dst)
+            if not overwrite and os.path.exists(dst_path):
+                raise FileExistsError(dst_path)
+            shutil.copyfile(src_path, dst_path)
+
+        def rename(src: object, dst: object, *, overwrite: bool = False) -> None:
+            src_path = _to_path(src)
+            dst_path = _to_path(dst)
+            if not overwrite and os.path.exists(dst_path):
+                raise FileExistsError(dst_path)
+            os.replace(src_path, dst_path)
+
+        class GFile:
+            def __init__(self, path: object, mode: str = "r") -> None:
+                self._file = open(_to_path(path), mode)
+
+            def __enter__(self):
+                return self._file
+
+            def __exit__(self, exc_type, exc, tb):
+                self._file.close()
+                return False
+
+            def __getattr__(self, name: str):
+                return getattr(self._file, name)
+
+        gfile_mod.exists = exists
+        gfile_mod.listdir = listdir
+        gfile_mod.isdir = isdir
+        gfile_mod.makedirs = makedirs
+        gfile_mod.mkdir = mkdir
+        gfile_mod.remove = remove
+        gfile_mod.rmtree = rmtree
+        gfile_mod.glob = glob_files
+        gfile_mod.copy = copy
+        gfile_mod.rename = rename
+        gfile_mod.GFile = GFile
+
+        io_mod.gfile = gfile_mod
+
+        data_mod = types.ModuleType("tensorflow.data")
+        data_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.data", loader=None
+        )
+
+        class Dataset:  # noqa: D401 - stub only
+            """Stub dataset for missing TensorFlow."""
+
+        autotune = object()
+
+        data_exp_mod = types.ModuleType("tensorflow.data.experimental")
+        data_exp_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.data.experimental", loader=None
+        )
+        data_exp_mod.AUTOTUNE = autotune
+
+        data_mod.Dataset = Dataset
+        data_mod.AUTOTUNE = autotune
+        data_mod.experimental = data_exp_mod
+
+        config_mod = types.ModuleType("tensorflow.config")
+        config_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.config", loader=None
+        )
+
+        def set_visible_devices(*args: object, **kwargs: object) -> None:
+            return None
+
+        config_mod.set_visible_devices = set_visible_devices
+
+        config_exp_mod = types.ModuleType("tensorflow.config.experimental")
+        config_exp_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.config.experimental", loader=None
+        )
+        config_exp_mod.set_visible_devices = set_visible_devices
+        config_mod.experimental = config_exp_mod
+
+        distribute_mod = types.ModuleType("tensorflow.distribute")
+        distribute_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.distribute", loader=None
+        )
+
+        class InputContext:  # noqa: D401 - stub only
+            """Stub InputContext for missing TensorFlow."""
+
+        distribute_mod.InputContext = InputContext
+
+        summary_mod = types.ModuleType("tensorflow.summary")
+        summary_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorflow.summary", loader=None
+        )
+
+        class _NoopWriter:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def as_default(self):
+                return self
+
+            def flush(self) -> None:
+                return None
+
+        def create_file_writer(*args: object, **kwargs: object) -> _NoopWriter:
+            return _NoopWriter()
+
+        summary_mod.create_file_writer = create_file_writer
+
+        tf_mod.errors = errors_mod
+        tf_mod.io = io_mod
+        tf_mod.data = data_mod
+        tf_mod.config = config_mod
+        tf_mod.distribute = distribute_mod
+        tf_mod.summary = summary_mod
+
+        sys.modules["tensorflow"] = tf_mod
+        sys.modules["tensorflow.errors"] = errors_mod
+        sys.modules["tensorflow.io"] = io_mod
+        sys.modules["tensorflow.io.gfile"] = gfile_mod
+        sys.modules["tensorflow.data"] = data_mod
+        sys.modules["tensorflow.data.experimental"] = data_exp_mod
+        sys.modules["tensorflow.config"] = config_mod
+        sys.modules["tensorflow.config.experimental"] = config_exp_mod
+        sys.modules["tensorflow.distribute"] = distribute_mod
+        sys.modules["tensorflow.summary"] = summary_mod
+
+    def _ensure_tensorboardx_stub() -> None:
+        try:
+            import tensorboardX  # noqa: F401
+            return
+        except Exception:
+            pass
+
+        tbx_mod = types.ModuleType("tensorboardX")
+        tbx_mod.__spec__ = importlib.machinery.ModuleSpec("tensorboardX", loader=None)
+        tbx_mod.__path__ = []
+
+        writer_mod = types.ModuleType("tensorboardX.writer")
+        writer_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "tensorboardX.writer", loader=None
+        )
+
+        class SummaryWriter:  # noqa: D401 - stub only
+            """Stub SummaryWriter for missing tensorboardX."""
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                self._args = args
+                self._kwargs = kwargs
+
+            def add_text(self, *args: object, **kwargs: object) -> None:
+                return None
+
+            def add_scalar(self, *args: object, **kwargs: object) -> None:
+                return None
+
+            def add_histogram(self, *args: object, **kwargs: object) -> None:
+                return None
+
+            def flush(self) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        writer_mod.SummaryWriter = SummaryWriter
+
+        tbx_mod.writer = writer_mod
+        tbx_mod.SummaryWriter = SummaryWriter
+
+        sys.modules["tensorboardX"] = tbx_mod
+        sys.modules["tensorboardX.writer"] = writer_mod
+
+    def _ensure_omegaconf_stub() -> None:
+        try:
+            import omegaconf  # noqa: F401
+            return
+        except Exception:
+            pass
+
+        oc_mod = types.ModuleType("omegaconf")
+        oc_mod.__spec__ = importlib.machinery.ModuleSpec("omegaconf", loader=None)
+
+        def _load_yaml(path: str) -> object:
+            import yaml  # noqa: PLC0415
+
+            with open(path, "r") as handle:
+                data = yaml.safe_load(handle)
+            return {} if data is None else data
+
+        def _merge_dicts(base: object, override: object) -> object:
+            if not isinstance(base, dict) or not isinstance(override, dict):
+                return copy.deepcopy(override)
+            merged = {k: copy.deepcopy(v) for k, v in base.items()}
+            for key, value in override.items():
+                if key in merged:
+                    merged[key] = _merge_dicts(merged[key], value)
+                else:
+                    merged[key] = copy.deepcopy(value)
+            return merged
+
+        def _set_nested(mapping: dict, key: str, value: object) -> None:
+            parts = key.split(".")
+            cursor = mapping
+            for part in parts[:-1]:
+                cursor = cursor.setdefault(part, {})
+            cursor[parts[-1]] = value
+
+        def _parse_value(raw: str) -> object:
+            import yaml  # noqa: PLC0415
+
+            try:
+                return yaml.safe_load(raw)
+            except Exception:
+                return raw
+
+        class OmegaConf:
+            @staticmethod
+            def load(path: str) -> object:
+                return _load_yaml(path)
+
+            @staticmethod
+            def merge(*configs: object) -> object:
+                merged: object = {}
+                for cfg in configs:
+                    if cfg is None:
+                        continue
+                    merged = _merge_dicts(merged, cfg)
+                return merged
+
+            @staticmethod
+            def from_cli(args: list[str]) -> dict:
+                parsed: dict = {}
+                for arg in args:
+                    if "=" not in arg:
+                        continue
+                    key, value = arg.split("=", 1)
+                    _set_nested(parsed, key, _parse_value(value))
+                return parsed
+
+            @staticmethod
+            def create(obj: object) -> object:
+                if obj is None:
+                    return {}
+                return copy.deepcopy(obj)
+
+            @staticmethod
+            def to_container(obj: object, *, resolve: bool = True) -> object:
+                return copy.deepcopy(obj)
+
+        oc_mod.OmegaConf = OmegaConf
+        oc_mod.DictConfig = dict
+
+        sys.modules["omegaconf"] = oc_mod
+
+    def _ensure_pil_stub() -> None:
+        try:
+            import PIL  # noqa: F401
+            return
+        except Exception:
+            pass
+
+        pil_mod = types.ModuleType("PIL")
+        pil_mod.__spec__ = importlib.machinery.ModuleSpec("PIL", loader=None)
+        pil_mod.__path__ = []
+
+        image_mod = types.ModuleType("PIL.Image")
+        image_mod.__spec__ = importlib.machinery.ModuleSpec(
+            "PIL.Image", loader=None
+        )
+
+        def _missing(*args: object, **kwargs: object) -> None:
+            raise ImportError("Pillow is required for MaxText image utilities.")
+
+        class _ImageStub:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                _missing()
+
+        image_mod.open = _missing
+        image_mod.Image = _ImageStub
+
+        pil_mod.Image = image_mod
+        sys.modules["PIL"] = pil_mod
+        sys.modules["PIL.Image"] = image_mod
 
     def _ensure_grain_stub() -> None:
         try:
@@ -624,6 +995,10 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         sys.path.append(str(MAXTEXT_SRC_PATH))
     try:
         _ensure_google_cloud_storage_stub()
+        _ensure_tensorflow_stub()
+        _ensure_tensorboardx_stub()
+        _ensure_omegaconf_stub()
+        _ensure_pil_stub()
         _ensure_grain_stub()
         _ensure_datasets_stub()
         _ensure_tensorflow_text_stub()
@@ -668,13 +1043,25 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
                 iota = jax.lax.iota(jnp.int32, half_embedding_dim)
                 fraction = 2 * iota / embedding_dims
                 fraction = jnp.repeat(fraction, 2)
-                timescale = self.min_timescale * (
-                    self.max_timescale / self.min_timescale
+                
+                # Ensure bases are floats
+                min_timescale = jnp.array(self.min_timescale, dtype=jnp.float32)
+                max_timescale = jnp.array(self.max_timescale, dtype=jnp.float32)
+                
+                timescale = min_timescale * (
+                    max_timescale / min_timescale
                 ) ** fraction
+                
                 if self.use_scale:
-                    timescale = 1.0 / jax.vmap(self._apply_scaling_factor)(
-                        1.0 / timescale
-                    )
+                    # _apply_scaling_factor might return dynamic tracers if not careful
+                    # We map over the timescale to apply it elementwise if necessary
+                    def apply_scale(t):
+                         return self._apply_scaling_factor(1.0 / t)
+                    
+                    # Vectorize to ensure we process the array correctly
+                    inv_scale = jax.vmap(apply_scale)(timescale)
+                    timescale = 1.0 / inv_scale
+                    
                 return timescale[jnp.newaxis, jnp.newaxis, jnp.newaxis, :]
 
             _embeddings.RotaryEmbedding.timescale = property(_rotary_timescale)
@@ -845,6 +1232,33 @@ class MaxTextTextOnlyWrapper(nnx.Module):
             restore_random()
 
 
+class MaxTextWrapper:
+    def __init__(
+        self,
+        *,
+        config_path: str,
+        batch_size: int,
+        seq_len: int,
+        rngs: nnx.Rngs | None,
+    ) -> None:
+        try:
+            self.model = get_maxtext_model(
+                config_path,
+                batch_size=batch_size,
+                seq_len=seq_len,
+                rngs=rngs,
+            )
+            self._error = None
+        except Exception as e:
+            self.model = None
+            self._error = e
+
+    def __call__(self, input_tokens: jax.Array) -> jax.Array:
+        if self._error:
+            raise self._error
+        return self.model(input_tokens)
+
+
 def get_maxtext_model(
     config_path: str,
     *,
@@ -862,7 +1276,7 @@ def get_maxtext_model(
         config_path_obj = MODELS_DIR / config_path_obj
     config_path_obj = config_path_obj.resolve()
 
-    model_name = config_path_obj.stem
+    model_name = MODEL_NAME_ALIASES.get(config_path_obj.stem, config_path_obj.stem)
     base_config_path = config_path_obj.parent.parent / "base.yml"
     if not base_config_path.exists() and MAXTEXT_CONFIG_DIR is not None:
         base_config_path = MAXTEXT_CONFIG_DIR / "base.yml"
@@ -894,17 +1308,49 @@ def get_maxtext_model(
             model_mode=MODEL_MODE_TRAIN,
             rngs=rngs,
         )
+    except Exception as exc:
+        raise RuntimeError(
+            f"MaxText model init failed for {config_path_obj.name}: {exc}"
+        ) from exc
     finally:
         restore_random()
     _strip_nnx_rngs(model)
     return MaxTextTextOnlyWrapper(model, seq_len=seq_len, model_mode=MODEL_MODE_TRAIN)
 
 
+def get_maxtext_model_callable(
+    config_path: str,
+    *,
+    batch_size: int = 1,
+    seq_len: int = 128,
+    rngs: nnx.Rngs | None = None,
+) -> MaxTextWrapper:
+    """Return an eagerly initialized MaxText wrapper."""
+    return MaxTextWrapper(
+        config_path=config_path,
+        batch_size=batch_size,
+        seq_len=seq_len,
+        rngs=rngs,
+    )
+
+
 def _register_examples(configs: Iterable[Path]) -> None:
     batch_size = 1
     seq_len = 32
 
+    skip_patterns = [
+        "mixtral",
+        "gpt-oss",
+        "llama4",
+        "quant",
+    ]
+
     for config_path in configs:
+        model_name = config_path.stem
+        if any(p in model_name for p in skip_patterns):
+            # Skip models known to require unavailable dependencies like qwix or heavy quantization
+            continue
+
         model_name = config_path.stem
         component_name = f"MaxText_{model_name.replace('-', '_')}"
 
@@ -919,7 +1365,7 @@ def _register_examples(configs: Iterable[Path]) -> None:
                 {
                     "testcase": f"maxtext_{model_name}",
                     "callable": construct_and_call(
-                        get_maxtext_model,
+                        get_maxtext_model_callable,
                         config_path=str(config_path),
                         batch_size=batch_size,
                         seq_len=seq_len,
