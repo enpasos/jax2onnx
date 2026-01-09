@@ -124,6 +124,9 @@ to_onnx(
   - Equivalence check: [Routing parity harness](scripts/gpt_oss_routing_parity.py) · [Flax parity tests](tests/extra_tests/test_flax_routing_parity.py) · [Equinox parity tests](tests/extra_tests/test_eqx_gpt_oss_parity.py)
   - Optional pretrained weights: [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) · [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b) *(weights and model cards list `license: apache-2.0`)*
 
+- Language: [MaxText](https://github.com/AI-Hypercomputer/maxtext) model zoo
+  - Supported families: DeepSeek (v2/v3), Gemma (2/3), GPT-3, Kimi (K2), Llama (2/3/3.1/4), Mistral, Qwen (3/3-Next/Omni).
+
 - Vision: [DINOv3](https://ai.meta.com/dinov3/)
   - Architecture: Equimo’s clean-room Equinox/JAX implementation, following Meta AI’s [DINOv3 paper](https://arxiv.org/abs/2508.10104). Flax/NNX parity modules now live under `jax2onnx/plugins/examples/nnx/dinov3.py` (randomly initialised example stack for IR-only exports).
   - Structural graphs (selected examples):
@@ -160,6 +163,10 @@ to_onnx(
   * Improve support for **physics-based simulations**
 
 
+### **Upcoming Version**
+
+* **0.11.1**:
+   * Added a self-contained MaxText example stack and tests covering DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, and Qwen families; added the MaxText dependency stubs and new primitive support needed for those exports; tightened subgraph cleanup for cleaner ONNX graphs.
 
 ### **Current Productive Version**
 

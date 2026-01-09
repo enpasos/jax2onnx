@@ -1584,6 +1584,31 @@ def remove_dead_nodes_ir(
             graph.remove(to_remove)
             changed = True
 
+    # Name-based reachability cleanup (ignore value_info-driven uses)
+    nodes = list(graph)
+    needed_names: set[str] = set()
+    for out in graph.outputs:
+        name = _v_name(out)
+        if name:
+            needed_names.add(name)
+    needed_names.update(external_use_names)
+    keep_nodes: set[ir.Node] = set()
+    for node in reversed(nodes):
+        out_names = [name for ov in _node_outputs(node) if (name := _v_name(ov))]
+        if not out_names:
+            continue
+        if any(name in needed_names for name in out_names):
+            keep_nodes.add(node)
+            for iv in _node_inputs(node):
+                name = _v_name(iv)
+                if name:
+                    needed_names.add(name)
+    to_remove = [node for node in nodes if node not in keep_nodes]
+    if to_remove:
+        if DCE_DEBUG:
+            print(f"[dce-names] removing {len(to_remove)} nodes")
+        graph.remove(to_remove)
+
     # Prune unused initializers
     # Refetch outputs/inputs as they might have changed or we need strict check
     used_values = set()
