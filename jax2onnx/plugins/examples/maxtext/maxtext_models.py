@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.machinery
+import importlib.util
 import logging
 import os
 import sys
@@ -26,13 +27,45 @@ DEFAULT_MODELS = (
     "gemma-2b.yml",
 )
 
-MAXTEXT_SRC_PATH = Path(
-    os.environ.get(
-        "JAX2ONNX_MAXTEXT_SRC",
-        os.path.join(os.path.dirname(__file__), "../../../../tmp/maxtext/src"),
-    )
-).resolve()
-MODELS_DIR = MAXTEXT_SRC_PATH / "MaxText" / "configs" / "models"
+MAXTEXT_SRC_ENV = os.environ.get("JAX2ONNX_MAXTEXT_SRC", "").strip()
+
+
+def _resolve_maxtext_paths(path: Path) -> tuple[Path | None, Path | None]:
+    if (path / "MaxText").is_dir():
+        return path, path / "MaxText"
+    src_pkg = path / "src" / "MaxText"
+    if src_pkg.is_dir():
+        return path / "src", src_pkg
+    if (path / "configs").is_dir():
+        return path.parent, path
+    return None, None
+
+
+MAXTEXT_SRC_PATH: Path | None = None
+MAXTEXT_PKG_PATH: Path | None = None
+MAXTEXT_CONFIG_DIR: Path | None = None
+_MAXTEXT_PATH_ERROR: Exception | None = None
+
+if MAXTEXT_SRC_ENV:
+    env_path = Path(MAXTEXT_SRC_ENV).expanduser().resolve()
+    MAXTEXT_SRC_PATH, MAXTEXT_PKG_PATH = _resolve_maxtext_paths(env_path)
+    if MAXTEXT_PKG_PATH is None:
+        _MAXTEXT_PATH_ERROR = FileNotFoundError(
+            f"JAX2ONNX_MAXTEXT_SRC does not point to a MaxText package: {env_path}"
+        )
+else:
+    spec = importlib.util.find_spec("MaxText")
+    if spec is not None:
+        search_locations = list(spec.submodule_search_locations or [])
+        if search_locations:
+            MAXTEXT_PKG_PATH = Path(search_locations[0]).resolve()
+        elif spec.origin:
+            MAXTEXT_PKG_PATH = Path(spec.origin).resolve().parent
+
+if MAXTEXT_PKG_PATH is not None:
+    MAXTEXT_CONFIG_DIR = MAXTEXT_PKG_PATH / "configs"
+
+MODELS_DIR = MAXTEXT_CONFIG_DIR / "models" if MAXTEXT_CONFIG_DIR else None
 
 MODEL_OVERRIDES = {
     "override_model_config": True,
@@ -57,11 +90,11 @@ MODEL_OVERRIDES = {
 
 MODEL_MODE_TRAIN = "train"
 MAXTEXT_AVAILABLE = False
-_MAXTEXT_IMPORT_ERROR: Exception | None = None
+_MAXTEXT_IMPORT_ERROR: Exception | None = _MAXTEXT_PATH_ERROR
 pyconfig = None
 model_creation_utils = None
 
-if MAXTEXT_SRC_PATH.exists():
+if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_google_cloud_storage_stub() -> None:
         try:
             import google.cloud.storage  # noqa: F401
@@ -587,7 +620,7 @@ if MAXTEXT_SRC_PATH.exists():
         tokamax_splash_pkg.splash_attention_kernel = tokamax_splash_kernel
         tokamax_splash_pkg.splash_attention_mask = tokamax_splash_mask
 
-    if str(MAXTEXT_SRC_PATH) not in sys.path:
+    if MAXTEXT_SRC_PATH is not None and str(MAXTEXT_SRC_PATH) not in sys.path:
         sys.path.append(str(MAXTEXT_SRC_PATH))
     try:
         _ensure_google_cloud_storage_stub()
@@ -672,7 +705,7 @@ def _selected_model_names() -> set[str] | None:
 
 
 def iter_model_configs() -> list[Path]:
-    if not MODELS_DIR.exists():
+    if MODELS_DIR is None or not MODELS_DIR.exists():
         return []
     configs = sorted(MODELS_DIR.glob("*.yml"))
     allow = _selected_model_names()
@@ -824,8 +857,15 @@ def get_maxtext_model(
         detail = f": {_MAXTEXT_IMPORT_ERROR}" if _MAXTEXT_IMPORT_ERROR else ""
         raise ImportError(f"MaxText not available{detail}")
 
-    model_name = Path(config_path).stem
-    base_config_path = MAXTEXT_SRC_PATH / "MaxText" / "configs" / "base.yml"
+    config_path_obj = Path(config_path)
+    if not config_path_obj.is_absolute() and MODELS_DIR is not None:
+        config_path_obj = MODELS_DIR / config_path_obj
+    config_path_obj = config_path_obj.resolve()
+
+    model_name = config_path_obj.stem
+    base_config_path = config_path_obj.parent.parent / "base.yml"
+    if not base_config_path.exists() and MAXTEXT_CONFIG_DIR is not None:
+        base_config_path = MAXTEXT_CONFIG_DIR / "base.yml"
 
     argv = [
         "train.py",

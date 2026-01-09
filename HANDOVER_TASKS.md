@@ -3,13 +3,13 @@
 **Objective**: Enable MaxText models (Llama2, Gemma, etc.) as supported examples in `jax2onnx` to verify export capabilities.
 
 ## 1. Current Status
-- **MaxText Source**: Cloned at `tmp/maxtext` (referenced by `jax2onnx/plugins/examples/maxtext/maxtext_models.py`).
+- **MaxText Source**: Resolved via `JAX2ONNX_MAXTEXT_SRC` (optional) or an installed `MaxText` package; no `tmp/maxtext` assumption.
 - **Dependencies**: 
     - Installed via pip: `flax`, `omegaconf`, `orbax-checkpoint`, `transformers`, `sentencepiece`, `tensorflow-cpu`, `tensorboardX`, `onnx-ir`.
     - Note: `tensorflow-cpu` is required because MaxText uses `tensorboard` and some TF utilities for data loading/logging.
 - **Implementation**:
     - Created `jax2onnx/plugins/examples/maxtext/maxtext_models.py`.
-    - This file dynamically discovers MaxText configs in `tmp/maxtext/src/MaxText/configs/models` and registers them using `jax2onnx.plugins.plugin_system.register_example`.
+    - This file dynamically discovers MaxText configs from the resolved package path (for example `<pkg>/configs/models`) and registers them using `jax2onnx.plugins.plugin_system.register_example`.
     - Configured to use minimal inference settings (batch_size=1, seq_len=32, no checkpointing) to facilitate testing.
 
 ## 2. Immediate Next Steps
@@ -24,14 +24,13 @@
 
 ## 3. Future Work
 - [ ] **Expand Model Coverage**:
-    - Currently `SELECTED_MODELS` in `maxtext_models.py` is limited to `["llama2-7b.yml", "gemma-2b.yml"]`.
-    - Once these pass, remove the filter to support all compatible models.
+    - Currently defaults are limited to `["llama2-7b.yml", "gemma-2b.yml"]` unless `JAX2ONNX_MAXTEXT_MODELS` is set.
+    - Once these pass, expand the default list or set `JAX2ONNX_MAXTEXT_MODELS=all` to cover all compatible models.
 - [ ] **CI Integration**: 
-    - `tmp/maxtext` is local. For CI, MaxText should likely be installed as a proper dependency or submodule.
+    - Ensure MaxText is available via dependency install or set `JAX2ONNX_MAXTEXT_SRC` in CI to point at a checked-out copy.
 - [ ] **Mocking**: 
     - Considerations for mocking `pyconfig` or `Mesh` creation if hardware dependent errors arise on standard runners.
 
 ## 4. Key Files
 - `jax2onnx/plugins/examples/maxtext/maxtext_models.py`: Main registration logic.
-- `tmp/maxtext/src/MaxText/`: Source code of MaxText.
 - `jax2onnx/plugins/plugin_system.py`: Reference for `register_example`.
