@@ -306,6 +306,14 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
             "optimize",
             "preferred_element_type",
             "_dot_general",
+            "out_sharding",
+        }
+        # Allow out_sharding for compatibility, but ignore sharding hints during export.
+        bindable_kwargs = {
+            "precision",
+            "optimize",
+            "preferred_element_type",
+            "_dot_general",
         }
 
         def _make_value(
@@ -327,7 +335,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                     )
 
                 bind_kwargs = {"equation": str(equation)}
-                for key in allowed_kwargs:
+                for key in bindable_kwargs:
                     value = kwargs.get(key, None)
                     if value is not None:
                         bind_kwargs[key] = value

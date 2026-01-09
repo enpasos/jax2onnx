@@ -40,6 +40,27 @@ class _DynamicDimSentinel:
     def __eq__(self, other: object) -> bool:
         return isinstance(other, _DynamicDimSentinel)
 
+    # Comparison hooks keep JAX shape checks from erroring on symbolic dims.
+    def __ge__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return True
+        return NotImplemented
+
+    def __gt__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return True
+        return NotImplemented
+
+    def __le__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return False
+        return NotImplemented
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return False
+        return NotImplemented
+
     def dimension_as_value(self):  # pragma: no cover - compatibility helper
         msg = "Dynamic dimension sentinel cannot be materialized as a value"
         raise TypeError(msg)
