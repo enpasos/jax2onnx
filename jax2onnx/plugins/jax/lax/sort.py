@@ -51,29 +51,40 @@ class SortPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", -1))
+        num_keys = int(params.get("num_keys", 1))
 
-        (arr_var,) = eqn.invars
-        (out_var,) = eqn.outvars
+        invars = list(eqn.invars)
+        outvars = list(eqn.outvars)
+        if not invars:
+            raise ValueError("lax.sort expects at least one operand")
+        if len(invars) != len(outvars):
+            raise ValueError("lax.sort expects the same number of inputs and outputs")
+        if num_keys != 1:
+            raise NotImplementedError("lax.sort with num_keys > 1 is not supported yet")
 
-        arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
-        if not arr_shape:
+        key_var = invars[0]
+        key_shape = tuple(getattr(key_var.aval, "shape", ()))
+        if not key_shape:
             axis = 0
         else:
             if axis < 0:
-                axis += len(arr_shape)
-            if axis < 0 or axis >= len(arr_shape):
+                axis += len(key_shape)
+            if axis < 0 or axis >= len(key_shape):
                 raise ValueError("sort axis out of range")
 
-        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("sort_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
+        key_val = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("sort_key"))
+        out_specs = [
+            ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
+            for out_var in outvars
+        ]
 
-        axis_size = arr_shape[axis] if arr_shape else 1
+        axis_size = key_shape[axis] if key_shape else 1
         if not isinstance(axis_size, (int, np.integer)):
             raise TypeError("lax.sort currently requires static axis length")
 
         k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
-        values, _indices = ctx.builder.TopK(
-            arr_val,
+        values, indices = ctx.builder.TopK(
+            key_val,
             k_val,
             _outputs=[
                 ctx.fresh_name("sort_values"),
@@ -83,21 +94,46 @@ class SortPlugin(PrimitiveLeafPlugin):
             largest=0,
             sorted=1,
         )
-        arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
-        if arr_dtype is not None:
-            values.type = ir.TensorType(arr_dtype)
+        key_dtype = getattr(getattr(key_val, "type", None), "dtype", None)
+        if key_dtype is not None:
+            values.type = ir.TensorType(key_dtype)
+            values.dtype = key_dtype
 
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_shape = tuple(getattr(outvars[0].aval, "shape", ()))
         _stamp_type_and_shape(values, out_shape)
         _ensure_value_metadata(ctx, values)
 
-        result_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
-        result = ctx.builder.Identity(
-            values,
-            _outputs=[result_name],
-        )
-        if arr_dtype is not None:
-            result.type = ir.TensorType(arr_dtype)
-        _stamp_type_and_shape(result, out_shape)
-        _ensure_value_metadata(ctx, result)
-        ctx.bind_value_for_var(out_var, result)
+        indices.type = ir.TensorType(ir.DataType.INT64)
+        indices.dtype = ir.DataType.INT64
+        _stamp_type_and_shape(indices, out_shape)
+        _ensure_value_metadata(ctx, indices)
+
+        for idx, (in_var, out_var, out_spec) in enumerate(
+            zip(invars, outvars, out_specs, strict=True)
+        ):
+            result_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
+            if idx == 0:
+                result = ctx.builder.Identity(values, _outputs=[result_name])
+                if key_dtype is not None:
+                    result.type = ir.TensorType(key_dtype)
+                    result.dtype = key_dtype
+                _stamp_type_and_shape(result, out_shape)
+                _ensure_value_metadata(ctx, result)
+                ctx.bind_value_for_var(out_var, result)
+                continue
+
+            in_val = ctx.get_value_for_var(in_var, name_hint=ctx.fresh_name("sort_in"))
+            gathered = ctx.builder.GatherElements(
+                in_val,
+                indices,
+                axis=int(axis),
+                _outputs=[result_name],
+            )
+            in_dtype = getattr(getattr(in_val, "type", None), "dtype", None)
+            if in_dtype is not None:
+                gathered.type = ir.TensorType(in_dtype)
+                gathered.dtype = in_dtype
+            output_shape = tuple(getattr(out_var.aval, "shape", ()))
+            _stamp_type_and_shape(gathered, output_shape)
+            _ensure_value_metadata(ctx, gathered)
+            ctx.bind_value_for_var(out_var, gathered)

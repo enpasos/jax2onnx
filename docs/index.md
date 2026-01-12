@@ -62,6 +62,11 @@ We warmly welcome contributions!
 
 ### **Current Productive Version**
 
+* **0.11.1**:
+   * Added a self-contained MaxText example stack and tests covering DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, and Qwen families; added the MaxText dependency stubs and new primitive support needed for those exports; tightened subgraph cleanup for cleaner ONNX graphs.
+
+### **Current Productive Version**
+
 * **0.11.0**:
   * Initial Flax Linen support: core layers (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm), Dropout, Einsum/Embed, spectral/weight norm wrappers, activation coverage (GELU plus glu/hard_*/log_*/relu6/silu-swish/tanh/normalize/one_hot), attention stack (dot_product_attention, dot_product_attention_weights, make_attention_mask/make_causal_mask, SelfAttention, MultiHeadDotProductAttention, MultiHeadAttention), recurrent stack (SimpleCell, GRUCell, MGUCell, LSTMCell, OptimizedLSTMCell, ConvLSTMCell, RNN, Bidirectional), and Linen examples (MLP/CNN/Sequential).
   * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.

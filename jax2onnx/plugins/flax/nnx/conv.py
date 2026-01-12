@@ -1409,6 +1409,15 @@ class ConvPlugin(PrimitiveLeafPlugin):
         n_flat = reduce(mul, leading, 1) if leading else 1
         a_flat_shape = (n_flat, *part, x_shape[-1])  # N' + participating + C
 
+        padding_param = padding
+        if isinstance(padding_param, str) and padding_param.upper() == "CAUSAL":
+            if conv_spatial != 1:
+                raise ValueError(
+                    "Causal padding is only implemented for 1D convolutions."
+                )
+            left_pad = (int(k_shape[0]) - 1) * int(d[0])
+            padding_param = ((left_pad, 0),)
+
         # Build general layouts (1D/2D/3D): N{W|HW|DHW}C and {W|HW|DHW}IO.
         spatial_map = {1: "W", 2: "HW", 3: "DHW"}
         try:
@@ -1430,7 +1439,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 a,
                 w,
                 window_strides=tuple(s),
-                padding=padding,
+                padding=padding_param,
                 lhs_dilation=None,
                 rhs_dilation=tuple(d),
                 dimension_numbers=dn,
@@ -1489,6 +1498,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
             dilations = (int(dilations_param),) * conv_spatial
         else:
             dilations = tuple(int(d) for d in dilations_param)
+
+        if isinstance(padding_param, str) and padding_param.upper() == "CAUSAL":
+            if conv_spatial != 1:
+                raise ValueError(
+                    "Causal padding is only implemented for 1D convolutions."
+                )
+            left_pad = (int(k_shape[0]) - 1) * int(dilations[0])
+            padding_param = ((left_pad, 0),)
 
         # Flatten N + extra spatial dims into batch when input has more spatial dims than kernel
         need_flatten = conv_spatial < x_spatial

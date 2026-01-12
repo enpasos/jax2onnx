@@ -1424,7 +1424,11 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
 # ---------------- DCE ----------------
 
 
-def remove_dead_nodes_ir(graph: ir.Graph) -> None:
+def remove_dead_nodes_ir(
+    graph: ir.Graph,
+    *,
+    _seen: Optional[set[int]] = None,
+) -> None:
     debug_metadata_flag = os.getenv("JAX2ONNX_ENABLE_STACKTRACE_METADATA", "")
     if debug_metadata_flag and debug_metadata_flag.strip().lower() not in (
         "0",
@@ -1434,6 +1438,116 @@ def remove_dead_nodes_ir(graph: ir.Graph) -> None:
         # Keep the graph intact when stacktrace metadata is requested so downstream
         # tooling (e.g. sandbox repros) can inspect unused nodes.
         return
+    if _seen is None:
+        _seen = set()
+    graph_id = id(graph)
+    if graph_id in _seen:
+        return
+    _seen.add(graph_id)
+
+    def _name_of(val: object) -> Optional[str]:
+        return _v_name(val) if val is not None else None
+
+    def _collect_nested_input_names(root: ir.Graph, seen: set[int]) -> set[str]:
+        if root is None:
+            return set()
+        gid = id(root)
+        if gid in seen:
+            return set()
+        seen.add(gid)
+        names: set[str] = set()
+        for node in list(root):
+            for iv in _node_inputs(node):
+                name = _name_of(iv)
+                if name:
+                    names.add(name)
+            for ov in _node_outputs(node):
+                name = _name_of(ov)
+                if name:
+                    names.add(name)
+            for attr in _iter_node_attrs(node):
+                kind = _attr_kind(attr)
+                if kind == "GRAPH":
+                    try:
+                        sub_graph = attr.as_graph()
+                    except Exception:
+                        sub_graph = None
+                    if sub_graph is not None:
+                        names.update(_collect_nested_input_names(sub_graph, seen))
+                elif kind == "GRAPHS":
+                    try:
+                        sub_graphs = tuple(attr.as_graphs())
+                    except Exception:
+                        sub_graphs = ()
+                    for sub_graph in sub_graphs:
+                        if sub_graph is not None:
+                            names.update(_collect_nested_input_names(sub_graph, seen))
+        for g_in in root.inputs:
+            name = _name_of(g_in)
+            if name:
+                names.add(name)
+        for g_out in root.outputs:
+            name = _name_of(g_out)
+            if name:
+                names.add(name)
+        init_container = root.initializers
+        init_values: Iterable[ir.Value]
+        if isinstance(init_container, Mapping):
+            init_values = init_container.values()
+        elif isinstance(init_container, SequenceABC):
+            init_values = init_container
+        else:
+            init_values = ()
+        for init in init_values:
+            name = _name_of(init)
+            if name:
+                names.add(name)
+        return names
+
+    parent_names: set[str] = set()
+    for node in list(graph):
+        for ov in _node_outputs(node):
+            name = _name_of(ov)
+            if name:
+                parent_names.add(name)
+    for g_in in graph.inputs:
+        name = _name_of(g_in)
+        if name:
+            parent_names.add(name)
+    init_container = graph.initializers
+    init_values: Iterable[ir.Value]
+    if isinstance(init_container, Mapping):
+        init_values = init_container.values()
+    elif isinstance(init_container, SequenceABC):
+        init_values = init_container
+    else:
+        init_values = ()
+    for init in init_values:
+        name = _name_of(init)
+        if name:
+            parent_names.add(name)
+    nested_names: set[str] = set()
+    for node in list(graph):
+        for attr in _iter_node_attrs(node):
+            kind = _attr_kind(attr)
+            if kind == "GRAPH":
+                try:
+                    sub_graph = attr.as_graph()
+                except Exception:
+                    sub_graph = None
+                if sub_graph is not None:
+                    nested_names.update(_collect_nested_input_names(sub_graph, set()))
+            elif kind == "GRAPHS":
+                try:
+                    sub_graphs = tuple(attr.as_graphs())
+                except Exception:
+                    sub_graphs = ()
+                for sub_graph in sub_graphs:
+                    if sub_graph is not None:
+                        nested_names.update(
+                            _collect_nested_input_names(sub_graph, set())
+                        )
+    external_use_names = parent_names & nested_names
 
     # Iterative dead code elimination using IR APIs
     # Logic matched from ir-py/src/onnx_ir/passes/common/unused_removal.py
@@ -1453,6 +1567,10 @@ def remove_dead_nodes_ir(graph: ir.Graph) -> None:
                 if output in graph_outputs or output.uses():
                     is_used = True
                     break
+                name = _name_of(output)
+                if name and name in external_use_names:
+                    is_used = True
+                    break
 
             # If side-effecting nodes exist (e.g. Print), we might keep them.
             # But standard ONNX DCE assumes pure nodes.
@@ -1465,6 +1583,31 @@ def remove_dead_nodes_ir(graph: ir.Graph) -> None:
                 print(f"[dce] removing {len(to_remove)} nodes")
             graph.remove(to_remove)
             changed = True
+
+    # Name-based reachability cleanup (ignore value_info-driven uses)
+    nodes = list(graph)
+    needed_names: set[str] = set()
+    for out in graph.outputs:
+        name = _v_name(out)
+        if name:
+            needed_names.add(name)
+    needed_names.update(external_use_names)
+    keep_nodes: set[ir.Node] = set()
+    for node in reversed(nodes):
+        out_names = [name for ov in _node_outputs(node) if (name := _v_name(ov))]
+        if not out_names:
+            continue
+        if any(name in needed_names for name in out_names):
+            keep_nodes.add(node)
+            for iv in _node_inputs(node):
+                name = _v_name(iv)
+                if name:
+                    needed_names.add(name)
+    to_remove = [node for node in nodes if node not in keep_nodes]
+    if to_remove:
+        if DCE_DEBUG:
+            print(f"[dce-names] removing {len(to_remove)} nodes")
+        graph.remove(to_remove)
 
     # Prune unused initializers
     # Refetch outputs/inputs as they might have changed or we need strict check
@@ -1492,6 +1635,26 @@ def remove_dead_nodes_ir(graph: ir.Graph) -> None:
                 ):
                     if init.name and init.name in init_container:
                         del init_container[init.name]
+
+    # Recurse into control-flow subgraphs (If/Loop/Scan/etc.)
+    for node in list(graph):
+        for attr in _iter_node_attrs(node):
+            kind = _attr_kind(attr)
+            if kind == "GRAPH":
+                try:
+                    sub_graph = attr.as_graph()
+                except Exception:
+                    sub_graph = None
+                if sub_graph is not None:
+                    remove_dead_nodes_ir(sub_graph, _seen=_seen)
+            elif kind == "GRAPHS":
+                try:
+                    sub_graphs = tuple(attr.as_graphs())
+                except Exception:
+                    sub_graphs = ()
+                for sub_graph in sub_graphs:
+                    if sub_graph is not None:
+                        remove_dead_nodes_ir(sub_graph, _seen=_seen)
 
 
 def ensure_unique_value_names_ir(graph: ir.Graph) -> None:
