@@ -39,6 +39,7 @@ nav:
       - Supported Components: readme/coverage_tables.md
       - SotA Examples:
           - GPT-OSS: readme/gpt_oss/getting_weights.md
+          - MaxText: readme/maxtext.md
           - DINOv3: readme/dinov3/getting_weights.md
   - Developer Guide:
       - Architecture: design.md
