@@ -602,7 +602,7 @@ def make_test_function(tp: dict[str, Any]):
 
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 21)
-        model_folder_path = os.path.join("docs", "onnx", *context_path)
+        model_folder_path = os.path.join("onnx", *context_path)
         os.makedirs(model_folder_path, exist_ok=True)
         model_path = os.path.join(model_folder_path, f"{test_case_name_safe}.onnx")
 

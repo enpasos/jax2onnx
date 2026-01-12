@@ -21,6 +21,13 @@ theme:
         icon: material/brightness-4
         name: Switch to dark mode
 
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+
 plugins:
   - search
   - mkdocstrings:
@@ -35,25 +42,27 @@ nav:
   - Home: index.md
   - User Guide:
       - Getting Started: user_guide/getting_started.md
-      - API Reference: api.md
-      - Supported Components: readme/coverage_tables.md
+      - API Reference: user_guide/api.md
+      - Stacktrace Metadata: user_guide/stacktrace_metadata.md
+      - Supported Components: user_guide/supported_components.md
+      - Examples: user_guide/examples.md
       - SotA Examples:
-          - GPT-OSS: readme/gpt_oss/getting_weights.md
-          - MaxText: readme/maxtext.md
-          - DINOv3: readme/dinov3/getting_weights.md
+          - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
+          - MaxText: user_guide/sota_examples/maxtext.md
+          - DINOv3: user_guide/sota_examples/dinov3/getting_weights.md
   - Developer Guide:
-      - Architecture: design.md
-      - Plugin System: dev_guides/plugin_quickstart.md
+      - Architecture: developer_guide/architecture.md
+      - Plugin System: developer_guide/plugin_system.md
       - Advanced Topics:
-          - Complex Numbers: dev_guides/complex_numbers.md
-          - Expected Graph Reference: dev_guides/expect_graph_reference.md
-          - IR Optimizer: dev_guides/ir_optimizer.md
-          - IR Reflection: dev_guides/ir_reflection_guidelines.md
-          - Linen Support: dev_guides/linen_support.md
-          - ONNX Functions: dev_guides/onnx_function_usage.md
-          - ONNX IR Builder: dev_guides/onnx_ir_builder.md
-          - ONNX IR Typing: dev_guides/onnx_ir_typing_how_to.md
-          - Subgraph Input Handling: dev_guides/subgraph_input_handling.md
-          - Typing Improvements: dev_guides/typing_improvements.md
+          - Complex Numbers: developer_guide/advanced_topics/complex_numbers.md
+          - Expected Graph Reference: developer_guide/advanced_topics/expect_graph_reference.md
+          - IR Optimizer: developer_guide/advanced_topics/ir_optimizer.md
+          - IR Reflection: developer_guide/advanced_topics/ir_reflection_guidelines.md
+          - Linen Support: developer_guide/advanced_topics/linen_support.md
+          - ONNX Functions: developer_guide/advanced_topics/onnx_function_usage.md
+          - ONNX IR Builder: developer_guide/advanced_topics/onnx_ir_builder.md
+          - ONNX IR Typing: developer_guide/advanced_topics/onnx_ir_typing_how_to.md
+          - Subgraph Input Handling: developer_guide/advanced_topics/subgraph_input_handling.md
+          - Typing Improvements: developer_guide/advanced_topics/typing_improvements.md
   - About:
-      - Past Versions: readme/past_versions.md
+      - Past Versions: about/past_versions.md

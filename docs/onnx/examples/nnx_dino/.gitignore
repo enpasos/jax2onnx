@@ -1,3 +1,0 @@
-# Generated artifacts only; keep sources clean.
-*.onnx
-*.onnx.data

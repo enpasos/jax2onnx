@@ -23,7 +23,10 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # Paths
 BASE_DIR = Path(__file__).parent
-COVERAGE_PATH = BASE_DIR / "../docs/readme/coverage_tables.md"
+# COVERAGE_PATH = BASE_DIR / "../docs/readme/coverage_tables.md"  # Removed
+
+COMPONENTS_PATH = BASE_DIR / "../docs/user_guide/supported_components.md"
+EXAMPLES_PATH = BASE_DIR / "../docs/user_guide/examples.md"
 REPORT_PATH = BASE_DIR / "output/pytest_report.json"
 REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)  # Ensure output dir exists
 
@@ -44,7 +47,13 @@ def run_pytest() -> dict[tuple[str, str, str], str]:
 
     try:
         subprocess.run(
-            ["pytest", "--json-report", f"--json-report-file={REPORT_PATH}"],
+            [
+                "python",
+                "-m",
+                "pytest",
+                "--json-report",
+                f"--json-report-file={REPORT_PATH}",
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -144,20 +153,30 @@ def update_coverage_tables(
     new_plugins_section = generate_markdown_table(plugins_grouped, is_example=False)
     new_examples_section = generate_markdown_table(examples_grouped, is_example=True)
 
-    coverage_content = COVERAGE_PATH.read_text(encoding="utf-8")
+    # Update Supported Components
+    if COMPONENTS_PATH.exists():
+        components_content = COMPONENTS_PATH.read_text(encoding="utf-8")
+        components_content = replace_markers(
+            components_content, START_MARKER, END_MARKER, new_plugins_section
+        )
+        COMPONENTS_PATH.write_text(components_content, encoding="utf-8")
+        logging.info("✅ docs/readme/supported_components.md updated successfully!")
+    else:
+        logging.warning("⚠️ docs/readme/supported_components.md not found.")
 
-    coverage_content = replace_markers(
-        coverage_content, START_MARKER, END_MARKER, new_plugins_section
-    )
-    coverage_content = replace_markers(
-        coverage_content,
-        EXAMPLES_START_MARKER,
-        EXAMPLES_END_MARKER,
-        new_examples_section,
-    )
-
-    COVERAGE_PATH.write_text(coverage_content, encoding="utf-8")
-    logging.info("✅ docs/readme/coverage_tables.md updated successfully!")
+    # Update Examples
+    if EXAMPLES_PATH.exists():
+        examples_content = EXAMPLES_PATH.read_text(encoding="utf-8")
+        examples_content = replace_markers(
+            examples_content,
+            EXAMPLES_START_MARKER,
+            EXAMPLES_END_MARKER,
+            new_examples_section,
+        )
+        EXAMPLES_PATH.write_text(examples_content, encoding="utf-8")
+        logging.info("✅ docs/readme/examples.md updated successfully!")
+    else:
+        logging.warning("⚠️ docs/readme/examples.md not found.")
 
 
 def generate_markdown_table(
@@ -206,7 +225,9 @@ def generate_markdown_table(
             rows.append(row)
 
     logging.info(f"📋 Generated {len(rows)} table rows.")
-    return f"{header}\n" + "\n".join(rows)
+    table_md = f"{header}\n" + "\n".join(rows)
+    class_name = ".examples-table" if is_example else ".coverage-table"
+    return f"{table_md}\n{{: {class_name} }}"
 
 
 def replace_markers(

@@ -6,7 +6,7 @@
 `jax2onnx` converts your [JAX](https://docs.jax.dev/),  [Flax NNX](https://flax.readthedocs.io/en/latest/), [Flax Linen](https://flax.readthedocs.io/en/latest/api_reference/flax.linen.html), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
-![jax2onnx.svg](https://enpasos.github.io/jax2onnx/readme/images/jax2onnx.svg)
+![jax2onnx.svg](https://enpasos.github.io/jax2onnx/images/jax2onnx.svg)
 
 ## ✨ Key Features
 
@@ -21,6 +21,7 @@
 
 - **plugin-based extensibility**  
   Add support for new primitives by writing small, local plugins.
+  a primitive or an example. The [Plugin Quickstart](developer_guide/plugin_system.md) walks through the process step-by-step.
 
 - **onnx-ir native pipeline**  
   Conversion, optimization, and post-processing all run on the typed `onnx_ir` toolkit—no protobuf juggling—and stay memory-lean before the final ONNX serialization.
@@ -42,7 +43,7 @@ We warmly welcome contributions!
 **How you can help:**
 
 - **Add a plugin:** Extend `jax2onnx` by writing a simple Python file in [`jax2onnx/plugins`](https://github.com/enpasos/jax2onnx/tree/main/jax2onnx/plugins):
-  a primitive or an example. The [Plugin Quickstart](dev_guides/plugin_quickstart.md) walks through the process step-by-step.
+  a primitive or an example. The [Plugin Quickstart](developer_guide/plugin_system.md) walks through the process step-by-step.
 - **Bug fixes & improvements:** PRs and issues are always welcome.
  
 
@@ -73,7 +74,7 @@ We warmly welcome contributions!
 
 ### **Past Versions**
 
-See [`past_versions`](readme/past_versions.md) for the full release archive.
+See [`past_versions`](about/past_versions.md) for the full release archive.
 
 
 ---
@@ -108,7 +109,7 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 
-✨ Special- Language: [MaxText](readme/maxtext.md) model zoointroducing us to [gpt-oss-jax-vs-torch-numerical-comparison](https://github.com/atveit/gpt-oss-jax-vs-torch-numerical-comparison).
+✨ Special- Language: [MaxText](user_guide/sota_examples/maxtext.md) model zoointroducing us to [gpt-oss-jax-vs-torch-numerical-comparison](https://github.com/atveit/gpt-oss-jax-vs-torch-numerical-comparison).
 
 ✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
 
