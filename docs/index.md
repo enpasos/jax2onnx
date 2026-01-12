@@ -73,4 +73,34 @@ This project is licensed under the Apache License, Version 2.0. See [`LICENSE`](
 
 ---
 
+## 🌟 Special Thanks
+
+✨ Special thanks to [@clementpoiret](https://github.com/clementpoiret) for initiating Equinox support and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox.
+
+✨ Special thanks to [@justinchuby](https://github.com/justinchuby) for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
+
+✨ Special thanks to [@atveit](https://github.com/atveit) for introducing us to [gpt-oss-jax-vs-torch-numerical-comparison](https://github.com/atveit/gpt-oss-jax-vs-torch-numerical-comparison).
+
+✨ Special thanks for example contributions to [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret) and [@PVirie](https://github.com/PVirie)
+
+✨ Special thanks for plugin contributions to [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam) and [benmacadam64](https://github.com/benmacadam64)
+
+✨ Special thanks to [@benmacadam64](https://github.com/benmacadam64) for championing the complex-number handling initiative.
+
+✨ Special thanks to [tumaer/JAXFLUIDS](https://github.com/tumaer/JAXFLUIDS) for contributing valuable insights rooted in physics simulation use cases.
+
+✨ Special thanks to [@lutzroeder](https://github.com/lutzroeder) for making shapes internal to ONNX function visible in his great Netron viewer.
+
+- [ONNX: Function value_info support #1447](https://github.com/lutzroeder/netron/issues/1447)
+
+
+✨ Special thanks to the community members involved in:
+
+- [Flax Feature Request #4430](https://github.com/google/flax/issues/4430)
+- [JAX Feature Request #26430](https://github.com/jax-ml/jax/issues/26430)
+
+✨ Special thanks to [@limarta](https://github.com/limarta), whose elegant [jaxpr-to-ONNX demonstration](https://gist.github.com/limarta/855a88cc1c0163487a9dc369891147ab) significantly inspired this project.
+
+---
+
 **Happy converting! 🎉**
