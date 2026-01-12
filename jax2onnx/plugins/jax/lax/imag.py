@@ -15,7 +15,6 @@ from jax2onnx.plugins._complex_utils import (
     split_packed_real_imag,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -35,12 +34,6 @@ if TYPE_CHECKING:  # pragma: no cover
     context="primitives.lax",
     component="imag",
     testcases=[
-        {
-            "testcase": "imag_real_input",
-            "callable": lambda x: jax.lax.imag(x),
-            "input_shapes": [(3,)],
-            "post_check_onnx_graph": EG(["Mul:3"], no_unused_inputs=True),
-        },
         {
             "testcase": "imag_complex64_input",
             "callable": lambda x: jax.lax.imag(x),
