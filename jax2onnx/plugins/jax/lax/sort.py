@@ -58,13 +58,9 @@ class SortPlugin(PrimitiveLeafPlugin):
         if not invars:
             raise ValueError("lax.sort expects at least one operand")
         if len(invars) != len(outvars):
-            raise ValueError(
-                "lax.sort expects the same number of inputs and outputs"
-            )
+            raise ValueError("lax.sort expects the same number of inputs and outputs")
         if num_keys != 1:
-            raise NotImplementedError(
-                "lax.sort with num_keys > 1 is not supported yet"
-            )
+            raise NotImplementedError("lax.sort with num_keys > 1 is not supported yet")
 
         key_var = invars[0]
         key_shape = tuple(getattr(key_var.aval, "shape", ()))
@@ -126,9 +122,7 @@ class SortPlugin(PrimitiveLeafPlugin):
                 ctx.bind_value_for_var(out_var, result)
                 continue
 
-            in_val = ctx.get_value_for_var(
-                in_var, name_hint=ctx.fresh_name("sort_in")
-            )
+            in_val = ctx.get_value_for_var(in_var, name_hint=ctx.fresh_name("sort_in"))
             gathered = ctx.builder.GatherElements(
                 in_val,
                 indices,

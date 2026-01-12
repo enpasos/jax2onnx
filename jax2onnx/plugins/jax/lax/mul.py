@@ -154,7 +154,9 @@ class MulPlugin(PrimitiveLeafPlugin):
         complex_var_hint = (
             _is_complex_var(out_var) or _is_complex_var(x_var) or _is_complex_var(y_var)
         )
-        complex_dtype_hint = a_val.dtype in COMPLEX_DTYPES or b_val.dtype in COMPLEX_DTYPES
+        complex_dtype_hint = (
+            a_val.dtype in COMPLEX_DTYPES or b_val.dtype in COMPLEX_DTYPES
+        )
         packed_hint = False
         if complex_var_hint or complex_dtype_hint:
             packed_hint = is_packed_complex_tensor(a_val) or is_packed_complex_tensor(

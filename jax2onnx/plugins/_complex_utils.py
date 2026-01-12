@@ -236,7 +236,9 @@ def ensure_packed_real_pair(
             raise ValueError("Packed complex tensor missing dtype metadata")
         return value, base_dtype
     if dtype is not None and dtype.is_floating_point():
-        base_dtype = ir.DataType.DOUBLE if dtype == ir.DataType.DOUBLE else ir.DataType.FLOAT
+        base_dtype = (
+            ir.DataType.DOUBLE if dtype == ir.DataType.DOUBLE else ir.DataType.FLOAT
+        )
     elif dtype is not None and (dtype.is_integer() or dtype.is_bool()):
         base_dtype = ir.DataType.FLOAT
     else:
@@ -247,7 +249,9 @@ def ensure_packed_real_pair(
     real_val = (
         value
         if value.dtype == base_dtype
-        else cast_real_tensor(ctx, value, base_dtype, name_hint=f"{name_hint}_real_cast")
+        else cast_real_tensor(
+            ctx, value, base_dtype, name_hint=f"{name_hint}_real_cast"
+        )
     )
     zero_np = np.asarray(0, dtype=_REAL_BASE_NP_DTYPE[base_dtype])
     zero_const = ctx.bind_const_for_var(object(), zero_np)

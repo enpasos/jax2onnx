@@ -1,3 +1,5 @@
+# jax2onnx/plugins/examples/maxtext/maxtext_models.py
+
 from __future__ import annotations
 
 import copy
@@ -22,10 +24,10 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
-MODEL_FILTER_ENV = "JAX2ONNX_MAXTEXT_MODELS"
-DEFAULT_MODELS = (
+MODEL_FILTER_ENV: str = "JAX2ONNX_MAXTEXT_MODELS"
+DEFAULT_MODELS: tuple[str, ...] = (
     "llama2-7b.yml",
     "llama2-13b.yml",
     "llama2-70b.yml",
@@ -35,7 +37,7 @@ DEFAULT_MODELS = (
     "mixtral-8x7b.yml",
 )
 
-MAXTEXT_SRC_ENV = os.environ.get("JAX2ONNX_MAXTEXT_SRC", "").strip()
+MAXTEXT_SRC_ENV: str = os.environ.get("JAX2ONNX_MAXTEXT_SRC", "").strip()
 
 
 def _resolve_maxtext_paths(path: Path) -> tuple[Path | None, Path | None]:
@@ -55,27 +57,29 @@ MAXTEXT_CONFIG_DIR: Path | None = None
 _MAXTEXT_PATH_ERROR: Exception | None = None
 
 if MAXTEXT_SRC_ENV:
-    env_path = Path(MAXTEXT_SRC_ENV).expanduser().resolve()
-    MAXTEXT_SRC_PATH, MAXTEXT_PKG_PATH = _resolve_maxtext_paths(env_path)
+    env_path: Path = Path(MAXTEXT_SRC_ENV).expanduser().resolve()
+    resolved_paths: tuple[Path | None, Path | None] = _resolve_maxtext_paths(env_path)
+    MAXTEXT_SRC_PATH: Path | None = resolved_paths[0]
+    MAXTEXT_PKG_PATH: Path | None = resolved_paths[1]
     if MAXTEXT_PKG_PATH is None:
-        _MAXTEXT_PATH_ERROR = FileNotFoundError(
+        _MAXTEXT_PATH_ERROR: Exception | None = FileNotFoundError(
             f"JAX2ONNX_MAXTEXT_SRC does not point to a MaxText package: {env_path}"
         )
 else:
-    spec = importlib.util.find_spec("MaxText")
+    spec: importlib.machinery.ModuleSpec | None = importlib.util.find_spec("MaxText")
     if spec is not None:
-        search_locations = list(spec.submodule_search_locations or [])
+        search_locations: list[str] = list(spec.submodule_search_locations or [])
         if search_locations:
-            MAXTEXT_PKG_PATH = Path(search_locations[0]).resolve()
+            MAXTEXT_PKG_PATH: Path | None = Path(search_locations[0]).resolve()
         elif spec.origin:
-            MAXTEXT_PKG_PATH = Path(spec.origin).resolve().parent
+            MAXTEXT_PKG_PATH: Path | None = Path(spec.origin).resolve().parent
 
 if MAXTEXT_PKG_PATH is not None:
-    MAXTEXT_CONFIG_DIR = MAXTEXT_PKG_PATH / "configs"
+    MAXTEXT_CONFIG_DIR: Path | None = MAXTEXT_PKG_PATH / "configs"
 
-MODELS_DIR = MAXTEXT_CONFIG_DIR / "models" if MAXTEXT_CONFIG_DIR else None
+MODELS_DIR: Path | None = MAXTEXT_CONFIG_DIR / "models" if MAXTEXT_CONFIG_DIR else None
 
-MODEL_OVERRIDES = {
+MODEL_OVERRIDES: dict[str, object] = {
     "override_model_config": True,
     "base_emb_dim": 64,
     "base_num_query_heads": 4,
@@ -107,20 +111,22 @@ MODEL_OVERRIDES = {
     "log_config": False,
 }
 
-MODEL_NAME_ALIASES = {
+MODEL_NAME_ALIASES: dict[str, str] = {
     "llama3-405b": "llama3.1-405b",
 }
 
-MODEL_MODE_TRAIN = "train"
-MAXTEXT_AVAILABLE = False
+MODEL_MODE_TRAIN: str = "train"
+MAXTEXT_AVAILABLE: bool = False
 _MAXTEXT_IMPORT_ERROR: Exception | None = _MAXTEXT_PATH_ERROR
-pyconfig = None
-model_creation_utils = None
+pyconfig: types.ModuleType | None = None
+model_creation_utils: types.ModuleType | None = None
 
 if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
+
     def _ensure_google_cloud_storage_stub() -> None:
         try:
             import google.cloud.storage  # noqa: F401
+
             return
         except Exception:
             pass
@@ -129,9 +135,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         if google_mod is None:
             google_mod = types.ModuleType("google")
             google_mod.__path__ = []
-            google_mod.__spec__ = importlib.machinery.ModuleSpec(
-                "google", loader=None
-            )
+            google_mod.__spec__ = importlib.machinery.ModuleSpec("google", loader=None)
             sys.modules["google"] = google_mod
 
         cloud_mod = sys.modules.get("google.cloud")
@@ -162,6 +166,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_tensorflow_stub() -> None:
         try:
             import tensorflow  # noqa: F401
+
             return
         except Exception:
             pass
@@ -352,6 +357,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_tensorboardx_stub() -> None:
         try:
             import tensorboardX  # noqa: F401
+
             return
         except Exception:
             pass
@@ -398,6 +404,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_omegaconf_stub() -> None:
         try:
             import omegaconf  # noqa: F401
+
             return
         except Exception:
             pass
@@ -480,6 +487,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_pil_stub() -> None:
         try:
             import PIL  # noqa: F401
+
             return
         except Exception:
             pass
@@ -489,9 +497,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         pil_mod.__path__ = []
 
         image_mod = types.ModuleType("PIL.Image")
-        image_mod.__spec__ = importlib.machinery.ModuleSpec(
-            "PIL.Image", loader=None
-        )
+        image_mod.__spec__ = importlib.machinery.ModuleSpec("PIL.Image", loader=None)
 
         def _missing(*args: object, **kwargs: object) -> None:
             raise ImportError("Pillow is required for MaxText image utilities.")
@@ -510,6 +516,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_grain_stub() -> None:
         try:
             import grain  # noqa: F401
+
             return
         except Exception:
             pass
@@ -552,15 +559,14 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_datasets_stub() -> None:
         try:
             import datasets  # noqa: F401
+
             return
         except Exception:
             pass
 
         datasets_mod = types.ModuleType("datasets")
         datasets_mod.__path__ = []
-        datasets_mod.__spec__ = importlib.machinery.ModuleSpec(
-            "datasets", loader=None
-        )
+        datasets_mod.__spec__ = importlib.machinery.ModuleSpec("datasets", loader=None)
 
         def _unavailable(*args: object, **kwargs: object) -> None:
             raise ImportError("datasets is required for MaxText dataset pipelines.")
@@ -584,6 +590,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_tensorflow_text_stub() -> None:
         try:
             import tensorflow_text  # noqa: F401
+
             return
         except Exception:
             pass
@@ -597,9 +604,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
             """Stub tokenizer for missing tensorflow_text dependency."""
 
             def __init__(self, *args: object, **kwargs: object) -> None:
-                raise ImportError(
-                    "tensorflow-text is required for MaxText tokenizers."
-                )
+                raise ImportError("tensorflow-text is required for MaxText tokenizers.")
 
         tf_text_mod.SentencepieceTokenizer = SentencepieceTokenizer
         sys.modules["tensorflow_text"] = tf_text_mod
@@ -607,15 +612,14 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_tiktoken_stub() -> None:
         try:
             import tiktoken  # noqa: F401
+
             return
         except Exception:
             pass
 
         tiktoken_mod = types.ModuleType("tiktoken")
         tiktoken_mod.__path__ = []
-        tiktoken_mod.__spec__ = importlib.machinery.ModuleSpec(
-            "tiktoken", loader=None
-        )
+        tiktoken_mod.__spec__ = importlib.machinery.ModuleSpec("tiktoken", loader=None)
 
         class Encoding:  # noqa: D401 - stub only
             """Stub encoding for missing tiktoken dependency."""
@@ -666,14 +670,13 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         interface_mod.PlaceHolderDataIterator = PlaceHolderDataIterator
 
         sys.modules["MaxText.input_pipeline"] = input_pipeline_mod
-        sys.modules[
-            "MaxText.input_pipeline.input_pipeline_interface"
-        ] = interface_mod
+        sys.modules["MaxText.input_pipeline.input_pipeline_interface"] = interface_mod
         input_pipeline_mod.input_pipeline_interface = interface_mod
 
     def _ensure_qwix_stub() -> None:
         try:
             import qwix  # noqa: F401
+
             return
         except Exception:
             pass
@@ -745,6 +748,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_aqt_stub() -> None:
         try:
             import aqt  # noqa: F401
+
             return
         except Exception:
             pass
@@ -897,6 +901,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
     def _ensure_tokamax_stub() -> None:
         try:
             import tokamax  # noqa: F401
+
             return
         except Exception:
             pass
@@ -966,14 +971,14 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         sys.modules["tokamax._src"] = tokamax_src_mod
         sys.modules["tokamax._src.ops"] = tokamax_ops_mod
         sys.modules["tokamax._src.ops.ragged_dot"] = tokamax_ragged_mod
-        sys.modules[
-            "tokamax._src.ops.ragged_dot.pallas_mosaic_tpu_kernel"
-        ] = tokamax_backend_mod
+        sys.modules["tokamax._src.ops.ragged_dot.pallas_mosaic_tpu_kernel"] = (
+            tokamax_backend_mod
+        )
         sys.modules["tokamax._src.ops.experimental"] = tokamax_exp_mod
         sys.modules["tokamax._src.ops.experimental.tpu"] = tokamax_exp_tpu_mod
-        sys.modules[
-            "tokamax._src.ops.experimental.tpu.splash_attention"
-        ] = tokamax_splash_pkg
+        sys.modules["tokamax._src.ops.experimental.tpu.splash_attention"] = (
+            tokamax_splash_pkg
+        )
         sys.modules[
             "tokamax._src.ops.experimental.tpu.splash_attention.splash_attention_kernel"
         ] = tokamax_splash_kernel
@@ -1012,9 +1017,9 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         from MaxText.common_types import MODEL_MODE_TRAIN as _MODEL_MODE_TRAIN
         from MaxText.layers import embeddings as _embeddings
 
-        pyconfig = _pyconfig
-        model_creation_utils = _model_creation_utils
-        MODEL_MODE_TRAIN = _MODEL_MODE_TRAIN
+        pyconfig: types.ModuleType | None = _pyconfig
+        model_creation_utils: types.ModuleType | None = _model_creation_utils
+        MODEL_MODE_TRAIN: str = _MODEL_MODE_TRAIN
         if not getattr(_embeddings, "_JAX2ONNX_ROTARY_PATCHED", False):
             _embeddings._JAX2ONNX_ROTARY_PATCHED = True
 
@@ -1030,9 +1035,10 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
                 half_embedding_dim = embedding_dims // 2
                 iota = jax.lax.iota(jnp.int32, half_embedding_dim)
                 fraction = 2 * iota / embedding_dims
-                timescale = self.min_timescale * (
-                    self.max_timescale / self.min_timescale
-                ) ** fraction
+                timescale = (
+                    self.min_timescale
+                    * (self.max_timescale / self.min_timescale) ** fraction
+                )
                 if self.rope_linear_scaling_factor != 1.0:
                     timescale = timescale * self.rope_linear_scaling_factor
                 return timescale
@@ -1043,32 +1049,30 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
                 iota = jax.lax.iota(jnp.int32, half_embedding_dim)
                 fraction = 2 * iota / embedding_dims
                 fraction = jnp.repeat(fraction, 2)
-                
+
                 # Ensure bases are floats
                 min_timescale = jnp.array(self.min_timescale, dtype=jnp.float32)
                 max_timescale = jnp.array(self.max_timescale, dtype=jnp.float32)
-                
-                timescale = min_timescale * (
-                    max_timescale / min_timescale
-                ) ** fraction
-                
+
+                timescale = min_timescale * (max_timescale / min_timescale) ** fraction
+
                 if self.use_scale:
                     # _apply_scaling_factor might return dynamic tracers if not careful
                     # We map over the timescale to apply it elementwise if necessary
                     def apply_scale(t):
-                         return self._apply_scaling_factor(1.0 / t)
-                    
+                        return self._apply_scaling_factor(1.0 / t)
+
                     # Vectorize to ensure we process the array correctly
                     inv_scale = jax.vmap(apply_scale)(timescale)
                     timescale = 1.0 / inv_scale
-                    
+
                 return timescale[jnp.newaxis, jnp.newaxis, jnp.newaxis, :]
 
             _embeddings.RotaryEmbedding.timescale = property(_rotary_timescale)
             _embeddings.LLaMARotaryEmbedding.timescale = property(_llama_timescale)
-        MAXTEXT_AVAILABLE = True
+        MAXTEXT_AVAILABLE: bool = True
     except Exception as exc:
-        _MAXTEXT_IMPORT_ERROR = exc
+        _MAXTEXT_IMPORT_ERROR: Exception | None = exc
         logger.warning(
             "MaxText import failed (%s). MaxText examples will be skipped.",
             exc,
@@ -1102,9 +1106,7 @@ def iter_model_configs() -> list[Path]:
 
 
 def list_maxtext_components() -> list[str]:
-    return [
-        f"MaxText_{cfg.stem.replace('-', '_')}" for cfg in iter_model_configs()
-    ]
+    return [f"MaxText_{cfg.stem.replace('-', '_')}" for cfg in iter_model_configs()]
 
 
 def _strip_nnx_rngs(obj: object, seen: set[int] | None = None) -> None:

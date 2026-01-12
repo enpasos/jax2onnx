@@ -1448,9 +1448,7 @@ def remove_dead_nodes_ir(
     def _name_of(val: object) -> Optional[str]:
         return _v_name(val) if val is not None else None
 
-    def _collect_nested_input_names(
-        root: ir.Graph, seen: set[int]
-    ) -> set[str]:
+    def _collect_nested_input_names(root: ir.Graph, seen: set[int]) -> set[str]:
         if root is None:
             return set()
         gid = id(root)
@@ -1493,6 +1491,7 @@ def remove_dead_nodes_ir(
             if name:
                 names.add(name)
         init_container = root.initializers
+        init_values: Iterable[ir.Value]
         if isinstance(init_container, Mapping):
             init_values = init_container.values()
         elif isinstance(init_container, SequenceABC):
@@ -1516,6 +1515,7 @@ def remove_dead_nodes_ir(
         if name:
             parent_names.add(name)
     init_container = graph.initializers
+    init_values: Iterable[ir.Value]
     if isinstance(init_container, Mapping):
         init_values = init_container.values()
     elif isinstance(init_container, SequenceABC):

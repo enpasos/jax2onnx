@@ -16,7 +16,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _adjust_axes(axes: tuple[int, ...], removed_axes: tuple[int, ...]) -> tuple[int, ...]:
+def _adjust_axes(
+    axes: tuple[int, ...], removed_axes: tuple[int, ...]
+) -> tuple[int, ...]:
     adjusted = []
     for axis in axes:
         if axis in removed_axes:
@@ -108,7 +110,9 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ragged_lhs"))
         rhs_val = ctx.get_value_for_var(rhs_var, name_hint=ctx.fresh_name("ragged_rhs"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ragged_out"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("ragged_out")
+        )
 
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
         rhs_shape = list(getattr(rhs_var.aval, "shape", ()))

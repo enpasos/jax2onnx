@@ -32,12 +32,8 @@ class ShardingConstraintPlugin(PrimitiveLeafPlugin):
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        inp_val = ctx.get_value_for_var(
-            inp_var, name_hint=ctx.fresh_name("shard_in")
-        )
-        out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("shard_out")
-        )
+        inp_val = ctx.get_value_for_var(inp_var, name_hint=ctx.fresh_name("shard_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("shard_out"))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
         producer = getattr(out_spec, "producer", lambda: None)

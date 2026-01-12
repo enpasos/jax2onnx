@@ -44,9 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
         {
             "testcase": "real_complex64_input",
             "callable": lambda x: jax.lax.real(x),
-            "input_values": [
-                np.array([1.0 + 2.0j, -0.5 + 0.25j], dtype=np.complex64)
-            ],
+            "input_values": [np.array([1.0 + 2.0j, -0.5 + 0.25j], dtype=np.complex64)],
             "expected_output_dtypes": [np.float32],
         },
     ],
@@ -75,9 +73,7 @@ class RealPlugin(PrimitiveLeafPlugin):
         packed_hint = is_packed_complex_tensor(x_val) if complex_hint else False
 
         if complex_hint or packed_hint:
-            packed, base_dtype = ensure_packed_real_pair(
-                ctx, x_val, name_hint="real"
-            )
+            packed, base_dtype = ensure_packed_real_pair(ctx, x_val, name_hint="real")
             real_part, _ = split_packed_real_imag(
                 ctx, packed, base_dtype, prefix="real_split"
             )

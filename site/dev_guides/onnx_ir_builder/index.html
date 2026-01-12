@@ -1,0 +1,1962 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/dev_guides/onnx_ir_builder/">
+      
+      
+        <link rel="prev" href="../onnx_function_usage/">
+      
+      
+        <link rel="next" href="../onnx_ir_typing_how_to/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>ONNX IR Builder - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#onnx-ir-builder-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ONNX IR Builder
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection Guidelines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Function Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#policy-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-metadata-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Metadata Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Hooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites-and-imports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites and Imports
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-concept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Concept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-End Workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bringing-existing-models-into-the-builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bringing Existing Models Into the Builder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-builder-does-for-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the Builder Does for You
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reserved-keyword-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reserved Keyword Arguments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tape-api-highlights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tape API Highlights
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#handling-multi-output-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handling Multi-Output Operators
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managing-attributes-explicitly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing Attributes Explicitly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-ownership-cloning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph Ownership &amp; Cloning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrating-with-existing-graphs-or-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrating with Existing Graphs or Functions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations-compared-to-tapeop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations Compared to Tape.op
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-pitfalls-and-how-to-avoid-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Pitfalls and How to Avoid Them
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initializer-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initializer Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checklist-before-serializing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checklist Before Serializing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-routine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Routine
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugin_quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage & Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coverage & Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/coverage_tables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage Tables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs jax2onnx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GPT-OSS
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../readme/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#policy-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-metadata-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Metadata Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Hooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites-and-imports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites and Imports
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-concept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Concept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-End Workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bringing-existing-models-into-the-builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bringing Existing Models Into the Builder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-builder-does-for-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the Builder Does for You
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reserved-keyword-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reserved Keyword Arguments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tape-api-highlights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tape API Highlights
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#handling-multi-output-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handling Multi-Output Operators
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managing-attributes-explicitly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing Attributes Explicitly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-ownership-cloning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph Ownership &amp; Cloning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrating-with-existing-graphs-or-functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrating with Existing Graphs or Functions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations-compared-to-tapeop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations Compared to Tape.op
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-pitfalls-and-how-to-avoid-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Pitfalls and How to Avoid Them
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initializer-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initializer Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checklist-before-serializing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checklist Before Serializing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-routine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Routine
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="onnx-ir-builder-guide">ONNX IR Builder Guide</h1>
+<p>This guide distills the guardrails we enforce around <code>onnx_ir._tape.Builder</code>: how to wire values, record initializers, and keep tests green now that the IR pipeline is builder-first.</p>
+<h2 id="policy-checklist">Policy Checklist</h2>
+<ul>
+<li>Always pass <code>name=</code> when calling <code>builder.initializer(...)</code> or <code>ctx.builder.add_initializer_from_*</code>. <code>tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py</code> verifies this.</li>
+<li><code>_outputs</code> must be a list/tuple (or alias that resolves to one); string literals are rejected by <code>tests/extra_tests/framework/test_ir_builder_contracts.py</code> and <code>scripts/check_ir_builder_usage.py</code>.</li>
+<li>Keep converter/plugins IR-only—no <code>onnx</code> protobuf helpers—per the same policy suite.</li>
+<li>Run <code>scripts/check_ir_builder_usage.py</code> before sending patches (it is also wired into the pre-commit stack).</li>
+</ul>
+<h2 id="quick-checklist">Quick Checklist</h2>
+<ul>
+<li>Emit ops through <code>ctx.builder</code> (or <code>_tape.Builder</code>) rather than constructing <code>ir.Node</code> manually. Fall back only in function-mode/legacy paths where the builder cannot express the behaviour.</li>
+<li>After every builder call, stamp dtype and shape with <code>_stamp_type_and_shape(...)</code> and run <code>_ensure_value_metadata(...)</code> so the <code>ir.Value</code> carries normalized shape/type metadata (no separate <code>value_info</code> bucket).</li>
+<li>Register constants via <code>builder.initializer(...)</code> / <code>ctx.bind_const_for_var(...)</code>; never smuggle tensors through ad-hoc <code>ir.Value(const_value=...)</code> without keeping the initializer list in sync.</li>
+<li>When defining plugin metadata, use <code>construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)</code> to honour the single-use RNG policy and keep tests deterministic across f32/f64 runs.</li>
+<li>Run the validation hooks listed below (Ruff, builder usage checker, pytest) before landing a change; the pre-commit stack invokes them automatically.</li>
+</ul>
+<h2 id="plugin-metadata-requirements">Plugin Metadata Requirements</h2>
+<ul>
+<li>Construct callable metadata with <code>construct_and_call(...)</code> so the test harness can rebuild modules for each dtype. Pair it with <code>with_requested_dtype()</code> and <code>with_rng_seed(...)</code>/<code>with_prng_key(...)</code> helpers instead of inlining lambdas or seeding at import time.</li>
+<li>Avoid <code>callable_factory</code>. The test generator now raises if metadata still relies on factories—<code>callable</code> entries must be concrete <code>construct_and_call(...)</code> results.</li>
+<li>When you need constants inside plugin lowers, prefer shared helpers (for example, <code>_const_i64</code>) that delegate to <code>ctx.builder</code> so they participate in initializer bookkeeping.</li>
+<li>Respect the single-use RNG rule: split keys per consumer and never cache module instances inside traced calls—<code>construct_and_call(...).with_dtype(...)</code> already handles per-dtype reuse.</li>
+</ul>
+<h2 id="validation-hooks">Validation Hooks</h2>
+<ul>
+<li><code>tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py</code> enforces both the "no protobuf" policy and initializer naming for every builder call.</li>
+<li><code>tests/extra_tests/framework/test_ir_builder_contracts.py</code> walks the AST to guarantee <code>_outputs=</code> uses sequence types.</li>
+<li><code>scripts/check_ir_builder_usage.py</code> wraps the same heuristics for local iteration and runs as a pre-commit hook. Invoke it manually with <code>poetry run python scripts/check_ir_builder_usage.py</code> when editing converter/plugins code.</li>
+</ul>
+<p>Everything below expands on the why and how behind those rules.</p>
+<h2 id="prerequisites-and-imports">Prerequisites and Imports</h2>
+<ul>
+<li>The ONNX IR package ships with ONNX Script and is available as <code>onnx_ir</code>; install <code>onnx-script</code> or <code>onnx-ir</code> and ensure runtime dependencies (notably <code>numpy</code>) are available.</li>
+<li>When working from a source checkout, set <code>PYTHONPATH=src</code> before importing.</li>
+<li>The builder lives in an internal module. Import it explicitly:</li>
+</ul>
+<pre><code class="language-python">import onnx_ir as ir
+from onnx_ir._tape import Builder
+</code></pre>
+<blockquote>
+<p><strong>Stability note</strong>: <code>_tape.Builder</code> is currently internal API (the leading underscore is intentional) and can change. Keep the wrapper that instantiates it confined to XY so updates are easy.</p>
+<p><strong>Legacy note</strong>: The converter no longer maintains a <code>builder.value_info</code> list. Plugins should rely exclusively on <code>_ensure_value_metadata(...)</code> and the fields on each <code>ir.Value</code> when they need shape/type information. Avoid appending to or expecting a global <code>value_info</code> registry.</p>
+</blockquote>
+<h2 id="core-concept">Core Concept</h2>
+<p><code>Builder</code> subclasses <code>onnx_ir.tape.Tape</code>. It records nodes, initializers, and the opsets they require while exposing every ONNX operator as a dynamic method (for example, <code>builder.Add</code>, <code>builder.Conv</code>).</p>
+<p>Use it when you want to script graph construction but still hand the collected nodes to <code>ir.Graph</code> or <code>ir.Function</code> later. If you need finer-grained control (custom outputs, metadata, overload selection, or pre-existing <code>ir.Value</code> objects), drop down to <code>Tape.op</code> / <code>Tape.op_multi_out</code> or construct <code>ir.Node</code> directly.</p>
+<h2 id="end-to-end-workflow">End-to-End Workflow</h2>
+<pre><code class="language-python">import numpy as np
+import onnx_ir as ir
+from onnx_ir._tape import Builder
+
+# 1. Provide typed graph values up front.
+X = ir.val(&quot;X&quot;, dtype=ir.DataType.FLOAT, shape=[1])
+Y = ir.val(&quot;Y&quot;, dtype=ir.DataType.FLOAT, shape=[1])
+
+# 2. Create a builder (optionally tie it to an existing graph/function).
+builder = Builder()
+
+# 3. Register any constant tensors through the builder so outputs stay in sync.
+weight_init = builder.initializer(
+    ir.tensor(np.array([0.25], dtype=np.float32)),
+    name=&quot;weight&quot;,
+)
+
+# 4. Emit operators. Positional args become inputs; keyword args become ONNX attributes.
+scaled = builder.Mul(X, weight_init, _outputs=[&quot;scaled&quot;])  # returns ir.Value
+summed = builder.Add(scaled, Y, _domain=&quot;&quot;, _version=18)
+
+# 5. Package the recording into a graph/model when ready.
+def to_opset_imports(used_opsets: set[tuple[str, int | None]]):
+    result: dict[str, int] = {}
+    for domain, version in used_opsets:
+        if version is None:
+            continue  # fall back to the containing graph's default
+        previous = result.get(domain)
+        if previous is not None and previous != version:
+            raise ValueError(
+                f&quot;Mixed opset versions requested for domain '{domain}': {previous} vs {version}&quot;
+            )
+        result[domain] = version
+    return result or {&quot;&quot;: 18}  # choose an explicit default for the model
+
+graph = ir.Graph(
+    inputs=[X, Y],
+    outputs=[summed],
+    nodes=builder.nodes,
+    initializers=builder.initializers,
+    opset_imports=to_opset_imports(builder.used_opsets),
+    name=&quot;scale_and_sum&quot;,
+)
+model = ir.Model(graph=graph, ir_version=10)
+</code></pre>
+<h2 id="bringing-existing-models-into-the-builder">Bringing Existing Models Into the Builder</h2>
+<p>The official docs highlight converting <code>onnx.ModelProto</code> to the IR via <code>ir.from_proto</code> or <code>onnx_ir.load</code>. That makes it easy to combine scripted nodes with imported graphs:</p>
+<pre><code class="language-python">import onnx
+import onnx_ir as ir
+from onnx_ir._tape import Builder
+
+model_proto = onnx.parser.parse_model(MODEL_TEXT)
+model = ir.from_proto(model_proto)
+
+builder = Builder(model.graph)
+extra = builder.Identity(model.graph.outputs[0])
+model.graph.outputs.append(extra)
+</code></pre>
+<p>You can reverse the process with <code>ir.to_proto(model)</code> when you need to serialize back to protobuf.</p>
+<h2 id="what-the-builder-does-for-you">What the Builder Does for You</h2>
+<ul>
+<li>Tracks every created <code>ir.Node</code> in insertion order via <code>builder.nodes</code> so you can extend a graph or build a new one.</li>
+<li>Keeps initializers created through <code>builder.initializer</code> aligned with the eventual graph. When the builder is constructed with <code>graph_like=ir.Graph(...)</code>, the initializer is immediately registered on that graph.</li>
+<li>Records <code>builder.used_opsets</code> as <code>(domain, version)</code> pairs so you can populate <code>Graph.opset_imports</code> consistently.</li>
+</ul>
+<h2 id="reserved-keyword-arguments">Reserved Keyword Arguments</h2>
+<p><code>Builder</code> intercepts a few keyword arguments before treating the remainder as ONNX attributes:
+- <code>_domain</code>: operator domain (default <code>""</code>).
+- <code>_version</code>: opset version for the operator. Use one consistent value per domain.
+- <code>_outputs</code>: either an <code>int</code> (number of outputs) or a <em>sequence</em> of output names.
+  - When you pass a sequence, make it a list/tuple of strings; plain strings count as sequences of characters and will be split unintentionally.</p>
+<p>Everything else in <code>**kwargs</code> is fed to <code>_convenience.convert_attributes</code>, which automatically turns Python scalars, sequences, tensors, and graphs into the right <code>ir.Attr</code> instances.</p>
+<h2 id="tape-api-highlights">Tape API Highlights</h2>
+<p>The public documentation for <code>onnx_ir.tape</code> at <a href="https://onnx.ai/ir-py/api/ir_tape.html">https://onnx.ai/ir-py/api/ir_tape.html</a> spells out the signatures for <code>Tape.op</code>, <code>Tape.op_multi_out</code>, and <code>Tape.initializer</code>:
+- <code>Tape.op</code> returns the first output <code>ir.Value</code> and accepts keyword-only arguments such as <code>overload</code>, <code>graph</code>, <code>name</code>, <code>doc_string</code>, <code>metadata_props</code>, and <code>output</code>.
+- <code>Tape.op_multi_out</code> requires either <code>num_outputs</code> or <code>outputs</code> (but not both) and returns an immutable tuple of <code>ir.Value</code> objects.
+- <code>Tape.initializer</code> insists on a name and on the provided tensor having <code>const_value</code> set; ONNX functions intentionally reject initializers.</p>
+<p>Keep these signatures in mind when deciding between builder convenience and direct tape usage.</p>
+<h2 id="handling-multi-output-operators">Handling Multi-Output Operators</h2>
+<pre><code class="language-python">values = builder.If(condition, _outputs=[&quot;then_out&quot;, &quot;else_out&quot;], _version=18)
+then_out, else_out = values
+</code></pre>
+<ul>
+<li>The return type is a tuple of <code>ir.Value</code>. Pull out the node again with <code>then_out.producer()</code> if you need to mutate metadata.</li>
+<li>For heterogeneous arity where ONNX requires empty slots, pass <code>None</code> in the positional inputs (for example, <code>builder.MaxPool(X, None, strides=[1, 1], _outputs=2)</code>).</li>
+</ul>
+<h2 id="managing-attributes-explicitly">Managing Attributes Explicitly</h2>
+<ul>
+<li>Python types are auto-inferred. For ambiguous cases (empty lists or <code>None</code>) create the attribute yourself: <code>builder.Cast(X, to=ir.Attr("to", ir.AttributeType.INT, 1))</code>.</li>
+<li>Tensor attributes should be created with <code>ir.tensor(...)</code> to guarantee dtype/shape correctness.</li>
+<li>Graph-typed attributes must be wrapped with <code>ir.AttrGraph</code> or <code>ir.AttrGraphs</code>.</li>
+</ul>
+<h2 id="graph-ownership-cloning">Graph Ownership &amp; Cloning</h2>
+<ul>
+<li><code>IRBuilder</code> now keeps its <code>inputs</code>, <code>outputs</code>, and nodes in sync with the underlying <code>onnx_ir.Graph</code> via proxy setters. Reassigning <code>builder.inputs = [...]</code> (or <code>.outputs</code>/<code>.nodes</code>) clears and repopulates the graph-side containers, while <code>builder.initializers</code> remains a list-like shim that delegates to <code>graph.initializers</code>. Prefer mutating these sequences in place, but reassignment is safe when you need to reset them.</li>
+<li>When exporting a staged graph—either to an <code>ir.Model</code> or into ONNX graph-typed attributes—clone it first using <code>jax2onnx.converter.ir_clone.clone_graph</code>. The helper copies values, initializers, metadata, and nested graphs so the detached graph can be owned by another model/function without triggering “Value … is already owned by a different graph” errors. Function scopes and control-flow plugins (<code>cond</code>, <code>fori_loop</code>, <code>scan</code>, <code>while_loop</code>) already adopt this pattern; follow suit for any new subgraph emission.</li>
+</ul>
+<h2 id="integrating-with-existing-graphs-or-functions">Integrating with Existing Graphs or Functions</h2>
+<pre><code class="language-python">graph = ir.Graph(inputs=[X], outputs=[Z], nodes=[])
+builder = Builder(graph)
+intermediate = builder.Relu(X)
+# The node is already appended to `graph`, and names are assigned by the graph's name authority.
+</code></pre>
+<ul>
+<li>When bound to a graph, builder calls reuse the graph's naming authority and automatically respect graph invariants.</li>
+<li>Initializers are registered only for graphs. ONNX functions do not permit initializers, so the builder simply stores them locally when <code>graph_like</code> is an <code>ir.Function</code>.</li>
+</ul>
+<h2 id="limitations-compared-to-tapeop">Limitations Compared to <code>Tape.op</code></h2>
+<p>Because <code>_make_node</code> forwards the remaining keyword arguments into the attribute map, the builder cannot set certain <code>Tape</code> parameters at construction time:
+- <code>overload</code>, <code>graph</code>, <code>name</code>, <code>doc_string</code>, <code>metadata_props</code>, and <code>output</code> are interpreted as attributes. Set them on the resulting node (<code>value.producer()</code>) after creation or call <code>Tape.op</code> directly when you need those parameters.
+- To attach a node to a different graph than <code>builder.graph_like</code>, instantiate another builder or fall back to <code>Tape.op(graph=...)</code>.
+- To reuse pre-created <code>ir.Value</code> outputs, call <code>Tape.op(output=existing_value)</code> or <code>Tape.op_multi_out(outputs=[...])</code> rather than relying on <code>_outputs</code>.</p>
+<h2 id="common-pitfalls-and-how-to-avoid-them">Common Pitfalls and How to Avoid Them</h2>
+<ul>
+<li><strong>Node metadata via kwargs</strong>: <code>builder.Add(..., name="foo")</code> creates an attribute named <code>name</code>; it does <em>not</em> rename the node. Use <code>summed.producer().name = "foo"</code> after creation instead.</li>
+<li><strong>Doc strings &amp; metadata props</strong>: assign them on the node object (<code>node = summed.producer(); node.doc_string = "..."</code>).</li>
+<li><strong>Debug provenance metadata</strong>: setting <code>JAX2ONNX_ENABLE_STACKTRACE_METADATA=1</code> (or <code>stacktrace_metadata=True</code>) records a concise call-site (<code>pkg.jax2onnx.callsite</code>, formatted as <code>function:line</code>) plus the plugin invocation site (<code>pkg.jax2onnx.plugin</code>, formatted as <code>Plugin.lower:line</code> pointing at the builder call) on each node. This is the default reduced payload surfaced in tools like Netron. Set <code>JAX2ONNX_STACKTRACE_DETAIL=full</code> when you also need the full Python (<code>pkg.jax2onnx.stacktrace</code>) and JAX (<code>pkg.jax2onnx.jax_traceback</code>) traces.</li>
+</ul>
+<p>Example (line numbers annotated to mirror the metadata):
+  <code>python
+  def wide_fn(x):
+      a = jnp.sin(x)   # wide_fn.py:8
+      b = jnp.cos(x)   # wide_fn.py:9
+      c = jnp.tanh(x)  # wide_fn.py:10
+      d = jnp.exp(x)   # wide_fn.py:11
+      return a + b * c + d  # wide_fn.py:12</code>
+- <strong>Output naming</strong>: pass a list (<code>_outputs=["y"]</code>), not a bare string.
+- <strong>Initializer naming</strong>: provide a name whenever the tensor lacks one; <code>Tape.initializer</code> raises otherwise.
+- <strong>Multiple opset versions</strong>: if two builder calls request different versions for the same domain, detect and reconcile before finishing the graph.
+- <strong>Optional inputs</strong>: include explicit <code>None</code> placeholders to maintain positional semantics.
+- <strong>Attribute values of <code>None</code></strong>: build an <code>ir.Attr</code> with an explicit <code>AttributeType</code>; automatic conversion rejects bare <code>None</code>.
+- <strong>Graph ownership</strong>: do not reuse a builder-generated node inside another graph without detaching it first (<code>graph.remove(node)</code>), because each node tracks its owning graph.</p>
+<h2 id="initializer-deduplication">Initializer Deduplication</h2>
+<ul>
+<li>Prefer <code>ctx.builder.add_initializer_from_scalar/array(...)</code> or <code>ctx.builder.const_i64(...)</code> to create constants. Avoid writing directly to <code>graph.initializers[...]</code>.</li>
+<li>The upstream <code>GraphInitializers.add(value)</code> overwrites by name. Our builder layer enforces a stricter policy to preserve IR value connections:</li>
+<li>Identical duplicate (same name + same data/shape/dtype) → reuse existing initializer; do not replace the object.</li>
+<li>Conflicting duplicate (same name + different payload) → raise a <code>ValueError</code>.</li>
+<li>In function-mode, constants are emitted as <code>Constant</code> nodes; graph initializers are not allowed in ONNX Functions.</li>
+</ul>
+<p>Example</p>
+<pre><code class="language-python">import numpy as np
+
+w1 = builder.add_initializer_from_array(&quot;weight&quot;, np.array([1.0], dtype=np.float32))
+# Re-adding with identical payload reuses the same Value (no-op):
+w2 = builder.add_initializer_from_array(&quot;weight&quot;, np.array([1.0], dtype=np.float32))
+assert w1 is w2
+
+# Re-adding with different payload raises:
+builder.add_initializer_from_array(&quot;weight&quot;, np.array([2.0], dtype=np.float32))  # ValueError
+</code></pre>
+<p>Rationale
+- Preserving object identity prevents subtle mismatches where nodes still reference the old <code>ir.Value</code> even though the <code>graph.initializers</code> dict now points to a new one. This keeps optimizer passes, cloning, and structural tests stable and predictable.</p>
+<h2 id="checklist-before-serializing">Checklist Before Serializing</h2>
+<ul>
+<li>All graph inputs/outputs are <code>ir.Value</code> instances with types and shapes populated (consider using <code>ir.val</code> for convenience).</li>
+<li>Initializers created through the builder are either registered on the target graph or injected via <code>graph.initializers.add(...)</code>.</li>
+<li>Duplicate policy: attempting to re-add an initializer with the same name and different data raises. Re-adding an identical initializer reuses the existing value without replacing it, preserving value connections.</li>
+<li><code>graph.opset_imports</code> reflects the versions implied by <code>builder.used_opsets</code>.</li>
+<li>Any node-level metadata (names, doc strings, annotations, overloads) is set on the node objects after creation.</li>
+<li>Perform optional validation such as <code>ir.to_proto(model)</code>, ONNX checker runs, or <code>onnx_ir.load</code> round-trips if XY integrates them.</li>
+</ul>
+<p>Keeping these conventions in one place ensures the "builder" layer stays predictable for Codex agents and humans alike, reducing churn when the upstream library evolves.</p>
+<h2 id="validation-routine">Validation Routine</h2>
+<ol>
+<li><code>poetry run python scripts/check_ir_builder_usage.py --diff</code> (lints only staged files; drop <code>--diff</code> to scan the whole tree).</li>
+<li><code>poetry run ruff check .</code> followed by <code>poetry run ruff format --check .</code> (or let the pre-commit hooks fix issues automatically).</li>
+<li><code>poetry run pytest -q</code> plus any focused suites you touched (for example <code>tests/primitives/test_jnp.py::Test_linspace</code>).</li>
+<li>For builder-heavy refactors, run the structural policy tests directly: <code>poetry run pytest -q tests/extra_tests/framework/test_ir_builder_contracts.py</code>.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

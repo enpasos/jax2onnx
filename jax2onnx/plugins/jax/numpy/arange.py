@@ -26,9 +26,9 @@ _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 _JNP_ARANGE_ORIG: Final = jnp.arange
 
 try:
-    _SYMBOLIC_DYNAMIC_DIM = jax.export.symbolic_shape(_DYNAMIC_DIM_LABEL)[0]
+    _SYMBOLIC_DYNAMIC_DIM: Any | None = jax.export.symbolic_shape(_DYNAMIC_DIM_LABEL)[0]
 except Exception:  # pragma: no cover - best effort for older JAX builds
-    _SYMBOLIC_DYNAMIC_DIM = None
+    _SYMBOLIC_DYNAMIC_DIM: Any | None = None
 
 
 class _DynamicDimSentinel:
@@ -712,9 +712,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 length_hint = None
         if length_hint is None:
             static_args = params.get("static_args")
-            if static_args is not None and all(
-                val is not None for val in static_args
-            ):
+            if static_args is not None and all(val is not None for val in static_args):
                 try:
                     length_hint = _determine_length(static_args)
                 except Exception:
