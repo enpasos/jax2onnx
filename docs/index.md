@@ -49,6 +49,30 @@ We warmly welcome contributions!
 ---
 
 
+
+---
+
+## 📅 Roadmap and Releases
+
+### **Planned**
+
+  * Broaden coverage of JAX, Flax NNX/Linen, and Equinox components.
+  * Expand SotA example support for vision and language models.
+  * Improve support for **physics-based simulations**
+
+### **Current Productive Version**
+
+* **0.11.0**:
+  * Initial Flax Linen support: core layers (Dense/DenseGeneral, Conv/ConvTranspose/ConvLocal, pooling, BatchNorm/LayerNorm/GroupNorm/RMSNorm/InstanceNorm), Dropout, Einsum/Embed, spectral/weight norm wrappers, activation coverage (GELU plus glu/hard_*/log_*/relu6/silu-swish/tanh/normalize/one_hot), attention stack (dot_product_attention, dot_product_attention_weights, make_attention_mask/make_causal_mask, SelfAttention, MultiHeadDotProductAttention, MultiHeadAttention), recurrent stack (SimpleCell, GRUCell, MGUCell, LSTMCell, OptimizedLSTMCell, ConvLSTMCell, RNN, Bidirectional), and Linen examples (MLP/CNN/Sequential).
+  * Modernized IR optimization pipeline: standard onnx_ir CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
+
+### **Past Versions**
+
+See [`past_versions`](readme/past_versions.md) for the full release archive.
+
+
+---
+
 ## 📌 Dependencies
 
 **Latest supported version of major dependencies:**
