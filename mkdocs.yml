@@ -1,0 +1,58 @@
+site_name: jax2onnx
+site_url: https://enpasos.github.io/jax2onnx/
+repo_url: https://github.com/enpasos/jax2onnx
+repo_name: enpasos/jax2onnx
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: teal
+      accent: purple
+    - scheme: slate
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_source: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Getting Started: user_guide/getting_started.md
+      - API Reference: api.md
+      - Supported Components: readme/coverage_tables.md
+      - SotA Examples:
+          - GPT-OSS: readme/gpt_oss/getting_weights.md
+          - DINOv3: readme/dinov3/getting_weights.md
+  - Developer Guide:
+      - Architecture: design.md
+      - Plugin System: dev_guides/plugin_quickstart.md
+      - Advanced Topics:
+          - Complex Numbers: dev_guides/complex_numbers.md
+          - Expected Graph Reference: dev_guides/expect_graph_reference.md
+          - IR Optimizer: dev_guides/ir_optimizer.md
+          - IR Reflection: dev_guides/ir_reflection_guidelines.md
+          - Linen Support: dev_guides/linen_support.md
+          - ONNX Functions: dev_guides/onnx_function_usage.md
+          - ONNX IR Builder: dev_guides/onnx_ir_builder.md
+          - ONNX IR Typing: dev_guides/onnx_ir_typing_how_to.md
+          - Subgraph Input Handling: dev_guides/subgraph_input_handling.md
+          - Typing Improvements: dev_guides/typing_improvements.md
+  - About:
+      - Past Versions: readme/past_versions.md

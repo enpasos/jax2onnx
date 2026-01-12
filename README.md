@@ -221,8 +221,8 @@ We warmly welcome contributions!
 | `JAX`         | 0.8.2    | 
 | `Flax`        | 0.12.2   | 
 | `Equinox`     | 0.13.2   | 
-| `onnx-ir`     | 0.1.13   | 
-| `onnx`        | 1.20.0   |  
+| `onnx-ir`     | 0.1.14   | 
+| `onnx`        | 1.20.1   |  
 | `onnxruntime` | 1.23.2   |  
 
 *For exact pins and extras, see `pyproject.toml`.*
