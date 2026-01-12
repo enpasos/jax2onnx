@@ -1,0 +1,1639 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/design/">
+      
+      
+        <link rel="prev" href="../api/">
+      
+      
+        <link rel="next" href="../dev_guides/complex_numbers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Design - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#big-idea" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection Guidelines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Function Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/plugin_quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev_guides/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage & Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coverage & Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/coverage_tables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage Tables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs jax2onnx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GPT-OSS
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../readme/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="big-idea">Big idea</h1>
+<p>The converter is a tiny, generic <strong>JAXPR → IR</strong> engine. It knows nothing about NNX, Conv, Pool, or any specific op. Its only job is:</p>
+<ol>
+<li><strong>Discover</strong> plugins (inversion of control),</li>
+<li><strong>Activate</strong> whatever they declare (monkey-patching to produce crisp primitives),</li>
+<li><strong>Trace</strong> your function to a <strong>ClosedJaxpr</strong>,</li>
+<li><strong>Lower</strong> each equation by handing it to a plugin that claimed that primitive,</li>
+<li><strong>Assemble</strong> an IR graph,</li>
+<li><strong>Optimize</strong> the IR graph with a small, safe, plugin-agnostic pass,</li>
+<li><strong>Finalize</strong> a valid ONNX model (stamp shapes/dtypes, prune, serialize).</li>
+</ol>
+<p>Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW, etc. — stays in plugins.</p>
+<hr />
+<h1 id="related-documentation">Related documentation</h1>
+<ul>
+<li><code>docs/dev_guides/onnx_ir_builder.md</code> – canonical builder guardrails and examples.</li>
+<li><code>docs/dev_guides/expect_graph_reference.md</code> – structural test patterns for <code>expect_graph</code>.</li>
+<li><code>docs/dev_guides/subgraph_input_handling.md</code> – control-flow body wiring (If/Loop/Scan).</li>
+<li><code>docs/readme/coverage_tables.md</code> – autogenerated support matrices for primitives/examples.</li>
+<li><code>docs/readme/past_versions.md</code> – changelog snapshots for each jax2onnx release.</li>
+</ul>
+<hr />
+<h1 id="roles-responsibilities">Roles &amp; responsibilities</h1>
+<h2 id="core-plugin-agnostic">Core (plugin-agnostic)</h2>
+<ul>
+<li><strong>Plugin discovery.</strong> Recursively import <code>plugins/*</code>. Plugins self-register into a registry keyed by <strong>primitive name</strong> (string). The core never sees concrete classes like <code>nnx.Conv</code>.</li>
+<li><strong>Activation window.</strong> Core enters a context that applies <em>whatever patches plugins declare</em>. This context <strong>wraps tracing</strong> so patched high-level calls (e.g., <code>nnx.Conv.__call__</code>) emit the right primitive names. No allowlists; no special-cases.</li>
+<li><strong>Tracing.</strong> <code>make_jaxpr(fn)(*shape_specs)</code> yields a <strong>ClosedJaxpr</strong>: <code>(constvars, invars, eqns, outvars)</code>.</li>
+<li>
+<p><strong>IR assembly.</strong> Walk equations in order; for each equation:</p>
+</li>
+<li>
+<p>Look up <code>PLUGIN_REGISTRY[eqn.primitive.name]</code>.</p>
+</li>
+<li>Give it the equation and a <strong>lowering context</strong>; it emits IR nodes/values.</li>
+<li>Assert that <strong>every</strong> <code>eqn.outvars[i]</code> is bound to an IR value before moving on (generic guardrail).</li>
+<li>Converters/plugins emit new ops through <code>ctx.builder</code> so constants and <code>_outputs</code> stay consistent across ONNX IR variants (see <a href="../dev_guides/onnx_ir_builder/">ONNX IR Builder Guide</a>).</li>
+<li><strong>IR optimization (safe, structure-only).</strong> Run small, local rewrites that don’t encode op semantics, e.g. folding redundant layout ping-pongs (see below).</li>
+<li><strong>Finalize.</strong> Add model inputs/outputs, stamp symbolic dim labels (e.g. <code>"B"</code>), prune dead nodes/initializers, serialize <code>ModelProto</code>.</li>
+</ul>
+<h2 id="plugin-op-specific">Plugin (op-specific)</h2>
+<p>Each plugin describes one primitive (or one high-level function). It has three standard pieces:</p>
+<ul>
+<li>
+<p><strong>Binding specs (monkey-patching).</strong> “When a user calls X, bind primitive named P.”
+  Example: patch <code>flax.nnx.Conv.__call__</code> so the <em>traced</em> program contains <code>primitive.name == "nnx.conv"</code>. If NNX exposes multiple symbols, <em>the plugin</em> lists them all. The core just applies what’s declared.</p>
+</li>
+<li>
+<p><strong>Abstract eval (shape/dtype).</strong> Given JAX abstract values (<code>ShapedArray</code>), return the result’s abstract value (or tuple). No real compute; just shape math (use <code>lax.*</code> if helpful). This is used by JAX during tracing.</p>
+</li>
+<li>
+<p><strong>Lowering (IR emission).</strong> Given a <code>LoweringContext</code> and the equation:</p>
+</li>
+<li>
+<p>Pull IR inputs via <code>ctx.get_value_for_var(eqn.invars[i])</code>.</p>
+</li>
+<li>Create IR nodes (Conv, Transpose, Reshape, …).</li>
+<li>Produce IR outputs and <strong>bind</strong> them to <code>eqn.outvars[i]</code> via <code>ctx.bind_value_for_var(...)</code>.</li>
+<li>Return nothing (binding suffices) or return the produced values (the core will bind any unbound outvars generically).</li>
+</ul>
+<p>That’s it. The contract is tiny and uniform across all primitives.</p>
+<h3 id="plugin-guardrails-must-follow">Plugin guardrails (must-follow)</h3>
+<p>To keep conversions portable across <code>onnx_ir</code> variants, every plugin lowering must observe these project-wide rules:</p>
+<ul>
+<li><strong>Builder-first</strong>: emit ops via <code>ctx.builder</code> (see <a href="../dev_guides/onnx_ir_builder/">ONNX IR Builder Guide</a>). <code>_outputs</code> must always be a sequence; constants come from <code>builder.initializer(...)</code> or <code>ctx.bind_const_for_var(...)</code>.</li>
+<li><strong>Metadata stamping</strong>: after every builder call, stamp dtype/shape on the produced value and run <code>_ensure_value_metadata(...)</code> to normalize the <code>ir.Value</code> metadata (there is no separate <code>value_info</code> registry).
+  <em>Legacy reminder:</em> the converter removed <code>builder.value_info</code>; all shape/type metadata must travel with the values themselves.</li>
+<li><strong>Single-use RNG / module construction</strong>: never seed at import time. Expose stochastic callables with <code>construct_and_call(...).with_rng_seed(...)</code> / <code>.with_requested_dtype(...)</code> so the test harness can rebuild modules for both f32/f64 variants without clashes (see <code>AGENTS.md</code>).</li>
+<li><strong>No protobuf in converters/plugins</strong>: only the top-level adapters touch <code>onnx</code> (protobuf types). Policy tests under <code>tests/extra_tests</code> enforce this.</li>
+</ul>
+<hr />
+<h1 id="data-flow-end-to-end">Data flow end-to-end</h1>
+<pre><code>User fn + shape specs
+       │
+       ▼
+[Activation Context]  ←— plugins declare patches; core applies them (no names)
+       │
+       ▼
+ClosedJaxpr = make_jaxpr(fn)(*specs)
+       │
+       ├── constvars  → ctx.bind_const_for_var(...)
+       ├── invars     → ctx.add_input_for_invar(...)
+       │
+       └── eqns:  e₀, e₁, …, eₙ
+                  │
+                  ├─ core reads eᵢ.primitive.name (string)
+                  ├─ plugin = REGISTRY[name]
+                  ├─ plugin.lower(ctx, eᵢ)   ← emits IR nodes
+                  └─ core asserts eᵢ.outvars all bound
+       │
+       └── outvars    → ctx.add_outputs_from_vars(...)
+       │
+       ▼
+IR graph → **IR optimizer** → stamp shapes/symbols → prune → ONNX ModelProto
+</code></pre>
+<p>No step above references “Conv”, “Tanh”, or any specific op in the <strong>core</strong>. All knowledge sits behind the primitive name string chosen by the plugin.</p>
+<hr />
+<h1 id="conversion-pipeline-detailed">Conversion pipeline (detailed)</h1>
+<p>The full conversion pipeline spans two modules: <code>conversion_api.py</code> (core conversion) and <code>user_interface.py</code> (export facade). The following table shows the exact order:</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Module</th>
+<th>Location</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>conversion_api</code></td>
+<td><code>to_onnx</code></td>
+<td>Build raw IR: trace JAXPR, lower equations to nodes</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>conversion_api</code></td>
+<td><code>optimize_graph</code></td>
+<td><strong>Structural optimization</strong>: dead node removal, CSE, constant lifting, reshape folding</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>conversion_api</code></td>
+<td>Late overrides</td>
+<td>Apply user attribute patches to <strong>surviving</strong> nodes; fix Concat axis</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>conversion_api</code></td>
+<td><code>run_optional_shape_inference</code></td>
+<td>(Reserved for future shape inference; currently no-op)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>conversion_api</code></td>
+<td><code>_finalize_model_value_shapes</code></td>
+<td>Normalize symbolic dims to <code>ir.SymbolicDim</code> objects</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>conversion_api</code></td>
+<td>Return</td>
+<td>Model has <strong>precise shapes</strong> preserved</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>user_interface</code></td>
+<td><code>postprocess_ir_model</code></td>
+<td><strong>Shape loosening</strong>: replace intermediate value shapes with dynamic dims for ORT flexibility</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>user_interface</code></td>
+<td><code>_materialize_input_params_on_ir</code></td>
+<td>Expose <code>input_params</code> as explicit graph inputs</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>user_interface</code></td>
+<td>Serialize</td>
+<td>Convert to proto / save to file</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-this-order">Why this order?</h3>
+<ol>
+<li><strong>Optimize before patching</strong>: Dead node removal runs first so we don't waste time patching nodes that will be deleted.</li>
+<li><strong>Finalize before loosening</strong>: <code>conversion_api</code> normalizes shapes while they are precise. Loosening (Step 7) is intentionally AFTER to preserve accuracy for shape inference and finalization.</li>
+<li><strong>Loosening is export-only</strong>: <code>postprocess_ir_model</code> is called only by the user-facing <code>to_onnx</code> function, not by internal pipelines.</li>
+</ol>
+<h3 id="module-responsibilities">Module responsibilities</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ir_optimizations.py</code></td>
+<td>Pure optimization passes (DCE, CSE, constant lifting, reshape folding)</td>
+</tr>
+<tr>
+<td><code>conversion_api.py</code></td>
+<td>Core conversion + optimization + finalization (returns precise-shape model)</td>
+</tr>
+<tr>
+<td><code>ir_postprocess.py</code></td>
+<td>Export preparation: shape loosening for runtime flexibility</td>
+</tr>
+<tr>
+<td><code>user_interface.py</code></td>
+<td>Public API facade: orchestrates conversion → postprocess → serialize</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="the-lowering-context-what-plugins-see">The lowering context (what plugins see)</h1>
+<p>A small, stable API:</p>
+<ul>
+<li>
+<p><code>get_value_for_var(var, *, name_hint=None) -&gt; IRValue</code>
+  Materialize (or retrieve) the IR value corresponding to a JAX var (const/invar/intermediate). Handles literals by creating constant initializers.</p>
+</li>
+<li>
+<p><code>bind_value_for_var(var, value: IRValue)</code>
+  Declare that this IR value is the output of <code>var</code> (an equation outvar). This is the <em>only</em> binding contract the core depends on.</p>
+</li>
+<li>
+<p>Minimal utilities the plugin can rely on (implemented once in the core):</p>
+</li>
+<li>
+<p>Name generator (<code>fresh_name</code>),</p>
+</li>
+<li>Helpers for constants and attributes,</li>
+<li>Optionally a couple of generic IR helpers (<code>emit_node</code>, tiny wrappers for Shape/Gather/Unsqueeze where dynamic dims are needed).</li>
+</ul>
+<h3 id="output-binding-pattern-must-follow">Output binding pattern (must follow)</h3>
+<p>When lowering, always <strong>reuse the IRValue pre-allocated for each equation outvar</strong>. The canonical flow is:</p>
+<ol>
+<li>Fetch inputs via <code>ctx.get_value_for_var(eqn.invars[i])</code>.</li>
+<li>Pre-allocate outputs with <code>ctx.get_value_for_var(eqn.outvars[i])</code>.</li>
+<li>Emit nodes whose <code>outputs=[...]</code> point to those pre-allocated values (write final results directly into them).</li>
+<li>Optionally stamp dtype/shape metadata on the same values.</li>
+</ol>
+<p>Avoid producing temporary outputs and “attaching” them afterwards; that pattern bypasses the var→value map and leads to orphaned tensors. Keeping the contract tight here means downstream equations always receive the correct tensor without extra bookkeeping.</p>
+<h3 id="builder-vs-tape">Builder vs. Tape</h3>
+<p>Every lowering runs against the same IR backend but plugins are expected to work through
+<code>ctx.builder</code> whenever possible:</p>
+<ul>
+<li>The builder records nodes/initializers in one place and mirrors <code>_tape.Builder</code>
+  semantics across converters, plugins, and tests. The policy suite (<code>tests/extra_tests/framework/test_ir_builder_contracts.py</code>
+  and <code>scripts/check_ir_builder_usage.py</code>) assumes <code>_outputs</code>/initializer calls flow through
+  the builder helpers.</li>
+<li>Drop down to <code>onnx_ir.tape.Tape</code> (or construct <code>ir.Node</code> manually) only when you need features
+  the builder cannot express—overload selection, custom output reuse, or metadata props. When you do,
+  restore dtype/shape metadata manually and write back to all graph mirrors (<code>graph.nodes</code>, <code>_nodes</code>, etc.).</li>
+<li>The <a href="../dev_guides/onnx_ir_builder/">ONNX IR Builder Guide</a> collects the concrete guardrails and
+  example snippets. Treat it as the source of truth for <code>_outputs</code>, initializer naming, and RNG/dtype
+  conventions referenced by the policy tests.</li>
+</ul>
+<h3 id="functions-converter-owned-call-boundaries">Functions (converter-owned call boundaries)</h3>
+<p>Decorators such as <code>@onnx_function</code> register a plugin that lowers the call into a
+<strong>FunctionScope</strong>. At runtime the handler:</p>
+<ol>
+<li>Builds a <code>FunctionKey</code> from the qualified target name, input aval signature,
+   and capture signature (class instance id/config).</li>
+<li>Reuses an existing definition if the key is cached; otherwise it opens a
+   <code>FunctionScope</code>, maps parent inputs to fresh function inputs, and recursively
+   lowers the original callable inside the child IRContext (constants are emitted
+   as <code>Constant</code> nodes because FunctionProto bodies cannot own initializers).</li>
+<li>Seals the scope into an <code>onnx_ir.Function</code>, records any attribute overrides,
+   and caches the result.</li>
+<li>Emits a call-site node in the parent graph with <code>domain/op_type</code> matching the
+   function and wires the original in/out values to that node.</li>
+</ol>
+<p>Because the definition is keyed on avals and capture signature, identical calls
+share a single function body, while shape/config changes trigger new entries.</p>
+<hr />
+<h1 id="shapes-symbolic-dims">Shapes &amp; symbolic dims</h1>
+<ul>
+<li><strong>Inputs.</strong> If the user gives symbolic strings (e.g., <code>"B"</code>), the core creates JAX symbolic dims so the jaxpr records symbols instead of numbers.</li>
+<li><strong>Abstract eval.</strong> Preserve <code>_DimExpr</code> symbols—call <code>jax.eval_shape</code> on the
+  original callable (with <code>ShapeDtypeStruct</code> inputs) instead of doing manual
+  shape math. Never cast symbolic dims to ints.</li>
+<li>
+<p><strong>Dynamic shapes in IR.</strong> When an IR op needs runtime sizes (e.g., a flatten), plugins use:</p>
+</li>
+<li>
+<p><code>Shape(x)</code> → shape vector,</p>
+</li>
+<li><code>Gather(shape, axis=i)</code> → ith dimension,</li>
+<li><code>Unsqueeze/Concat</code> → assemble a runtime shape tensor,</li>
+<li><code>Reshape(x, shape_tensor)</code>.</li>
+<li><strong>Output stamping.</strong> After lowering, the core restamps inputs/outputs so symbolic labels survive through ONNX <code>ValueInfo</code> (only where no concrete size is present). <code>IRContext</code> tracks the origin tensor/axis for each symbol so helpers like <code>dim_as_value</code> can materialize runtime shapes via <code>Shape → Gather → Squeeze</code>.</li>
+</ul>
+<hr />
+<h1 id="determinism-graph-hygiene">Determinism &amp; graph hygiene</h1>
+<ul>
+<li><strong>Deterministic names.</strong> The core’s <code>fresh_name</code> yields deterministic per-graph names; initializers keep stable names based on plugin hints (when feasible).</li>
+<li><strong>Single-node policy.</strong> If a plugin needs <code>Reshape</code>, it emits one <code>Reshape</code> and a <em>single</em> constant shape initializer if static; it avoids const-only <code>Concat</code>.</li>
+<li><strong>Pruning.</strong> A simple backwards mark from graph outputs removes dead nodes and unused initializers. This keeps <strong><code>match="exact"</code></strong> tests strict.</li>
+<li><strong>No dangling inputs.</strong> The core asserts every outvar is bound; graph is built in jaxpr order so edges are naturally well-formed.</li>
+</ul>
+<hr />
+<h1 id="graph-structure-specs">Graph structure specs</h1>
+<ul>
+<li>Post-conversion graph checks live directly in metadata. Use <code>expect_graph([...], …)</code> so the contract is visible next to each testcase.</li>
+<li>When the lowered structure changes, run <code>poetry run python scripts/emit_expect_graph.py &lt;testcase&gt;</code> to regenerate a canonical snippet; paste the result into the plugin metadata.</li>
+<li>The helper relies on <code>auto_expect_graph_spec</code> internally, so it always reflects the current ONNX graph without persisting extra fixtures.</li>
+</ul>
+<hr />
+<h1 id="ir-optimizer-plugin-agnostic">IR optimizer (plugin-agnostic)</h1>
+<p>Before serialization we run a tiny, structure-only optimization sweep. The canonical rules and implementation notes live in <code>docs/dev_guides/ir_optimizer.md</code>. Today the only pass folds redundant <code>Transpose → [elementwise]* → Transpose</code> pairs when their permutations compose to identity; future passes must follow the same IR-only, backend-agnostic constraints.</p>
+<hr />
+<h1 id="testing-expectations-how-exact-works">Testing expectations (how “exact” works)</h1>
+<ul>
+<li><strong>Anchored path checks.</strong> Tests can say:
+  <code>Transpose → Conv → Relu → AveragePool → …</code>
+  With <code>match="exact"</code>, the test fails if required ops are missing or <strong>extra</strong> ops are present between anchors.</li>
+<li><strong>CNN sentinel.</strong> The CNN static test is a canary: if Conv doesn’t lower, flatten will see <code>{B,14,14,1}</code> and fail a later <code>Reshape(B,3136)</code>. With the optimizer, extra <code>Transpose…Transpose</code> pairs around <strong>Relu</strong> are eliminated; pairs around <strong>AveragePool</strong> remain (by design).</li>
+</ul>
+<p>See <code>docs/dev_guides/expect_graph_reference.md</code> for a focused reference on writing
+<code>expect_graph</code> checks (shapes, counts, symbols, and helper flags).</p>
+<hr />
+<h1 id="typical-plugin-lifecycle-concrete-but-generic">Typical plugin lifecycle (concrete but generic)</h1>
+<ol>
+<li>
+<p><strong>Register</strong>
+   <code>@register_primitive(jaxpr_primitive="…")</code> puts an instance in the registry under that <strong>string</strong> key. The core will later match that key with <code>eqn.primitive.name</code>.</p>
+</li>
+<li>
+<p><strong>Patch</strong>
+   <code>binding_specs()</code> returns <code>MonkeyPatchSpec</code>s: “replace <code>module.symbol</code> with <code>prim.bind(…)</code> shim”. If there are multiple aliases, the plugin lists them. The core just applies them all.</p>
+</li>
+<li>
+<p><strong>Abstract eval</strong>
+   <code>def abstract_eval(*avals, **params):</code> returns a <code>ShapedArray</code> (or tuple) describing the outputs. Use <code>jax.eval_shape</code> on <code>lax.*</code> helpers if that’s easier, but never call the patched function (it would recurse).</p>
+</li>
+<li>
+<p><strong>Lower</strong>
+   <code>def lower(ctx, eqn):</code></p>
+</li>
+<li>
+<p><code>x = ctx.get_value_for_var(eqn.invars[0])</code></p>
+</li>
+<li>Create IR nodes (e.g., Transpose, Conv, CastLike, …),</li>
+<li><code>ctx.bind_value_for_var(eqn.outvars[0], y)</code></li>
+</ol>
+<p>That’s the whole contract.</p>
+<hr />
+<h1 id="failure-modes-how-the-architecture-contains-them">Failure modes &amp; how the architecture contains them</h1>
+<ul>
+<li>
+<p><strong>Patch activation window too late.</strong> If activation doesn’t wrap <strong>tracing</strong>, the jaxpr will never contain the plugin’s primitive names. The core still doesn’t special-case anything; you just see “no plugin for primitive ‘foo’”. Fix = activate around <code>make_jaxpr</code>.</p>
+</li>
+<li>
+<p><strong>Plugin forgets to bind the output.</strong> Then the core’s <em>generic</em> guardrail catches it and fails the build at the exact primitive, without central knowledge of op names.</p>
+</li>
+<li>
+<p><strong>Multiple symbols for the same high-level op.</strong> Plugins add multiple patch specs. The core applies them all — still no names or allow-lists in the core.</p>
+</li>
+<li>
+<p><strong>An unfinished plugin gets imported.</strong> If it also patches a runtime path it can trip tracing/lowering. Fix in the plugin: either complete it or don’t patch until ready. The core does not and should not maintain an allow/deny list.</p>
+</li>
+</ul>
+<hr />
+<h1 id="architectural-guarantees">Architectural Guarantees</h1>
+<ul>
+<li>
+<p><strong>Inversion of control.</strong> The only dynamic choice the core makes is:
+  “Given <code>eqn.primitive.name</code> (a string), ask the registry for a handler.”
+  There is zero knowledge of concrete ops or frameworks.</p>
+</li>
+<li>
+<p><strong>Uniform contracts.</strong> Every plugin implements the same three hooks. The core only provides generic services (var→value map, name generator, constant creation, and a place to put nodes).</p>
+</li>
+<li>
+<p><strong>No central policy on which plugins are ‘on’.</strong> Activation applies <em>whatever</em> plugins declare. If a plugin shouldn’t change tracing yet, it shouldn’t publish a monkey-patch — that decision is local to the plugin, not the core.</p>
+</li>
+</ul>
+<hr />
+<h1 id="tldr-blueprint-for-maintainers">TL;DR blueprint (for maintainers)</h1>
+<ol>
+<li>
+<p><strong>Core</strong> = small, generic: discover, activate, trace, loop eqns, call <code>plugin.lower</code>, assert outputs bound, <strong>run IR optimizer</strong>, finalize ONNX.
+   No plugin names. Ever.</p>
+</li>
+<li>
+<p><strong>Plugins</strong> = specific: declare patches (all aliases), implement <code>abstract_eval</code>, implement <code>lower</code> (bind outvars), own all op semantics.</p>
+</li>
+<li>
+<p><strong>Context</strong> = minimal API for plugins: <code>get_value_for_var</code>, <code>bind_value_for_var</code>, <code>fresh_name</code>, plus a couple IR conveniences; no framework knowledge.</p>
+</li>
+<li>
+<p><strong>Optimizer</strong> = tiny, safe, and IR-only: fold layout ping-pongs across pure elementwise ops; match by name <strong>or</strong> object; never mutate <code>Node.inputs</code> directly — use <code>replace_input_with</code>.</p>
+</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
