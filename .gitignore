@@ -17,5 +17,4 @@ jax2onnx.log
 *.onnx
 *.onnx.data
 /jax2onnx.iml  
- tmp/gpt-oss
-tmp/
+

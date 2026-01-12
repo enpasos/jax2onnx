@@ -2,6 +2,8 @@
 
 [MaxText](https://github.com/AI-Hypercomputer/maxtext) is a high-performance, arbitrary-scale, open-source LLM framework written in pure Python/JAX. `jax2onnx` provides a self-contained example stack to export these models to ONNX.
 
+- MaxText (DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, Qwen) - https://github.com/AI-Hypercomputer/maxtext
+
 ## Supported Families
 
 We support exporting the following model families from the MaxText model zoo:
@@ -21,10 +23,10 @@ We support exporting the following model families from the MaxText model zoo:
 To run the MaxText examples, you need to install the following additional dependencies:
 
 ```bash
-pip install flax omegaconf orbax-checkpoint transformers sentencepiece tensorflow-cpu tensorboardX onnx-ir
+poetry install --with maxtext
 ```
 
-> **Note:** `tensorflow-cpu` is required because MaxText uses `tensorboard` and some TF utilities for data loading and logging.
+> **Note:** This installs `omegaconf`, `transformers`, `sentencepiece`, `tensorflow-cpu`, and `tensorboardX`. `tensorflow-cpu` is required because MaxText uses `tensorboard` and some TF utilities.
 
 ### Environment Configuration
 
@@ -33,11 +35,20 @@ pip install flax omegaconf orbax-checkpoint transformers sentencepiece tensorflo
 
 ## Testing
 
-You can run the verification tests to ensure models verify and export correctly using `pytest`:
+To run all the latest MaxText examples (use `poetry run` to stay in the project venv):
 
 ```bash
-pytest -v -k maxtext
+cd tmp
+git clone https://github.com/AI-Hypercomputer/maxtext.git
+cd ..
+export JAX2ONNX_MAXTEXT_SRC=tmp/maxtext
+export JAX2ONNX_MAXTEXT_MODELS=all  # or "gemma-2b,llama2-7b"
+poetry install --with maxtext
+poetry run python scripts/generate_tests.py
+poetry run pytest -q tests/examples/test_maxtext.py
 ```
+
+ONNX outputs land in `docs/onnx/examples/maxtext`.
 
 This will:
 1.  Dynamically discover MaxText configs.
