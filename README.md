@@ -7,7 +7,7 @@
 `jax2onnx` converts your [JAX](https://docs.jax.dev/),  [Flax NNX](https://flax.readthedocs.io/en/latest/), [Flax Linen](https://flax.readthedocs.io/en/latest/api_reference/flax.linen.html), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
-![jax2onnx.svg](https://enpasos.github.io/jax2onnx/readme/images/jax2onnx.svg)
+![jax2onnx.svg](https://enpasos.github.io/jax2onnx/images/jax2onnx.svg)
 
 ## 📚 Documentation
 
@@ -19,7 +19,7 @@
 pip install jax2onnx
 ```
 
-## ⚡ Usage in 3 Lines
+## ⚡ Quick Usage
 
 ```python
 from jax2onnx import to_onnx
@@ -31,7 +31,7 @@ to_onnx(model, [("B", 32)], return_mode="file", output_path="model.onnx")
 
 ## 🤝 Contributing
 
-We warmly welcome contributions! Please check our [Teacher's Guide](https://enpasos.github.io/jax2onnx/dev_guides/) for plugin tutorials and architecture details.
+We warmly welcome contributions! Please check our [Developer Guide](https://enpasos.github.io/jax2onnx/developer_guide/plugin_system/) for plugin tutorials and architecture details.
 
 ## 📜 License
 
@@ -40,7 +40,7 @@ Apache License, Version 2.0. See [`LICENSE`](./LICENSE).
 
 ## 🌟 Special Thanks
 
-A huge thank you to all [our contributors and the community](https://enpasos.github.io/jax2onnx/#special-thanks) for their help and inspiration!
+A huge thank you to all [our contributors and the community](https://enpasos.github.io/jax2onnx/about/acknowledgements/) for their help and inspiration!
 
 ---
 

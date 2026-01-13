@@ -65,4 +65,9 @@ nav:
           - Subgraph Input Handling: developer_guide/advanced_topics/subgraph_input_handling.md
           - Typing Improvements: developer_guide/advanced_topics/typing_improvements.md
   - About:
+      - Roadmap: about/roadmap.md
       - Past Versions: about/past_versions.md
+      - Contributing: about/contributing.md
+      - Dependencies: about/dependencies.md
+      - License: about/license.md
+      - Acknowledgements: about/acknowledgements.md
