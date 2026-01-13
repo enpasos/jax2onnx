@@ -15,6 +15,10 @@ All commands assume you are at the project root with the Poetry environment
 available. The workflow targets CPU-only tools; feel free to switch the device
 flags to `cuda:X` if you have GPU support.
 
+## Related Examples
+
+For detailed component exports (like `GPT-OSS Attention`, `MLP`, `RMSNorm`), see the `GPT-OSS` entries in the [Examples](../../examples.md) table.
+
 ## 1. Download a GPT-OSS checkpoint
 
 OpenAI publishes GPT-OSS on Hugging Face under both 20B and 120B variants. The

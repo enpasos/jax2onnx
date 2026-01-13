@@ -4,6 +4,10 @@
 
 - MaxText (DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, Qwen) - https://github.com/AI-Hypercomputer/maxtext
 
+## Related Examples
+
+All supported MaxText model families (`DeepSeek`, `Gemma`, `Llama`, `Mistral`, `Qwen`, etc.) are listed with their test status in the [Examples](../examples.md) table.
+
 ## Supported Families
 
 We support exporting the following model families from the MaxText model zoo:

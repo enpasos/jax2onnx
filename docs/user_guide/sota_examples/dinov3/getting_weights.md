@@ -10,6 +10,10 @@ Using Meta’s pretrained weights is optional and subject to the
 All commands assume you are at the project root with the Poetry environment
 available.
 
+## Related Examples
+
+For a full list of DINOv3 components and their export status, see the `DINOv3VisionTransformer`, `FlaxDINOv3VisionTransformer` and related entries in the [Examples](../../examples.md) table.
+
 ## 1. Fetch Meta’s PyTorch checkpoint
 
 Meta publishes DINOv3 weights on Hugging Face. The commands below download the
