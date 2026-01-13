@@ -41,7 +41,7 @@ BatchDim = int | type(batching.not_mapped)
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="stack",
     testcases=[

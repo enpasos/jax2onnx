@@ -31,7 +31,7 @@ EXPECT_T_BN_T: Final = nnx_batch_norm.EXPECT_T_BN_T
             "doc": "https://onnx.ai/onnx/operators/onnx__BatchNormalization.html",
         }
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="batch_norm",
     testcases=[

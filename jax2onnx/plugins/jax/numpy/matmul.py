@@ -71,7 +71,7 @@ def _matmul_shape(
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="matmul",
     testcases=[

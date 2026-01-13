@@ -28,7 +28,7 @@ _SELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Selu", "doc": "https://onnx.ai/onnx/operators/onnx__Selu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="selu",
     testcases=[

@@ -68,7 +68,7 @@ def _axis_attr_equals(model, expected: int) -> bool:
             "doc": "https://onnx.ai/onnx/operators/onnx__LogSoftmax.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="log_softmax",
     testcases=[

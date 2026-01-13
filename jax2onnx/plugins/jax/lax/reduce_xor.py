@@ -29,7 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__Mod.html",
         },
     ],
-    since="v0.6.1",
+    since="0.6.1",
     context="primitives.lax",
     component="reduce_xor",
     testcases=[

@@ -45,7 +45,7 @@ _square.defvjp(_square_fwd, _square_bwd)
     jaxpr_primitive="custom_vjp_call",
     jax_doc="Generic passthrough for custom VJP calls",
     onnx=[],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.core",
     component="custom_vjp_generic",
     testcases=[

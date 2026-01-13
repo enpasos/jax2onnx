@@ -48,7 +48,7 @@ register_example(
         "https://flax-linen.readthedocs.io/en/latest/api_reference/"
         "flax.linen/layers.html#flax.linen.Sequential"
     ),
-    since="v0.11.0",
+    since="0.11.0",
     context="examples.linen",
     children=[
         "flax.linen.Sequential",

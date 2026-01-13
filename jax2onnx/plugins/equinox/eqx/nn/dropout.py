@@ -79,7 +79,7 @@ def _extract_python_bool(var: Any) -> Optional[bool]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Not.html",
         },
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.eqx",
     component="dropout",
     testcases=[

@@ -40,7 +40,7 @@ MAX_POOL_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
         }
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="max_pool",
     testcases=[

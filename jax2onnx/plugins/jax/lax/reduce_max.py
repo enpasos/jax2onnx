@@ -37,7 +37,7 @@ def _check_reduce_max_axes_input(model) -> bool:
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="reduce_max",
     testcases=[

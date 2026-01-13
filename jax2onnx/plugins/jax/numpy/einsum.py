@@ -49,7 +49,7 @@ def _normalize_equation(equation: str) -> str:
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="einsum",
     testcases=[

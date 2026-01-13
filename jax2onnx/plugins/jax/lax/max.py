@@ -21,7 +21,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Max.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="max",
     testcases=[

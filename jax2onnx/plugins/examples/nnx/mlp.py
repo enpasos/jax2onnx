@@ -31,7 +31,7 @@ register_example(
     component="MLP",
     description="A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation.",
     source="https://github.com/google/flax/blob/main/README.md",
-    since="v0.1.0",
+    since="0.1.0",
     context="examples.nnx",
     children=["nnx.Linear", "nnx.Dropout", "nnx.BatchNorm", "nnx.gelu"],
     testcases=[

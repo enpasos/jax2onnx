@@ -33,7 +33,7 @@ class DoubleSquareShift(nnx.Module):
 register_example(
     component="onnx_functions_017",
     description="Demonstrates @onnx_function(unique=True) reuse across call sites.",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.onnx_functions",
     children=["square_shift"],
     testcases=[

@@ -120,7 +120,7 @@ def _flip_spatial_dims(
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="conv",
     testcases=[

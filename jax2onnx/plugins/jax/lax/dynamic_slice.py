@@ -35,7 +35,7 @@ from jax2onnx.plugins.jax.lax._index_utils import (
             "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.lax",
     component="dynamic_slice",
     testcases=[

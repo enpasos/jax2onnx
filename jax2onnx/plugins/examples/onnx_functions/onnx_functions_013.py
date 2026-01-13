@@ -337,7 +337,7 @@ class VisionTransformer(nnx.Module):
 register_example(
     component="onnx_functions_013",
     description="Vision Transformer (ViT)",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=[
         "PatchEmbedding",

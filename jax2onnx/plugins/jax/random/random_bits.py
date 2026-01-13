@@ -49,7 +49,7 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
         },
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.random",
     component="random_bits",
     testcases=[

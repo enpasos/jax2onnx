@@ -56,7 +56,7 @@ class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
 register_example(
     component="onnx_functions_001",  # Keep component name matching file
     description="one function on an inner layer.",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     # === Updated children name ===
     children=["MLPBlock"],

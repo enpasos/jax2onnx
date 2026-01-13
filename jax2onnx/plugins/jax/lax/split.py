@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     onnx=[
         {"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.lax",
     component="split",
     testcases=[

@@ -40,7 +40,7 @@ def _binary_scalar(
             "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
         }
     ],
-    since="v0.8.1",
+    since="0.8.1",
     context="primitives.lax",
     component="dynamic_update_slice",
     testcases=[

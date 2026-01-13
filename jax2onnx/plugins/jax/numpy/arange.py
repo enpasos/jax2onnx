@@ -266,7 +266,7 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         }
     ],
-    since="v0.5.2",
+    since="0.5.2",
     context="primitives.jnp",
     component="arange",
     testcases=[

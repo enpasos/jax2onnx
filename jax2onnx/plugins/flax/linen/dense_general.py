@@ -57,7 +57,7 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
             "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
         },
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="dense_general",
     testcases=[

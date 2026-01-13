@@ -32,7 +32,7 @@ register_example(
     component="CNN",
     description="A simple convolutional neural network (CNN).",
     source="https://github.com/google/flax/blob/main/README.md",
-    since="v0.2.0",
+    since="0.2.0",
     context="examples.nnx",
     children=[
         "nnx.Conv",

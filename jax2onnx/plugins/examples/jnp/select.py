@@ -23,7 +23,7 @@ def _select(
 register_example(
     component="select_test",
     description="Demonstrates jnp.select with scalar and tensor predicates.",
-    since="v0.9.0",
+    since="0.9.0",
     context="examples.jnp",
     children=[],
     testcases=[

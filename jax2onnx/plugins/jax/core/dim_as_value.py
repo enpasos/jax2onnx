@@ -77,7 +77,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
             "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
         },
     ],
-    since="v0.5.0",
+    since="0.5.0",
     context="primitives.core",
     component="dim_as_value",
     testcases=[

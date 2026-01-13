@@ -44,7 +44,7 @@ EXPECT_8_TO_4: Final = nnx_avg_pool.EXPECT_8_TO_4
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="avg_pool",
     testcases=[

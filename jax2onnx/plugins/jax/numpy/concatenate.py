@@ -69,7 +69,7 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         }
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="concatenate",
     testcases=[

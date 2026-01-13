@@ -227,7 +227,7 @@ def _flatten_leading_dim_label(
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         },
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.eqx",
     component="linear",
     testcases=[

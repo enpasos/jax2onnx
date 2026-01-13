@@ -50,7 +50,7 @@ def _tile_with_symbolic_repeats(a):
     onnx=[
         {"component": "Tile", "doc": "https://onnx.ai/onnx/operators/onnx__Tile.html"}
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="tile",
     testcases=[

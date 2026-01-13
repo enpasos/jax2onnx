@@ -38,7 +38,7 @@ def cond_scatter_add_mul_f64(
 register_example(
     component="cond_scatter_add_mul",
     description="Scatter add/mul inside conditional branches (converter).",
-    since="v0.8.0",
+    since="0.8.0",
     context="examples.lax",
     children=["jax.lax.scatter_add", "jax.lax.scatter_mul", "jnp.where"],
     testcases=[

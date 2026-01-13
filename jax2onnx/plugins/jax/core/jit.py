@@ -22,7 +22,7 @@ from jax2onnx.plugins.plugin_system import (
     jaxpr_primitive="jit",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.jit.html",
     onnx=[],
-    since="v0.9.0",
+    since="0.9.0",
     context="primitives.core",
     component="jit_inline",
     testcases=[

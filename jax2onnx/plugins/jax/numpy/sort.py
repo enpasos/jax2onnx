@@ -36,7 +36,7 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     onnx=[
         {"component": "Sort", "doc": "https://onnx.ai/onnx/operators/onnx__Sort.html"}
     ],
-    since="v0.5.2",
+    since="0.5.2",
     context="primitives.jnp",
     component="sort",
     testcases=[

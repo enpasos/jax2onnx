@@ -42,7 +42,7 @@ def _make_gelu_checker(
     onnx=[
         {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="gelu",
     testcases=[

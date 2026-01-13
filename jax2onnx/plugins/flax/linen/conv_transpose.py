@@ -127,7 +127,7 @@ def _flip_spatial_dims(ctx, value, shape, spatial_axes, name_hint):
             "doc": "https://onnx.ai/onnx/operators/onnx__ConvTranspose.html",
         }
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="conv_transpose",
     testcases=[

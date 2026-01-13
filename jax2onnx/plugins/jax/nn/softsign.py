@@ -31,7 +31,7 @@ _SOFTSIGN_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softsign.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="soft_sign",
     testcases=[

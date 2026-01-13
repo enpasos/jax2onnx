@@ -244,7 +244,7 @@ def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         },
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="broadcast_in_dim",
     testcases=[

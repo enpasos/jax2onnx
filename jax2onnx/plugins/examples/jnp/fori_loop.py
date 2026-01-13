@@ -24,7 +24,7 @@ def _model(x: jax.Array) -> tuple[jax.Array, int]:
 register_example(
     component="fori_loop_test",
     description="fori_loop_test: demonstrates jax.lax.fori_loop with a simple loop.",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     children=[],
     testcases=[

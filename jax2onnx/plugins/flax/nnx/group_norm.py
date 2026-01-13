@@ -78,7 +78,7 @@ def _require_builder(ctx: Any):
             "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="group_norm",
     testcases=[

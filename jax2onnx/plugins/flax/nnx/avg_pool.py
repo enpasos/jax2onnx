@@ -77,7 +77,7 @@ EXPECT_8_TO_4: Final = _make_expect(
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="avg_pool",
     testcases=[

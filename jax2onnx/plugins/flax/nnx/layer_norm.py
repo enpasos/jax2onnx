@@ -138,7 +138,7 @@ LAYER_NORM_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="layer_norm",
     testcases=[

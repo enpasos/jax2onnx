@@ -24,7 +24,7 @@ def _model(x: jax.Array) -> jax.Array:
 register_example(
     component="ForiLoop",
     description="fori_loop example using nnx-compatible primitives (converter).",
-    since="v0.5.1",
+    since="0.5.1",
     context="examples.nnx",
     children=["jax.lax.fori_loop"],
     testcases=[

@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.5.0",
+    since="0.5.0",
     context="primitives.core",
     component="name",
     testcases=[],

@@ -150,7 +150,7 @@ def _linear_output_dims(
     onnx=[
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"}
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="dense",
     testcases=[

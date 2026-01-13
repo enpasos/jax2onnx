@@ -46,7 +46,7 @@ def _normalize_axis(axis: int, rank: int) -> int:
             "doc": "https://onnx.ai/onnx/operators/onnx__Squeeze.html",
         },
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.jnp",
     component="unstack",
     testcases=[

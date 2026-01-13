@@ -1407,7 +1407,7 @@ def _register_examples(configs: Iterable[Path]) -> None:
             component=component_name,
             description=f"MaxText model: {model_name}",
             source="https://github.com/AI-Hypercomputer/maxtext",
-            since="v0.0.1",
+            since="0.11.1",
             context="examples.maxtext",
             children=[],
             testcases=[

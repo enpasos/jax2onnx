@@ -48,7 +48,7 @@ def _shard_map_inline_add(x: np.ndarray) -> np.ndarray:
     jaxpr_primitive="shard_map",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.shard_map.html",
     onnx=[],
-    since="v0.10.2",
+    since="0.10.2",
     context="primitives.lax",
     component="shard_map",
     testcases=[

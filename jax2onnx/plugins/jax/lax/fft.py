@@ -201,7 +201,7 @@ def _gather_channel(
     jaxpr_primitive=lax.fft_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.fft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
-    since="v0.10.1",
+    since="0.10.1",
     context="primitives.lax",
     component="fft",
     testcases=[

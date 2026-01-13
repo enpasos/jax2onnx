@@ -48,7 +48,7 @@ class SuperBlock(nnx.Module):
 register_example(
     component="onnx_functions_000",
     description="One function boundary on an outer NNX module (new-world).",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=["MLPBlock"],
     testcases=[

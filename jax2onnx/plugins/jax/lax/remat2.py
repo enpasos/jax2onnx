@@ -72,7 +72,7 @@ def _remat2_tuple_passthrough(
     jaxpr_primitive="remat2",
     jax_doc="https://docs.jax.dev/en/latest/jep/11830-new-remat-checkpoint.html",
     onnx=[],
-    since="v0.6.5",
+    since="0.6.5",
     context="primitives.lax",
     component="remat2",
     testcases=[

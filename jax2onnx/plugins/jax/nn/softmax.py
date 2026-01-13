@@ -34,7 +34,7 @@ _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="softmax",
     testcases=[

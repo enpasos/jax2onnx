@@ -61,7 +61,7 @@ def _gather_group_zero(
     jaxpr_primitive="ragged_dot_general",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.ragged_dot_general.html",
     onnx=[{"component": "Einsum/MatMul", "doc": "https://onnx.ai/onnx/operators/"}],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.lax",
     component="ragged_dot_general",
 )

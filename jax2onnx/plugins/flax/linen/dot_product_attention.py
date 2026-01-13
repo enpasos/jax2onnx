@@ -66,7 +66,7 @@ def _masked_softmax(weights, mask_bool):
         },
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="dot_product_attention_weights",
     testcases=[
@@ -214,7 +214,7 @@ class DotProductAttentionWeightsPlugin(PrimitiveLeafPlugin):
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
         },
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="dot_product_attention",
     testcases=[
@@ -324,7 +324,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="make_attention_mask",
     testcases=[
@@ -426,7 +426,7 @@ class MakeAttentionMaskPlugin(PrimitiveLeafPlugin):
         {"component": "Less", "doc": "https://onnx.ai/onnx/operators/onnx__Less.html"},
         {"component": "Cast", "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="make_causal_mask",
     testcases=[

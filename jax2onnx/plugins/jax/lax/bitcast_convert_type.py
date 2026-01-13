@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__Bitcast.html",
         }
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.lax",
     component="bitcast_convert_type",
     testcases=[

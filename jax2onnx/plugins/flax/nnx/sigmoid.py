@@ -30,7 +30,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="sigmoid",
     testcases=[

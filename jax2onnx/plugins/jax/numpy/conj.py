@@ -38,7 +38,7 @@ _CONJ_PRIM: Final = make_jnp_primitive("jax.numpy.conj")
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.10.1",
+    since="0.10.1",
     context="primitives.jnp",
     component="conj",
     testcases=[

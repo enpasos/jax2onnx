@@ -57,7 +57,7 @@ def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
 @register_primitive(
     jaxpr_primitive="linen.activation",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/activation.html",
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="activation",
     testcases=[

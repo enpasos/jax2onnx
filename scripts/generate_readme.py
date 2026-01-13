@@ -123,8 +123,10 @@ def merge_test_results(
     for (context, component), testcases in grouped.items():
         for tc in testcases:
             tc_name = tc["testcase"]
+            # Sanitize testcase name to match pytest nodeid convention (as in tests/t_generator.py)
+            safe_tc_name = tc_name.replace(".", "_").replace(" ", "_").replace("-", "_")
             result = test_results.get(
-                (context, component, tc_name), "➖"
+                (context, component, safe_tc_name), "➖"
             )  # Always set a result
             url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc_name}.onnx"
             tc["result"] = f"[`{tc_name}`]({url}) {result}"
@@ -226,8 +228,8 @@ def generate_markdown_table(
 
     logging.info(f"📋 Generated {len(rows)} table rows.")
     table_md = f"{header}\n" + "\n".join(rows)
-    class_name = ".examples-table" if is_example else ".coverage-table"
-    return f"{table_md}\n{{: {class_name} }}"
+    class_name = "examples-table" if is_example else "coverage-table"
+    return f'<div class="{class_name}" markdown="1">\n\n{table_md}\n\n</div>'
 
 
 def replace_markers(

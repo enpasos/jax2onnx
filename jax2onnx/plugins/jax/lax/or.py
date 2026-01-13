@@ -24,7 +24,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
             "doc": "https://onnx.ai/onnx/operators/onnx__BitwiseOr.html",
         },
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.lax",
     component="or",
     testcases=[

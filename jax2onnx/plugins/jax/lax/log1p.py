@@ -21,7 +21,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
         {"component": "Log", "doc": "https://onnx.ai/onnx/operators/onnx__Log.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.lax",
     component="log1p",
     testcases=[

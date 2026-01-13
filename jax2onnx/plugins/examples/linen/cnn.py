@@ -33,7 +33,7 @@ register_example(
     component="LinenCNN",
     description="A simple convolutional neural network (CNN).",
     source="https://github.com/google/flax/blob/main/README.md",
-    since="v0.11.0",
+    since="0.11.0",
     context="examples.linen",
     children=[
         "flax.linen.Conv",

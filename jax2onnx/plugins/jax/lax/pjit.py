@@ -62,7 +62,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
     jaxpr_primitive="pjit",
     jax_doc="https://jax.readthedocs.io/en/latest/jax.experimental.pjit.html",
     onnx=[],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.lax",
     component="pjit",
     testcases=[

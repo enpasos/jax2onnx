@@ -33,7 +33,7 @@ register_example(
     component="LinenMLP",
     description="A simple Linen MLP with BatchNorm, Dropout, and GELU activation.",
     source="https://github.com/google/flax/blob/main/README.md",
-    since="v0.11.0",
+    since="0.11.0",
     context="examples.linen",
     children=[
         "flax.linen.Dense",

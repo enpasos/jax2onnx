@@ -55,7 +55,7 @@ except Exception:
     onnx=[
         {"component": "Relu", "doc": "https://onnx.ai/onnx/operators/onnx__Relu.html"}
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="relu",
     testcases=[

@@ -168,7 +168,7 @@ Slot the output into the metadata and rerun the command whenever the lowering
 changes shape.
 
 For more involved graphs, consult
-`docs/dev_guides/expect_graph_reference.md` for matching tips.
+`advanced_topics/expect_graph_reference.md` for matching tips.
 
 ---
 
@@ -200,6 +200,6 @@ For deeper dives:
   full, working example
 - [`jax2onnx/plugins/jax/nn/dot_product_attention.py`](../../jax2onnx/plugins/jax/nn/dot_product_attention.py) – high-level primitive with RNG + multi-op lowering
 - [`jax2onnx/plugins/examples/jnp/select.py`](../../jax2onnx/plugins/examples/jnp/select.py) – minimal example plugin
-- [`docs/design.md`](../design.md) – architecture overview and plugin roles
+- [`docs/design.md`](./architecture.md) – architecture overview and plugin roles
 
 Happy lowering!

@@ -72,7 +72,7 @@ def _lower_complex_sub(
     jaxpr_primitive=jax.lax.sub_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sub.html",
     onnx=[{"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"}],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.lax",
     component="sub",
     testcases=[

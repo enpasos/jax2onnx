@@ -38,7 +38,7 @@ _RECURRENT_ONNX: list[dict[str, str]] = [
     jaxpr_primitive="linen.simple_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.SimpleCell",
     onnx=_RECURRENT_ONNX,
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="simple_cell",
     testcases=[
@@ -83,7 +83,7 @@ class SimpleCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.gru_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.GRUCell",
     onnx=_RECURRENT_ONNX,
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="gru_cell",
     testcases=[
@@ -128,7 +128,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.mgu_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.MGUCell",
     onnx=_RECURRENT_ONNX,
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="mgu_cell",
     testcases=[
@@ -174,7 +174,7 @@ class MGUCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.LSTMCell",
     onnx=_RECURRENT_ONNX,
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="lstm_cell",
     testcases=[
@@ -219,7 +219,7 @@ class LSTMCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="linen.optimized_lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.OptimizedLSTMCell",
     onnx=_RECURRENT_ONNX,
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="optimized_lstm_cell",
     testcases=[
@@ -265,7 +265,7 @@ class OptimizedLSTMCellPlugin(PrimitiveLeafPlugin):
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.ConvLSTMCell",
     onnx=_RECURRENT_ONNX
     + [{"component": "Conv", "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html"}],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="conv_lstm_cell",
     testcases=[
@@ -319,7 +319,7 @@ class ConvLSTMCellPlugin(PrimitiveLeafPlugin):
     onnx=[
         {"component": "Loop", "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="rnn",
     testcases=[
@@ -373,7 +373,7 @@ class RNNPlugin(PrimitiveLeafPlugin):
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="bidirectional",
     testcases=[

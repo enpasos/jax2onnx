@@ -37,7 +37,7 @@ MIN_POOL_PRIM.multiple_results = False
         },
         {"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="min_pool",
     testcases=[

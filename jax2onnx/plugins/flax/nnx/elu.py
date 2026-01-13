@@ -60,7 +60,7 @@ def _make_checker(specs, *, alpha: float, **kwargs):
     jaxpr_primitive="nnx.elu",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.elu.html",
     onnx=[{"component": "Elu", "doc": "https://onnx.ai/onnx/operators/onnx__Elu.html"}],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="elu",
     testcases=[

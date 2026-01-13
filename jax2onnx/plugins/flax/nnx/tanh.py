@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     onnx=[
         {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"}
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="tanh",
     testcases=[

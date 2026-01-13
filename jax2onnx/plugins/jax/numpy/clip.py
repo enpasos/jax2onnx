@@ -81,7 +81,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
         {"component": "Max", "doc": "https://onnx.ai/onnx/operators/onnx__Max.html"},
         {"component": "Min", "doc": "https://onnx.ai/onnx/operators/onnx__Min.html"},
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="clip",
     testcases=[

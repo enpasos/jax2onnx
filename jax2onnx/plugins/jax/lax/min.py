@@ -21,7 +21,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Min.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.lax",
     component="min",
     testcases=[

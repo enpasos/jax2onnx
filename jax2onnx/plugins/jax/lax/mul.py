@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     jaxpr_primitive=jax.lax.mul_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.mul.html",
     onnx=[{"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"}],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.lax",
     component="mul",
     testcases=[

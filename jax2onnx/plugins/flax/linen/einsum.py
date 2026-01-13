@@ -70,7 +70,7 @@ EXPECT_EINSUM_WITH_BIAS: Final = EG(
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         },
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="einsum",
     testcases=[

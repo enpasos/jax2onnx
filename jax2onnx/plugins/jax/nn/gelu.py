@@ -26,7 +26,7 @@ _GELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="gelu",
     testcases=[

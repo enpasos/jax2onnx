@@ -24,7 +24,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
             "doc": "https://onnx.ai/onnx/operators/onnx__Cos.html",
         }
     ],
-    since="v0.4.4",
+    since="0.4.4",
     context="primitives.lax",
     component="cos",
     testcases=[

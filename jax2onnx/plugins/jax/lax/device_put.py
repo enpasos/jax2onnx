@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for typing only
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.4.0",
+    since="0.4.0",
     context="primitives.lax",
     component="device_put",
     testcases=[

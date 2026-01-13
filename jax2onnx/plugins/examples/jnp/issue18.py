@@ -62,7 +62,7 @@ def _linspace_fn() -> jax.Array:
 register_example(
     component="issue18_sign",
     description="Test jnp.sign from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -80,7 +80,7 @@ register_example(
 register_example(
     component="issue18_abs",
     description="Test jnp.abs from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -98,7 +98,7 @@ register_example(
 register_example(
     component="issue18_fori_loop",
     description="Test jax.lax.fori_loop from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -125,7 +125,7 @@ register_example(
 register_example(
     component="issue18_while_loop",
     description="Test jax.lax.while_loop from issue 18",
-    since="v0.9.0",
+    since="0.9.0",
     context="examples.jnp",
     testcases=[
         {
@@ -153,7 +153,7 @@ register_example(
 register_example(
     component="issue18_scan",
     description="Test jax.lax.scan from issue 18 (no xs)",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -173,7 +173,7 @@ register_example(
 register_example(
     component="issue18_where",
     description="Test jnp.where from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -194,7 +194,7 @@ register_example(
 register_example(
     component="issue18_arange",
     description="Test jnp.arange from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {
@@ -222,7 +222,7 @@ register_example(
 register_example(
     component="issue18_linspace",
     description="Test jnp.linspace from issue 18",
-    since="v0.6.3",
+    since="0.6.3",
     context="examples.jnp",
     testcases=[
         {

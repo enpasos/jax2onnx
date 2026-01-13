@@ -23,7 +23,7 @@ def checkpoint_scalar_f32(x: jax.Array) -> jax.Array:
 register_example(
     component="remat2",
     description="Tests a simple case of `jax.checkpoint` (also known as `jax.remat2`).",
-    since="v0.6.5",
+    since="0.6.5",
     context="examples.lax",
     children=[],
     testcases=[

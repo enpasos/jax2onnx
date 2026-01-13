@@ -31,7 +31,7 @@ if TYPE_CHECKING:
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="softmax",
     testcases=[

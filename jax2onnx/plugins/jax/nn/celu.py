@@ -28,7 +28,7 @@ _CELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Celu", "doc": "https://onnx.ai/onnx/operators/onnx__Celu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="celu",
     testcases=[

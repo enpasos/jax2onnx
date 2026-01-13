@@ -41,7 +41,7 @@ def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
     onnx=[
         {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.jnp",
     component="select",
     testcases=[

@@ -311,7 +311,7 @@ def _two_scans_diff_len_with_broadcast_f32():
             "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html",
         }
     ],
-    since="v0.5.1",
+    since="0.5.1",
     context="primitives.lax",
     component="scan",
     testcases=[

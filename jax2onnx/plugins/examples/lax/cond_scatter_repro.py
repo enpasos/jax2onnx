@@ -50,7 +50,7 @@ def model_with_cond_and_scatter():
 register_example(
     component="cond_scatter_repro",
     description="Reproduces a bug where lax.cond subgraphs do not inherit parent initializers.",
-    since="v0.6.4",
+    since="0.6.4",
     context="examples.lax",
     children=[],
     testcases=[

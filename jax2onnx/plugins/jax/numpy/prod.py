@@ -36,7 +36,7 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceProd.html",
         }
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="prod",
     testcases=[

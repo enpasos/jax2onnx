@@ -193,7 +193,7 @@ class _SpectralNormDense(nn.Module):
         },
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="v0.11.0",
+    since="0.11.0",
     context="primitives.linen",
     component="spectral_norm",
     testcases=[

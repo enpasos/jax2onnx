@@ -96,7 +96,7 @@ class TransformerBlock(nnx.Module):
 register_example(
     component="onnx_functions_009",
     description="transformer block using decorator on class and function",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=["FeedForward", "MultiHeadAttention"],
     testcases=[

@@ -24,7 +24,7 @@ from jax2onnx.plugins._ir_shapes import (
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="transpose",
     testcases=[

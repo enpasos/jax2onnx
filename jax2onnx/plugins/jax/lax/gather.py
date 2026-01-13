@@ -94,7 +94,7 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
             "doc": "https://onnx.ai/onnx/operators/onnx__GatherND.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="gather",
     testcases=[

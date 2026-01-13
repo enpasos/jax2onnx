@@ -52,7 +52,7 @@ register_example(
     component="GPT_Attention",
     description="A multi-head attention layer.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.1",
+    since="0.7.1",
     context="examples.gpt",
     children=["nnx.dot_product_attention"],
     testcases=[
@@ -113,7 +113,7 @@ register_example(
     component="GPT_CausalSelfAttention",
     description="A causal self-attention module.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["MultiHeadAttention"],
     testcases=[
@@ -157,7 +157,7 @@ register_example(
     component="GPT_MLP",
     description="An MLP block with GELU activation from nanoGPT.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["nnx.Linear", "nnx.gelu", "nnx.Dropout"],
     testcases=[
@@ -214,7 +214,7 @@ register_example(
     component="GPT_TransformerBlock",
     description="A transformer block combining attention and MLP.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["CausalSelfAttention", "GPT_MLP", "nnx.LayerNorm"],
     testcases=[
@@ -260,7 +260,7 @@ register_example(
     component="GPT_TokenEmbedding",
     description="A token embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["nnx.Embed"],
     testcases=[
@@ -301,7 +301,7 @@ register_example(
     component="GPT_PositionEmbedding",
     description="A positional embedding layer using nnx.Embed.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["nnx.Embed"],
     testcases=[
@@ -360,7 +360,7 @@ register_example(
     component="GPT_TransformerStack",
     description="A stack of transformer blocks.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["Block"],
     testcases=[
@@ -397,7 +397,7 @@ register_example(
     component="GPT_broadcast_add",
     description="Simple dynamic broadcast + add",
     source="(your patch)",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     testcases=[
         {
@@ -442,7 +442,7 @@ register_example(
     component="GPT_Embeddings",
     description="Combines token and position embeddings with dropout.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["TokenEmbedding", "PositionEmbedding", "nnx.Dropout"],
     testcases=[
@@ -493,7 +493,7 @@ register_example(
     component="GPT_Head",
     description="The head of the GPT model.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=["nnx.LayerNorm", "nnx.Linear"],
     testcases=[
@@ -563,7 +563,7 @@ register_example(
     component="GPT",
     description="A simple GPT model that reuses nnx.MultiHeadAttention.",
     source="https://github.com/karpathy/nanoGPT",
-    since="v0.7.0",
+    since="0.7.0",
     context="examples.gpt",
     children=[
         "TokenEmbedding",

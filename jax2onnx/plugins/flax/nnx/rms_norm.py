@@ -134,7 +134,7 @@ def _const_from_array(ctx: Any, name_hint: str, arr: np.ndarray) -> ir.Value:
             "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="rms_norm",
     testcases=[

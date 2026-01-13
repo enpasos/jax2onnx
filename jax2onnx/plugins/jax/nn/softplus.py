@@ -31,7 +31,7 @@ _SOFTPLUS_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softplus.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="softplus",
     testcases=[
