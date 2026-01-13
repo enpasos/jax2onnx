@@ -5,6 +5,7 @@
 * Broaden coverage of JAX, Flax NNX/Linen, and Equinox components.
 * Expand SotA example support for vision and language models.
 * Improve support for **physics-based simulations**.
+* Support for **[MaxDiffusion](https://github.com/AI-Hypercomputer/maxdiffusion)**.
 
 ## Current Version
 
