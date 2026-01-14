@@ -28,7 +28,7 @@ _CELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Celu", "doc": "https://onnx.ai/onnx/operators/onnx__Celu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="celu",
     testcases=[
@@ -119,6 +119,18 @@ class CeluPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "celu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="celu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="celu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="celu",
                 make_value=_make_value,
                 delete_if_missing=False,

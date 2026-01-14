@@ -17,7 +17,7 @@ def _sort_model(x: jnp.ndarray) -> jnp.ndarray:
 register_example(
     component="sort_test",
     description="sort_test: demonstrates jnp.sort on slices of an input array.",
-    since="v0.9.0",
+    since="0.9.0",
     context="examples.jnp",
     children=[],
     testcases=[

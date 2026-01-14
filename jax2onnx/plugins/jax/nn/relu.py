@@ -28,7 +28,7 @@ _RELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Relu", "doc": "https://onnx.ai/onnx/operators/onnx__Relu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="relu",
     testcases=[
@@ -109,6 +109,18 @@ class ReluPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "relu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="relu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="relu",
                 make_value=_make_value,
                 delete_if_missing=False,

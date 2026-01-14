@@ -81,7 +81,7 @@ def _make_leaky_relu_checker(
             "doc": "https://onnx.ai/onnx/operators/onnx__LeakyRelu.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.nnx",
     component="leaky_relu",
     testcases=[

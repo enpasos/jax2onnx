@@ -26,7 +26,7 @@ _GELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="gelu",
     testcases=[
@@ -129,6 +129,18 @@ class GeluPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "gelu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="gelu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="gelu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="gelu",
                 make_value=_make_value,
                 delete_if_missing=False,

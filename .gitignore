@@ -4,6 +4,7 @@ data
 artifacts
 logs
 output
+**/checkpoints/
 .idea
 dist
 **/__pycache__/
@@ -16,5 +17,4 @@ jax2onnx.log
 *.onnx
 *.onnx.data
 /jax2onnx.iml  
- tmp/gpt-oss
-tmp/
+site

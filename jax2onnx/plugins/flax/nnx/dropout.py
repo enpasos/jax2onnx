@@ -262,7 +262,7 @@ def _extract_python_bool(var) -> Optional[bool]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Dropout.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="dropout",
     testcases=[

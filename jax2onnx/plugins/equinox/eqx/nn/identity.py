@@ -26,7 +26,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.eqx",
     component="identity",
     testcases=[

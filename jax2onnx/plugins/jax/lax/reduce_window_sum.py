@@ -85,7 +85,7 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
         }
     ],
-    since="v0.10.1",
+    since="0.10.1",
     context="primitives.lax",
     component="reduce_window_sum",
     testcases=[

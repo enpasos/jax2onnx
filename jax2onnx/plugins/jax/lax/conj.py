@@ -31,7 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.10.1",
+    since="0.10.1",
     context="primitives.lax",
     component="conj",
     testcases=[

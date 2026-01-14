@@ -39,7 +39,7 @@ def _axes_for_tail(x_rank: int, tail_rank: int) -> tuple[int, ...]:
             "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
         }
     ],
-    since="v0.10.2",
+    since="0.10.2",
     context="primitives.eqx",
     component="rms_norm",
     testcases=[

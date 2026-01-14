@@ -1333,7 +1333,7 @@ register_example(
     component="RMSNorm",
     description="Root mean square normalisation used by GPT-OSS.",
     source="https://github.com/openai/gpt-oss",
-    since="v0.10.2",
+    since="0.10.2",
     context="examples.eqx_gpt_oss",
     children=[],
     testcases=[
@@ -1362,7 +1362,7 @@ register_example(
     component="AttentionBlock",
     description="Self-attention block with rotary embeddings and sinks.",
     source="https://github.com/openai/gpt-oss",
-    since="v0.10.2",
+    since="0.10.2",
     context="examples.eqx_gpt_oss",
     children=["RMSNorm"],
     testcases=[
@@ -1393,7 +1393,7 @@ register_example(
     component="MLPBlock",
     description="Mixture-of-experts SwiGLU feed-forward block.",
     source="https://github.com/openai/gpt-oss",
-    since="v0.10.2",
+    since="0.10.2",
     context="examples.eqx_gpt_oss",
     children=["RMSNorm"],
     testcases=[
@@ -1423,7 +1423,7 @@ register_example(
     component="TransformerBlock",
     description="GPT-OSS Transformer layer (attention + MoE).",
     source="https://github.com/openai/gpt-oss",
-    since="v0.10.2",
+    since="0.10.2",
     context="examples.eqx_gpt_oss",
     children=["AttentionBlock", "MLPBlock"],
     testcases=[
@@ -1454,7 +1454,7 @@ register_example(
     component="Transformer",
     description="Full GPT-OSS Transformer stack.",
     source="https://github.com/openai/gpt-oss",
-    since="v0.10.2",
+    since="0.10.2",
     context="examples.eqx_gpt_oss",
     children=["TransformerBlock"],
     testcases=[

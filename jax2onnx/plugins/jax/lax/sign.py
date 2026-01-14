@@ -22,7 +22,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
             "doc": "https://onnx.ai/onnx/operators/onnx__Sign.html",
         }
     ],
-    since="v0.5.0",
+    since="0.5.0",
     context="primitives.lax",
     component="sign",
     testcases=[

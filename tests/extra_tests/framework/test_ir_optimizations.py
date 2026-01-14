@@ -78,6 +78,10 @@ def test_literal_false_strings_roundtrip():
 # --------- Integration test for constant Not removal (current) ---------
 
 
+def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
+    return ir.Value(name=name, type=ir.TensorType(dtype), shape=ir.Shape(shape))
+
+
 def build_graph_with_not_tm():
     # graph IO
     x = ir.val("x", ir.DataType.FLOAT, (3, 30))
@@ -97,7 +101,7 @@ def build_graph_with_not_tm():
     # Constant True for training-mode corridor, so Not(True) → can be inlined.
     # Make the scalar readable in a build-agnostic way: attach it directly to
     # the Value via `const_value`. The optimizer always checks this first.
-    const_true = ir.val("const_true", ir.DataType.BOOL, ())
+    const_true = V_ir("const_true", ir.DataType.BOOL, ())
     # Attach constant payload directly; skip tricky Attr/Attributes handling.
     const_true.const_value = ir.tensor(np.asarray(True, dtype=np.bool_))
     const_node = ir.Node(
@@ -377,7 +381,7 @@ def test_cse_simple():
 
 def test_lift_constants():
     # Make a graph with a Constant node in the body
-    out_const = ir.val("const_out", ir.DataType.FLOAT, (2,))
+    out_const = V_ir("const_out", ir.DataType.FLOAT, (2,))
     const_node = ir.Node(
         op_type="Constant",
         domain="",

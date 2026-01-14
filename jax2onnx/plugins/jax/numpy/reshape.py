@@ -64,7 +64,7 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="reshape",
     testcases=[

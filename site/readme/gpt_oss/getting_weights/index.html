@@ -1,0 +1,1767 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/readme/gpt_oss/getting_weights/">
+      
+      
+        <link rel="prev" href="../../dinov3/nnx_exports/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Getting Weights - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gpt-oss-weights-workflow" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Getting Weights
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection Guidelines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Function Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/plugin_quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dev_guides/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage & Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Coverage & Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../coverage_tables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage Tables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs jax2onnx
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GPT-OSS
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-download-a-gpt-oss-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Download a GPT-OSS checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-stage-gpt-oss-weights-for-flaxnnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Stage GPT-OSS weights for Flax/NNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-export-the-flaxnnx-transformer-to-onnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Export the Flax/NNX transformer to ONNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-flaxnnx-routing-parity-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Flax/NNX routing parity harness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-parity-snapshot-baseline5-2-layer-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline parity snapshot (Baseline5, 2-layer slice)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Baseline parity snapshot (Baseline5, 2-layer slice)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reproduce-the-baseline5-debug-export-and-parity-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce the Baseline5 debug export and parity check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#original-torch-flax-parity-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original (Torch) ↔ Flax parity checklist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onnx-only-smoke-test-tokenizer-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ONNX-only smoke test (tokenizer + generation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-legacy-export-the-equinox-example-to-onnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. (Legacy) Export the Equinox example to ONNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-legacy-validate-equinox-parity-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. (Legacy) Validate Equinox parity (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-download-a-gpt-oss-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Download a GPT-OSS checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-stage-gpt-oss-weights-for-flaxnnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Stage GPT-OSS weights for Flax/NNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-export-the-flaxnnx-transformer-to-onnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Export the Flax/NNX transformer to ONNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-flaxnnx-routing-parity-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Flax/NNX routing parity harness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-parity-snapshot-baseline5-2-layer-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline parity snapshot (Baseline5, 2-layer slice)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Baseline parity snapshot (Baseline5, 2-layer slice)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reproduce-the-baseline5-debug-export-and-parity-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce the Baseline5 debug export and parity check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#original-torch-flax-parity-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original (Torch) ↔ Flax parity checklist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onnx-only-smoke-test-tokenizer-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ONNX-only smoke test (tokenizer + generation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-legacy-export-the-equinox-example-to-onnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. (Legacy) Export the Equinox example to ONNX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-legacy-validate-equinox-parity-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. (Legacy) Validate Equinox parity (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="gpt-oss-weights-workflow">GPT-OSS Weights Workflow</h1>
+<p>The GPT-OSS examples in this repo come in two flavors:</p>
+<ul>
+<li><strong>Flax/NNX (<code>jax2onnx/plugins/examples/nnx/gpt_oss_flax.py</code>)</strong> – this is the
+  path backed by the routing parity harness, staged checkpoint exporter, and the
+  <code>FlaxTransformer</code> expect-graph tests.</li>
+<li><strong>Equinox (<code>jax2onnx/plugins/examples/eqx/gpt_oss.py</code>)</strong> – kept for historical
+  comparison and still covered by the Equinox parity tests.</li>
+</ul>
+<p>Unless you specifically need the Equinox version, follow Sections 2–4 below for
+Flax/NNX. The Equinox workflow now lives in Sections 5–6.</p>
+<p>All commands assume you are at the project root with the Poetry environment
+available. The workflow targets CPU-only tools; feel free to switch the device
+flags to <code>cuda:X</code> if you have GPU support.</p>
+<h2 id="1-download-a-gpt-oss-checkpoint">1. Download a GPT-OSS checkpoint</h2>
+<p>OpenAI publishes GPT-OSS on Hugging Face under both 20B and 120B variants. The
+commands below fetch the original shard layout expected by
+<code>gpt_oss.torch.model.Transformer.from_checkpoint</code>.</p>
+<pre><code class="language-bash">mkdir -p ~/.cache/gpt_oss/gpt-oss-20b
+poetry run huggingface-cli download openai/gpt-oss-20b original \
+  --repo-type model \
+  --local-dir ~/.cache/gpt_oss/gpt-oss-20b \
+  --local-dir-use-symlinks False
+</code></pre>
+<blockquote>
+<p><code>huggingface_hub</code> ≥1.0 no longer installs the <code>huggingface-cli</code> entry point by
+default, and recent releases ignore <code>--local-dir-use-symlinks</code>. If the command
+above fails with “command not found” or you prefer to stay within Python,
+download the checkpoint folder directly via <code>snapshot_download</code>:</p>
+</blockquote>
+<pre><code class="language-bash">poetry run python - &lt;&lt;'PY'
+from pathlib import Path
+
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id=&quot;openai/gpt-oss-20b&quot;,
+    repo_type=&quot;model&quot;,
+    allow_patterns=[&quot;original/*&quot;],
+    local_dir=Path(&quot;~/.cache/gpt_oss/gpt-oss-20b&quot;).expanduser(),
+)
+PY
+</code></pre>
+<p>This grabs the <code>original/</code> shard set expected by
+<code>Transformer.from_checkpoint</code>. Omit <code>allow_patterns</code> if you want the full repo
+contents (tokenizer, chat template, etc.).</p>
+<p>After the download finishes you should have a directory containing <code>config.json</code>
+and a set of <code>*.safetensors</code> shards.</p>
+<h2 id="2-stage-gpt-oss-weights-for-flaxnnx">2. Stage GPT-OSS weights for Flax/NNX</h2>
+<p>Run the staging helper to materialize a Flax <code>.msgpack</code> bundle plus a matching
+<code>config.json</code>. The exporter and expect-graph tests consume this format directly.</p>
+<pre><code class="language-bash">poetry run python scripts/export_flax_gpt_oss_params.py \
+  --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --output ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack
+</code></pre>
+<p>Use <code>--gpt-oss-path</code> if the helper repo lives somewhere other than the default
+<code>tmp/gpt-oss-jax-vs-torch-numerical-comparison</code>. The script automatically
+detects Orbax vs. SafeTensors checkpoints and writes
+<code>flax_params.msgpack.config.json</code> beside the serialized parameters.</p>
+<h2 id="3-export-the-flaxnnx-transformer-to-onnx">3. Export the Flax/NNX transformer to ONNX</h2>
+<p>With staged params in place, call the ONNX exporter. It instantiates the
+<code>examples.nnx_gpt_oss.FlaxTransformer</code> module, loads the staged parameters via
+<code>nnx.Param</code> assignments, and traces the full embedding → blocks → norm → head
+pipeline.</p>
+<pre><code class="language-bash">poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+  --output artifacts/gpt_oss_flax.onnx \
+  --sequence-length 256
+</code></pre>
+<p>Notes:</p>
+<ul>
+<li><code>--sequence-length</code> controls both the tracing inputs and the rotary/mask
+  tables. Start small (e.g. 128) while verifying the workflow, then bump the
+  length to your deployment target.</li>
+<li>Pass <code>--config /path/to/config.json</code> if the staging script’s JSON lives
+  elsewhere.</li>
+<li>The exporter mirrors the exact callable covered by
+  <code>tests/examples/test_nnx_gpt_oss.py::Test_FlaxTransformer</code>. Run that test (or
+  the whole file) to sanity-check ONNX numeric validation locally:</li>
+</ul>
+<p><code>bash
+  poetry run pytest tests/examples/test_nnx_gpt_oss.py::Test_FlaxTransformer -q</code></p>
+<blockquote>
+<p><strong>Tip:</strong> When iterating on the exporter it can be helpful to trim the staged
+checkpoint down to a couple of layers. The snippet below keeps only the first
+two Transformer blocks while preserving the original hidden size/head layout,
+producing a much smaller bundle that exports quickly:</p>
+<p>```bash
+poetry run python - &lt;&lt;'PY'
+from pathlib import Path
+import json
+import flax.serialization as serialization</p>
+<p>root = Path("~/.cache/gpt_oss/gpt-oss-20b").expanduser()
+params = serialization.msgpack_restore((root / "flax_params.msgpack").read_bytes())
+keep = {k: params[k] for k in ["embedding", "norm", "unembedding"]}
+for idx in range(2):
+    keep[f"block_{idx}"] = params[f"block_{idx}"]
+(root / "flax_params_2layers.msgpack").write_bytes(serialization.to_bytes(keep))</p>
+<p>config = json.loads((root / "flax_params.config.json").read_text())
+config["num_hidden_layers"] = 2
+(root / "flax_params_2layers.config.json").write_text(json.dumps(config, indent=2))
+print("Wrote 2-layer bundle under", root)
+PY
+```</p>
+<p>Export with <code>--params .../flax_params_2layers.msgpack --config .../flax_params_2layers.config.json</code>
+to keep traces under a few minutes.</p>
+</blockquote>
+<h2 id="4-flaxnnx-routing-parity-harness">4. Flax/NNX routing parity harness</h2>
+<p>The parity harness from PR #217 verifies that the staged Flax/NNX model makes
+identical expert choices to the PyTorch reference. There is an optional slow
+smoke test in <code>tests/extra_tests/test_flax_routing_parity.py</code> that runs the
+harness with <code>--max-layers 4 --max-tokens 2</code> on CPU whenever checkpoints are
+present.</p>
+<p>To run the harness manually (e.g. with longer prompts or more layers):</p>
+<pre><code class="language-bash">JAX_PLATFORM_NAME=cpu poetry run python scripts/gpt_oss_routing_parity.py \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --jax-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --prompt &quot;What is the capital of France?&quot; \
+  --max-layers 24 \
+  --max-tokens 4 \
+  --torch-device cpu \
+  --output-dir artifacts/gpt_oss_routing/flax
+</code></pre>
+<p>The harness writes <code>artifacts/gpt_oss_routing/flax/&lt;timestamp&gt;_summary.md</code>
+containing per-layer match rates and gate diffs. Adjust <code>--max-layers</code> and
+<code>--max-tokens</code> to keep runs developer-friendly, and prefer <code>--torch-device cpu</code>
+to avoid CUDA OOMs during PyTorch checkpoint loading.</p>
+<h2 id="baseline-parity-snapshot-baseline5-2-layer-slice">Baseline parity snapshot (Baseline5, 2-layer slice)</h2>
+<ul>
+<li>Instrumentation: <code>export_flax_gpt_oss_to_onnx.py</code> supports <code>--emit-hidden-states</code> and <code>--emit-block-debug</code>; <code>run_flax_gpt_oss_onnx.py</code> compares hidden states and block-debug tensors (attention I/O, MoE norms/gates/experts, fused outputs).</li>
+<li>Parity (2-layer checkpoint, seq_len=32, debug export): logits max |Δ| ≈ 1.9e-05; hidden states ≤ 1.5e-04; MoE debug tensors ≤ 4.5e-04.</li>
+<li>Routing evidence: <code>scripts/gpt_oss_routing_parity.py</code> captures both a 2-layer slice (exact match) and a full 24-layer run (22/24 layers match; remaining layers differ by ≤ 4e-03 gate deltas). See <code>docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md</code>.</li>
+<li>Artifacts: debug export at <code>/tmp/gpt_oss_transformer_flax_debug.onnx</code> (with <code>.data</code>). The committed Baseline5 artifact lives under <code>docs/onnx/examples/nnx_gpt_oss/</code> with external data named <code>gpt_oss_transformer_flax_baseline5.onnx.data</code>.</li>
+</ul>
+<h3 id="reproduce-the-baseline5-debug-export-and-parity-check">Reproduce the Baseline5 debug export and parity check</h3>
+<pre><code class="language-bash">JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --output /tmp/gpt_oss_transformer_flax_debug.onnx \
+  --sequence-length 16 \
+  --emit-hidden-states \
+  --emit-block-debug \
+  --skip-validation
+
+JAX_PLATFORM_NAME=cpu ORT_LOG_SEVERITY_LEVEL=4 poetry run python scripts/run_flax_gpt_oss_onnx.py \
+  --prompt &quot;What is the capital of France?&quot; \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --onnx /tmp/gpt_oss_transformer_flax_debug.onnx \
+  --sequence-length 16 \
+  --compare-hidden-states \
+  --compare-block-debug
+</code></pre>
+<h3 id="original-torch-flax-parity-checklist">Original (Torch) ↔ Flax parity checklist</h3>
+<p>Prove the staged Flax bundle matches the Torch checkpoint before shipping ONNX:</p>
+<pre><code class="language-bash">JAX_PLATFORM_NAME=cpu \
+poetry run python scripts/probe_flax_gpt_oss_parity.py \
+  --prompt &quot;France capital? Answer:&quot; \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params_2layers.config.json \
+  --torch-checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+  --sequence-length 16 \
+  --gpt-oss-path tmp/gpt-oss-jax-vs-torch-numerical-comparison \
+  --torch-device cpu \
+  --torch-max-layers 2
+</code></pre>
+<p>The script tokenizes the prompt, runs both frameworks, and reports logits/stage tensor deltas. Store the transcript next to the promoted ONNX (e.g., <code>docs/onnx/examples/nnx_gpt_oss/baseline5_parity.md</code>).</p>
+<h3 id="onnx-only-smoke-test-tokenizer-generation">ONNX-only smoke test (tokenizer + generation)</h3>
+<p>For a short-window ONNX-only run (no JAX/Torch in memory):</p>
+<pre><code class="language-bash">JAX_PLATFORM_NAME=cpu \
+poetry run python scripts/export_flax_gpt_oss_to_onnx.py \
+  --params ~/.cache/gpt_oss/gpt-oss-20b/flax_params.msgpack \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+  --output /tmp/gpt_oss_transformer_flax_seq16.onnx \
+  --sequence-length 16 \
+  --skip-validation
+
+mkdir -p artifacts/gpt_oss_full_seq16
+mv /tmp/gpt_oss_transformer_flax_seq16.onnx artifacts/gpt_oss_full_seq16/
+mv /tmp/gpt_oss_transformer_flax_seq16.onnx.data artifacts/gpt_oss_full_seq16/
+
+LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
+poetry run python scripts/run_onnx_only.py \
+  --onnx artifacts/gpt_oss_full_seq16/gpt_oss_transformer_flax_seq16.onnx \
+  --config ~/.cache/gpt_oss/gpt-oss-20b/flax_params.config.json \
+  --prompt &quot;France capital? Answer:&quot; \
+  --sequence-length 16 \
+  --generate-steps 8 \
+  --expand-functions \
+  --runtime ort
+</code></pre>
+<p>For longer prompts/responses, re-export with a larger <code>--sequence-length</code> or add KV cache support to avoid re-running the full window.</p>
+<h2 id="5-legacy-export-the-equinox-example-to-onnx">5. (Legacy) Export the Equinox example to ONNX</h2>
+<p>Use the helper script to load the checkpoint, mirror it into the IR-only Equinox
+modules, and emit an ONNX graph. The script preserves the exact callable used by
+our tests so structural expectations continue to hold. On memory constrained
+systems it helps to run the export in two stages:</p>
+<ol>
+<li><strong>Stage the Equinox weights</strong> (reads SafeTensors → writes <code>.eqx</code>, no ONNX yet):</li>
+</ol>
+<p><code>bash
+   poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
+     --checkpoint ~/.cache/gpt_oss/gpt-oss-20b/original \
+     --save-eqx ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.eqx \
+     --seq-len 256 \
+     --dynamic-b \
+     --skip-onnx</code></p>
+<ol>
+<li><strong>Convert the cached Equinox model to ONNX</strong> (no PyTorch in memory):</li>
+</ol>
+<pre><code class="language-bash">poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
+  --eqx ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.eqx \
+  --output ~/.cache/gpt_oss/gpt-oss-20b/eqx_gpt_oss_transformer.onnx \
+  --seq-len 256 \
+  --dynamic-b 
+</code></pre>
+<ul>
+<li><code>--dynamic-b</code> emits a symbolic batch axis (<code>B</code>) that matches the example tests.</li>
+<li>Omit <code>--dynamic-b</code> and/or add <code>--dynamic-seq</code> to tailor the exported shapes.</li>
+<li><code>--save-eqx</code> keeps the mapped Equinox parameters around for future exports.</li>
+<li>Pass a higher <code>--seq-len</code> (e.g. 512) once the 256-token run succeeds; longer
+  sequences raise memory pressure while tracing the attention blocks.</li>
+</ul>
+<h2 id="6-legacy-validate-equinox-parity-optional">6. (Legacy) Validate Equinox parity (optional)</h2>
+<p>Numerical comparisons between the PyTorch and ONNX/JAX paths are covered by the
+regression tests in <code>tests/extra_tests/test_eqx_gpt_oss_parity.py</code>. When the
+optional dependencies above are installed, this test asserts the Equinox model
+tracks the PyTorch reference to within a small tolerance (absolute differences
+stay below <code>~1e0</code> when working in bfloat16).</p>
+<p>Run a focused check with:</p>
+<pre><code class="language-bash">poetry run pytest -q tests/extra_tests/test_eqx_gpt_oss_parity.py
+</code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

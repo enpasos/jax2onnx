@@ -51,7 +51,7 @@ def _extract_branches(
             "doc": "https://onnx.ai/onnx/operators/onnx__If.html",
         }
     ],
-    since="v0.5.1",
+    since="0.5.1",
     context="primitives.lax",
     component="cond",
     testcases=[

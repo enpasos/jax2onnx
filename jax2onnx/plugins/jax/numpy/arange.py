@@ -25,6 +25,11 @@ if TYPE_CHECKING:  # pragma: no cover
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 _JNP_ARANGE_ORIG: Final = jnp.arange
 
+try:
+    _SYMBOLIC_DYNAMIC_DIM: Any | None = jax.export.symbolic_shape(_DYNAMIC_DIM_LABEL)[0]
+except Exception:  # pragma: no cover - best effort for older JAX builds
+    _SYMBOLIC_DYNAMIC_DIM: Any | None = None
+
 
 class _DynamicDimSentinel:
     __slots__ = ()
@@ -40,9 +45,72 @@ class _DynamicDimSentinel:
     def __eq__(self, other: object) -> bool:
         return isinstance(other, _DynamicDimSentinel)
 
+    # Comparison hooks keep JAX shape checks from erroring on symbolic dims.
+    def __ge__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return True
+        return NotImplemented
+
+    def __gt__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return True
+        return NotImplemented
+
+    def __le__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return False
+        return NotImplemented
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, (int, np.integer)):
+            return False
+        return NotImplemented
+
+    # Arithmetic hooks keep symbolic dims flowing through shape math.
+    def __mul__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __rmul__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __add__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __radd__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __sub__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __rsub__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __floordiv__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
+    def __rfloordiv__(self, other: object) -> "_DynamicDimSentinel":
+        if isinstance(other, (int, np.integer)):
+            return self
+        return NotImplemented
+
     def dimension_as_value(self):  # pragma: no cover - compatibility helper
-        msg = "Dynamic dimension sentinel cannot be materialized as a value"
-        raise TypeError(msg)
+        if _SYMBOLIC_DYNAMIC_DIM is not None:
+            return _SYMBOLIC_DYNAMIC_DIM.dimension_as_value()
+        return core.dim_constant(1)
 
 
 DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
@@ -59,6 +127,18 @@ def _as_scalar(aval: core.AbstractValue | JaxLiteral | None) -> float | int | No
     if val is None:
         return None
     arr = np.asarray(val)
+    if arr.shape:
+        return None
+    return arr.item()
+
+
+def _static_scalar(value: object) -> float | int | None:
+    if isinstance(value, (core.Tracer, jax.Array)):
+        return None
+    try:
+        arr = np.asarray(value)
+    except Exception:
+        return None
     if arr.shape:
         return None
     return arr.item()
@@ -186,7 +266,7 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         }
     ],
-    since="v0.5.2",
+    since="0.5.2",
     context="primitives.jnp",
     component="arange",
     testcases=[
@@ -287,8 +367,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_stop_only_int",
             "callable": lambda: jnp.arange(5),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(5,)],
+            "x32_expected_output_shapes": [(5,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -326,8 +406,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_start_stop_int",
             "callable": lambda: jnp.arange(2, 7),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(5,)],
+            "x32_expected_output_shapes": [(5,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -346,8 +426,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_start_stop_step_int",
             "callable": lambda: jnp.arange(1, 10, 2),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(5,)],
+            "x32_expected_output_shapes": [(5,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -366,8 +446,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_empty_result_pos_step",
             "callable": lambda: jnp.arange(5, 2, 1),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(0,)],
+            "x32_expected_output_shapes": [(0,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -386,8 +466,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_empty_result_neg_step",
             "callable": lambda: jnp.arange(2, 5, -1),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(0,)],
+            "x32_expected_output_shapes": [(0,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -406,8 +486,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_negative_step",
             "callable": lambda: jnp.arange(5, 0, -1),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(5,)],
+            "x32_expected_output_shapes": [(5,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -464,8 +544,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_stop_zero",
             "callable": lambda: jnp.arange(0),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(0,)],
+            "x32_expected_output_shapes": [(0,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -484,8 +564,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_start_equals_stop",
             "callable": lambda: jnp.arange(5, 5, 1),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(0,)],
+            "x32_expected_output_shapes": [(0,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -504,8 +584,8 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
             "testcase": "arange_static_large_numbers_int",
             "callable": lambda: jnp.arange(1000, 1010, 1, dtype=jnp.int32),
             "input_values": [],
-            "x64_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
-            "x32_expected_output_shapes": [(_DYNAMIC_DIM_LABEL,)],
+            "x64_expected_output_shapes": [(10,)],
+            "x32_expected_output_shapes": [(10,)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -531,10 +611,16 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
     def abstract_eval(
         *in_avals: core.AbstractValue,
         dtype: np.dtype[Any] | type | None = None,
+        static_args: tuple[float | int | None, ...] | None = None,
     ) -> core.ShapedArray:
         enable_x64 = bool(jax.config.jax_enable_x64)
         result_dtype = _resolve_result_dtype(in_avals, dtype, enable_x64)
-        scalars = _all_scalars(in_avals)
+        scalars = None
+        if static_args is not None and len(static_args) == len(in_avals):
+            if all(val is not None for val in static_args):
+                scalars = list(cast(Sequence[float | int], static_args))
+        if scalars is None:
+            scalars = _all_scalars(in_avals)
         if scalars is None:
             shape = (DATA_DEPENDENT_DYNAMIC_DIM,)
         else:
@@ -624,6 +710,13 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 length_hint = _determine_length(literal_args)
             except Exception:
                 length_hint = None
+        if length_hint is None:
+            static_args = params.get("static_args")
+            if static_args is not None and all(val is not None for val in static_args):
+                try:
+                    length_hint = _determine_length(static_args)
+                except Exception:
+                    length_hint = None
 
         if length_hint is not None:
             final_shape: tuple[object, ...] = (int(length_hint),)
@@ -715,7 +808,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 values: list[Any] = [start, stop]
                 if step_kw is not None or num_args == 3 or step != 1:
                     values.append(step)
-                return cls._PRIM.bind(*values, dtype=dtype_param)
+                static_args = tuple(_static_scalar(v) for v in values)
+                return cls._PRIM.bind(
+                    *values, dtype=dtype_param, static_args=static_args
+                )
 
             return _patched
 
@@ -733,7 +829,11 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
 
 @JnpArangePlugin._PRIM.def_impl
-def _arange_impl(*args: Any, dtype: np.dtype[Any] | type | None = None) -> jax.Array:
+def _arange_impl(
+    *args: Any,
+    dtype: np.dtype[Any] | type | None = None,
+    static_args: tuple[float | int | None, ...] | None = None,
+) -> jax.Array:
     try:
         orig = get_orig_impl(JnpArangePlugin._PRIM, JnpArangePlugin._FUNC_NAME)
     except RuntimeError:

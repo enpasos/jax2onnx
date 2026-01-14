@@ -35,12 +35,30 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _MATMUL_PRIM: Final = make_jnp_primitive("jax.numpy.matmul")
 
 
-def _matmul_shape(a_shape, b_shape, a_dtype):
+def _matmul_shape(
+    a_shape,
+    b_shape,
+    a_dtype,
+    *,
+    precision=None,
+    preferred_element_type=None,
+    out_sharding=None,
+):
     spec_a = jax.ShapeDtypeStruct(a_shape, a_dtype)
     # Assume dtype broadcast already handled; use same dtype for b
     spec_b = jax.ShapeDtypeStruct(b_shape, a_dtype)
     orig = getattr(_MATMUL_PRIM, "__orig_impl__matmul", jnp.matmul)
-    result = jax.eval_shape(lambda x, y: orig(x, y), spec_a, spec_b)
+    result = jax.eval_shape(
+        lambda x, y: orig(
+            x,
+            y,
+            precision=precision,
+            preferred_element_type=preferred_element_type,
+            out_sharding=out_sharding,
+        ),
+        spec_a,
+        spec_b,
+    )
     return result.shape, result.dtype
 
 
@@ -53,7 +71,7 @@ def _matmul_shape(a_shape, b_shape, a_dtype):
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="matmul",
     testcases=[
@@ -154,8 +172,22 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(a: core.AbstractValue, b: core.AbstractValue) -> core.ShapedArray:
-        shape, dtype = _matmul_shape(a.shape, b.shape, a.dtype)
+    def abstract_eval(
+        a: core.AbstractValue,
+        b: core.AbstractValue,
+        *,
+        precision=None,
+        preferred_element_type=None,
+        out_sharding=None,
+    ) -> core.ShapedArray:
+        shape, dtype = _matmul_shape(
+            a.shape,
+            b.shape,
+            a.dtype,
+            precision=precision,
+            preferred_element_type=preferred_element_type,
+            out_sharding=out_sharding,
+        )
         return core.ShapedArray(shape, dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
@@ -335,8 +367,27 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.matmul not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(a: ArrayLike, b: ArrayLike) -> ArrayLike:
-                return cls._PRIM.bind(a, b)
+            def _patched(
+                a: ArrayLike,
+                b: ArrayLike,
+                *,
+                precision=None,
+                preferred_element_type=None,
+                out_sharding=None,
+            ) -> ArrayLike:
+                params = {}
+                if precision is not None:
+                    params["precision"] = precision
+                if preferred_element_type is not None:
+                    params["preferred_element_type"] = preferred_element_type
+                if out_sharding is not None:
+                    try:
+                        hash(out_sharding)
+                    except TypeError:
+                        out_sharding = None
+                    if out_sharding is not None:
+                        params["out_sharding"] = out_sharding
+                return cls._PRIM.bind(a, b, **params)
 
             return _patched
 
@@ -354,9 +405,22 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
 
 
 @JnpMatmulPlugin._PRIM.def_impl
-def _matmul_impl(a: ArrayLike, b: ArrayLike) -> ArrayLike:
+def _matmul_impl(
+    a: ArrayLike,
+    b: ArrayLike,
+    *,
+    precision=None,
+    preferred_element_type=None,
+    out_sharding=None,
+) -> ArrayLike:
     orig = get_orig_impl(JnpMatmulPlugin._PRIM, JnpMatmulPlugin._FUNC_NAME)
-    return orig(a, b)
+    return orig(
+        a,
+        b,
+        precision=precision,
+        preferred_element_type=preferred_element_type,
+        out_sharding=out_sharding,
+    )
 
 
 JnpMatmulPlugin._PRIM.def_abstract_eval(JnpMatmulPlugin.abstract_eval)

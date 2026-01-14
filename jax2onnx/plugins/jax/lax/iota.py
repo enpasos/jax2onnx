@@ -35,7 +35,7 @@ _DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
             "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         }
     ],
-    since="v0.5.0",
+    since="0.5.0",
     context="primitives.lax",
     component="iota",
     testcases=[

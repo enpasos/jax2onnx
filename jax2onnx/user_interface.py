@@ -1,5 +1,28 @@
 # jax2onnx/user_interface.py
 
+"""
+User-facing API for converting JAX functions and models to ONNX.
+
+This module provides the primary interface for exporting JAX/Flax models to the
+ONNX format. It supports dynamic shapes, runtime parameters, and numerical
+validation against ONNX Runtime.
+
+Key Functions:
+
+- **to_onnx**: Convert a JAX function or Flax module to an ONNX model.
+- **onnx_function**: Decorator to mark a function or class as an ONNX function node.
+- **allclose**: Validate numerical equivalence between JAX and ONNX Runtime outputs.
+
+Example:
+    >>> from jax2onnx import to_onnx
+    >>> import jax.numpy as jnp
+    >>>
+    >>> def my_model(x):
+    ...     return jnp.sin(x)
+    >>>
+    >>> to_onnx(my_model, inputs=[('B', 10)], return_mode="file", output_path="model.onnx")
+"""
+
 import logging
 import os
 from contextlib import contextmanager
@@ -266,6 +289,7 @@ def to_onnx(
             * any array-like object exposing `.shape` and `.dtype`
               (e.g. `jax.Array`, `np.ndarray`);
             * a tuple/list of ints/strs describing the desired shape.
+              Example: `[('B', 128), (1, 10)]` implies two inputs, the first with a dynamic batch dimension 'B' and fixed size 128.
         input_params: Optional mapping of string keys to runtime parameters that
             should be exposed as inputs in the ONNX model rather than baked into
             the export (e.g. `"deterministic"` flags).
@@ -283,18 +307,39 @@ def to_onnx(
             `"file"`. Ignored otherwise.
 
     Returns:
-        Depending on `return_mode`, either an ONNX ModelProto, an onnx_ir.Model,
-        or the filesystem path written to when `return_mode="file"`.
+        * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
+        * If `return_mode="ir"`: Returns an `onnx_ir.Model` object (intermediate representation).
+        * If `return_mode="file"`: Returns the string path to the saved file.
+
+    Raises:
+        ValueError: If `return_mode` is "file" but `output_path` is not provided.
+        ValueError: If `return_mode` is invalid.
+        TypeError: If `input_params` keys are not strings.
 
     Example:
+        >>> import jax
         >>> import jax.numpy as jnp
-        >>> from flax import nnx
         >>> from jax2onnx import to_onnx
         >>>
-        >>> model = MyFlaxModel(...)
-        >>> onnx_model = to_onnx(model, inputs=[('B', 32, 32, 3)])
-        >>> import onnx
-        >>> onnx.save(onnx_model, "model.onnx")
+        >>> # Define a simple JAX function
+        >>> def linear(x, w, b):
+        ...     return jnp.dot(x, w) + b
+        >>>
+        >>> # Define input shapes: 'B' indicates a dynamic batch dimension
+        >>> input_specs = [
+        ...     ('B', 32),  # x: [Batch, 32]
+        ...     (32, 10),   # w: [32, 10]
+        ...     (10,)       # b: [10]
+        ... ]
+        >>>
+        >>> # Convert and save to file directly (Recommended)
+        >>> to_onnx(
+        ...     linear,
+        ...     inputs=input_specs,
+        ...     model_name="linear_model",
+        ...     return_mode="file",
+        ...     output_path="linear_model.onnx"
+        ... )
     """
 
     logging.info(
@@ -425,6 +470,13 @@ def onnx_function(
 
     Example:
         >>> from jax2onnx import onnx_function
+        >>> import jax.numpy as jnp
+        >>>
+        >>> @onnx_function
+        >>> def my_custom_op(x, y):
+        ...     return jnp.sin(x) * y
+        >>>
+        >>> # Also works with Flax modules:
         >>> from flax import nnx
         >>>
         >>> @onnx_function
@@ -470,6 +522,28 @@ def allclose(
     Returns:
         `(is_match, message)` where `is_match` indicates success and `message`
         provides context when a mismatch occurs.
+
+    Example:
+        >>> import jax.numpy as jnp
+        >>> from jax2onnx import to_onnx, allclose
+        >>>
+        >>> # 1. Define and Export
+        >>> def my_func(x):
+        ...     return jnp.sin(x)
+        >>>
+        >>> model_path = to_onnx(
+        ...     my_func,
+        ...     inputs=[('B', 10)],
+        ...     return_mode="file",
+        ...     output_path="my_model.onnx"
+        ... )
+        >>>
+        >>> # 2. Validate
+        >>> # Provide concrete shapes for validation (replacing dynamic dim 'B')
+        >>> validation_inputs = [(5, 10)]
+        >>> is_match, msg = allclose(my_func, model_path, inputs=validation_inputs, atol=1e-5)
+        >>>
+        >>> assert is_match, f"Validation failed: {msg}"
     """
 
     logging.info(

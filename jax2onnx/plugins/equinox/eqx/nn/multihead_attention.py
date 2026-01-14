@@ -408,7 +408,7 @@ def _attention_core(
         },
         {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
     ],
-    since="v0.10.0",
+    since="0.10.0",
     context="primitives.eqx",
     component="multihead_attention",
     testcases=[

@@ -143,7 +143,7 @@ register_example(
     component="TransformerDecoderWithSequential",
     description="Tiny nnx Transformer decoder using nnx.Sequential in the FFN block.",
     source="https://github.com/google/flax/tree/main/flax/nnx",
-    since="v0.7.1",
+    since="0.7.1",
     context="examples.nnx",
     children=[
         "nnx.MultiHeadAttention",

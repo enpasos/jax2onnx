@@ -60,7 +60,7 @@ def _normalize_axes(axes: AxesArg, rank: int) -> tuple[int, ...]:
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="transpose",
     testcases=[

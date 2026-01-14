@@ -58,7 +58,7 @@ def _canonical_method(method: str) -> str:
             "doc": "https://onnx.ai/onnx/operators/onnx__Resize.html",
         }
     ],
-    since="v0.10.0",
+    since="0.10.0",
     context="primitives.jax_image",
     component="resize",
     testcases=[

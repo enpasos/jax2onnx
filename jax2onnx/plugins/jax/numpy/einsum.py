@@ -27,10 +27,17 @@ _JNP_EINSUM_ORIG: Final = jnp.einsum
 def _einsum_shape(
     avals: Sequence[core.AbstractValue], equation: str
 ) -> tuple[tuple[Any, ...], np.dtype[Any]]:
+    equation = _normalize_equation(equation)
     specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
     orig = getattr(_EINSUM_PRIM, "__orig_impl__einsum", jnp.einsum)
     result = jax.eval_shape(lambda *args: orig(equation, *args), *specs)
     return result.shape, result.dtype
+
+
+def _normalize_equation(equation: str) -> str:
+    if not isinstance(equation, str):
+        return equation
+    return "".join(equation.split())
 
 
 @register_primitive(
@@ -42,7 +49,7 @@ def _einsum_shape(
             "doc": "https://onnx.ai/onnx/operators/onnx__Einsum.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="einsum",
     testcases=[
@@ -194,13 +201,16 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
         precision: Any | None = None,
         optimize: Any | None = None,
         preferred_element_type: Any | None = None,
+        _dot_general: Any | None = None,
     ) -> core.ShapedArray:
+        del _dot_general
+        equation = _normalize_equation(equation)
         shape, dtype = _einsum_shape(avals, equation)
         return core.ShapedArray(shape, dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
-        equation = params["equation"]
+        equation = _normalize_equation(params["equation"])
 
         input_vals = []
         for var in eqn.invars:
@@ -299,7 +309,20 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
     def binding_specs(cls):
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        allowed_kwargs = {"precision", "optimize", "preferred_element_type"}
+        allowed_kwargs = {
+            "precision",
+            "optimize",
+            "preferred_element_type",
+            "_dot_general",
+            "out_sharding",
+        }
+        # Allow out_sharding for compatibility, but ignore sharding hints during export.
+        bindable_kwargs = {
+            "precision",
+            "optimize",
+            "preferred_element_type",
+            "_dot_general",
+        }
 
         def _make_value(
             orig: Callable[..., jax.Array] | None,
@@ -320,7 +343,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                     )
 
                 bind_kwargs = {"equation": str(equation)}
-                for key in allowed_kwargs:
+                for key in bindable_kwargs:
                     value = kwargs.get(key, None)
                     if value is not None:
                         bind_kwargs[key] = value
@@ -349,6 +372,7 @@ def _einsum_impl(
     precision: Any | None = None,
     optimize: Any | None = None,
     preferred_element_type: Any | None = None,
+    _dot_general: Any | None = None,
 ) -> jax.Array:
     try:
         orig = get_orig_impl(JnpEinsumPlugin._PRIM, JnpEinsumPlugin._FUNC_NAME)
@@ -361,6 +385,8 @@ def _einsum_impl(
         kwargs["optimize"] = optimize
     if preferred_element_type is not None:
         kwargs["preferred_element_type"] = preferred_element_type
+    if _dot_general is not None:
+        kwargs["_dot_general"] = _dot_general
     return orig(equation, *operands, **kwargs)
 
 

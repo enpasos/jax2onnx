@@ -67,7 +67,7 @@ class TestQuickstart:
         # Generate artifacts if missing to avoid failures on fresh clones.
         jax2onnx.quickstart.main()
 
-        docs_dir = Path(__file__).resolve().parents[2] / "docs" / "onnx"
+        docs_dir = Path(__file__).resolve().parents[2] / "onnx"
         for filename in ("my_callable.onnx", "model_with_function.onnx"):
             onnx_path = docs_dir / filename
             assert onnx_path.exists(), f"{onnx_path} is missing"

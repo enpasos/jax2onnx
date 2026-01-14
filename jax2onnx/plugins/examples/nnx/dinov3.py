@@ -375,7 +375,7 @@ register_example(
     component="NnxDinoPatchEmbed",
     description="Image to Patch Embedding.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.3",
+    since="0.10.3",
     context="examples.nnx_dino",
     children=["flax.nnx.Conv"],
     testcases=[
@@ -443,7 +443,7 @@ register_example(
     component="NnxDinoAttentionCore",
     description="Multi-Head Self-Attention without rotary processing.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.3",
+    since="0.10.3",
     context="examples.nnx_dino",
     children=[
         "flax.nnx.Linear",
@@ -500,7 +500,7 @@ register_example(
     component="NnxDinoAttention",
     description="Multi-Head Self-Attention using Flax/NNX modules.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.3",
+    since="0.10.3",
     context="examples.nnx_dino",
     children=[
         "AttentionCore",
@@ -610,7 +610,7 @@ register_example(
     component="NnxDinoBlock",
     description="Transformer Block.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.3",
+    since="0.10.3",
     context="examples.nnx_dino",
     children=["flax.nnx.LayerNorm", "Attention", "DinoMlp"],
     testcases=[
@@ -853,7 +853,7 @@ register_example(
     component="FlaxDINOv3VisionTransformer",
     description="DINOv3 Vision Transformer",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.3",
+    since="0.10.3",
     context="examples.nnx_dino",
     children=["PatchEmbed", "Block"],
     testcases=_get_test_cases(),

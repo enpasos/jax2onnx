@@ -1,11 +1,11 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.10.4"
+version = "0.11.1"
 description = "export JAX to ONNX"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
-requires-python = ">=3.11,<4.0"  # required by flax
+requires-python = ">=3.11,<3.13"  # Flax requires >=3.11
 dependencies = [
     "jax>=0.7.2",
     "flax>=0.12.1",
@@ -19,7 +19,7 @@ dependencies = [
     "einops>=0.8.1",
     "equinox>=0.13.1",
     "onnx-ir>=0.1.10",
-    "huggingface-hub>=1.1.2,<2.0.0",
+    "huggingface-hub>=0.26.0",
 ]
 
 [tool.poetry.group.test]
@@ -36,7 +36,24 @@ optional = true
 jax = { version = ">=0.7.2", extras = ["cuda12_pip"] }
 
 
+[tool.poetry.group.maxtext]
+optional = true
+
+[tool.poetry.group.maxtext.dependencies]
+omegaconf = "*"
+transformers = "^4.48.0"
+sentencepiece = "*"
+tensorflow-cpu = "^2.18.0"
+tensorboardX = "*"
+pydantic = "*"
+
+
 [tool.poetry]
+name = "jax2onnx"
+version = "0.11.0"
+description = "export JAX to ONNX"
+authors = ["enpasos <matthias.unverzagt@enpasos.ai>"]
+readme = "README.md"
 packages = [
     { include = "jax2onnx" }
 ]
@@ -57,6 +74,10 @@ black = "^25.1.0"
 types-pyyaml = "^6.0.12.20250822"
 pytest-cov = "^7.0.0"
 mypy = "==1.15.0"
+mkdocs-material = "^9.5.0"
+mkdocstrings = {extras = ["python"], version = "0.26.1"}
+mkdocs = "^1.6.0"
+griffe = ">=0.44,<1.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

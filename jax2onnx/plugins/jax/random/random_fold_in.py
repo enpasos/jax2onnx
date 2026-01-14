@@ -39,7 +39,7 @@ def _identity(
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.random",
     component="random_fold_in",
     testcases=[

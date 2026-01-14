@@ -35,7 +35,7 @@ def _initializer_callable(key):
     jaxpr_primitive=_TRUNCATED_NORMAL_PRIM.name,
     context="primitives.nn",
     component="truncated_normal",
-    since="v0.7.1",
+    since="0.7.1",
     testcases=[
         {
             "testcase": "initializer",

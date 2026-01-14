@@ -121,7 +121,7 @@ def _reshape_flatten_trailing(x):
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="reshape",
     testcases=[

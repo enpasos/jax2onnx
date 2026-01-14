@@ -129,7 +129,7 @@ class TransformerStack(nnx.Module):
 register_example(
     component="onnx_functions_010",
     description="transformer stack",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=["TransformerBlock"],
     testcases=[

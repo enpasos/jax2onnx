@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
         }
     ],
-    since="v0.6.4",
+    since="0.6.4",
     context="primitives.lax",
     component="scatter_mul",
     testcases=[

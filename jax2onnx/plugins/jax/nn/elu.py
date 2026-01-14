@@ -26,7 +26,7 @@ _ELU_PRIM.multiple_results = False
     jaxpr_primitive=_ELU_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.elu.html",
     onnx=[{"component": "Elu", "doc": "https://onnx.ai/onnx/operators/onnx__Elu.html"}],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="elu",
     testcases=[
@@ -117,6 +117,18 @@ class EluPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "elu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="elu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="elu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="elu",
                 make_value=_make_value,
                 delete_if_missing=False,

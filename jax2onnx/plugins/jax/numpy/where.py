@@ -54,7 +54,7 @@ def _create_problematic_where_sequence(cond_input, data_input):
     onnx=[
         {"component": "Where", "doc": "https://onnx.ai/onnx/operators/onnx__Where.html"}
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.jnp",
     component="where",
     testcases=[

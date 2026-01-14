@@ -5,7 +5,7 @@ set -e  # Exit on error
 # Resolve absolute paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 JAX2ONNX_DIR="$(dirname "$SCRIPT_DIR")"
-SRC_DIR="$JAX2ONNX_DIR/docs/onnx"
+SRC_DIR="$JAX2ONNX_DIR/onnx"
 DST_DIR="$JAX2ONNX_DIR/../jax2onnx-models"
 
 echo "🔄 Syncing ONNX files from:"
@@ -36,7 +36,7 @@ if ! git lfs install --local; then
     exit 1
   fi
 fi
-git lfs track "*.onnx" "examples/**/*.onnx" "primitives/**/*.onnx" "docs/onnx/**/*.onnx"
+git lfs track "*.onnx" "examples/**/*.onnx" "primitives/**/*.onnx" "onnx/**/*.onnx"
 git add .gitattributes
 
 # 3. Remove existing ONNX payloads (drop any lingering .onnx.data; we don't sync them)
@@ -51,7 +51,7 @@ TRACK_TARGETS=(".gitattributes")
 if compgen -G "*.onnx" >/dev/null; then
   TRACK_TARGETS+=(*.onnx)
 fi
-for dir in docs/onnx examples primitives; do
+for dir in onnx examples primitives; do
   if [ -d "$dir" ]; then
     TRACK_TARGETS+=("$dir")
   fi

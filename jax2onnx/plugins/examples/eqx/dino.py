@@ -395,7 +395,7 @@ register_example(
     component="PatchEmbed",
     description="Image to Patch Embedding.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.eqx_dino",
     children=["equinox.nn.Conv2d"],
     testcases=[
@@ -452,7 +452,7 @@ register_example(
     component="AttentionCore",
     description="Multi-Head Self-Attention without rotary processing.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.eqx_dino",
     children=[
         "equinox.nn.MultiheadAttention",
@@ -527,7 +527,7 @@ register_example(
     component="Attention",
     description="Multi-Head Self-Attention using Equinox modules.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.eqx_dino",
     children=[
         "AttentionCore",
@@ -642,7 +642,7 @@ register_example(
     component="Block",
     description="Transformer Block.",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.eqx_dino",
     children=["equinox.nn.LayerNorm", "Attention", "equinox.nn.MLP"],
     testcases=[
@@ -973,7 +973,7 @@ register_example(
     component="DINOv3VisionTransformer",
     description="DINOv3 Vision Transformer",
     source="https://github.com/clementpoiret/Equimo",
-    since="v0.10.0",
+    since="0.10.0",
     context="examples.eqx_dino",
     children=["PatchEmbed", "Block"],
     testcases=_get_test_cases(),

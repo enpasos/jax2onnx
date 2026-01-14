@@ -51,7 +51,7 @@ def weno_reconstruction_f64(
 register_example(
     component="weno_reconstruction",
     description="Tests the complex arithmetic pattern found in WENO schemes.",
-    since="v0.6.5",
+    since="0.6.5",
     context="examples.jaxfluids",
     testcases=[
         {
@@ -105,7 +105,7 @@ def cfl_timestep_f64(dt_previous: jnp.ndarray, wave_speeds: jnp.ndarray) -> jnp.
 register_example(
     component="cfl_timestep",
     description="Tests the CFL condition timestep calculation.",
-    since="v0.6.5",
+    since="0.6.5",
     context="examples.jaxfluids",
     testcases=[
         {

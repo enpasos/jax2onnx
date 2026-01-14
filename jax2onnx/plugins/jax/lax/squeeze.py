@@ -52,7 +52,7 @@ def _dim_const_value(dim) -> int | None:
             "doc": "https://onnx.ai/onnx/operators/onnx__Squeeze.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.lax",
     component="squeeze",
     testcases=[

@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     onnx=[
         {"component": "Flip", "doc": "https://onnx.ai/onnx/operators/onnx__Flip.html"}
     ],
-    since="v0.7.5",
+    since="0.7.5",
     context="primitives.lax",
     component="rev",
     testcases=[

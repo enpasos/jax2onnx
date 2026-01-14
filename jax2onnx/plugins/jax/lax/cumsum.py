@@ -31,7 +31,7 @@ def _cumsum_last_axis_reverse(x):
             "doc": "https://onnx.ai/onnx/operators/onnx__CumSum.html",
         }
     ],
-    since="v0.7.4",
+    since="0.7.4",
     context="primitives.lax",
     component="cumsum",
     testcases=[

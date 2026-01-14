@@ -31,7 +31,7 @@ _SIGMOID_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="sigmoid",
     testcases=[
@@ -93,6 +93,18 @@ class SigmoidPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "sigmoid_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="sigmoid",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="sigmoid",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="sigmoid",
                 make_value=_make_value,
                 delete_if_missing=False,

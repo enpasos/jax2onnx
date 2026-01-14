@@ -61,6 +61,8 @@ def _build_body_graph(
     parent_ctx: "IRContext",
     closed_jaxpr: Any,
     state_prototypes: "Sequence[ir.Value]",
+    *,
+    lower: int,
 ) -> ir.Graph:
     body_ctx = make_subgraph_context(parent_ctx, prefix="fori_body")
     builder = getattr(body_ctx, "builder", None)
@@ -87,10 +89,20 @@ def _build_body_graph(
     iter_dtype = np.dtype(getattr(iter_var.aval, "dtype", np.int64))
     iter_enum = _dtype_to_ir(iter_dtype, builder.enable_double_precision)
     iter_value = iter_input
+    if lower != 0:
+        lower_const = _scalar_i64(body_ctx, int(lower), "fori_lower")
+        iter_value = body_ctx.builder.Add(
+            iter_input,
+            lower_const,
+            _outputs=[body_ctx.fresh_name("fori_iter_offset")],
+        )
+        iter_value.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(iter_value, ())
+        _ensure_value_metadata(body_ctx, iter_value)
     if iter_enum != ir.DataType.INT64:
         cast_iter = builder_cast(
             body_ctx,
-            iter_input,
+            iter_value,
             iter_enum,
             name_hint="loop_iter_cast",
         )
@@ -212,7 +224,7 @@ def _build_body_graph(
             "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html",
         }
     ],
-    since="v0.5.1",
+    since="0.5.1",
     context="primitives.lax",
     component="fori_loop",
     testcases=[
@@ -305,17 +317,15 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         lower = int(params.get("lower", 0) or 0)
         if closed is None:
             raise ValueError("fori_loop lowering requires 'body_jaxpr' parameter")
-        if lower != 0:
-            raise NotImplementedError(
-                "fori_loop with non-zero lower bound is unsupported"
-            )
+        if lower != 0 and trip_count < 0:
+            raise ValueError("fori_loop trip_count must be non-negative")
 
         state_vals = [
             ctx.get_value_for_var(var, name_hint=ctx.fresh_name("fori_state"))
             for var in eqn.invars
         ]
 
-        body_graph = _build_body_graph(ctx, closed, state_vals)
+        body_graph = _build_body_graph(ctx, closed, state_vals, lower=lower)
 
         trip_val = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("fori_trip_count"),
@@ -355,9 +365,6 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def _fori_loop_binding(cls, lower, upper, body_fun, init_val):
-        if int(lower) != 0:
-            raise NotImplementedError("fori_loop plugin supports lower == 0 only")
-
         leaves, treedef = tree_util.tree_flatten(init_val)
         leaves = [
             _canon_int(leaf) if isinstance(leaf, (int, np.integer)) else leaf
@@ -374,6 +381,8 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
 
         body_closed = jax.make_jaxpr(body_flat)(0, *leaves)
         trip_count = int(np.asarray(upper).item()) - int(np.asarray(lower).item())
+        if trip_count < 0:
+            trip_count = 0
 
         flat_result = cls._PRIM.bind(
             *leaves,

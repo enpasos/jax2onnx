@@ -26,7 +26,7 @@ def _flatten(seq: Iterable[int]) -> list[int]:
     jaxpr_primitive=jax.lax.pad_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.pad.html",
     onnx=[{"component": "Pad", "doc": "https://onnx.ai/onnx/operators/onnx__Pad.html"}],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.lax",
     component="pad",
     testcases=[

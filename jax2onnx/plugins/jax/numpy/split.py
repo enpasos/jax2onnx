@@ -68,7 +68,7 @@ def _split_sizes(
     onnx=[
         {"component": "Split", "doc": "https://onnx.ai/onnx/operators/onnx__Split.html"}
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.jnp",
     component="split",
     testcases=[

@@ -28,7 +28,7 @@ _SELU_PRIM.multiple_results = False
     onnx=[
         {"component": "Selu", "doc": "https://onnx.ai/onnx/operators/onnx__Selu.html"}
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="selu",
     testcases=[
@@ -107,6 +107,18 @@ class SeluPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "selu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="selu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="selu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="selu",
                 make_value=_make_value,
                 delete_if_missing=False,

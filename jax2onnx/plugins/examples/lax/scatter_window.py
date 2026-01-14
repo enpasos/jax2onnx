@@ -35,7 +35,7 @@ register_example(
         "Exercises GatherScatterMode.FILL_OR_DROP and double precision. "
         "Regression of a prior conversion failure."
     ),
-    since="v0.7.4",
+    since="0.7.4",
     context="examples.lax",
     children=[],
     testcases=[

@@ -140,7 +140,7 @@ EXPECT_T_BN_T: Final = EG(
             "doc": "https://onnx.ai/onnx/operators/onnx__BatchNormalization.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.nnx",
     component="batch_norm",
     testcases=[

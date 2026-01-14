@@ -52,7 +52,7 @@ def _normalize_axes(axes: int | Sequence[int] | None, rank: int) -> tuple[int, .
             "doc": "https://onnx.ai/onnx/operators/onnx__Squeeze.html",
         }
     ],
-    since="v0.1.0",
+    since="0.1.0",
     context="primitives.jnp",
     component="squeeze",
     testcases=[

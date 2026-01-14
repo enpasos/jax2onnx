@@ -20,7 +20,7 @@ register_example(
         "custom attention_fn and symbolic batch variants."
     ),
     source="https://github.com/google/flax/blob/main/README.md",
-    since="v0.2.0",
+    since="0.2.0",
     context="examples.nnx",
     children=["nnx.GeneralLinear", "nnx.dot_product_attention"],
     testcases=[

@@ -74,7 +74,7 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
             "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html",
         }
     ],
-    since="v0.8.2",
+    since="0.8.2",
     context="primitives.lax",
     component="pow",
     testcases=[

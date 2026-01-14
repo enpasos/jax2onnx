@@ -13,7 +13,7 @@ from jax2onnx.plugins.plugin_system import register_primitive
     jaxpr_primitive="add_any",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html",
     onnx=[{"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"}],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.lax",
     component="add_any",
     testcases=[

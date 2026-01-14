@@ -99,7 +99,7 @@ register_example(
     component="MlpExample",
     description="A simple Equinox MLP (converter pipeline).",
     source="https://github.com/patrick-kidger/equinox",
-    since="v0.8.0",
+    since="0.8.0",
     context="examples.eqx",
     children=["eqx.nn.Linear", "eqx.nn.Dropout", "jax.nn.gelu"],
     testcases=[

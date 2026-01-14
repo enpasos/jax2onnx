@@ -328,7 +328,7 @@ def _build_loop_body_graph(
             "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html",
         }
     ],
-    since="v0.5.1",
+    since="0.5.1",
     context="primitives.lax",
     component="while_loop",
     testcases=[

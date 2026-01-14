@@ -56,7 +56,7 @@ EXPECT_EMBED_GATHER: Final = EG(
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="v0.7.0",
+    since="0.7.0",
     context="primitives.nnx",
     component="embed",
     testcases=[

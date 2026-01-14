@@ -82,7 +82,7 @@ EXPECT_EINSUM_WITH_BIAS: Final = EG(
         },
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     ],
-    since="v0.4.2",
+    since="0.4.2",
     context="primitives.nnx",
     component="einsum",
     testcases=[

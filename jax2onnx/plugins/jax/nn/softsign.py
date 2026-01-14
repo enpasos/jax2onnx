@@ -31,7 +31,7 @@ _SOFTSIGN_PRIM.multiple_results = False
             "doc": "https://onnx.ai/onnx/operators/onnx__Softsign.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="soft_sign",
     testcases=[
@@ -105,6 +105,18 @@ class SoftsignPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "soft_sign_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="soft_sign",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="soft_sign",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="soft_sign",
                 make_value=_make_value,
                 delete_if_missing=False,

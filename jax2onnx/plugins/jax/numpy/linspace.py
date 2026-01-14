@@ -118,7 +118,7 @@ def _maybe_cast(
         },
         {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     ],
-    since="v0.5.2",
+    since="0.5.2",
     context="primitives.jnp",
     component="linspace",
     testcases=[

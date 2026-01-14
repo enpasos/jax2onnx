@@ -22,7 +22,7 @@ class MLP(nnx.Module):
 
 
 def _default_output_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "docs" / "onnx" / "my_callable.onnx"
+    return Path(__file__).resolve().parents[1] / "onnx" / "my_callable.onnx"
 
 
 def export_quickstart_model(output_path: str | Path | None = None) -> Path:
@@ -57,10 +57,7 @@ def export_quickstart_functions(output_path: str | Path | None = None) -> Path:
     target = (
         Path(output_path)
         if output_path is not None
-        else Path(__file__).resolve().parents[1]
-        / "docs"
-        / "onnx"
-        / "model_with_function.onnx"
+        else Path(__file__).resolve().parents[1] / "onnx" / "model_with_function.onnx"
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     model = FnModel(256, rngs=nnx.Rngs(0))

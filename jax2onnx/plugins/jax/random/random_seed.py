@@ -62,7 +62,7 @@ def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.V
             "doc": "https://onnx.ai/onnx/operators/onnx__Cast.html",
         },
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.random",
     component="random_seed",
     testcases=[
@@ -129,7 +129,7 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.2.0",
+    since="0.2.0",
     context="primitives.random",
     component="random_unwrap",
     testcases=[],
@@ -153,7 +153,7 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="v0.7.2",
+    since="0.7.2",
     context="primitives.random",
     component="random_wrap",
     testcases=[],

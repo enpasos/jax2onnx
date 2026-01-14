@@ -98,7 +98,7 @@ class TransformerBlock(nnx.Module):
 register_example(
     component="onnx_functions_007",
     description="transformer block with nested mlp block with call parameter",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=[
         "FeedForward",

@@ -34,7 +34,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
         }
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.eqx",
     component="layer_norm",
     testcases=[

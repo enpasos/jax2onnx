@@ -22,7 +22,7 @@ register_example(
     component="SequentialReLU",
     description="Two stateless nnx.relu activations chained via nnx.Sequential.",
     source="https://flax.readthedocs.io/en/latest/nnx/index.html",
-    since="v0.7.1",
+    since="0.7.1",
     context="examples.nnx",
     children=["nnx.Sequential", "nnx.relu"],
     testcases=[
@@ -65,7 +65,7 @@ register_example(
     component="SequentialWithResidual",
     description="nnx.Sequential nested within a residual block to regress earlier bugs.",
     source="Internal bug report",
-    since="v0.7.1",
+    since="0.7.1",
     context="examples.nnx",
     children=["nnx.Sequential", "nnx.Linear", "nnx.relu", "nnx.LayerNorm"],
     testcases=[

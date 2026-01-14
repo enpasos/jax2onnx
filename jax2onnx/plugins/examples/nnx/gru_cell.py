@@ -45,7 +45,7 @@ register_example(
     component="GRUCell",
     description="Flax/nnx GRUCell lowered through converter primitives.",
     source="https://flax.readthedocs.io/en/latest/",
-    since="v0.7.2",
+    since="0.7.2",
     context="examples.nnx",
     children=[
         "nnx.Linear",

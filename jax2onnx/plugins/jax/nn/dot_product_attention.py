@@ -227,7 +227,7 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
         },
     ],
-    since="v0.8.0",
+    since="0.8.0",
     context="primitives.nn",
     component="dot_product_attention",
     testcases=[

@@ -53,7 +53,7 @@ class SuperBlock(nnx.Module):
 register_example(
     component="onnx_functions_015",
     description="one function on an outer layer.",
-    since="v0.4.0",
+    since="0.4.0",
     context="examples.onnx_functions",
     children=["MLPBlock"],
     testcases=[

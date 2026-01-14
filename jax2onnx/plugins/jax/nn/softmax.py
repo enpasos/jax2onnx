@@ -34,7 +34,7 @@ _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
         }
     ],
-    since="v0.7.1",
+    since="0.7.1",
     context="primitives.nn",
     component="softmax",
     testcases=[
@@ -248,6 +248,18 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
             AssignSpec("jax.nn", "softmax_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
                 target="jax.nn",
+                attr="softmax",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen.activation",
+                attr="softmax",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.linen",
                 attr="softmax",
                 make_value=_make_value,
                 delete_if_missing=False,
