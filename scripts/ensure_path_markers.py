@@ -29,6 +29,7 @@ IGNORED_TOP_LEVEL = {
 IGNORED_PREFIXES = (
     ("tests", "examples"),
     ("tests", "primitives"),
+    ("tmp", "ir-py"),
 )
 
 

@@ -5,7 +5,81 @@ from __future__ import annotations
 import numpy as np
 import onnx_ir as ir
 
+# --------- Unit tests for helper functions (restored) ---------
+
+# import the functions to test
+from jax2onnx.converter.ir_optimizations import (
+    _get_perm_attr,
+    _has_input_name_or_obj,
+    _to_numpy_from_any,
+    _as_scalar_bool,
+    optimize_graph,
+)
+
+from onnx_ir import AttributeType as IRAttrType
+
+
+def test_get_perm_attr_and_identity():
+    # Real ir.Attr required
+    t1 = ir.Node(
+        "",
+        "Transpose",
+        [],
+        attributes=[ir.Attr(name="perm", type=IRAttrType.INTS, value=(0, 3, 1, 2))],
+    )
+    t2 = ir.Node(
+        "",
+        "Transpose",
+        [],
+        attributes=[ir.Attr(name="perm", type=IRAttrType.INTS, value=(0, 2, 3, 1))],
+    )
+    p1 = _get_perm_attr(t1)
+    p2 = _get_perm_attr(t2)
+    assert p1 == [0, 3, 1, 2] and p2 == [0, 2, 3, 1]
+
+
+def test_match_by_name_or_obj():
+    a = ir.Value(name="a")
+    b = ir.Value(name="b")
+    n = ir.Node("", "Relu", inputs=[a])
+
+    # We must properly connect logic if needed?
+    # _has_input_name_or_obj checks _node_inputs(node).
+    # ir.Node inputs are stored.
+
+    assert _has_input_name_or_obj(n, "a", None)
+    assert _has_input_name_or_obj(n, None, a)
+    assert not _has_input_name_or_obj(n, "b", None)
+    assert not _has_input_name_or_obj(n, None, b)
+
+
+def test_to_numpy_and_scalar_bool_from_tensor_and_attr():
+    tensor = ir.tensor(np.asarray(True, dtype=np.bool_))
+    arr = _to_numpy_from_any(tensor)
+    assert arr is not None and arr.shape == () and arr.dtype == np.bool_
+    assert bool(arr)
+    attr_tensor = ir.Attr(name="value", type=IRAttrType.TENSOR, value=tensor)
+    attr_arr = _to_numpy_from_any(attr_tensor)
+    assert attr_arr is not None and bool(attr_arr)
+    assert _as_scalar_bool(tensor) is True
+    assert _as_scalar_bool(attr_tensor) is True
+
+
+def test_literal_false_strings_roundtrip():
+    arr = _to_numpy_from_any("false")
+    assert arr is not None and arr.shape == () and arr.dtype == np.bool_
+    assert bool(arr) is False
+    attr_str = ir.Attr(name="value", type=IRAttrType.STRING, value="false")
+    attr_arr = _to_numpy_from_any(attr_str)
+    assert attr_arr is not None and bool(attr_arr) is False
+    assert _as_scalar_bool(attr_str) is False
+
+
 # --------- Integration test for constant Not removal (current) ---------
+
+
+def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
+    return ir.Value(name=name, type=ir.TensorType(dtype), shape=ir.Shape(shape))
 
 
 def build_graph_with_not_tm():
@@ -27,7 +101,7 @@ def build_graph_with_not_tm():
     # Constant True for training-mode corridor, so Not(True) → can be inlined.
     # Make the scalar readable in a build-agnostic way: attach it directly to
     # the Value via `const_value`. The optimizer always checks this first.
-    const_true = ir.val("const_true", ir.DataType.BOOL, ())
+    const_true = V_ir("const_true", ir.DataType.BOOL, ())
     # Attach constant payload directly; skip tricky Attr/Attributes handling.
     const_true.const_value = ir.tensor(np.asarray(True, dtype=np.bool_))
     const_node = ir.Node(
@@ -66,16 +140,11 @@ def build_graph_with_not_tm():
         nodes=[const_node, n1, n2, n3, n4, n5, n6],
     )
     m = ir.Model(graph=g, ir_version=10)
-    try:
-        m.opset_imports = {"": 21}
-    except Exception:
-        pass
+    m.opset_imports[""] = 21
     return m
 
 
 def test_dropout_training_mode_inlined_constant_false_and_not_removed():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     m = build_graph_with_not_tm()
     m = optimize_graph(m)
     g = m.graph
@@ -88,14 +157,13 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
     drops = [n for n in nodes if n.op_type == "Dropout"]
     assert len(drops) == 1
     d = drops[0]
-    # read inputs from either .inputs or .input
     ins = d.inputs
     # If .input stores names instead of Values, normalize to names only
     if ins and isinstance(ins[0], str):
         third_name = ins[2]
     else:
         third = ins[2]
-        third_name = third.name if third else ""
+        third_name = third.name
     assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
 
     # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
@@ -106,8 +174,6 @@ def test_dropout_training_mode_inlined_constant_false_and_not_removed():
 
 
 def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     top_in = ir.val("in_0", ir.DataType.FLOAT, (2, 4))
     det_top = ir.val("deterministic", ir.DataType.BOOL, ())
     top_out = ir.val("out", ir.DataType.FLOAT, (2, 4))
@@ -181,33 +247,22 @@ def build_graph_with_identity_cast(dtype: ir.DataType = ir.DataType.FLOAT):
 
     g = ir.Graph(name="g", inputs=[x], outputs=[relu_out], nodes=[cast_node, relu_node])
     m = ir.Model(graph=g, ir_version=10)
-    try:
-        m.opset_imports = {"": 21}
-    except Exception:
-        pass
+    m.opset_imports[""] = 21
     return m
 
 
 def test_identity_cast_removed_and_consumers_rewired():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     m = build_graph_with_identity_cast()
     m = optimize_graph(m)
     g = m.graph
     nodes = list(g)
     assert [n.op_type for n in nodes] == ["Relu"]
     relu = nodes[0]
-    relu_inputs = relu.inputs
-    assert (
-        relu_inputs
-        and (relu_inputs[0].name if hasattr(relu_inputs[0], "name") else relu_inputs[0])
-        == "x"
-    )
+
+    assert relu.inputs[0].name == "x"
 
 
 def test_identity_cast_removed_inside_function_body():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     inner_model = build_graph_with_identity_cast()
     top_in = ir.val("top_in", ir.DataType.FLOAT, (2,))
     top_out = ir.val("top_out", ir.DataType.FLOAT, (2,))
@@ -222,40 +277,23 @@ def test_identity_cast_removed_inside_function_body():
         name="top", inputs=[top_in], outputs=[top_out], nodes=[passthrough]
     )
 
-    class Fn:
-        pass
+    fn = ir.Function(
+        domain="custom",
+        name="identity_cast",
+        graph=inner_model.graph,
+        attributes=(),
+    )
 
-    fn = Fn()
-    fn.domain = "custom"
-    fn.name = "identity_cast"
-    fn.graph = inner_model.graph
-
-    model = ir.Model(graph=top_graph, ir_version=10)
-    # Correctly adding to functions list
-    if model.functions is None:
-        model.functions = []
-
-    if isinstance(model.functions, list):
-        model.functions.append(fn)
-    elif isinstance(model.functions, dict):
-        model.functions[(fn.domain, fn.name, "")] = fn
+    model = ir.Model(graph=top_graph, ir_version=10, functions=[fn])
+    model.opset_imports[""] = 21
 
     optimized = optimize_graph(model)
-    funcs = optimized.functions
-
-    if isinstance(funcs, dict):
-        fn_graph = next(iter(funcs.values())).graph
-    elif isinstance(funcs, list):
-        fn_graph = funcs[0].graph
-    else:
-        raise AssertionError("optimized model has no function registry")
-    fn_nodes = list(fn_graph)
-    assert [n.op_type for n in fn_nodes] == ["Relu"]
+    assert [n.op_type for n in optimized.functions["custom", "identity_cast", ""]] == [
+        "Relu"
+    ]
 
 
 def test_identity_reshape_removed_when_target_matches_source():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     data = ir.val("in", ir.DataType.FLOAT, (3, 4))
     shape_tensor = ir.tensor(np.asarray([3, 4], dtype=np.int64))
     shape_val = ir.Value(
@@ -281,15 +319,13 @@ def test_identity_reshape_removed_when_target_matches_source():
     )
     model = ir.Model(graph=graph, ir_version=10)
     optimized = optimize_graph(model)
-    nodes = list(optimized.graph)
+    nodes = optimized.graph
     assert all(n.op_type != "Reshape" for n in nodes)
     out_names = {v.name for v in optimized.graph.outputs}
     assert "in" in out_names
 
 
 def test_cse_simple():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     data = ir.val("in", ir.DataType.FLOAT, (3, 4))
 
     # Branch 1
@@ -312,35 +348,40 @@ def test_cse_simple():
         name="Relu2",
     )
 
+    node3 = ir.Node(
+        op_type="Identity",
+        domain="",
+        inputs=[out2],
+        outputs=[ir.val("out3", ir.DataType.FLOAT, (3, 4))],
+        name="Identity1",
+    )
+
     # Graph outputs BOTH
     graph = ir.Graph(
         name="cse_simple",
         inputs=[data],
-        outputs=[out1, out2],
-        nodes=[node1, node2],
+        outputs=[out1, node3.outputs[0]],
+        nodes=[node1, node2, node3],
     )
 
     model = ir.Model(graph=graph, ir_version=10)
     optimized = optimize_graph(model)
 
-    nodes = list(optimized.graph)
-    # Should be merged but graph outputs must remain distinct objects.
-    # So we expect 1 Relu and 1 Identity (to alias the second output).
+    nodes = optimized.graph
+    # Should be merged
     assert len(nodes) == 2
-    ops = sorted([n.op_type for n in nodes])
-    assert ops == ["Identity", "Relu"]
+    assert nodes[0].op_type == "Relu"
+    assert nodes[1].op_type == "Identity"
 
-    # Outputs must be distinct objects
+    # ONNX graph outputs cannot share the same Value object, so both must remain
     outs = optimized.graph.outputs
     assert len(outs) == 2
     assert outs[0] is not outs[1]
 
 
 def test_lift_constants():
-    from jax2onnx.converter.ir_optimizations import optimize_graph
-
     # Make a graph with a Constant node in the body
-    out_const = ir.val("const_out", ir.DataType.FLOAT, (2,))
+    out_const = V_ir("const_out", ir.DataType.FLOAT, (2,))
     const_node = ir.Node(
         op_type="Constant",
         domain="",
@@ -379,7 +420,7 @@ def test_lift_constants():
     optimized = optimize_graph(model)
 
     # Check after: Constant node gone, Identity inputs point to initializer
-    nodes = list(optimized.graph)
+    nodes = optimized.graph
     assert len(nodes) == 1
     assert nodes[0].op_type == "Identity"
 

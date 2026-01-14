@@ -126,6 +126,19 @@ def _loosen_graph_value_shapes(
             output.shape = unknown_shape
             _reset_tensor_type(output)
 
+    if force_rank_only:
+        for initializer in _iter_initializers(graph):
+            name = _value_name(initializer)
+            if name and name in io_names:
+                continue
+            unknown_shape = _unknown_shape_like(
+                initializer, force_rank_only=force_rank_only
+            )
+            if unknown_shape is None:
+                continue
+            initializer.shape = unknown_shape
+            _reset_tensor_type(initializer)
+
 
 def _tensor_to_numpy(tensor: object) -> np.ndarray | None:
     if tensor is None:
