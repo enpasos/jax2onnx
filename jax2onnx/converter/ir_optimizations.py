@@ -95,6 +95,22 @@ def _dbg_tm(*a: object) -> None:
         print("[tm-inline]", *a)
 
 
+# ---------------- Replacement helpers ----------------
+
+
+def _replace_all_uses_with(
+    values: Union[ir.Value, Sequence[ir.Value]],
+    replacements: Union[ir.Value, Sequence[ir.Value]],
+    *,
+    replace_graph_outputs: bool = False,
+) -> None:
+    ir.convenience.replace_all_uses_with(
+        values,
+        replacements,
+        replace_graph_outputs=replace_graph_outputs,
+    )
+
+
 # ---------------- Public helper shims (restored for unit tests) ----------------
 
 
@@ -464,7 +480,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                             if next_target is not None and next_target == src_dtype:
                                 final_out = next_outs[0]
                                 src_val = ins[0]
-                                ir.convenience.replace_all_uses_with(
+                                _replace_all_uses_with(
                                     final_out, src_val, replace_graph_outputs=True
                                 )
                                 graph.remove([n, next_node])
@@ -481,9 +497,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                 continue
             src_val = ins[0]
             out_val = outs[0]
-            ir.convenience.replace_all_uses_with(
-                out_val, src_val, replace_graph_outputs=True
-            )
+            _replace_all_uses_with(out_val, src_val, replace_graph_outputs=True)
             graph.remove(n)
             changed = True
             break
@@ -565,7 +579,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 continue
             if allowed_nodes:
                 last_allowed = allowed_nodes[-1]
-                ir.convenience.replace_all_uses_with(
+                _replace_all_uses_with(
                     _node_output(T1), t1_in, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or t1_in
@@ -573,9 +587,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 new_src = t1_in
             old_out = _node_output(T2)
             assert old_out is not None
-            ir.convenience.replace_all_uses_with(
-                old_out, new_src, replace_graph_outputs=True
-            )
+            _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
             graph.remove([T1, T2])
             changed = True
             break
@@ -636,16 +648,14 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 )
             if allowed_fwd:
                 last_allowed = allowed_fwd[-1]
-                ir.convenience.replace_all_uses_with(
+                _replace_all_uses_with(
                     _node_output(T1), src, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
             old_out = _node_output(T2)
-            ir.convenience.replace_all_uses_with(
-                old_out, new_src, replace_graph_outputs=True
-            )
+            _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
             graph.remove([T1, T2])
             changed = True
             break
@@ -703,9 +713,7 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             dst_dims = _value_dims(dst_val)
             if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
                 continue
-            ir.convenience.replace_all_uses_with(
-                dst_val, data_val, replace_graph_outputs=True
-            )
+            _replace_all_uses_with(dst_val, data_val, replace_graph_outputs=True)
             graph.remove(node)
             changed = True
             break
@@ -1141,7 +1149,7 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     ins_new = list(ins)
                     ins_new[2] = rep_val
                     old_not_out = _node_output(producer)
-                    ir.convenience.replace_all_uses_with(
+                    _replace_all_uses_with(
                         old_not_out, rep_val, replace_graph_outputs=True
                     )
                     _set_node_inputs(n, ins_new)
