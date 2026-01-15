@@ -7,6 +7,7 @@
 `jax2onnx` converts your [JAX](https://docs.jax.dev/),  [Flax NNX](https://flax.readthedocs.io/en/latest/), [Flax Linen](https://flax.readthedocs.io/en/latest/api_reference/flax.linen.html), [Equinox](https://docs.kidger.site/equinox/) functions directly into the ONNX format.
 
 
+
 ![jax2onnx.svg](https://enpasos.github.io/jax2onnx/images/jax2onnx.svg)
 
 ## 📚 Documentation
