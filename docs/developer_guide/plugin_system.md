@@ -5,15 +5,16 @@ three common flavours:
 
 | Plugin flavour | Purpose | Canonical example |
 | --- | --- | --- |
-| **Low-level primitive** | Wrap an existing JAX primitive such as `jax.lax.abs`. Lowerings generally emit a straight ONNX op. | [`jax2onnx/plugins/jax/lax/abs.py`](../../jax2onnx/plugins/jax/lax/abs.py) |
-| **High-level primitive / function** | Provide a composed op (e.g. `jax.nn.dot_product_attention`, `MultiHeadAttention`) or a custom `@onnx_function`. Often manages RNG helpers, symbol binding, or multiple ONNX ops. | [`jax2onnx/plugins/jax/nn/dot_product_attention.py`](../../jax2onnx/plugins/jax/nn/dot_product_attention.py) |
-| **Example plugin** | Expose an end-to-end regression example for docs/tests; lives under the `examples.*` namespace. | [`jax2onnx/plugins/examples/jnp/select.py`](../../jax2onnx/plugins/examples/jnp/select.py) |
+| **Low-level primitive** | Wrap an existing JAX primitive such as `jax.lax.abs`. Lowerings generally emit a straight ONNX op. | [Abs plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/lax/abs.py) |
+| **High-level primitive / function** | Provide a composed op (e.g. `jax.nn.dot_product_attention`, `MultiHeadAttention`) or a custom `@onnx_function`. Often manages RNG helpers, symbol binding, or multiple ONNX ops. | [Dot-product attention plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/nn/dot_product_attention.py) |
+| **Example plugin** | Expose an end-to-end regression example for docs/tests; lives under the `examples.*` namespace. | [Select example plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/examples/jnp/select.py) |
 
 Whichever flavour you choose, the contract is identical:
 
 1. register metadata so the test generator knows how to rebuild the callable,
 2. implement a lowering that emits ONNX IR via the shared builder helpers,
-3. register a batching rule so `vmap` tracing succeeds before we ever reach ONNX,
+3. ensure `vmap` tracing succeeds (register a batching rule when you introduce or
+   override a primitive),
 4. add an `expect_graph` snippet so structural regressions stay locked down.
 
 The walkthrough below uses a **low-level primitive** (`abs`) because it is the
@@ -26,9 +27,9 @@ refer back to the table above for richer real-world samples.
 
 Start from a plugin that matches the flavour you need:
 
-- **Low-level primitive** – copy [`lax/abs.py`](../../jax2onnx/plugins/jax/lax/abs.py).
-- **High-level primitive/function** – look at [`jax/nn/dot_product_attention.py`](../../jax2onnx/plugins/jax/nn/dot_product_attention.py) for a larger pattern with RNG helpers and multiple ONNX ops.
-- **Example plugin** – mimic a lightweight regression such as [`examples/jnp/select.py`](../../jax2onnx/plugins/examples/jnp/select.py).
+- **Low-level primitive** – copy the [Abs plugin example](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/lax/abs.py).
+- **High-level primitive/function** – look at the [dot-product attention plugin](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/nn/dot_product_attention.py) for a larger pattern with RNG helpers and multiple ONNX ops.
+- **Example plugin** – mimic a lightweight regression such as the [select example plugin](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/examples/jnp/select.py).
 
 Create a new file under `jax2onnx/plugins/<namespace>/...` and rename the class
 and metadata appropriately.
@@ -51,19 +52,26 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 Fill in the `@register_primitive` decorator:
 
 * `jaxpr_primitive`: the name JAX uses in the traced `ClosedJaxpr`
-* `onnx`: docs for the ONNX op(s) the lowering will emit
+* `context` / `component`: grouping labels used by the test generator and docs
 * `testcases`: at least one entry for the test generator
+* `onnx`: docs for the ONNX op(s) the lowering will emit (recommended)
+* `jax_doc` / `since`: JAX API link + first release tag (recommended)
 
 ```python
+def abs_call(x):
+    return jax.lax.abs(x)
+
 @register_primitive(
     jaxpr_primitive=jax.lax.abs_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.abs.html",
     context="primitives.lax",
     component="abs",
-    onnx=[{"component": "Abs", "doc": "https://onnx.ai/..."}],
+    onnx=[{"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"}],
+    since="0.5.0",
     testcases=[
         {
             "testcase": "abs",
-            "callable": lambda x: jax.lax.abs(x),
+            "callable": abs_call,
             "input_shapes": [(3,)],
             "post_check_onnx_graph": EG(["Abs:3"], no_unused_inputs=True),
         },
@@ -71,27 +79,31 @@ Fill in the `@register_primitive` decorator:
 )
 ```
 
-Use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` when
-the primitive needs deterministic module construction or RNG split helpers.
-See `jax2onnx/plugins/jax/nn/dot_product_attention.py` for a larger example.
+Prefer named callables over inline lambdas so metadata stays hashable under JAX
+0.7. Use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)`
+when the primitive needs deterministic module construction or RNG split helpers.
+See the [dot-product attention plugin](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/nn/dot_product_attention.py) for a larger example.
 
 ---
 
 ## 3. Register a Batching Rule
 
-Every primitive plugin must register a batching rule—JAX errors out during
-`vmap` tracing long before the converter runs its lowering hooks otherwise.
+Every plugin must ensure `vmap` tracing works—JAX errors out during `vmap`
+long before the converter runs its lowering hooks otherwise. If you introduce a
+new primitive (or override batching for an existing one), register a batching
+rule; if you only wrap a built-in primitive, confirm the default batching rule
+already exists before adding one.
 
 - For unary, elementwise activations (ReLU, sigmoid, CELU, etc.) call
   `register_unary_elementwise_batch_rule(<Primitive>)` once the class is defined.
-  The helper lives in `jax2onnx/plugins/jax/nn/_builder_utils.py` and mirrors the
+  The helper lives in the [builder utils helper](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/nn/_builder_utils.py) and mirrors the
   legacy batching behaviour JAX ships internally.
 - For more complex primitives, add an explicit rule to
   `jax.interpreters.batching.primitive_batchers[...]` near the plugin definition.
-  Look at `jax2onnx/plugins/jax/numpy/stack.py` for a pattern that remaps batch
+  Look at the [stack plugin](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/numpy/stack.py) for a pattern that remaps batch
   axes before delegating to pure JAX ops.
 
-Only after batching is in place should you run the converter tests—the helper
+Only after `vmap` is in place should you run the converter tests—the helper
 keeps day-to-day plugins concise while still enforcing the guardrail.
 
 ### Function plugin naming invariants
@@ -167,8 +179,8 @@ poetry run python scripts/emit_expect_graph.py abs
 Slot the output into the metadata and rerun the command whenever the lowering
 changes shape.
 
-For more involved graphs, consult
-`advanced_topics/expect_graph_reference.md` for matching tips.
+For more involved graphs, consult the
+[Expect Graph Reference](advanced_topics/expect_graph_reference.md) for matching tips.
 
 ---
 
@@ -196,10 +208,9 @@ For deeper dives:
 
 - [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md)
 - [Expect Graph Reference](advanced_topics/expect_graph_reference.md)
-- [`jax2onnx/plugins/jax/lax/abs.py`](../../jax2onnx/plugins/jax/lax/abs.py) –
-  full, working example
-- [`jax2onnx/plugins/jax/nn/dot_product_attention.py`](../../jax2onnx/plugins/jax/nn/dot_product_attention.py) – high-level primitive with RNG + multi-op lowering
-- [`jax2onnx/plugins/examples/jnp/select.py`](../../jax2onnx/plugins/examples/jnp/select.py) – minimal example plugin
-- [`docs/design.md`](./architecture.md) – architecture overview and plugin roles
+- [Abs plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/lax/abs.py) – full, working example
+- [Dot-product attention plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/jax/nn/dot_product_attention.py) – high-level primitive with RNG + multi-op lowering
+- [Select example plugin (source)](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/plugins/examples/jnp/select.py) – minimal example plugin
+- [Architecture Overview](architecture.md) – architecture overview and plugin roles
 
 Happy lowering!
