@@ -150,7 +150,7 @@ Key guardrails:
 - If you allocate constants, use helpers such as `_const_i64` that route through
   the builder so initializers stay registered.
 
-The [ONNX IR Builder Guide](./onnx_ir_builder.md) lists every policy enforced by
+The [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md) lists every policy enforced by
 the automated checks.
 
 ---
@@ -194,8 +194,8 @@ from in your PR description so reviewers know the baseline.
 
 For deeper dives:
 
-- [ONNX IR Builder Guide](./onnx_ir_builder.md)
-- [Expect Graph Reference](./expect_graph_reference.md)
+- [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md)
+- [Expect Graph Reference](advanced_topics/expect_graph_reference.md)
 - [`jax2onnx/plugins/jax/lax/abs.py`](../../jax2onnx/plugins/jax/lax/abs.py) –
   full, working example
 - [`jax2onnx/plugins/jax/nn/dot_product_attention.py`](../../jax2onnx/plugins/jax/nn/dot_product_attention.py) – high-level primitive with RNG + multi-op lowering

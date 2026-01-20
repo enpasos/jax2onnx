@@ -213,7 +213,13 @@ def generate_markdown_table(
             comp_name = component.removeprefix("plugins.")
             # Add the context (like "jnp") as a prefix to the component name
             prefixed_comp_name = f"{display_context}.{comp_name}"
-            jax_comp = f"[{prefixed_comp_name}]({data[0]['jax_doc']})"
+            jax_doc = data[0].get("jax_doc")
+            if jax_doc and str(jax_doc).startswith("http"):
+                jax_comp = f"[{prefixed_comp_name}]({jax_doc})"
+            elif jax_doc and jax_doc != "➖":
+                jax_comp = f"{prefixed_comp_name} ({jax_doc})"
+            else:
+                jax_comp = prefixed_comp_name
             onnx_components = (
                 "<br>".join(
                     sorted([f"[{x['component']}]({x['doc']})" for x in data[0]["onnx"]])
