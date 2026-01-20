@@ -2102,21 +2102,23 @@ reference = ["Pillow"]
 
 [[package]]
 name = "onnx-ir"
-version = "0.1.14"
+version = "0.1.15"
 description = "Efficient in-memory representation for ONNX"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-files = [
-    {file = "onnx_ir-0.1.14-py3-none-any.whl", hash = "sha256:89b212fa7840981c5db5dc478190f1b7369536297c3c6eae68fb1c2237dd2554"},
-    {file = "onnx_ir-0.1.14.tar.gz", hash = "sha256:bd69e3b5821046d5d7c9d0fdd023f8e1d0cc9a62cbee986fa0e5ab2b1602d7ae"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 ml_dtypes = ">=0.5.0"
 numpy = "*"
 onnx = ">=1.16"
 typing_extensions = ">=4.10"
+
+[package.source]
+type = "directory"
+url = "tmp/ir-py"
 
 [[package]]
 name = "onnxruntime"
@@ -4408,4 +4410,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.13"
-content-hash = "315f5cb38e7fdf90e819fd1e7c9e75bb0f14c79788902187ccc27125eac2af1a"
+content-hash = "991d556d6806ff84f28cb8d42060f2a0598e15185a8632c136c28eb77197bb3e"
