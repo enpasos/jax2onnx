@@ -9,8 +9,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
-
-from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -310,7 +308,7 @@ def _build_loop_body_graph(
 
     body_ctx.builder.outputs = [cond_out] + const_outputs + state_outputs
 
-    body_graph = clone_graph(body_ctx.builder.graph)
+    body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
     body_graph.name = ctx.fresh_name("while_body")
     opset_imports = dict(body_graph.opset_imports)
     opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))

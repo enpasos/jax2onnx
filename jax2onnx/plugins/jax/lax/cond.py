@@ -8,8 +8,6 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
-
-from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -347,7 +345,7 @@ class CondPlugin(PrimitiveLeafPlugin):
 
         branch_ctx.builder.outputs = branch_outputs
 
-        branch_graph = clone_graph(branch_ctx.builder.graph)
+        branch_graph = branch_ctx.builder.graph.clone(allow_outer_scope_values=True)
         branch_graph.name = ctx.fresh_name(prefix)
         branch_graph.inputs.clear()
         opset_imports = dict(branch_graph.opset_imports)

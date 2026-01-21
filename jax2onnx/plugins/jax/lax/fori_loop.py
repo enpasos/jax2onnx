@@ -11,8 +11,6 @@ import numpy as np
 import onnx_ir as ir
 from jax import tree_util
 from jax.extend.core import Primitive
-
-from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -205,7 +203,7 @@ def _build_body_graph(
 
     body_ctx.builder.outputs = [cond_out, *loop_outputs]
 
-    body_graph = clone_graph(body_ctx.builder.graph)
+    body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
     body_graph.name = parent_ctx.fresh_name("fori_body")
     opset_version = getattr(parent_ctx.builder, "opset", 21)
     opset_imports = dict(body_graph.opset_imports)

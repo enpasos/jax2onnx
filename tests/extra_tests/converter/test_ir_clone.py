@@ -3,8 +3,6 @@
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_clone import clone_graph
-
 
 def _tensor_value(name: str, array: np.ndarray) -> ir.Value:
     tensor = ir.tensor(array)
@@ -52,7 +50,7 @@ def test_clone_graph_creates_independent_graph() -> None:
     )
     graph.meta["state"] = "original"
 
-    cloned = clone_graph(graph)
+    cloned = graph.clone(allow_outer_scope_values=True)
 
     assert cloned is not graph
     assert cloned.name == graph.name
@@ -144,7 +142,7 @@ def test_clone_graph_copies_subgraph_attributes() -> None:
         name="if_graph",
     )
 
-    cloned = clone_graph(graph)
+    cloned = graph.clone(allow_outer_scope_values=True)
 
     original_if = list(graph)[0]
     cloned_if = list(cloned)[0]

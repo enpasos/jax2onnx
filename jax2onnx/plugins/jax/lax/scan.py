@@ -11,8 +11,6 @@ import numpy as np
 import onnx_ir as ir
 from jax import core as jax_core
 from jax import lax
-
-from jax2onnx.converter.ir_clone import clone_graph
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -1002,7 +1000,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_ctx.builder.outputs = body_outputs
 
-        body_graph = clone_graph(loop_ctx.builder.graph)
+        body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = ctx.fresh_name("scan_loop_body")
         opset_imports = dict(body_graph.opset_imports)
         opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
@@ -1593,7 +1591,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_ctx.builder.outputs = body_outputs
 
-        body_graph = clone_graph(loop_ctx.builder.graph)
+        body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = ctx.fresh_name("scan_loop_body")
         opset_imports = dict(body_graph.opset_imports)
         opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))

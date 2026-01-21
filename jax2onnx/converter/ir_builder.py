@@ -21,8 +21,6 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
-
-from .ir_clone import clone_graph
 from .typing_support import SymbolicDimOrigin
 
 
@@ -740,7 +738,11 @@ class IRBuilder:
         ir_version: int = 11,
         protective_clone: bool = True,
     ) -> ir.Model:
-        graph = clone_graph(self.graph) if protective_clone else self.graph
+        graph = (
+            self.graph.clone(allow_outer_scope_values=True)
+            if protective_clone
+            else self.graph
+        )
         if name:
             graph.name = name
         return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")
