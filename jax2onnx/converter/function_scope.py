@@ -8,7 +8,6 @@ import numpy as np
 import onnx_ir as ir
 
 from .ir_context import IRContext
-from .ir_clone import clone_graph
 from .typing_support import SymbolicDimOrigin
 
 
@@ -167,7 +166,7 @@ class FunctionScope:
             graph_outputs.clear()
             graph_outputs.extend(self._outputs)
 
-        body_graph = clone_graph(self.ctx.builder.graph)
+        body_graph = self.ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = self.name
 
         opset_imports = dict(body_graph.opset_imports)
