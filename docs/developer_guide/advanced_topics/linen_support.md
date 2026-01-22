@@ -29,37 +29,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
 
 By ensuring `jnp.shape` behaves natively during tracing, Flax Linen can correctly resolve shapes during its initialization phase, allowing the rest of the `jax2onnx` conversion process to proceed normally using JAXPR tracing.
 
-## 3. NNX Bridge and RNG Handling
-
-When Linen models are bridged into NNX during tracing, `nnx.Rngs` state must not
-mutate across trace levels. We handle this in `jax2onnx/plugins/flax/test_utils.py`
-by converting `nnx.Rngs` to a raw PRNG key (e.g., `rngs["params"].key.value`) and
-wrapping the model call to pass that key explicitly. This avoids the
-`TraceContextError` raised by `RngCount` mutations during `jax.make_jaxpr`.
-
-If you see RNG-related trace errors, use the `linen_to_nnx` helper rather than
-instantiating `bridge.ToNNX` directly.
-
-## 4. Graph Optimization: Gemm Bias Fusion
-
-Flax Linen's `Dense` layer decomposes into a dot product followed by a bias addition. In the raw ONNX export, this appeared as:
-1.  `Gemm` (Input * Kernel)
-2.  `Reshape` (Reshaping bias vector)
-3.  `Add` (Adding reshaped bias to Gemm output)
-
-To produce a cleaner and more efficient ONNX model, we implemented a custom IR optimization pass, `fuse_gemm_bias_ir`, to fuse this pattern into a single `Gemm` node.
-
-**Optimization Logic:**
--   **Pattern Matching:** Identifies `Add` nodes where one input comes from a `Gemm` node and the other is a constant bias (potentially fed through a `Reshape`).
--   **Fusion:**
-    -   Extracts the bias constant.
-    -   Modifies the `Gemm` node to accept this bias as its 3rd input (`C`).
-    -   **Important:** Explicitly removes the redundant `Add` node AND the intermediate `Reshape` node to prevent disconnected nodes from lingering in the graph.
--   **Result:** A single `Gemm(A, B, C)` node.
-
-**File:** `jax2onnx/converter/ir_optimizations.py`
-
-## 5. Testing Infrastructure
+## 4. Testing Infrastructure
 
 To ensure ongoing support and prevent regressions, we integrated Linen examples into the `jax2onnx` test suite.
 
@@ -115,7 +85,7 @@ register_example(
 )
 ```
 
-## 6. Usage Example
+## 5. Usage Example
 
 Here is a minimal script to convert a Linen model to ONNX:
 

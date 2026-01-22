@@ -4,7 +4,7 @@ These notes capture the durable lessons from the reflection cleanup completed in
 
 ## Cleanup Workflow
 
-1. Introduce or reuse typed utility helpers (for example `_maybe_aval`, `_maybe_dtype`) and migrate one module at a time instead of broad rewrites.  
+17. Introduce or reuse typed utility helpers (e.g. leveraging `val.dtype` or `val.shape`) and migrate one module at a time instead of broad rewrites.  
 2. Run `scripts/audit_ir_dynamic_access.py` after each sweep. Classify remaining hits as either *expected* (document why) or *needs follow-up*.  
 3. Re-run `mypy` together with a focused `pytest` slice before marking the sweep complete.
 

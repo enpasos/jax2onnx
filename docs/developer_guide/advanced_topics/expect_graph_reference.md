@@ -77,20 +77,25 @@ must_absent=["Not"],
 )
 ```
 
-Common fields:
-
+### Entry options (per pattern)
+ 
+ Use these in the options dictionary of a `(pattern, options)` tuple:
+ 
+- `attrs`: Map of operator name to required attribute values (e.g. `{"Softmax": {"axis": -1}}`).
 - `counts`: map of op type to the exact number of occurrences expected.
-- `must_absent`: list of operator names that must not appear anywhere.
-- `symbols`: dictionary mapping symbolic dim labels to `None` (any value) or an
-  integer (specific size). Use it when multiple patterns should share the same
-  symbolic dimension.
-- `mode`: one of `"all"` (default; all patterns must match), `"any"` (at least
-  one matches), or `"exact"` (the entire graph must equal the pattern).
-- `no_unused_inputs`: when `True`, fail if the graph retains dangling inputs
-  after conversion. Combine with `no_unused_function_inputs=True` to extend the
-  check to every imported ONNX function body (requires `search_functions=True`).
-- `search_functions`: include function bodies (control-flow subgraphs) in the
-  search.
+- `must_absent`: list of operator names that must not appear anywhere in the searched graph(s).
+- `symbols`: dictionary mapping symbolic dim labels to `None` (any value) or an integer.
+
+### Global options (function arguments)
+
+Pass these as keyword arguments to `expect_graph`:
+
+- `mode`: one of `"all"` (default; all patterns must match), `"any"` (at least one matches), or `"exact"` (the entire graph must equal the pattern).
+- `must_absent`: global list of operator names that must not appear anywhere.
+- `no_unused_inputs`: when `True`, fail if the graph retains dangling inputs.
+- `no_unused_function_inputs`: extend the check to imported ONNX function bodies (requires `search_functions=True`).
+- `search_functions`: include function bodies (control-flow subgraphs) in the search.
+- `symbols`: dictionary mapping symbolic dim labels to `None` or an integer (unifies across all patterns).
 
 The matcher automatically walks through helper nodes that frequently sit on the
 main data edge (by default we skip `Reshape`, `Identity`, `Cast`, `CastLike`,

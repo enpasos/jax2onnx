@@ -27,6 +27,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 
 # Related documentation
 
+* [Plugin System Guide](plugin_system.md) – detailed guide on writing plugins.
 * [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md) – canonical builder guardrails and examples.
 * [Expect Graph Reference](advanced_topics/expect_graph_reference.md) – structural test patterns for `expect_graph`.
 * [Subgraph Input Handling](advanced_topics/subgraph_input_handling.md) – control-flow body wiring (If/Loop/Scan).
@@ -264,10 +265,10 @@ See [Expect Graph Reference](advanced_topics/expect_graph_reference.md) for a fo
 # Typical plugin lifecycle (concrete but generic)
 
 1. **Register**
-   `@register_primitive(jaxpr_primitive="…")` puts an instance in the registry under that **string** key. The core will later match that key with `eqn.primitive.name`.
+   `@register_primitive(jaxpr_primitive="…")` puts a `PrimitiveLeafPlugin` instance in the registry under that **string** key. The core will later match that key with `eqn.primitive.name`.
 
 2. **Patch**
-   `binding_specs()` returns `MonkeyPatchSpec`s: “replace `module.symbol` with `prim.bind(…)` shim”. If there are multiple aliases, the plugin lists them. The core just applies them all.
+   `binding_specs()` (optional) returns `MonkeyPatchSpec`s: “replace `module.symbol` with `prim.bind(…)` shim”. If there are multiple aliases, the plugin lists them. The core just applies them all.
 
 3. **Abstract eval**
    `def abstract_eval(*avals, **params):` returns a `ShapedArray` (or tuple) describing the outputs. Use `jax.eval_shape` on `lax.*` helpers if that’s easier, but never call the patched function (it would recurse).
