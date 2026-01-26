@@ -9,16 +9,16 @@
 
 ## Current Version
 
-### **jax2onnx 0.11.1** – MaxText model family coverage & cleaner exported graphs
+### **jax2onnx 0.11.2** – Native IR cloning & code cleanup
 
-* **Comprehensive MaxText example stack:**
-  Added a fully **comprehensive MaxText example + test suite** covering exports for **DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, and Qwen** model families.
+* **Native `onnx-ir` graph cloning:**
+  Replaced the custom `ir_clone` implementation with `onnx-ir`'s native `Graph.clone()` method, improving maintainability and leveraging upstream validation (PR #162, #163).
 
-* **MaxText stubs & new primitive coverage:**
-  Introduced **MaxText dependency stubs** and implemented **new primitive support** required to enable those exports end-to-end.
+* **Unified IR pass infrastructure:**
+  Streamlined the optimization pipeline by adopting standard `onnx-ir` passes and removing redundant custom pass logic (PR #151).
 
-* **Cleaner ONNX graphs via stricter subgraph cleanup:**
-  Tightened **subgraph cleanup** to produce **cleaner, more minimal ONNX graphs** (less leftover/unused substructure after export).
+* **MaxDiffusion robustness:**
+  Fixed environment-dependent crashes (`UnboundLocalError`) and corrected type annotations in the MaxDiffusion plugin stack.
 
 
 
