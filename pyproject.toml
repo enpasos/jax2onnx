@@ -79,8 +79,7 @@ mypy = "==1.15.0"
 mkdocs-material = "^9.5.0"
 mkdocstrings = {extras = ["python"], version = "0.26.1"}
 mkdocs = "^1.6.0"
-griffe = ">=0.44,<1.0"
-dm-pix = "^0.4.4"
+griffe = ">=0.44,<1.0" 
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
