@@ -233,6 +233,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["proto"] = ...,
         output_path: None = ...,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -247,6 +249,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["ir"],
         output_path: Optional[PathLikeStr] = ...,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -261,6 +265,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["file"],
         output_path: PathLikeStr,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> str: ...
 
 
@@ -275,6 +281,8 @@ def to_onnx(
     record_primitive_calls_file: Optional[str] = None,
     return_mode: ReturnMode = "proto",
     output_path: Optional[PathLikeStr] = None,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
@@ -305,6 +313,13 @@ def to_onnx(
             serialises directly to disk.
         output_path: Destination path (str or PathLike) required when `return_mode` is
             `"file"`. Ignored otherwise.
+        inputs_as_nchw: Optional sequence of input indices (0-based) that should be treated as NCHW layout.
+            If specified for an input, jax2onnx assumes the external input is NCHW and will automatically
+            transpose it to NHWC before feeding it to the JAX graph (which typically expects NHWC for images).
+            This allows the exported ONNX model to accept NCHW inputs while preserving correct graph semantics.
+        outputs_as_nchw: Optional sequence of output indices (0-based) that should be treated as NCHW layout.
+            If specified for an output, jax2onnx assumes the external output should be NCHW and will automatically
+            transpose the NHWC output derived from JAX graph to NCHW before returning it.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -348,7 +363,8 @@ def to_onnx(
         f"input_params={input_params}, "
         f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}, "
-        f"return_mode={return_mode}, output_path={output_path}"
+        f"return_mode={return_mode}, output_path={output_path}, "
+        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
@@ -389,6 +405,8 @@ def to_onnx(
             enable_double_precision=enable_double_precision,
             record_primitive_calls_file=record_primitive_calls_file,
             protective_clone=(normalized_mode == "ir"),
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
         )
 
         postprocess_ir_model(

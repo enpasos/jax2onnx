@@ -35,8 +35,7 @@ from jax2onnx.converter.typing_support import AxisOverrideInfo, AxisOverrideMap
 
 jax.config.update("jax_enable_x64", True)
 
-_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = _ROOT / "jax2onnx" / "sandbox"
+DATA_DIR = Path(__file__).resolve().parents[1] / "payloads"
 PAYLOAD_PATH = DATA_DIR / "issue52_feedforward_payload.npz"
 
 

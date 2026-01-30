@@ -14,6 +14,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 from contextlib import contextmanager, ExitStack
 import inspect as _ins
@@ -36,7 +37,7 @@ from jax2onnx.plugins.plugin_system import (
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
-from .ir_builder import IRBuilder
+from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .typing_support import (
@@ -161,6 +162,16 @@ def _as_sds_list(
         dt = jnp.float64 if enable_double_precision else jnp.float32
         sds_list.append(jax.ShapeDtypeStruct(dims_tuple, dt))
     return sds_list
+
+
+def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
+    dt = getattr(aval, "dtype", None)
+    if dt is None:
+        return None
+    try:
+        return cast("np.dtype[Any]", np.dtype(dt))
+    except TypeError:
+        return None
 
 
 # ---------------------------
@@ -333,6 +344,8 @@ def to_onnx(
     enable_double_precision: bool,
     record_primitive_calls_file: Optional[str],
     protective_clone: bool = True,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -409,8 +422,70 @@ def to_onnx(
             ctx.bind_const_for_var(cv, np_c)
 
         # Inputs
+        nchw_inputs_indices = set(inputs_as_nchw or [])
         for i, v in enumerate(jpr.invars):
-            ctx.add_input_for_invar(v, i)
+            if i in nchw_inputs_indices:
+                # User says this specific input is NCHW in the external world.
+                # JAX uses NHWC by default for images, so to bridge mismatch:
+                # 1. We declare the ONNX graph input as NCHW (permuted shape).
+                # 2. We Transpose it to NHWC.
+                # 3. We bind the variable 'v' to the result of that Transpose.
+
+                # We assume 4D standard layout for now:
+                # NCHW -> NHWC is [0, 2, 3, 1]
+
+                # Check rank is 4
+                aval_shape = tuple(v.aval.shape)
+                if len(aval_shape) != 4:
+                    raise ValueError(
+                        f"inputs_as_nchw: input {i} has rank {len(aval_shape)}, expected 4 for NCHW handling."
+                    )
+
+                # Create the NCHW input
+                # aval_shape is NHWC (JAX view).
+                # We want NCHW input: (N, C, H, W) -> (N, H, W, C) so
+                # if JAX says (N, H, W, C), the NCHW input shape should appear as (N, C, H, W)
+                # But wait, JAX usually tracks (N, H, W, C).
+                # To get NCHW shape from NHWC shape: permute (0, 3, 1, 2) on the JAX shape.
+
+                perm_to_nchw = [0, 3, 1, 2]
+                nchw_shape = tuple(aval_shape[p] for p in perm_to_nchw)
+
+                nchw_input_val = ir.Value(
+                    name=f"in_{i}_nchw",
+                    type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(v.aval.dtype))),
+                    shape=_to_ir_shape(nchw_shape),
+                )
+                ctx._inputs.append(nchw_input_val)
+
+                # Transpose NCHW -> NHWC to match JAX expectation
+                # Permutation: [0, 2, 3, 1]
+                perm_to_nhwc = [0, 2, 3, 1]
+                transposed = ctx.builder.Transpose(
+                    nchw_input_val,
+                    perm=perm_to_nhwc,
+                    _outputs=[f"in_{i}_nhwc_restored"],
+                )
+                # This 'transposed' value has shape aval_shape (NHWC) and is what the graph uses.
+                ctx._var2val[v] = transposed
+
+                # Symbolic dim origin tracking (tricky with transpose, but we try)
+                # The input value 'nchw_input_val' has dims.
+                # The transposed value has different dims.
+                # We probably want to map symbolic dims to the NCHW input actually?
+                # The current system maps JAX invar dims to the declared input.
+                # Here declared input corresponds to 'nchw_shape'.
+                # So if JAX dim 0 is 'N', it maps to nchw_input_val dim 0.
+                # JAX dim 3 is 'C' (in NHWC), it maps to nchw_input_val dim 1.
+                # ...
+                # Track symbolic dim origins on the graph input (nchw_input_val)
+                for nchw_idx, d_dim in enumerate(nchw_shape):
+                    if not isinstance(d_dim, (int, np.integer)):
+                        origin = SymbolicDimOrigin(value=nchw_input_val, axis=nchw_idx)
+                        ctx._sym_origin[d_dim] = origin
+                        ctx._sym_origin_str[str(d_dim)] = origin
+            else:
+                ctx.add_input_for_invar(v, i)
 
         # Lower equations
         class _ConverterFacade:
@@ -507,7 +582,63 @@ def to_onnx(
         ctx._current_eqn = None
 
         # Outputs
-        ctx.add_outputs_from_vars(jpr.outvars)
+        if not outputs_as_nchw:
+            ctx.add_outputs_from_vars(jpr.outvars)
+        else:
+            # Customized output handling
+            nchw_outputs_indices = set(outputs_as_nchw)
+            for i, out_var in enumerate(jpr.outvars):
+                val = ctx.get_value_for_var(out_var)
+                if i in nchw_outputs_indices:
+                    # User want this output to be NCHW.
+                    # We assume the graph produces NHWC (JAX standard).
+                    # So we insert Transpose (NHWC -> NCHW).
+
+                    # Check rank is 4
+                    # Note: val.shape might be None or symbolic, checking might be hard if shape is missing.
+                    # We'll rely on JAX aval if available, or just proceed if dynamic?
+                    # Let's assume JAX aval is truth.
+                    aval_shape = tuple(out_var.aval.shape)
+                    if len(aval_shape) != 4:
+                        raise ValueError(
+                            f"outputs_as_nchw: output {i} has rank {len(aval_shape)}, expected 4."
+                        )
+
+                    param_type_to_match = val.type
+                    if param_type_to_match is None:
+                        # Infer from JAX aval if IR type is missing
+                        aval_dtype = _maybe_dtype(out_var.aval)
+                        if aval_dtype is not None:
+                            ir_dtype = _dtype_to_ir(aval_dtype, enable_double_precision)
+                            param_type_to_match = ir.TensorType(ir_dtype)
+
+                    perm_nhwc_to_nchw = [0, 3, 1, 2]
+                    transposed_out = ctx.builder.Transpose(
+                        val,
+                        perm=perm_nhwc_to_nchw,
+                        _outputs=[f"out_{i}_nchw_converted"],
+                    )
+                    if param_type_to_match is not None:
+                        transposed_out.type = param_type_to_match
+
+                    # We add *transposed* value as graph output
+                    # The name of graph output usually comes from user or is auto-generated in `add_outputs_from_vars`.
+                    # We'll manually add it.
+
+                    # Ensure shape/dtype is stamped
+                    if val.shape is not None:
+                        # Permute shape
+                        if isinstance(val.shape, ir.Shape):
+                            src_dims = val.shape.dims
+                            new_dims = tuple(src_dims[p] for p in perm_nhwc_to_nchw)
+                            transposed_out.shape = ir.Shape(new_dims)
+
+                    # Add to graph outputs
+                    ctx.builder.outputs.append(transposed_out)
+
+                else:
+                    # Standard handling
+                    ctx.add_outputs_from_vars([out_var])
 
         # Build IR model
         ir_model = ctx.builder.to_ir_model(
