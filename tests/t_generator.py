@@ -599,6 +599,8 @@ def make_test_function(tp: dict[str, Any]):
         expected_num_funcs = tp.get("expected_number_of_function_instances")
         expected_output_shapes_from_testcase = tp.get("expected_output_shapes")
         onnx_input_names_from_testcase = tp.get("input_names")
+        inputs_as_nchw = tp.get("inputs_as_nchw")
+        outputs_as_nchw = tp.get("outputs_as_nchw")
 
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 21)
@@ -608,7 +610,8 @@ def make_test_function(tp: dict[str, Any]):
 
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
-            f"enable_double_precision: {current_enable_double_precision}"
+            f"enable_double_precision: {current_enable_double_precision}, "
+            f"inputs_as_nchw: {inputs_as_nchw}, outputs_as_nchw: {outputs_as_nchw}"
         )
         try:
             to_onnx_kwargs = dict(
@@ -620,6 +623,8 @@ def make_test_function(tp: dict[str, Any]):
                 enable_double_precision=current_enable_double_precision,
                 return_mode="file",
                 output_path=model_path,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
             )
             written_model_path = to_onnx(**to_onnx_kwargs)
             if written_model_path != model_path:
@@ -716,6 +721,8 @@ def make_test_function(tp: dict[str, Any]):
                     rtol=rtol,
                     atol=atol,
                     enable_double_precision=current_enable_double_precision,
+                    inputs_as_nchw=inputs_as_nchw,
+                    outputs_as_nchw=outputs_as_nchw,
                 )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
@@ -781,6 +788,8 @@ def make_test_function(tp: dict[str, Any]):
                 rtol=rtol,
                 atol=atol,
                 enable_double_precision=current_enable_double_precision,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
             )
             assert (
                 passed_numerical

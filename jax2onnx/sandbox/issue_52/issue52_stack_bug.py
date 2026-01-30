@@ -1,4 +1,4 @@
-# jax2onnx/sandbox/issue52_stack_bug.py
+# jax2onnx/sandbox/issue_52/issue52_stack_bug.py
 
 """
 issue52_stack_bug.py

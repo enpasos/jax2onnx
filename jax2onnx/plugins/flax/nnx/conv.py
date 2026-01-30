@@ -1659,6 +1659,10 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
         # 3) Use Conv's bias input directly (no Add/Reshape, no CastLike)
         y = _conv(ctx, x_nchw, k_oih, b_val if use_bias else None, conv_attrs)
+        if y_shape and not need_flatten and getattr(y, "shape", None) is None:
+            if len(y_shape) >= 2:
+                nchw_shape = (y_shape[0], y_shape[-1], *y_shape[1:-1])
+                _annotate_value(ctx, y, x_dtype_np, nchw_shape)
         # Try to annotate Conv's NCH... output when possible
         if not need_flatten and x_shape and k_shape:
             in_sp = x_shape[1 : 1 + conv_spatial]
@@ -1772,6 +1776,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
                         x_dtype_np,
                         (batch_dim, *out_sp, int(k_shape[-1])),
                     )
+        if y_shape and getattr(final_value, "shape", None) is None:
+            _annotate_value(ctx, final_value, x_dtype_np, y_shape)
 
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):

@@ -233,6 +233,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["proto"] = ...,
         output_path: None = ...,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -247,6 +249,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["ir"],
         output_path: Optional[PathLikeStr] = ...,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -261,6 +265,8 @@ if TYPE_CHECKING:
         record_primitive_calls_file: Optional[str] = ...,
         return_mode: Literal["file"],
         output_path: PathLikeStr,
+        inputs_as_nchw: Optional[Sequence[int]] = ...,
+        outputs_as_nchw: Optional[Sequence[int]] = ...,
     ) -> str: ...
 
 
@@ -275,6 +281,8 @@ def to_onnx(
     record_primitive_calls_file: Optional[str] = None,
     return_mode: ReturnMode = "proto",
     output_path: Optional[PathLikeStr] = None,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
@@ -305,6 +313,13 @@ def to_onnx(
             serialises directly to disk.
         output_path: Destination path (str or PathLike) required when `return_mode` is
             `"file"`. Ignored otherwise.
+        inputs_as_nchw: Optional sequence of input indices (0-based) that should be treated as NCHW layout.
+            If specified for an input, jax2onnx assumes the external input is NCHW and will automatically
+            transpose it to NHWC before feeding it to the JAX graph (which typically expects NHWC for images).
+            This allows the exported ONNX model to accept NCHW inputs while preserving correct graph semantics.
+        outputs_as_nchw: Optional sequence of output indices (0-based) that should be treated as NCHW layout.
+            If specified for an output, jax2onnx assumes the external output should be NCHW and will automatically
+            transpose the NHWC output derived from JAX graph to NCHW before returning it.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -348,7 +363,8 @@ def to_onnx(
         f"input_params={input_params}, "
         f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}, "
-        f"return_mode={return_mode}, output_path={output_path}"
+        f"return_mode={return_mode}, output_path={output_path}, "
+        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
@@ -389,6 +405,8 @@ def to_onnx(
             enable_double_precision=enable_double_precision,
             record_primitive_calls_file=record_primitive_calls_file,
             protective_clone=(normalized_mode == "ir"),
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
         )
 
         postprocess_ir_model(
@@ -505,6 +523,8 @@ def allclose(
     atol: float = 1e-5,
     *,
     enable_double_precision: bool = False,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs remain numerically close.
@@ -572,7 +592,16 @@ def allclose(
     params = dict(input_params or {})
     with _temporary_x64(enable_double_precision):
         with jax.default_matmul_precision("float32"):
-            return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
+            return _run_allclose(
+                fn,
+                onnx_model_path,
+                xs,
+                params,
+                rtol=rtol,
+                atol=atol,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+            )
 
 
 def _run_allclose(
@@ -583,6 +612,8 @@ def _run_allclose(
     *,
     rtol: float,
     atol: float,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Tuple[bool, str]:
     import onnxruntime as ort
 
@@ -603,7 +634,19 @@ def _run_allclose(
         providers=["CPUExecutionProvider"],
     )
 
-    ort_inputs = _build_ort_inputs(session, xs, params)
+    # Prepare ORT inputs (handling potential NCHW transposition)
+    ort_xs = list(xs)
+    if inputs_as_nchw:
+        nhwc_to_nchw = [0, 3, 1, 2]
+        for idx in inputs_as_nchw:
+            if 0 <= idx < len(ort_xs):
+                # Transpose input to NCHW for ORT
+                # Assumes input is 4D (NHWC)
+                val = ort_xs[idx]
+                if hasattr(val, "ndim") and val.ndim == 4:
+                    ort_xs[idx] = np.transpose(val, nhwc_to_nchw)
+
+    ort_inputs = _build_ort_inputs(session, ort_xs, params)
     ort_outputs = session.run(None, ort_inputs)
 
     jax_args = [_to_jax_array(x) for x in xs]
@@ -627,6 +670,13 @@ def _run_allclose(
     for idx, (expected, got) in enumerate(zip(jax_outputs, ort_outputs)):
         expected_arr = np.asarray(expected)
         got_arr = np.asarray(got)
+
+        # Handle NCHW output transposition if needed
+        if outputs_as_nchw and idx in outputs_as_nchw:
+            # ORT output is NCHW, JAX is NHWC. Transpose ORT back to NHWC.
+            nchw_to_nhwc = [0, 2, 3, 1]
+            if got_arr.ndim == 4:
+                got_arr = np.transpose(got_arr, nchw_to_nhwc)
 
         if np.issubdtype(expected_arr.dtype, np.complexfloating) and np.issubdtype(
             got_arr.dtype, np.floating

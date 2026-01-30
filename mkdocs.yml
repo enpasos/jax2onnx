@@ -58,6 +58,7 @@ nav:
   - User Guide:
       - Getting Started: user_guide/getting_started.md
       - API Reference: user_guide/api.md
+      - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
       - Supported Components: user_guide/supported_components.md
       - Examples: user_guide/examples.md

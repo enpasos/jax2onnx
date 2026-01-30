@@ -1,4 +1,4 @@
-# jax2onnx/sandbox/issue139.py
+# jax2onnx/sandbox/issue_139/issue139.py
 
 import jax
 from jax2onnx import to_onnx

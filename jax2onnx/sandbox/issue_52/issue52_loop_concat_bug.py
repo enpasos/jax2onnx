@@ -1,4 +1,4 @@
-# jax2onnx/sandbox/issue52_loop_concat_bug.py
+# jax2onnx/sandbox/issue_52/issue52_loop_concat_bug.py
 
 """
 Minimal repro for the Issue 52 loop/concat metadata bug.

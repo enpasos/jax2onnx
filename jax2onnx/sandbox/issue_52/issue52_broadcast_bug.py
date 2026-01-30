@@ -1,4 +1,4 @@
-# jax2onnx/sandbox/issue52_broadcast_bug.py
+# jax2onnx/sandbox/issue_52/issue52_broadcast_bug.py
 
 """
 Issue #52 broadcast metadata smoke-test.
