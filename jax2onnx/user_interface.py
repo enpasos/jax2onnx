@@ -523,6 +523,8 @@ def allclose(
     atol: float = 1e-5,
     *,
     enable_double_precision: bool = False,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Tuple[bool, str]:
     """
     Checks if JAX and ONNX Runtime outputs remain numerically close.
@@ -590,7 +592,16 @@ def allclose(
     params = dict(input_params or {})
     with _temporary_x64(enable_double_precision):
         with jax.default_matmul_precision("float32"):
-            return _run_allclose(fn, onnx_model_path, xs, params, rtol=rtol, atol=atol)
+            return _run_allclose(
+                fn,
+                onnx_model_path,
+                xs,
+                params,
+                rtol=rtol,
+                atol=atol,
+                inputs_as_nchw=inputs_as_nchw,
+                outputs_as_nchw=outputs_as_nchw,
+            )
 
 
 def _run_allclose(
@@ -601,6 +612,8 @@ def _run_allclose(
     *,
     rtol: float,
     atol: float,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Tuple[bool, str]:
     import onnxruntime as ort
 
@@ -621,7 +634,19 @@ def _run_allclose(
         providers=["CPUExecutionProvider"],
     )
 
-    ort_inputs = _build_ort_inputs(session, xs, params)
+    # Prepare ORT inputs (handling potential NCHW transposition)
+    ort_xs = list(xs)
+    if inputs_as_nchw:
+        nhwc_to_nchw = [0, 3, 1, 2]
+        for idx in inputs_as_nchw:
+            if 0 <= idx < len(ort_xs):
+                # Transpose input to NCHW for ORT
+                # Assumes input is 4D (NHWC)
+                val = ort_xs[idx]
+                if hasattr(val, "ndim") and val.ndim == 4:
+                    ort_xs[idx] = np.transpose(val, nhwc_to_nchw)
+
+    ort_inputs = _build_ort_inputs(session, ort_xs, params)
     ort_outputs = session.run(None, ort_inputs)
 
     jax_args = [_to_jax_array(x) for x in xs]
@@ -645,6 +670,13 @@ def _run_allclose(
     for idx, (expected, got) in enumerate(zip(jax_outputs, ort_outputs)):
         expected_arr = np.asarray(expected)
         got_arr = np.asarray(got)
+
+        # Handle NCHW output transposition if needed
+        if outputs_as_nchw and idx in outputs_as_nchw:
+            # ORT output is NCHW, JAX is NHWC. Transpose ORT back to NHWC.
+            nchw_to_nhwc = [0, 2, 3, 1]
+            if got_arr.ndim == 4:
+                got_arr = np.transpose(got_arr, nchw_to_nhwc)
 
         if np.issubdtype(expected_arr.dtype, np.complexfloating) and np.issubdtype(
             got_arr.dtype, np.floating

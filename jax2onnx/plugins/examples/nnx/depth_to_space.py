@@ -93,5 +93,33 @@ register_example(
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "depth_to_space_resnet_inputs_outputs_as_nchw",
+            "callable": construct_and_call(
+                DepthToSpaceResNet,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, 1)],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 1, 16, 16)],
+            "inputs_as_nchw": [0],
+            "outputs_as_nchw": [0],
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        # detailed structure depends on optimization, but we expect NCHW input/output
+                        "Conv:1x32x8x8",
+                        {
+                            "counts": {
+                                "Conv": 11,
+                                "Add": 5,
+                                # If optimization works, Transposes should be minimal or absent between input/conv
+                            }
+                        },
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
