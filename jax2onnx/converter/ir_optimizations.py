@@ -49,6 +49,32 @@ ALLOWED_ELEMWISE: Set[str] = {
     "Not",
 }
 
+# Elementwise ops that are layout-invariant (used for transpose folding)
+ELEMENTWISE_UNARY_OPS: Set[str] = {
+    "Elu",
+    "Gelu",
+    "Relu",
+    "Sigmoid",
+    "Tanh",
+    "LeakyRelu",
+    "Identity",
+    "Cast",
+    "CastLike",
+    "Not",
+    "Abs",
+    "Neg",
+    "Exp",
+    "Log",
+    "Sqrt",
+}
+
+ELEMENTWISE_BINARY_OPS: Set[str] = {
+    "Add",
+    "Mul",
+    "Sub",
+    "Div",
+}
+
 # Unary ops that do not change data shape/dtype (used for propagation)
 UNARY_DATAFLOW_OPS: Set[str] = {
     "Gelu",
@@ -511,6 +537,99 @@ def _transpose_perm(node: ir.Node) -> Optional[List[int]]:
     return _get_perm_attr(node)
 
 
+def _is_inverse_perm(perm1: Sequence[int], perm2: Sequence[int]) -> bool:
+    if len(perm1) != len(perm2):
+        return False
+    composed = [perm1[p] for p in perm2]
+    return composed == list(range(len(composed)))
+
+
+def _is_scalar_const_value(val: Optional[ir.Value]) -> bool:
+    if not isinstance(val, ir.Value):
+        return False
+    if val.const_value is None and not val.is_initializer():
+        return False
+    arr = _to_numpy_from_any(val.const_value)
+    if arr is not None:
+        return bool(arr.size == 1)
+    dims = _shape_dims_seq(val.shape)
+    if dims is None:
+        return False
+    for d in dims:
+        if not isinstance(d, (int, np.integer)):
+            return False
+        if int(d) != 1:
+            return False
+    return True
+
+
+def _is_elementwise_node(node: ir.Node) -> bool:
+    return (
+        node.op_type in ELEMENTWISE_UNARY_OPS or node.op_type in ELEMENTWISE_BINARY_OPS
+    )
+
+
+def _elementwise_shape_source(inputs: Sequence[ir.Value]) -> Optional[ir.Value]:
+    for iv in inputs:
+        if not _is_scalar_const_value(iv):
+            return iv
+    return inputs[0] if inputs else None
+
+
+def _refresh_elementwise_output_shape(node: ir.Node) -> None:
+    outs = _node_outputs(node)
+    if not outs:
+        return
+    ins = _node_inputs(node)
+    src = _elementwise_shape_source(ins)
+    if src is None:
+        return
+    _copy_shape_dtype(outs[0], src)
+
+
+def _collect_transpose_elementwise_chain(
+    nodes: Sequence[ir.Node],
+    start_value: ir.Value,
+) -> Optional[Tuple[ir.Node, Set[ir.Node]]]:
+    """
+    Trace elementwise-only producers from start_value back to a single Transpose.
+    Returns (source_transpose, elementwise_nodes) if successful.
+    """
+    allowed_nodes: Set[ir.Node] = set()
+    visited_values: Set[ir.Value] = set()
+    worklist: List[ir.Value] = [start_value]
+    source_transpose: Optional[ir.Node] = None
+
+    while worklist:
+        val = worklist.pop()
+        if val in visited_values:
+            continue
+        visited_values.add(val)
+        if _is_scalar_const_value(val):
+            continue
+        producer = _producer_node(nodes, val)
+        if producer is None:
+            return None
+        if producer.op_type == "Transpose":
+            if source_transpose is None:
+                source_transpose = producer
+            elif source_transpose is not producer:
+                return None
+            continue
+        if not _is_elementwise_node(producer):
+            return None
+        if producer not in allowed_nodes:
+            allowed_nodes.add(producer)
+            for iv in _node_inputs(producer):
+                if _is_scalar_const_value(iv):
+                    continue
+                worklist.append(iv)
+
+    if source_transpose is None:
+        return None
+    return source_transpose, allowed_nodes
+
+
 def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     nodes = list(graph)
     if not nodes:
@@ -519,6 +638,72 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     while changed:
         changed = False
         nodes = list(graph)
+        # Pass 0: fold inverse transpose pairs around elementwise-only chains
+        for t2_node in nodes:
+            if t2_node.op_type != "Transpose":
+                continue
+            t2_in = (_node_inputs(t2_node) or [None])[0]
+            if not isinstance(t2_in, ir.Value):
+                continue
+            perm2 = _transpose_perm(t2_node)
+            if perm2 is None:
+                continue
+            chain = _collect_transpose_elementwise_chain(nodes, t2_in)
+            if chain is None:
+                continue
+            T1, elem_nodes = chain
+            if T1 is t2_node:
+                continue
+            perm1 = _transpose_perm(T1)
+            if perm1 is None or not _is_inverse_perm(perm1, perm2):
+                continue
+            t1_out = _node_output(T1)
+            if t1_out is None:
+                continue
+            ok = True
+            for consumer in _consumer_nodes(nodes, t1_out):
+                if consumer is t2_node:
+                    continue
+                if consumer not in elem_nodes:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            for node in elem_nodes:
+                out = _node_output(node)
+                if out is None:
+                    continue
+                for consumer in _consumer_nodes(nodes, out):
+                    if consumer is t2_node:
+                        continue
+                    if consumer not in elem_nodes:
+                        ok = False
+                        break
+                if not ok:
+                    break
+            if not ok:
+                continue
+            t1_in = (_node_inputs(T1) or [None])[0]
+            if t1_in is None:
+                continue
+            for node in elem_nodes:
+                ins = _node_inputs(node)
+                for idx, iv in enumerate(ins):
+                    if iv is t1_out:
+                        node.replace_input_with(idx, t1_in)
+            for node in nodes:
+                if node in elem_nodes:
+                    _refresh_elementwise_output_shape(node)
+            t2_out = _node_output(t2_node)
+            if t2_out is None:
+                continue
+            new_src = t1_in if not elem_nodes else t2_in
+            _replace_all_uses_with(t2_out, new_src, replace_graph_outputs=True)
+            graph.remove([T1, t2_node])
+            changed = True
+            break
+        if changed:
+            continue
         i = 0
         while i < len(nodes):
             n = nodes[i]
@@ -528,69 +713,117 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             T1 = n
             T1_out = _node_output(T1)
             consumers = _consumer_nodes(nodes, T1_out)
-            if len(consumers) != 1:
+            if len(consumers) == 0:
                 i += 1
                 continue
-            chain_nodes: List[ir.Node] = [T1]
-            allowed_nodes: List[ir.Node] = []
-            cur = consumers[0]
-            T2: Optional[ir.Node] = None
-            steps = 0
-            while steps < 8:
-                steps += 1
-                m = cur
-                if m.op_type in ALLOWED_ELEMWISE:
-                    chain_nodes.append(m)
-                    allowed_nodes.append(m)
-                    cur_val = _node_output(m)
-                    next_nodes = _consumer_nodes(nodes, cur_val)
-                    if len(next_nodes) != 1:
-                        break
-                    cur = next_nodes[0]
+
+            # Case 1: Single consumer - use existing chain-following logic
+            if len(consumers) == 1:
+                chain_nodes: List[ir.Node] = [T1]
+                allowed_nodes: List[ir.Node] = []
+                cur = consumers[0]
+                T2: Optional[ir.Node] = None
+                steps = 0
+                while steps < 8:
+                    steps += 1
+                    m = cur
+                    if m.op_type in ALLOWED_ELEMWISE:
+                        chain_nodes.append(m)
+                        allowed_nodes.append(m)
+                        cur_val = _node_output(m)
+                        next_nodes = _consumer_nodes(nodes, cur_val)
+                        if len(next_nodes) != 1:
+                            break
+                        cur = next_nodes[0]
+                        continue
+                    if m.op_type == "Transpose":
+                        chain_nodes.append(m)
+                        T2 = m
+                    break
+                if T2 is None:
+                    i += 1
                     continue
-                if m.op_type == "Transpose":
-                    chain_nodes.append(m)
-                    T2 = m
+                perm1 = _transpose_perm(T1)
+                perm2 = _transpose_perm(T2)
+                if perm1 is None or perm2 is None or not _is_inverse_perm(perm1, perm2):
+                    i += 1
+                    continue
+                if TRN_DEBUG:
+                    print(
+                        "[transposefold]",
+                        [node.op_type for node in chain_nodes],
+                        "perm1",
+                        perm1,
+                        "perm2",
+                        perm2,
+                    )
+                t1_in = (_node_inputs(T1) or [None])[0]
+                if t1_in is None:
+                    i += 1
+                    continue
+                if allowed_nodes:
+                    last_allowed = allowed_nodes[-1]
+                    _replace_all_uses_with(
+                        _node_output(T1), t1_in, replace_graph_outputs=True
+                    )
+                    new_src = _node_output(last_allowed) or t1_in
+                else:
+                    new_src = t1_in
+                old_out = _node_output(T2)
+                assert old_out is not None
+                _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
+                graph.remove([T1, T2])
+                changed = True
                 break
-            if T2 is None:
-                i += 1
-                continue
-            perm1 = _transpose_perm(T1)
-            perm2 = _transpose_perm(T2)
-            if perm1 is None or perm2 is None or len(perm1) != len(perm2):
-                i += 1
-                continue
-            composed = [perm1[p] for p in perm2]
-            if composed != list(range(len(composed))):
-                i += 1
-                continue
-            if TRN_DEBUG:
-                print(
-                    "[transposefold]",
-                    [node.op_type for node in chain_nodes],
-                    "perm1",
-                    perm1,
-                    "perm2",
-                    perm2,
-                )
-            t1_in = (_node_inputs(T1) or [None])[0]
-            if t1_in is None:
-                i += 1
-                continue
-            if allowed_nodes:
-                last_allowed = allowed_nodes[-1]
-                _replace_all_uses_with(
-                    _node_output(T1), t1_in, replace_graph_outputs=True
-                )
-                new_src = _node_output(last_allowed) or t1_in
+
+            # Case 2: Multiple consumers - check for direct Transpose consumers
+            # that cancel with T1 (no intermediate ops allowed in this case)
             else:
-                new_src = t1_in
-            old_out = _node_output(T2)
-            assert old_out is not None
-            _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
-            graph.remove([T1, T2])
-            changed = True
-            break
+                t1_in = (_node_inputs(T1) or [None])[0]
+                if t1_in is None:
+                    i += 1
+                    continue
+                perm1 = _transpose_perm(T1)
+                if perm1 is None:
+                    i += 1
+                    continue
+
+                # Find direct Transpose consumers that cancel with T1
+                removed_any = False
+                for consumer in consumers:
+                    if consumer.op_type != "Transpose":
+                        continue
+                    T2 = consumer
+                    perm2 = _transpose_perm(T2)
+                    if perm2 is None or not _is_inverse_perm(perm1, perm2):
+                        continue
+                    # Found a direct T2 that cancels with T1
+                    if TRN_DEBUG:
+                        print(
+                            "[transposefold/multi]",
+                            "T1 ->",
+                            T1.op_type,
+                            "T2 ->",
+                            T2.op_type,
+                            "perm1",
+                            perm1,
+                            "perm2",
+                            perm2,
+                        )
+                    # Rewire T2's consumers to use T1's input directly
+                    old_out = _node_output(T2)
+                    assert old_out is not None
+                    _replace_all_uses_with(old_out, t1_in, replace_graph_outputs=True)
+                    # Remove only T2, not T1 (T1 still has other consumers)
+                    graph.remove(T2)
+                    removed_any = True
+                    break  # Restart the outer loop after modification
+
+                if removed_any:
+                    changed = True
+                    break
+                i += 1
+                continue
     return
 
 
