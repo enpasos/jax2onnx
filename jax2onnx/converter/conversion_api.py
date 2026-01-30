@@ -466,6 +466,8 @@ def to_onnx(
                     perm=perm_to_nhwc,
                     _outputs=[f"in_{i}_nhwc_restored"],
                 )
+                transposed.type = nchw_input_val.type
+                transposed.shape = _to_ir_shape(aval_shape)
                 # This 'transposed' value has shape aval_shape (NHWC) and is what the graph uses.
                 ctx._var2val[v] = transposed
 
