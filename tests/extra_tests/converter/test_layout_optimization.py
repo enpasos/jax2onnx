@@ -1,6 +1,5 @@
 # tests/extra_tests/converter/test_layout_optimization.py
 
-# tests/extra_tests/converter/test_layout_optimization.py
 
 import jax
 import jax.numpy as jnp
