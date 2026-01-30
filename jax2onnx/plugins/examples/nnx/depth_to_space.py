@@ -80,12 +80,23 @@ register_example(
             "post_check_onnx_graph": EG(
                 [
                     (
-                        "Reshape:1x8x8x2x2x1 -> "
+                        "Transpose:1x1x8x8 -> Conv:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Mul:1x32x8x8 -> Conv:1x32x8x8 -> Add:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Mul:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Add:1x32x8x8 -> Conv:1x32x8x8 -> Mul:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Mul:1x32x8x8 -> Conv:1x32x8x8 -> Add:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x4x8x8 -> "
+                        "Transpose:1x8x8x4 -> Reshape:1x8x8x2x2x1 -> "
                         "Transpose:1x8x2x8x2x1 -> Reshape:1x16x16x1",
                         {
                             "counts": {
                                 "Conv": 11,
                                 "Add": 5,
+                                "Mul": 4,
+                                "Sigmoid": 4,
+                                "Transpose": 3,
+                                "Reshape": 2,
                             }
                         },
                     )
@@ -107,13 +118,23 @@ register_example(
             "post_check_onnx_graph": EG(
                 [
                     (
-                        # detailed structure depends on optimization, but we expect NCHW input/output
-                        "Conv:1x32x8x8",
+                        "Conv:1x32x8x8 -> Conv:1x32x8x8 -> Mul:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Mul:1x32x8x8 -> Conv:1x32x8x8 -> Add:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Mul:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Add:1x32x8x8 -> Conv:1x32x8x8 -> Mul:1x32x8x8 -> "
+                        "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x32x8x8 -> "
+                        "Add:1x32x8x8 -> Conv:1x4x8x8 -> Transpose:1x8x8x4 -> "
+                        "Reshape:1x8x8x2x2x1 -> Transpose:1x8x2x8x2x1 -> "
+                        "Reshape:1x16x16x1 -> Transpose:1x1x16x16",
                         {
                             "counts": {
                                 "Conv": 11,
                                 "Add": 5,
-                                # If optimization works, Transposes should be minimal or absent between input/conv
+                                "Mul": 4,
+                                "Sigmoid": 4,
+                                "Transpose": 3,
+                                "Reshape": 2,
                             }
                         },
                     )
