@@ -46,4 +46,11 @@ class Model(nnx.Module):
 
 
 model = Model(rngs=nnx.Rngs(0))
-to_onnx(model, [("N", "H", "W", 1)], return_mode="file", output_path="model.onnx")
+to_onnx(
+    model,
+    [("N", "H", "W", 1)],
+    return_mode="file",
+    output_path="model.onnx",
+    inputs_as_nchw=[0],
+    outputs_as_nchw=[0],
+)
