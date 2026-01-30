@@ -638,6 +638,145 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     while changed:
         changed = False
         nodes = list(graph)
+        # Pass -1: collapse Add chains surrounded by transposes (NHWC <-> NCHW)
+        visited_adds: Set[ir.Node] = set()
+        for start in nodes:
+            if start.op_type != "Add":
+                continue
+            if start in visited_adds:
+                continue
+
+            add_chain: List[ir.Node] = []
+            perm_fwd: Optional[List[int]] = None
+            perm_inv: Optional[List[int]] = None
+            ok = True
+
+            prev: Optional[ir.Node] = None
+            cur: Optional[ir.Node] = start
+            while cur is not None:
+                if cur.op_type != "Add":
+                    ok = False
+                    break
+                ins = _node_inputs(cur)
+                if len(ins) < 2:
+                    ok = False
+                    break
+
+                transpose_inputs: List[Tuple[ir.Node, ir.Value]] = []
+                has_prev_input = False
+                for iv in ins:
+                    prod = _producer_node(nodes, iv)
+                    if prod is not None and prod is prev:
+                        has_prev_input = True
+                        continue
+                    if prod is None or prod.op_type != "Transpose":
+                        ok = False
+                        break
+                    perm = _transpose_perm(prod)
+                    if perm is None:
+                        ok = False
+                        break
+                    if perm_fwd is None:
+                        perm_fwd = perm
+                    elif perm_fwd != perm:
+                        ok = False
+                        break
+                    transpose_inputs.append((prod, iv))
+                if not ok:
+                    break
+
+                if prev is None:
+                    if len(transpose_inputs) < 1:
+                        ok = False
+                        break
+                else:
+                    if not has_prev_input or len(transpose_inputs) != 1:
+                        ok = False
+                        break
+
+                out = _node_output(cur)
+                if out is None:
+                    ok = False
+                    break
+                consumers = _consumer_nodes(nodes, out)
+                add_consumers = [c for c in consumers if c.op_type == "Add"]
+                other_consumers = [c for c in consumers if c.op_type != "Add"]
+                if len(add_consumers) > 1:
+                    ok = False
+                    break
+                for consumer in other_consumers:
+                    if consumer.op_type != "Transpose":
+                        ok = False
+                        break
+                    perm = _transpose_perm(consumer)
+                    if perm is None:
+                        ok = False
+                        break
+                    if perm_inv is None:
+                        perm_inv = perm
+                    elif perm_inv != perm:
+                        ok = False
+                        break
+                if not ok:
+                    break
+
+                add_chain.append(cur)
+                if add_consumers:
+                    prev = cur
+                    cur = add_consumers[0]
+                    continue
+                break
+
+            if (
+                not ok
+                or not add_chain
+                or perm_fwd is None
+                or perm_inv is None
+                or not _is_inverse_perm(perm_fwd, perm_inv)
+            ):
+                continue
+
+            # Rewrite: move Add chain to pre-transpose layout (NCHW).
+            for node in add_chain:
+                ins = _node_inputs(node)
+                for idx, iv in enumerate(ins):
+                    prod = _producer_node(nodes, iv)
+                    if prod is None or prod.op_type != "Transpose":
+                        continue
+                    perm = _transpose_perm(prod)
+                    if perm is None or perm != perm_fwd:
+                        continue
+                    src = (_node_inputs(prod) or [None])[0]
+                    if src is None:
+                        continue
+                    node.replace_input_with(idx, src)
+                _refresh_elementwise_output_shape(node)
+
+            # Remove inverse transposes on outputs of the chain.
+            to_remove: Set[ir.Node] = set()
+            for node in add_chain:
+                out = _node_output(node)
+                if out is None:
+                    continue
+                for consumer in _consumer_nodes(nodes, out):
+                    if consumer.op_type != "Transpose":
+                        continue
+                    perm = _transpose_perm(consumer)
+                    if perm is None or perm != perm_inv:
+                        continue
+                    consumer_out = _node_output(consumer)
+                    if consumer_out is None:
+                        continue
+                    _replace_all_uses_with(
+                        consumer_out, out, replace_graph_outputs=True
+                    )
+                    to_remove.add(consumer)
+
+            if to_remove:
+                graph.remove(list(to_remove))
+                changed = True
+                visited_adds.update(add_chain)
+                break
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
             if t2_node.op_type != "Transpose":
@@ -648,10 +787,10 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             perm2 = _transpose_perm(t2_node)
             if perm2 is None:
                 continue
-            chain = _collect_transpose_elementwise_chain(nodes, t2_in)
-            if chain is None:
+            chain_match = _collect_transpose_elementwise_chain(nodes, t2_in)
+            if chain_match is None:
                 continue
-            T1, elem_nodes = chain
+            T1, elem_nodes = chain_match
             if T1 is t2_node:
                 continue
             perm1 = _transpose_perm(T1)
