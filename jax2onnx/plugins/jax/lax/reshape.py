@@ -370,22 +370,38 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     continue
 
                 # Truly symbolic: we may either copy an input axis dynamically
-                # or, if this is a derived symbol (e.g. 4*B), fall back to -1 inference.
+                # or, if this is a derived symbol (e.g. 4*B), lower it to runtime
+                # shape arithmetic via the dim-expr lowerer.
                 # We only mark 'all_const=False' when we really introduce dynamic nodes.
                 if axis_idx is None:
-                    # Derived symbolic (e.g., 4*B). Use ONNX inference (-1).
-                    if not inserted_neg1:
-                        shape_parts.append(
-                            const_i64_vec(np.array([-1], dtype=np.int64))
-                        )
-                        inserted_neg1 = True
-                    else:
-                        # (A second derived dim would require dynamic arithmetic;
-                        # not needed in our suite; still keep model valid.)
-                        shape_parts.append(
-                            const_i64_vec(np.array([-1], dtype=np.int64))
-                        )
-                    const_accum.append(-1)
+                    # Derived symbolic (e.g., 4*B). Lower it to a runtime INT64 vector.
+                    # This avoids producing multiple -1 dims, which is invalid in ONNX.
+                    all_const = False
+                    try:
+                        dim_val = ctx.dim_expr_lowerer([dim])
+                    except Exception:
+                        # Fallback to a single inferred dim only if we haven't used -1 yet.
+                        if not inserted_neg1:
+                            shape_parts.append(
+                                const_i64_vec(np.array([-1], dtype=np.int64))
+                            )
+                            inserted_neg1 = True
+                            const_accum.append(-1)
+                            continue
+                        raise
+                    dim_shape = getattr(dim_val, "shape", None)
+                    if dim_shape is not None:
+                        try:
+                            dims = (
+                                dim_shape.dims
+                                if hasattr(dim_shape, "dims")
+                                else tuple(dim_shape)
+                            )
+                        except TypeError:
+                            dims = None
+                        if dims is not None and len(dims) == 0:
+                            dim_val = unsqueeze_to_len1(dim_val)
+                    shape_parts.append(dim_val)
                     continue
                 # Copy that input axis dynamically
                 all_const = False
@@ -465,7 +481,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                 final_dims.append(sym_label_map[d])
             else:
                 # derived symbolic (e.g., B*4): give it a fresh name
-                final_dims.append(ctx.fresh_name("dim"))
+                final_dims.append(ctx.fresh_name("dynamic"))
 
         _stamp_type_and_shape(reshape_val, tuple(final_dims))
         _ensure_value_metadata(ctx, reshape_val)

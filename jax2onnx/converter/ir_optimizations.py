@@ -130,11 +130,16 @@ def _replace_all_uses_with(
     *,
     replace_graph_outputs: bool = False,
 ) -> None:
-    ir.convenience.replace_all_uses_with(
-        values,
-        replacements,
-        replace_graph_outputs=replace_graph_outputs,
-    )
+    try:
+        ir.convenience.replace_all_uses_with(
+            values,
+            replacements,
+            replace_graph_outputs=replace_graph_outputs,
+        )
+        return
+    except TypeError:
+        # Compatibility with older onnx_ir that lacks replace_graph_outputs.
+        ir.convenience.replace_all_uses_with(values, replacements)
 
 
 # ---------------- Public helper shims (restored for unit tests) ----------------
@@ -210,7 +215,12 @@ def _consumer_nodes(
     if isinstance(value_or_name, ir.Value):
         consumers = value_or_name.consumers()
         if consumers:
-            return list(consumers)
+            try:
+                if all(isinstance(c, ir.Node) for c in consumers):
+                    return list(consumers)
+            except Exception:
+                # Fall back to name-based scan below.
+                pass
 
     ref_value, ref_name = _value_identity(value_or_name)
     target_name = ref_name
@@ -249,7 +259,7 @@ def _producer_node(
         return None
     if isinstance(value_or_name, ir.Value):
         prod = value_or_name.producer()
-        if prod is not None:
+        if isinstance(prod, ir.Node):
             return prod
 
     ref_value, ref_name = _value_identity(value_or_name)
@@ -630,6 +640,46 @@ def _collect_transpose_elementwise_chain(
     return source_transpose, allowed_nodes
 
 
+def _collect_transpose_elementwise_forest(
+    nodes: Sequence[ir.Node],
+    start_value: ir.Value,
+) -> Optional[Tuple[Set[ir.Node], Set[ir.Node]]]:
+    """
+    Trace elementwise-only producers from start_value back to one or more Transpose nodes.
+    Returns (transpose_nodes, elementwise_nodes) if successful.
+    """
+    elementwise_nodes: Set[ir.Node] = set()
+    transpose_nodes: Set[ir.Node] = set()
+    visited_values: Set[ir.Value] = set()
+    worklist: List[ir.Value] = [start_value]
+
+    while worklist:
+        val = worklist.pop()
+        if val in visited_values:
+            continue
+        visited_values.add(val)
+        if _is_scalar_const_value(val):
+            continue
+        producer = _producer_node(nodes, val)
+        if producer is None:
+            return None
+        if producer.op_type == "Transpose":
+            transpose_nodes.add(producer)
+            continue
+        if not _is_elementwise_node(producer):
+            return None
+        if producer not in elementwise_nodes:
+            elementwise_nodes.add(producer)
+            for iv in _node_inputs(producer):
+                if _is_scalar_const_value(iv):
+                    continue
+                worklist.append(iv)
+
+    if not transpose_nodes:
+        return None
+    return transpose_nodes, elementwise_nodes
+
+
 def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     nodes = list(graph)
     if not nodes:
@@ -777,6 +827,101 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 changed = True
                 visited_adds.update(add_chain)
                 break
+        if changed:
+            continue
+        # Pass -0.5: fold inverse transpose around elementwise DAG with
+        # multiple transpose inputs (e.g., scale + residual add).
+        for t2_node in nodes:
+            if t2_node.op_type != "Transpose":
+                continue
+            t2_in = (_node_inputs(t2_node) or [None])[0]
+            if not isinstance(t2_in, ir.Value):
+                continue
+            perm2 = _transpose_perm(t2_node)
+            if perm2 is None:
+                continue
+            forest_match = _collect_transpose_elementwise_forest(nodes, t2_in)
+            if forest_match is None:
+                continue
+            transpose_nodes, elem_nodes = forest_match
+            perm1: Optional[List[int]] = None
+            ok = True
+            for t_node in transpose_nodes:
+                perm = _transpose_perm(t_node)
+                if perm is None:
+                    ok = False
+                    break
+                if perm1 is None:
+                    perm1 = perm
+                elif perm1 != perm:
+                    ok = False
+                    break
+            if not ok or perm1 is None or not _is_inverse_perm(perm1, perm2):
+                continue
+
+            # Ensure elementwise outputs only feed the subgraph or inverse transposes.
+            output_transposes: Set[ir.Node] = set()
+            for node in elem_nodes:
+                out = _node_output(node)
+                if out is None:
+                    continue
+                for consumer in _consumer_nodes(nodes, out):
+                    if consumer in elem_nodes:
+                        continue
+                    if consumer.op_type != "Transpose":
+                        ok = False
+                        break
+                    perm = _transpose_perm(consumer)
+                    if perm is None or perm != perm2:
+                        ok = False
+                        break
+                    output_transposes.add(consumer)
+                if not ok:
+                    break
+            if not ok:
+                continue
+            if t2_node not in output_transposes:
+                continue
+
+            # Rewrite: replace transpose outputs feeding elementwise nodes with
+            # their pre-transpose sources.
+            trans_in_map: Dict[ir.Value, ir.Value] = {}
+            for t_node in transpose_nodes:
+                t_out = _node_output(t_node)
+                t_src = (_node_inputs(t_node) or [None])[0]
+                if isinstance(t_out, ir.Value) and isinstance(t_src, ir.Value):
+                    trans_in_map[t_out] = t_src
+
+            for node in elem_nodes:
+                ins = _node_inputs(node)
+                for idx, iv in enumerate(ins):
+                    if iv in trans_in_map:
+                        node.replace_input_with(idx, trans_in_map[iv])
+                _refresh_elementwise_output_shape(node)
+
+            # Remove inverse transposes on outputs of the DAG.
+            for t_out_node in output_transposes:
+                t_out = _node_output(t_out_node)
+                if t_out is None:
+                    continue
+                t_in = (_node_inputs(t_out_node) or [None])[0]
+                if not isinstance(t_in, ir.Value):
+                    continue
+                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+            if output_transposes:
+                graph.remove(list(output_transposes))
+
+            # Remove now-unused transpose inputs.
+            live_nodes = list(graph)
+            for t_node in transpose_nodes:
+                t_out = _node_output(t_node)
+                if t_out is None:
+                    continue
+                if not _consumer_nodes(live_nodes, t_out):
+                    graph.remove(t_node)
+
+            changed = True
+            break
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
             if t2_node.op_type != "Transpose":
