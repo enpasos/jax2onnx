@@ -33,10 +33,44 @@ class ResBlock(nnx.Module):
         return y + x
 
 
+class ResBlockScaled(nnx.Module):
+    def __init__(self, *, rngs: nnx.Rngs, scale: float = 0.1):
+        self.conv0 = nnx.Conv(32, 32, kernel_size=(3, 3), rngs=rngs)
+        self.conv1 = nnx.Conv(32, 32, kernel_size=(3, 3), rngs=rngs)
+        self.scale = float(scale)
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        y = nnx.silu(self.conv0(x))
+        y = self.conv1(y)
+        return y * self.scale + x
+
+
 class DepthToSpaceResNet(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs):
         self.conv0 = nnx.Conv(1, 32, kernel_size=(3, 3), rngs=rngs)
         self.res_blocks = nnx.List(ResBlock(rngs=rngs) for _ in range(4))
+        self.conv1 = nnx.Conv(32, 32, kernel_size=(3, 3), rngs=rngs)
+        self.conv2 = nnx.Conv(32, 4, kernel_size=(3, 3), rngs=rngs)
+        self.depth_to_space = DepthToSpace(block_size=2, rngs=rngs)
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        conv0 = self.conv0(x)
+        y = conv0
+        for block in self.res_blocks:
+            y = block(y)
+        y = self.conv1(y)
+        y = y + conv0
+        y = self.conv2(y)
+        y = self.depth_to_space(y)
+        return y
+
+
+class DepthToSpaceResNetScaled(nnx.Module):
+    def __init__(self, *, rngs: nnx.Rngs, scale: float = 0.1):
+        self.conv0 = nnx.Conv(1, 32, kernel_size=(3, 3), rngs=rngs)
+        self.res_blocks = nnx.List(
+            ResBlockScaled(rngs=rngs, scale=scale) for _ in range(4)
+        )
         self.conv1 = nnx.Conv(32, 32, kernel_size=(3, 3), rngs=rngs)
         self.conv2 = nnx.Conv(32, 4, kernel_size=(3, 3), rngs=rngs)
         self.depth_to_space = DepthToSpace(block_size=2, rngs=rngs)
@@ -155,6 +189,31 @@ register_example(
             "expected_output_shapes": [
                 (1, 1, "JAX2ONNX_DYNAMIC_DIM_SENTINEL", "JAX2ONNX_DYNAMIC_DIM_SENTINEL")
             ],
+        },
+        {
+            "testcase": "depth_to_space_resnet_scaled_inputs_outputs_as_nchw",
+            "callable": construct_and_call(
+                DepthToSpaceResNetScaled,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, 1)],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 1, 16, 16)],
+            "inputs_as_nchw": [0],
+            "outputs_as_nchw": [0],
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Conv",
+                        {
+                            "counts": {
+                                "Transpose": 3,
+                            }
+                        },
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
         },
     ],
 )
