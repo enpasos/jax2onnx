@@ -142,5 +142,19 @@ register_example(
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "depth_to_space_resnet_inputs_outputs_as_nchw_dynamic_hw",
+            "callable": construct_and_call(
+                DepthToSpaceResNet,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, "H", "W", 1)],
+            "run_only_f32_variant": True,
+            "inputs_as_nchw": [0],
+            "outputs_as_nchw": [0],
+            "expected_output_shapes": [
+                (1, 1, "JAX2ONNX_DYNAMIC_DIM_SENTINEL", "JAX2ONNX_DYNAMIC_DIM_SENTINEL")
+            ],
+        },
     ],
 )
