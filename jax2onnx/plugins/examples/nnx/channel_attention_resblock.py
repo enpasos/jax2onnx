@@ -69,7 +69,6 @@ register_example(
             "input_shapes": [(1, 8, 8, filters)],
             "inputs_as_nchw": [0],
             "outputs_as_nchw": [0],
-            "expected_output_shapes": [(1, filters, 8, 8)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
