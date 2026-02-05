@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -43,6 +44,40 @@ register_example(
     context="examples.nnx",
     children=["nnx.Conv", "nnx.silu", "nnx.sigmoid", "jax.numpy.mean"],
     testcases=[
+        {
+            "testcase": "resblock_channel_attention_static",
+            "callable": construct_and_call(
+                ResBlock,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, filters)],
+            "expected_output_shapes": [(1, 8, 8, filters)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    ("ReduceMean", {"counts": {"ReduceMean": 1}}),
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "resblock_channel_attention_static_nchw",
+            "callable": construct_and_call(
+                ResBlock,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, filters)],
+            "inputs_as_nchw": [0],
+            "outputs_as_nchw": [0],
+            "expected_output_shapes": [(1, filters, 8, 8)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    ("ReduceMean", {"counts": {"ReduceMean": 1}}),
+                ],
+                no_unused_inputs=True,
+            ),
+        },
         {
             "testcase": "resblock_channel_attention_dynamic_hw",
             "callable": construct_and_call(
