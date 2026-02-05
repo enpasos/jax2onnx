@@ -680,6 +680,168 @@ def _collect_transpose_elementwise_forest(
     return transpose_nodes, elementwise_nodes
 
 
+def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
+    nodes = list(graph)
+    if not nodes:
+        return
+    changed = True
+    while changed:
+        changed = False
+        nodes = list(graph)
+        for node in nodes:
+            if node.op_type != "Transpose":
+                continue
+
+            # Pattern: T1 -> Reduce -> T2 (node)
+            ins = _node_inputs(node)
+            if len(ins) != 1:
+                continue
+
+            reducer = _producer_node(nodes, ins[0])
+            if reducer is None or reducer.op_type != "ReduceMean":
+                continue
+
+            reducer_ins = _node_inputs(reducer)
+            if not reducer_ins:
+                continue
+
+            t1 = _producer_node(nodes, reducer_ins[0])
+            if t1 is None or t1.op_type != "Transpose":
+                continue
+
+            perm2 = _transpose_perm(node)
+            perm1 = _transpose_perm(t1)
+
+            if perm1 is None or perm2 is None:
+                continue
+
+            if not _is_inverse_perm(perm1, perm2):
+                continue
+
+            keepdims = _attr_to_int(_get_attr(reducer, "keepdims"))
+            if keepdims != 1:
+                continue
+
+            # Handle axes
+            axes_val = None
+            axes_input_idx = -1
+            axes = None
+
+            # Check inputs for axes (opset 13+)
+            if len(reducer_ins) > 1:
+                axes_val = reducer_ins[1]
+                axes = _value_const_ints(axes_val)
+                if axes is None:
+                    # Fallback: check if produced by Constant node
+                    prod = axes_val.producer()
+                    if prod is not None and prod.op_type == "Constant":
+                        attr = prod.attributes.get("value")
+                        if attr is not None and attr.type == IRAttrType.TENSOR:
+                            try:
+                                arr = attr.as_tensor().numpy()
+                                if arr is not None and np.issubdtype(
+                                    arr.dtype, np.integer
+                                ):
+                                    axes = tuple(arr.flatten().tolist())
+                            except Exception:
+                                pass
+
+                if axes is None:
+                    # Dynamic axes or unable to resolve constant - Abort
+                    if DEBUG:
+                        _dbg("  Skip: dynamic/unresolvable axes")
+                    continue
+                axes_input_idx = 1
+
+            # Check attribute if not in input
+            if axes is None:
+                axes_attr = _get_attr(reducer, "axes")
+                if axes_attr is not None and axes_attr.type == IRAttrType.INTS:
+                    axes = tuple(axes_attr.as_ints())
+
+            # Normalize and map axes
+            rank = len(perm1)
+            if axes is not None:
+                new_axes_list: List[int] = []
+                valid_axes = True
+                for a in axes:
+                    if a < 0:
+                        a += rank
+                    if a < 0 or a >= rank:
+                        # Invalid axis for rank? Skip optimization to be safe
+                        valid_axes = False
+                        break
+                    new_axes_list.append(perm1[a])
+
+                if not valid_axes:
+                    continue
+                new_axes = tuple(sorted(new_axes_list))
+            else:
+                # Reduce all
+                new_axes = None
+
+                # PERFORM REWRITE
+                _dbg(
+                    "Remove redundant Transpose-Reduce-Transpose:",
+                    _v_name(node),
+                    "around",
+                    _v_name(reducer),
+                )
+
+            # 0. Safety: Reducer output must NOT be used by anything else
+            # (Because we are about to change its semantic output from NHWC to NCHW)
+            reducer_out_val = _node_output(reducer)
+            reducer_consumers = _consumer_nodes(nodes, reducer_out_val)
+            # We expect exactly one consumer: 'node' (T2)
+            if len(reducer_consumers) != 1:
+                if DEBUG:
+                    _dbg(
+                        "  Skip: reducer has multiple consumers",
+                        [c.name for c in reducer_consumers],
+                    )
+                continue
+            if reducer_consumers[0] is not node:
+                # Should be covered by consumers scan logic, but double check
+                continue
+
+            # 1. Update Reducer inputs
+            # Input 0 becomes T1 input 0
+            t1_input = _node_inputs(t1)[0]
+            reducer.replace_input_with(0, t1_input)
+
+            # 2. Update Axes
+            if new_axes is not None:
+                if axes_input_idx != -1:
+                    new_axes_arr = np.array(new_axes, dtype=np.int64)
+                    new_axes_val = ir.Value(
+                        name=f"{reducer.name or 'reduce'}_axes_optimized",
+                        shape=ir.Shape((len(new_axes),)),
+                        type=ir.TensorType(ir.DataType.INT64),
+                    )
+                    new_axes_val.const_value = ir.tensor(new_axes_arr)
+
+                    # Register as initializer
+                    graph.initializers.add(new_axes_val)
+
+                    reducer.replace_input_with(axes_input_idx, new_axes_val)
+                else:
+                    reducer.attributes["axes"] = ir.Attr(
+                        "axes", IRAttrType.INTS, list(new_axes)
+                    )
+
+            # 3. Bypass T2
+            t2_out = _node_output(node)
+            reducer_out = _node_output(reducer)
+            _replace_all_uses_with(t2_out, reducer_out, replace_graph_outputs=True)
+
+            # 4. Cleanup
+            # node.inputs might be tuple? Just remove from graph.
+            graph.remove(node)
+
+            changed = True
+            break
+
+
 def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     nodes = list(graph)
     if not nodes:
@@ -1776,6 +1938,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     gr = ir_model.graph
     common_passes.NameFixPass()(ir_model)
     remove_redundant_casts_ir(gr)
+    remove_redundant_transpose_reduce_ir(gr)
     remove_redundant_transpose_pairs_ir(gr)
     remove_redundant_reshape_pairs_ir(gr)
     remove_identity_reshapes_ir(gr)
@@ -1794,6 +1957,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     for fn in ir_model.functions.values():
         fgr = fn.graph
         remove_redundant_casts_ir(fgr)
+        remove_redundant_transpose_reduce_ir(fgr)
         remove_redundant_transpose_pairs_ir(fgr)
         remove_redundant_reshape_pairs_ir(fgr)
         remove_identity_reshapes_ir(fgr)
