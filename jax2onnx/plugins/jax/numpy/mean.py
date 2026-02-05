@@ -12,10 +12,10 @@ import jax
 from jax import core
 import jax.numpy as jnp
 from jax.interpreters import batching
+from onnx_ir import Attr, AttributeType
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     make_jnp_primitive,
@@ -136,6 +136,8 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
                 "jnp.mean with 'where' mask is not supported in ONNX lowering"
             )
 
+        print(f"DEBUG: abstract_eval input x: {x}, shape: {x.shape}")
+
         ndim = len(x.shape)
         # JAX mean default dtype logic might differ slightly but usually follows input or float
         # match jnp behavior: integer inputs -> float
@@ -174,7 +176,50 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(out_shape, out_dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
-        lower_reduction(ctx, eqn, op_type="ReduceMean", allow_dtype_param=True)
+        # Manual lowering to avoid potential issues in shared utils
+        operand_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+
+        operand_val = ctx.get_value_for_var(operand_var)
+
+        params = getattr(eqn, "params", {})
+        axes = params.get("axes")
+        keepdims = bool(params.get("keepdims", False))
+
+        # Resolve axes
+        rank = len(getattr(operand_var.aval, "shape", ()))
+        # Handle axis normalization locally
+        if axes is not None:
+            normalized = []
+            for ax in axes:
+                ax_int = int(ax)
+                if ax_int < 0:
+                    ax_int += rank
+                normalized.append(ax_int)
+            axes_attr = tuple(normalized)
+        else:
+            axes_attr = None  # reduce all
+
+        # Build ReduceMean
+        # Note: we skip casting for now as abstract_eval handles weak types usually
+
+        inputs = [operand_val]
+        if axes_attr is not None:
+            # We use opset 13+ axes input
+            axes_const = ctx.builder.const_i64(
+                ctx.fresh_name("reducemean_axes"), axes_attr
+            )
+            inputs.append(axes_const)
+
+        # Create output value
+        out_val = ctx.get_value_for_var(out_var)
+
+        # Attributes
+        attrs = [Attr("keepdims", AttributeType.INT, 1 if keepdims else 0)]
+
+        ctx.builder.add_node(
+            op_type="ReduceMean", inputs=inputs, outputs=[out_val], attributes=attrs
+        )
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
@@ -214,7 +259,7 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
                         axes_param = (int(axis),)
 
                 return cls._PRIM.bind(
-                    jnp.asarray(a),
+                    a,
                     axes=axes_param,
                     dtype=dtype,
                     out=out,
@@ -261,9 +306,7 @@ def _mean_impl(
     except RuntimeError:
         orig = jnp.mean
 
-    return orig(
-        jnp.asarray(a), axis=axes, dtype=dtype, out=out, keepdims=keepdims, where=where
-    )
+    return orig(a, axis=axes, dtype=dtype, out=out, keepdims=keepdims, where=where)
 
 
 JnpMeanPlugin._PRIM.def_abstract_eval(JnpMeanPlugin.abstract_eval)
