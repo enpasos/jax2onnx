@@ -13,6 +13,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
 
 def _dynamic_or_constant(specs):
@@ -101,32 +102,47 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         dim_expr = eqn.params.get("dim")
         origin_getter = getattr(ctx, "get_symbolic_dim_origin", None)
         origin = SymbolicDimOrigin.resolve(origin_getter, dim_expr)
+        dim_vec: ir.Value | None = None
         if origin is None:
-            raise ValueError(
-                f"Symbolic dimension '{dim_expr}' has no registered input origin."
+            const_val = dim_expr_constant_value(dim_expr)
+            if const_val is not None:
+                dim_vec = _const_i64(
+                    ctx,
+                    np.asarray([const_val], dtype=np.int64),
+                    "dim_as_value_const",
+                )
+            else:
+                dim_expr_lowerer = getattr(ctx, "dim_expr_lowerer", None)
+                if dim_expr_lowerer is not None and is_dim_expr(dim_expr):
+                    dim_vec = dim_expr_lowerer([dim_expr])
+
+            if dim_vec is None:
+                raise ValueError(
+                    f"Symbolic dimension '{dim_expr}' has no registered input origin."
+                )
+        else:
+            axis = int(origin.axis)
+            src_rank = _infer_rank(origin.value, axis)
+
+            shape_vec = ctx.builder.Shape(
+                origin.value,
+                _outputs=[ctx.fresh_name("dim_as_value_shape")],
             )
+            shape_vec.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(shape_vec, (src_rank,))
 
-        axis = int(origin.axis)
-        src_rank = _infer_rank(origin.value, axis)
-
-        shape_vec = ctx.builder.Shape(
-            origin.value,
-            _outputs=[ctx.fresh_name("dim_as_value_shape")],
-        )
-        shape_vec.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(shape_vec, (src_rank,))
-
-        gather_idx = _const_i64(
-            ctx, np.asarray([axis], dtype=np.int64), "dim_as_value_axis"
-        )
-        gathered_dim = ctx.builder.Gather(
-            shape_vec,
-            gather_idx,
-            axis=0,
-            _outputs=[ctx.fresh_name("dim_as_value_gather")],
-        )
-        gathered_dim.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(gathered_dim, (1,))
+            gather_idx = _const_i64(
+                ctx, np.asarray([axis], dtype=np.int64), "dim_as_value_axis"
+            )
+            gathered_dim = ctx.builder.Gather(
+                shape_vec,
+                gather_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name("dim_as_value_gather")],
+            )
+            gathered_dim.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(gathered_dim, (1,))
+            dim_vec = gathered_dim
 
         reshape_shape = _const_i64(
             ctx, np.asarray([], dtype=np.int64), "dim_as_value_scalar_shape"
@@ -142,7 +158,7 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
         )
 
         reshape_result = ctx.builder.Reshape(
-            gathered_dim,
+            dim_vec,
             reshape_shape,
             _outputs=[reshape_name or ctx.fresh_name("dim_as_value_scalar")],
         )
