@@ -655,7 +655,11 @@ def _refresh_elementwise_output_shape(node: ir.Node) -> None:
     src = _elementwise_shape_source(ins)
     if src is None:
         return
-    _copy_shape_dtype(outs[0], src)
+    if node.op_type in {"Cast", "CastLike", "Not"}:
+        # These ops can change dtype; keep existing dtype metadata untouched.
+        _copy_shape_only(outs[0], src)
+    else:
+        _copy_shape_dtype(outs[0], src)
     candidate_shapes: List[Tuple[Any, ...]] = []
     for iv in ins:
         if _is_scalar_const_value(iv):
@@ -1568,12 +1572,12 @@ def propagate_unary_shapes_ir(graph: ir.Graph) -> None:
 
 
 def propagate_elementwise_shapes_ir(graph: ir.Graph) -> None:
-    """Refresh output shapes/types for elementwise operators from current inputs."""
+    """Refresh output shapes for binary elementwise operators from current inputs."""
     nodes = list(graph)
     if not nodes:
         return
     for node in nodes:
-        if _is_elementwise_node(node):
+        if node.op_type in ELEMENTWISE_BINARY_OPS:
             _refresh_elementwise_output_shape(node)
 
 
