@@ -586,6 +586,67 @@ def _elementwise_shape_source(inputs: Sequence[ir.Value]) -> Optional[ir.Value]:
     return inputs[0] if inputs else None
 
 
+def _dim_token(dim: Any) -> Tuple[str, Any]:
+    if isinstance(dim, (int, np.integer)):
+        return ("int", int(dim))
+    if hasattr(dim, "value"):
+        try:
+            return ("value", getattr(dim, "value"))
+        except Exception:
+            pass
+    return ("repr", repr(dim))
+
+
+def _broadcast_shape_dims(
+    shapes: Sequence[Tuple[Any, ...]],
+) -> Optional[Tuple[Any, ...]]:
+    if not shapes:
+        return None
+
+    max_rank = max(len(shape) for shape in shapes)
+    if max_rank == 0:
+        return ()
+
+    padded_shapes: List[Tuple[Any, ...]] = []
+    for shape in shapes:
+        if len(shape) < max_rank:
+            shape = (1,) * (max_rank - len(shape)) + shape
+        padded_shapes.append(shape)
+
+    result: List[Any] = []
+    for axis in range(max_rank):
+        resolved: Any = 1
+        for shape in padded_shapes:
+            dim = shape[axis]
+            if isinstance(dim, (int, np.integer)):
+                dim_int = int(dim)
+                if dim_int == 1:
+                    continue
+                if isinstance(resolved, (int, np.integer)):
+                    resolved_int = int(resolved)
+                    if resolved_int == 1:
+                        resolved = dim_int
+                        continue
+                    if resolved_int != dim_int:
+                        return None
+                    continue
+                # Keep concrete dimensions over symbolic ones when available.
+                resolved = dim_int
+                continue
+
+            # Symbolic/unknown dimension.
+            if isinstance(resolved, (int, np.integer)):
+                if int(resolved) == 1:
+                    resolved = dim
+                # If resolved is a concrete non-1 dim, keep it.
+                continue
+            if _dim_token(resolved) != _dim_token(dim):
+                return None
+        result.append(int(resolved) if isinstance(resolved, np.integer) else resolved)
+
+    return tuple(result)
+
+
 def _refresh_elementwise_output_shape(node: ir.Node) -> None:
     outs = _node_outputs(node)
     if not outs:
@@ -594,7 +655,26 @@ def _refresh_elementwise_output_shape(node: ir.Node) -> None:
     src = _elementwise_shape_source(ins)
     if src is None:
         return
-    _copy_shape_dtype(outs[0], src)
+    if node.op_type in {"Cast", "CastLike", "Not"}:
+        # These ops can change dtype; keep existing dtype metadata untouched.
+        _copy_shape_only(outs[0], src)
+    else:
+        _copy_shape_dtype(outs[0], src)
+    candidate_shapes: List[Tuple[Any, ...]] = []
+    for iv in ins:
+        if _is_scalar_const_value(iv):
+            continue
+        dims = _shape_dims_seq(iv.shape)
+        if dims is None:
+            continue
+        candidate_shapes.append(dims)
+    merged = _broadcast_shape_dims(candidate_shapes)
+    if merged is None:
+        return
+    out = outs[0]
+    if _shape_dims_key(out.shape) == _shape_dims_key(merged):
+        return
+    out.shape = ir.Shape(merged)
 
 
 def _collect_transpose_elementwise_chain(
@@ -832,6 +912,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             # 3. Bypass T2
             t2_out = _node_output(node)
             reducer_out = _node_output(reducer)
+            _copy_shape_dtype(reducer_out, t2_out)
             _replace_all_uses_with(t2_out, reducer_out, replace_graph_outputs=True)
 
             # 4. Cleanup
@@ -1490,6 +1571,16 @@ def propagate_unary_shapes_ir(graph: ir.Graph) -> None:
     return
 
 
+def propagate_elementwise_shapes_ir(graph: ir.Graph) -> None:
+    """Refresh output shapes for binary elementwise operators from current inputs."""
+    nodes = list(graph)
+    if not nodes:
+        return
+    for node in nodes:
+        if node.op_type in ELEMENTWISE_BINARY_OPS:
+            _refresh_elementwise_output_shape(node)
+
+
 # ---------------- Dropout.training_mode constant inlining ----------------
 
 
@@ -1946,6 +2037,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     common_passes.LiftConstantsToInitializersPass(size_limit=0)(ir_model)
     rewrite_mul_rsqrt_as_div_ir(gr)
     inline_dropout_training_mode_constants_ir(gr)
+    propagate_elementwise_shapes_ir(gr)
     propagate_unary_shapes_ir(gr)
     remove_redundant_casts_ir(gr)
     remove_dead_nodes_ir(ir_model)
@@ -1963,6 +2055,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         remove_identity_reshapes_ir(fgr)
         rewrite_mul_rsqrt_as_div_ir(fgr)
         inline_dropout_training_mode_constants_ir(fgr)
+        propagate_elementwise_shapes_ir(fgr)
         propagate_unary_shapes_ir(fgr)
         remove_redundant_casts_ir(fgr)
 

@@ -72,7 +72,11 @@ register_example(
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
-                    ("ReduceMean", {"counts": {"ReduceMean": 1}}),
+                    (
+                        "Conv:1x32x8x8 -> ReduceMean:1x32x1x1 -> Conv:1x4x1x1",
+                        {"counts": {"ReduceMean": 1}},
+                    ),
+                    "Sigmoid:1x32x1x1 -> Mul:1x32x8x8 -> Add:1x32x8x8",
                 ],
                 no_unused_inputs=True,
             ),
