@@ -275,7 +275,7 @@ def to_onnx(
     inputs: Sequence[UserInputSpec],
     input_params: Optional[Mapping[str, object]] = None,
     model_name: str = "jax_model",
-    opset: int = 21,
+    opset: int = 23,
     *,  # All arguments after this must be keyword-only
     enable_double_precision: bool = False,
     record_primitive_calls_file: Optional[str] = None,
@@ -302,7 +302,7 @@ def to_onnx(
             should be exposed as inputs in the ONNX model rather than baked into
             the export (e.g. `"deterministic"` flags).
         model_name: Name to give the ONNX model. Defaults to "jax_model".
-        opset: ONNX opset version to target. Defaults to 21.
+        opset: ONNX opset version to target. Defaults to 23.
         enable_double_precision: If True, export tensors as tensor(double). Defaults to False (use tensor(float)).
         record_primitive_calls_file: Optional path to a file. If provided,
             details of each JAX primitive encountered during conversion will be

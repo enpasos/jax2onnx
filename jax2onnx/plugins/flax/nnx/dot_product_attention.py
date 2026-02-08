@@ -52,6 +52,19 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     return dtype
 
 
+def _builder_opset(builder: object) -> int:
+    opset = getattr(builder, "opset", None)
+    if opset is None:
+        opset = getattr(builder, "opset_version", None)
+    if opset is None:
+        opset_imports = getattr(builder, "opset_imports", None)
+        if isinstance(opset_imports, dict):
+            opset = opset_imports.get("", None)
+    if opset is None:
+        return 0
+    return int(opset)
+
+
 DPA_PRIM: Final[Primitive] = Primitive("nnx.dot_product_attention")
 DPA_PRIM.multiple_results = False
 
@@ -98,6 +111,10 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
         {
             "component": "Softmax",
             "doc": "https://onnx.ai/onnx/operators/onnx__Softmax.html",
+        },
+        {
+            "component": "Attention",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Attention.html",
         },
     ],
     since="0.1.0",
@@ -221,10 +238,12 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
+        v_shape = tuple(getattr(getattr(v_var, "aval", None), "shape", ()))
         np_dtype = np.dtype(getattr(getattr(q_var, "aval", None), "dtype", np.float32))
 
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
+        v_head_dim = v_shape[3] if len(v_shape) >= 4 else head_dim
 
         batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
         q_len_v, _ = _coerce_dim(q_len, "query length")
@@ -235,12 +254,172 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 "nnx.dot_product_attention requires static head dimension"
             )
         k_len_v, _ = _coerce_dim(k_len, "key length")
+        v_head_dim_v, _ = _coerce_dim(v_head_dim, "value head")
 
         head_dim_i = cast(int, head_dim_v)
         num_heads_i: DimLike = num_heads_v
         batch_dim_i: DimLike = batch_dim_v
         q_len_i: DimLike = q_len_v
         k_len_i: DimLike = k_len_v
+        v_head_dim_i: DimLike = v_head_dim_v
+
+        call_param_values = getattr(ctx, "_call_param_value_by_name", {}) or {}
+        det_input = call_param_values.get("deterministic")
+        dropout_rate = float(params.get("dropout_rate", 0.0) or 0.0)
+
+        use_native_attention = (
+            _builder_opset(builder) >= 23
+            and hasattr(builder, "Attention")
+            and det_input is None
+        )
+
+        if use_native_attention:
+            q_attn = builder.Transpose(
+                q_val,
+                _outputs=[ctx.fresh_name("dpa_q4")],
+                perm=[0, 2, 1, 3],
+            )
+            q_attn.type = ir.TensorType(_dtype_enum_from_value(q_val))
+            _stamp_type_and_shape(
+                q_attn, (batch_dim_i, num_heads_i, q_len_i, head_dim_i)
+            )
+            _ensure_value_metadata(ctx, q_attn)
+
+            k_attn = builder.Transpose(
+                k_val,
+                _outputs=[ctx.fresh_name("dpa_k4")],
+                perm=[0, 2, 1, 3],
+            )
+            k_attn.type = ir.TensorType(_dtype_enum_from_value(k_val))
+            _stamp_type_and_shape(
+                k_attn, (batch_dim_i, num_heads_i, k_len_i, head_dim_i)
+            )
+            _ensure_value_metadata(ctx, k_attn)
+
+            v_attn = builder.Transpose(
+                v_val,
+                _outputs=[ctx.fresh_name("dpa_v4")],
+                perm=[0, 2, 1, 3],
+            )
+            v_attn.type = ir.TensorType(_dtype_enum_from_value(v_val))
+            _stamp_type_and_shape(
+                v_attn, (batch_dim_i, num_heads_i, k_len_i, v_head_dim_i)
+            )
+            _ensure_value_metadata(ctx, v_attn)
+
+            attn_mask: ir.Value | None = None
+            mask_dims_tuple: tuple[DimLike, ...] = ()
+
+            if has_mask and mask_var is not None:
+                mask_val = ctx.get_value_for_var(
+                    mask_var, name_hint=ctx.fresh_name("dpa_mask")
+                )
+                mask_shape = tuple(
+                    getattr(getattr(mask_var, "aval", None), "shape", ())
+                )
+                mask_dims = []
+                for idx, dim in enumerate(mask_shape):
+                    dim_val, _ = _coerce_dim(dim, f"mask_dim_{idx}")
+                    mask_dims.append(dim_val)
+                mask_dims_tuple = tuple(mask_dims)
+                mask_dtype = np.dtype(
+                    getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
+                )
+                if mask_dtype != np.bool_:
+                    mask_val = builder.Cast(
+                        mask_val,
+                        _outputs=[ctx.fresh_name("dpa_mask_bool")],
+                        to=int(ir.DataType.BOOL.value),
+                    )
+                mask_val.type = ir.TensorType(ir.DataType.BOOL)
+                _stamp_type_and_shape(mask_val, mask_dims_tuple)
+                _ensure_value_metadata(ctx, mask_val)
+                attn_mask = mask_val
+
+            bias_val: ir.Value | None = None
+            bias_dims: tuple[object, ...] = ()
+            if has_bias and bias_var is not None:
+                bias_val = ctx.get_value_for_var(
+                    bias_var, name_hint=ctx.fresh_name("dpa_bias")
+                )
+                bias_val = cast_param_like(
+                    ctx, bias_val, q_attn, name_hint="dpa_bias_cast"
+                )
+                bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+                _stamp_type_and_shape(bias_val, bias_dims)
+                _ensure_value_metadata(ctx, bias_val)
+
+            if attn_mask is not None and bias_val is not None:
+                zeros = ctx.builder.add_initializer_from_scalar(
+                    name=ctx.fresh_name("dpa_mask_zero"),
+                    value=np.asarray(0.0, dtype=np_dtype),
+                )
+                neg_inf = ctx.builder.add_initializer_from_scalar(
+                    name=ctx.fresh_name("dpa_mask_fill"),
+                    value=np.asarray(np.finfo(np_dtype).min, dtype=np_dtype),
+                )
+                additive_mask = builder.Where(
+                    attn_mask,
+                    zeros,
+                    neg_inf,
+                    _outputs=[ctx.fresh_name("dpa_mask_additive")],
+                )
+                additive_mask.type = ir.TensorType(_dtype_enum_from_value(q_attn))
+                _stamp_type_and_shape(additive_mask, mask_dims_tuple)
+                _ensure_value_metadata(ctx, additive_mask)
+
+                combined_mask = builder.Add(
+                    additive_mask,
+                    bias_val,
+                    _outputs=[ctx.fresh_name("dpa_mask_with_bias")],
+                )
+                combined_mask.type = ir.TensorType(_dtype_enum_from_value(q_attn))
+                combined_dims = (
+                    mask_dims_tuple
+                    if len(mask_dims_tuple) >= len(bias_dims)
+                    else tuple(cast(DimLike, d) for d in bias_dims)
+                )
+                _stamp_type_and_shape(combined_mask, combined_dims)
+                _ensure_value_metadata(ctx, combined_mask)
+                attn_mask = combined_mask
+            elif attn_mask is None and bias_val is not None:
+                attn_mask = bias_val
+
+            attn_output_name = ctx.fresh_name("dpa_attn_out")
+            if attn_mask is None:
+                attn_out = builder.Attention(
+                    q_attn,
+                    k_attn,
+                    v_attn,
+                    _outputs=[attn_output_name],
+                )
+            else:
+                attn_out = builder.Attention(
+                    q_attn,
+                    k_attn,
+                    v_attn,
+                    attn_mask,
+                    _outputs=[attn_output_name],
+                )
+            attn_out.type = ir.TensorType(_dtype_enum_from_value(v_attn))
+            _stamp_type_and_shape(
+                attn_out, (batch_dim_i, num_heads_i, q_len_i, v_head_dim_i)
+            )
+            _ensure_value_metadata(ctx, attn_out)
+
+            out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
+            result = builder.Transpose(
+                attn_out,
+                _outputs=[out_name],
+                perm=[0, 2, 1, 3],
+            )
+            result.type = ir.TensorType(_dtype_enum_from_value(v_val))
+            _stamp_type_and_shape(
+                result, (batch_dim_i, q_len_i, num_heads_i, v_head_dim_i)
+            )
+            _ensure_value_metadata(ctx, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
 
         q_t = builder.Transpose(
             q_val,
@@ -357,10 +536,6 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
         _ensure_value_metadata(ctx, weights)
 
-        call_param_values = getattr(ctx, "_call_param_value_by_name", {}) or {}
-        det_input = call_param_values.get("deterministic")
-
-        dropout_rate = float(params.get("dropout_rate", 0.0) or 0.0)
         if det_input is not None:
             training_mode = builder.Not(
                 det_input,
@@ -401,7 +576,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("dpa_outT")],
         )
         out_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
-        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, v_head_dim_i))
         _ensure_value_metadata(ctx, out_t)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
@@ -411,7 +586,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             perm=[0, 2, 1, 3],
         )
         result.type = ir.TensorType(_dtype_enum_from_value(v_val))
-        _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_i))
+        _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, v_head_dim_i))
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
