@@ -98,8 +98,6 @@ register_example(
         "nnx.Conv",
         "nnx.List",
         "nnx.silu",
-        "jax.numpy.reshape",
-        "jax.numpy.transpose",
     ],
     testcases=[
         {
@@ -121,16 +119,15 @@ register_example(
                         "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x32x8x8 -> "
                         "Mul:1x32x8x8 -> Conv:1x32x8x8 -> Add:1x32x8x8 -> "
                         "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x4x8x8 -> "
-                        "Transpose:1x8x8x4 -> Reshape:1x8x8x2x2x1 -> "
-                        "Transpose:1x8x2x8x2x1 -> Reshape:1x16x16x1",
+                        "DepthToSpace:1x1x16x16 -> Transpose:1x16x16x1",
                         {
                             "counts": {
                                 "Conv": 11,
                                 "Add": 5,
                                 "Mul": 4,
                                 "Sigmoid": 4,
-                                "Transpose": 3,
-                                "Reshape": 2,
+                                "Transpose": 2,
+                                "DepthToSpace": 1,
                             }
                         },
                     )
@@ -158,17 +155,15 @@ register_example(
                         "Conv:1x32x8x8 -> Mul:1x32x8x8 -> Conv:1x32x8x8 -> "
                         "Add:1x32x8x8 -> Conv:1x32x8x8 -> Mul:1x32x8x8 -> "
                         "Conv:1x32x8x8 -> Add:1x32x8x8 -> Conv:1x32x8x8 -> "
-                        "Add:1x32x8x8 -> Conv:1x4x8x8 -> Transpose:1x8x8x4 -> "
-                        "Reshape:1x8x8x2x2x1 -> Transpose:1x8x2x8x2x1 -> "
-                        "Reshape:1x16x16x1 -> Transpose:1x1x16x16",
+                        "Add:1x32x8x8 -> Conv:1x4x8x8 -> "
+                        "DepthToSpace:1x1x16x16",
                         {
                             "counts": {
                                 "Conv": 11,
                                 "Add": 5,
                                 "Mul": 4,
                                 "Sigmoid": 4,
-                                "Transpose": 3,
-                                "Reshape": 2,
+                                "DepthToSpace": 1,
                             }
                         },
                     )
@@ -186,9 +181,7 @@ register_example(
             "run_only_f32_variant": True,
             "inputs_as_nchw": [0],
             "outputs_as_nchw": [0],
-            "expected_output_shapes": [
-                (1, 1, "JAX2ONNX_DYNAMIC_DIM_SENTINEL", "JAX2ONNX_DYNAMIC_DIM_SENTINEL")
-            ],
+            "expected_output_shapes": [(1, 1, "2*H", "2*W")],
         },
         {
             "testcase": "depth_to_space_resnet_scaled_inputs_outputs_as_nchw",
@@ -207,7 +200,7 @@ register_example(
                         "Conv",
                         {
                             "counts": {
-                                "Transpose": 3,
+                                "DepthToSpace": 1,
                             }
                         },
                     )
