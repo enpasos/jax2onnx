@@ -212,12 +212,15 @@ def _consumer_nodes(
     """
     if value_or_name is None:
         return []
+    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         consumers = value_or_name.consumers()
         if consumers:
             try:
                 if all(isinstance(c, ir.Node) for c in consumers):
-                    return list(consumers)
+                    filtered = [c for c in consumers if id(c) in current_node_ids]
+                    if filtered:
+                        return list(filtered)
             except Exception:
                 # Fall back to name-based scan below.
                 pass
@@ -257,9 +260,10 @@ def _producer_node(
     """
     if value_or_name is None:
         return None
+    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         prod = value_or_name.producer()
-        if isinstance(prod, ir.Node):
+        if isinstance(prod, ir.Node) and id(prod) in current_node_ids:
             return prod
 
     ref_value, ref_name = _value_identity(value_or_name)
@@ -923,6 +927,178 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             break
 
 
+def _collect_add_transpose_forest(
+    nodes: Sequence[ir.Node], start: ir.Node
+) -> Optional[Tuple[List[ir.Node], List[int], List[int], Set[ir.Node], Set[ir.Node]]]:
+    """
+    Collect a forward Add forest where external inputs are wrapped by one
+    Transpose(perm_fwd) and external outputs are wrapped by one
+    Transpose(perm_inv). Returns None when the pattern does not match.
+    """
+    if start.op_type != "Add":
+        return None
+
+    perm_fwd: Optional[List[int]] = None
+    perm_inv: Optional[List[int]] = None
+    add_nodes: List[ir.Node] = []
+    add_set: Set[ir.Node] = set()
+    input_transposes: Set[ir.Node] = set()
+    output_transposes: Set[ir.Node] = set()
+    queue: List[ir.Node] = [start]
+
+    while queue:
+        node = queue.pop(0)
+        if node in add_set:
+            continue
+        if node.op_type != "Add":
+            return None
+
+        ins = _node_inputs(node)
+        if len(ins) < 2:
+            return None
+
+        add_input_count = 0
+        transpose_input_count = 0
+        for iv in ins:
+            prod = _producer_node(nodes, iv)
+            if prod is not None and prod.op_type == "Add":
+                add_input_count += 1
+                if prod not in add_set:
+                    # Keep traversal strictly forward from the selected root.
+                    return None
+                continue
+            if prod is None or prod.op_type != "Transpose":
+                return None
+            perm = _transpose_perm(prod)
+            if perm is None:
+                return None
+            if perm_fwd is None:
+                perm_fwd = perm
+            elif perm_fwd != perm:
+                return None
+            input_transposes.add(prod)
+            transpose_input_count += 1
+
+        if node is start:
+            if add_input_count != 0 or transpose_input_count == 0:
+                return None
+        else:
+            if add_input_count == 0:
+                return None
+
+        out = _node_output(node)
+        if out is None:
+            return None
+        consumers = _consumer_nodes(nodes, out)
+        for consumer in consumers:
+            if consumer.op_type == "Add":
+                if consumer not in add_set:
+                    queue.append(consumer)
+                continue
+            if consumer.op_type != "Transpose":
+                return None
+            perm = _transpose_perm(consumer)
+            if perm is None:
+                return None
+            if perm_inv is None:
+                perm_inv = perm
+            elif perm_inv != perm:
+                return None
+            output_transposes.add(consumer)
+
+        add_set.add(node)
+        add_nodes.append(node)
+
+    if (
+        not add_nodes
+        or perm_fwd is None
+        or perm_inv is None
+        or not output_transposes
+        or not _is_inverse_perm(perm_fwd, perm_inv)
+    ):
+        return None
+    return add_nodes, perm_fwd, perm_inv, input_transposes, output_transposes
+
+
+def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
+    """
+    Lift Add forests to pre-transpose layout when they are enclosed by inverse
+    transpose boundaries.
+    """
+    nodes = list(cast(NodeSeq, graph))
+    if not nodes:
+        return
+
+    changed = True
+    while changed:
+        changed = False
+        nodes = list(cast(NodeSeq, graph))
+        for start in nodes:
+            if start.op_type != "Add":
+                continue
+
+            match = _collect_add_transpose_forest(nodes, start)
+            if match is None:
+                continue
+            add_nodes, perm_fwd, _perm_inv, input_transposes, output_transposes = match
+
+            # Rewrite Add inputs from Transpose(perm_fwd)(x) to x.
+            for add_node in add_nodes:
+                ins = _node_inputs(add_node)
+                for idx, iv in enumerate(ins):
+                    prod = _producer_node(nodes, iv)
+                    if prod is None or prod.op_type != "Transpose":
+                        continue
+                    perm = _transpose_perm(prod)
+                    if perm is None or perm != perm_fwd:
+                        continue
+                    src = (_node_inputs(prod) or [None])[0]
+                    if isinstance(src, ir.Value):
+                        add_node.replace_input_with(idx, src)
+                _refresh_elementwise_output_shape(add_node)
+
+            # Remove output Transpose(perm_inv) wrappers.
+            for out_transpose in output_transposes:
+                t_out = _node_output(out_transpose)
+                t_in = (_node_inputs(out_transpose) or [None])[0]
+                if t_out is None or not isinstance(t_in, ir.Value):
+                    continue
+                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+            graph.remove(list(output_transposes))
+
+            # Remove now-unused input Transpose(perm_fwd) nodes.
+            live_nodes = list(cast(NodeSeq, graph))
+            removable_inputs: List[ir.Node] = []
+            for in_transpose in input_transposes:
+                t_out = _node_output(in_transpose)
+                if t_out is None:
+                    removable_inputs.append(in_transpose)
+                    continue
+                if _consumer_nodes(live_nodes, t_out):
+                    continue
+                if t_out.is_graph_output():
+                    continue
+                removable_inputs.append(in_transpose)
+            if removable_inputs:
+                graph.remove(removable_inputs)
+
+            if TRN_DEBUG:
+                _dbg(
+                    "remove_redundant_transpose_add_forests_ir:",
+                    "start=",
+                    start.name,
+                    "adds=",
+                    len(add_nodes),
+                    "in_t=",
+                    len(input_transposes),
+                    "out_t=",
+                    len(output_transposes),
+                )
+
+            changed = True
+            break
+
+
 def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
     nodes = list(graph)
     if not nodes:
@@ -1165,6 +1341,8 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
 
             changed = True
             break
+        if changed:
+            continue
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
             if t2_node.op_type != "Transpose":
@@ -1976,6 +2154,70 @@ def remove_dead_nodes_ir(model: ir.Model) -> None:
     common_passes.RemoveUnusedNodesPass()(model)
 
 
+# ---------------- Targeted cleanup: orphan Transpose nodes ----------------
+
+
+def _has_named_consumer(
+    nodes: Sequence[ir.Node], *, producer: ir.Node, output_name: str
+) -> bool:
+    for node in nodes:
+        if node is producer:
+            continue
+        for inp in _node_inputs(node):
+            if _v_name(inp) == output_name:
+                return True
+    return False
+
+
+def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
+    """
+    Remove Transpose nodes whose outputs are not consumed and are not graph outputs.
+
+    This pass uses name-based consumer discovery to stay robust even when IR-level
+    consumer links are stale.
+    """
+    while True:
+        nodes = list(cast(NodeSeq, graph))
+        graph_output_names: Set[str] = {
+            name for out in graph.outputs if (name := _v_name(out)) is not None
+        }
+        to_remove: List[ir.Node] = []
+
+        for node in nodes:
+            if node.op_type != "Transpose":
+                continue
+
+            outputs = _node_outputs(node)
+            if not outputs:
+                to_remove.append(node)
+                continue
+
+            is_live = False
+            for out in outputs:
+                out_name = _v_name(out)
+                if out_name is None:
+                    continue
+                if out_name in graph_output_names:
+                    is_live = True
+                    break
+                if _has_named_consumer(nodes, producer=node, output_name=out_name):
+                    is_live = True
+                    break
+
+            if not is_live:
+                to_remove.append(node)
+
+        if not to_remove:
+            break
+
+        if DCE_DEBUG:
+            _dbg(
+                "remove_orphan_transposes_ir removed:",
+                [n.name or "<unnamed>" for n in to_remove],
+            )
+        graph.remove(to_remove)
+
+
 # ---------------- Prune unused graph inputs (top graph only) ----------------
 
 
@@ -2030,6 +2272,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     common_passes.NameFixPass()(ir_model)
     remove_redundant_casts_ir(gr)
     remove_redundant_transpose_reduce_ir(gr)
+    remove_redundant_transpose_add_forests_ir(gr)
     remove_redundant_transpose_pairs_ir(gr)
     remove_redundant_reshape_pairs_ir(gr)
     remove_identity_reshapes_ir(gr)
@@ -2041,6 +2284,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     propagate_unary_shapes_ir(gr)
     remove_redundant_casts_ir(gr)
     remove_dead_nodes_ir(ir_model)
+    remove_orphan_transposes_ir(gr)
     prune_unused_graph_inputs_ir(gr)
 
     # The passes are destructive; might as well raise exceptions if they occur.
@@ -2050,6 +2294,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         fgr = fn.graph
         remove_redundant_casts_ir(fgr)
         remove_redundant_transpose_reduce_ir(fgr)
+        remove_redundant_transpose_add_forests_ir(fgr)
         remove_redundant_transpose_pairs_ir(fgr)
         remove_redundant_reshape_pairs_ir(fgr)
         remove_identity_reshapes_ir(fgr)
@@ -2058,5 +2303,6 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         propagate_elementwise_shapes_ir(fgr)
         propagate_unary_shapes_ir(fgr)
         remove_redundant_casts_ir(fgr)
+        remove_orphan_transposes_ir(fgr)
 
     return ir_model
