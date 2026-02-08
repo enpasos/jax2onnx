@@ -212,12 +212,15 @@ def _consumer_nodes(
     """
     if value_or_name is None:
         return []
+    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         consumers = value_or_name.consumers()
         if consumers:
             try:
                 if all(isinstance(c, ir.Node) for c in consumers):
-                    return list(consumers)
+                    filtered = [c for c in consumers if id(c) in current_node_ids]
+                    if filtered:
+                        return list(filtered)
             except Exception:
                 # Fall back to name-based scan below.
                 pass
@@ -257,9 +260,10 @@ def _producer_node(
     """
     if value_or_name is None:
         return None
+    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         prod = value_or_name.producer()
-        if isinstance(prod, ir.Node):
+        if isinstance(prod, ir.Node) and id(prod) in current_node_ids:
             return prod
 
     ref_value, ref_name = _value_identity(value_or_name)
@@ -1165,6 +1169,8 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
 
             changed = True
             break
+        if changed:
+            continue
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
             if t2_node.op_type != "Transpose":
@@ -1976,6 +1982,70 @@ def remove_dead_nodes_ir(model: ir.Model) -> None:
     common_passes.RemoveUnusedNodesPass()(model)
 
 
+# ---------------- Targeted cleanup: orphan Transpose nodes ----------------
+
+
+def _has_named_consumer(
+    nodes: Sequence[ir.Node], *, producer: ir.Node, output_name: str
+) -> bool:
+    for node in nodes:
+        if node is producer:
+            continue
+        for inp in _node_inputs(node):
+            if _v_name(inp) == output_name:
+                return True
+    return False
+
+
+def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
+    """
+    Remove Transpose nodes whose outputs are not consumed and are not graph outputs.
+
+    This pass uses name-based consumer discovery to stay robust even when IR-level
+    consumer links are stale.
+    """
+    while True:
+        nodes = list(cast(NodeSeq, graph))
+        graph_output_names: Set[str] = {
+            name for out in graph.outputs if (name := _v_name(out)) is not None
+        }
+        to_remove: List[ir.Node] = []
+
+        for node in nodes:
+            if node.op_type != "Transpose":
+                continue
+
+            outputs = _node_outputs(node)
+            if not outputs:
+                to_remove.append(node)
+                continue
+
+            is_live = False
+            for out in outputs:
+                out_name = _v_name(out)
+                if out_name is None:
+                    continue
+                if out_name in graph_output_names:
+                    is_live = True
+                    break
+                if _has_named_consumer(nodes, producer=node, output_name=out_name):
+                    is_live = True
+                    break
+
+            if not is_live:
+                to_remove.append(node)
+
+        if not to_remove:
+            break
+
+        if DCE_DEBUG:
+            _dbg(
+                "remove_orphan_transposes_ir removed:",
+                [n.name or "<unnamed>" for n in to_remove],
+            )
+        graph.remove(to_remove)
+
+
 # ---------------- Prune unused graph inputs (top graph only) ----------------
 
 
@@ -2041,6 +2111,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     propagate_unary_shapes_ir(gr)
     remove_redundant_casts_ir(gr)
     remove_dead_nodes_ir(ir_model)
+    remove_orphan_transposes_ir(gr)
     prune_unused_graph_inputs_ir(gr)
 
     # The passes are destructive; might as well raise exceptions if they occur.
@@ -2058,5 +2129,6 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         propagate_elementwise_shapes_ir(fgr)
         propagate_unary_shapes_ir(fgr)
         remove_redundant_casts_ir(fgr)
+        remove_orphan_transposes_ir(fgr)
 
     return ir_model
