@@ -1,10 +1,9 @@
 # jax2onnx/plugins/equinox/eqx/nn/rotary_positional_embedding.py
 
-# status 2025-10-15
-# TODO: use ONNX https://onnx.ai/onnx/operators/onnx__RotaryEmbedding.html
-# support is still developing therefore we implement it via basic ops, see
-# https://github.com/microsoft/onnxruntime/issues/26070
-# opset23 rotary embedding fails on Win CUDA #26070
+# status 2026-02-08
+# Prefer ONNX RotaryEmbedding for opset >= 23 when shapes are supported.
+# Keep a decomposition fallback due runtime caveats (for example Win CUDA
+# failures tracked in https://github.com/microsoft/onnxruntime/issues/26070).
 
 
 from __future__ import annotations
@@ -105,6 +104,19 @@ def _value_dims(value: ir.Value) -> tuple[object, ...]:
     if isinstance(shape, ir.Shape):
         return tuple(shape.dims)
     return ()
+
+
+def _builder_opset(builder: object) -> int:
+    opset = getattr(builder, "opset", None)
+    if opset is None:
+        opset = getattr(builder, "opset_version", None)
+    if opset is None:
+        imports = getattr(builder, "opset_imports", None)
+        if isinstance(imports, dict):
+            opset = imports.get("", None)
+    if opset is None:
+        return 0
+    return int(opset)
 
 
 def lower_rotary_application(
@@ -213,6 +225,10 @@ def lower_rotary_application(
             "component": "Concat",
             "doc": "https://onnx.ai/onnx/operators/onnx__Concat.html",
         },
+        {
+            "component": "RotaryEmbedding",
+            "doc": "https://onnx.ai/onnx/operators/onnx__RotaryEmbedding.html",
+        },
     ],
     since="0.10.0",
     context="primitives.eqx",
@@ -290,12 +306,7 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
 
         aval = getattr(x_var, "aval", None)
         aval_shape = tuple(getattr(aval, "shape", ()))
-        split_axis = len(aval_shape) - 1 if aval_shape else 1
-        if split_axis < 0:
-            split_axis = 0
-        prefix_dims = tuple(aval_shape[:-1]) if aval_shape else ()
-        prefix_dims + (half,)
-        prefix_dims + (embedding_size,)
+        x_rank = len(aval_shape)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("rope_input"))
         cos_val = cast_param_like(
@@ -310,10 +321,148 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
             x_val,
             name_hint="rope_sin_cast",
         )
-        _stamp_type_and_shape(cos_val, (None, embedding_size))
-        _stamp_type_and_shape(sin_val, (None, embedding_size))
+        cos_shape = tuple(getattr(getattr(cos_var, "aval", None), "shape", ()))
+        sin_shape = tuple(getattr(getattr(sin_var, "aval", None), "shape", ()))
+        _stamp_type_and_shape(
+            cos_val, cos_shape if cos_shape else (None, embedding_size)
+        )
+        _stamp_type_and_shape(
+            sin_val, sin_shape if sin_shape else (None, embedding_size)
+        )
         _ensure_value_metadata(ctx, cos_val)
         _ensure_value_metadata(ctx, sin_val)
+
+        use_native_rotary = (
+            _builder_opset(builder) >= 23
+            and hasattr(builder, "RotaryEmbedding")
+            and x_rank in (2, 3)
+        )
+        if use_native_rotary:
+            if x_rank == 2:
+                batch_dim_raw = 1
+                seq_dim_raw = aval_shape[0]
+            else:
+                batch_dim_raw = aval_shape[0]
+                seq_dim_raw = aval_shape[1]
+
+            if (
+                isinstance(batch_dim_raw, (int, np.integer))
+                and isinstance(seq_dim_raw, (int, np.integer))
+                and len(cos_shape) == 2
+                and len(sin_shape) == 2
+                and isinstance(cos_shape[1], (int, np.integer))
+                and isinstance(sin_shape[1], (int, np.integer))
+            ):
+                batch_dim = int(batch_dim_raw)
+                seq_dim = int(seq_dim_raw)
+                cos_width = int(cos_shape[1])
+                sin_width = int(sin_shape[1])
+
+                if cos_width == sin_width and cos_width in (half, embedding_size):
+                    x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
+
+                    x_3d = x_val
+                    if x_rank == 2:
+                        unsq_axes = _const_i64(
+                            ctx,
+                            np.asarray([0], dtype=np.int64),
+                            ctx.fresh_name("rope_unsqueeze_axes"),
+                        )
+                        x_3d = builder.Unsqueeze(
+                            x_val,
+                            unsq_axes,
+                            _outputs=[ctx.fresh_name("rope_x_3d")],
+                        )
+                        if x_dtype is not None:
+                            x_3d.type = ir.TensorType(x_dtype)
+                        _stamp_type_and_shape(x_3d, (1, seq_dim, embedding_size))
+                        _ensure_value_metadata(ctx, x_3d)
+                    else:
+                        _stamp_type_and_shape(
+                            x_3d, (batch_dim, seq_dim, embedding_size)
+                        )
+                        _ensure_value_metadata(ctx, x_3d)
+
+                    cos_half = cos_val
+                    sin_half = sin_val
+                    if cos_width == embedding_size:
+                        split_sizes = _const_i64(
+                            ctx,
+                            np.asarray([half, half], dtype=np.int64),
+                            ctx.fresh_name("rope_cache_split_sizes"),
+                        )
+                        cos_half, _ = builder.Split(
+                            cos_val,
+                            split_sizes,
+                            axis=1,
+                            _outputs=[
+                                ctx.fresh_name("rope_cos_half"),
+                                ctx.fresh_name("rope_cos_rest"),
+                            ],
+                        )
+                        sin_half, _ = builder.Split(
+                            sin_val,
+                            split_sizes,
+                            axis=1,
+                            _outputs=[
+                                ctx.fresh_name("rope_sin_half"),
+                                ctx.fresh_name("rope_sin_rest"),
+                            ],
+                        )
+                    if x_dtype is not None:
+                        cos_half.type = ir.TensorType(x_dtype)
+                        sin_half.type = ir.TensorType(x_dtype)
+                    _stamp_type_and_shape(cos_half, (seq_dim, half))
+                    _stamp_type_and_shape(sin_half, (seq_dim, half))
+                    _ensure_value_metadata(ctx, cos_half)
+                    _ensure_value_metadata(ctx, sin_half)
+
+                    position_ids_arr = np.tile(
+                        np.arange(seq_dim, dtype=np.int64)[None, :], (batch_dim, 1)
+                    )
+                    position_ids = _const_i64(
+                        ctx,
+                        position_ids_arr,
+                        ctx.fresh_name("rope_position_ids"),
+                    )
+                    _stamp_type_and_shape(position_ids, (batch_dim, seq_dim))
+                    _ensure_value_metadata(ctx, position_ids)
+
+                    rope_out_3d = builder.RotaryEmbedding(
+                        x_3d,
+                        cos_half,
+                        sin_half,
+                        position_ids,
+                        num_heads=1,
+                        rotary_embedding_dim=embedding_size,
+                        _outputs=[ctx.fresh_name("RotaryEmbedding")],
+                    )
+                    if x_dtype is not None:
+                        rope_out_3d.type = ir.TensorType(x_dtype)
+                    _stamp_type_and_shape(
+                        rope_out_3d, (batch_dim, seq_dim, embedding_size)
+                    )
+                    _ensure_value_metadata(ctx, rope_out_3d)
+
+                    output = rope_out_3d
+                    if x_rank == 2:
+                        sq_axes = _const_i64(
+                            ctx,
+                            np.asarray([0], dtype=np.int64),
+                            ctx.fresh_name("rope_squeeze_axes"),
+                        )
+                        output = builder.Squeeze(
+                            rope_out_3d,
+                            sq_axes,
+                            _outputs=[ctx.fresh_name("rope_output")],
+                        )
+                        if x_dtype is not None:
+                            output.type = ir.TensorType(x_dtype)
+                        _stamp_type_and_shape(output, (seq_dim, embedding_size))
+                        _ensure_value_metadata(ctx, output)
+
+                    ctx.bind_value_for_var(out_var, output)
+                    return
 
         output = lower_rotary_application(
             ctx,
