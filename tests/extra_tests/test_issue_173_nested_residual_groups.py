@@ -145,6 +145,28 @@ def _assert_no_dangling_transposes(model) -> None:
             ), f"Dangling Transpose output detected: '{out_name}'"
 
 
+def _assert_no_transpose_inputs_to_adds(model) -> None:
+    producers = {
+        out_name: node
+        for node in model.graph.node
+        for out_name in node.output
+        if out_name
+    }
+    for node in model.graph.node:
+        if node.op_type != "Add":
+            continue
+        for inp_name in node.input:
+            if not inp_name:
+                continue
+            producer = producers.get(inp_name)
+            if producer is None:
+                continue
+            assert producer.op_type != "Transpose", (
+                f"Add '{node.name}' still receives transposed input '{inp_name}' "
+                f"from '{producer.name}'."
+            )
+
+
 def _assert_ort_matches_jax_nchw(model, fn, x_nhwc: jax.Array) -> None:
     ort = pytest.importorskip(
         "onnxruntime", reason="onnxruntime is required for issue #173 regression tests"
@@ -178,6 +200,7 @@ def test_issue_173_repro_nested_residual_groups_with_depth_to_space() -> None:
     _assert_repro_wiring(model, blocks_count=blocks, groups_count=groups)
     _assert_clip_present(model)
     _assert_no_dangling_transposes(model)
+    _assert_no_transpose_inputs_to_adds(model)
 
     output_dims = [
         dim.dim_value for dim in model.graph.output[0].type.tensor_type.shape.dim

@@ -239,25 +239,21 @@ register_example(
                         "Transpose:1x32x16x16 -> Conv:1x32x16x16 -> Conv:1x32x16x16 -> "
                         "Mul:1x32x16x16 -> Conv:1x32x16x16 -> Add:1x32x16x16 -> "
                         "Conv:1x32x16x16 -> Mul:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Add:1x32x16x16 -> Conv:1x32x16x16 -> Transpose:1x16x16x32 -> "
-                        "Add:1x16x16x32 -> Transpose:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Mul:1x32x16x16 -> Conv:1x32x16x16 -> Transpose:1x16x16x32 -> "
-                        "Add:1x16x16x32 -> Transpose:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Mul:1x32x16x16 -> Conv:1x32x16x16 -> Transpose:1x16x16x32 -> "
-                        "Add:1x16x16x32 -> Transpose:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Transpose:1x16x16x32 -> Add:1x16x16x32 -> Transpose:1x32x16x16 -> "
+                        "Add:1x32x16x16 -> Conv:1x32x16x16 -> Add:1x32x16x16 -> "
                         "Conv:1x32x16x16 -> Mul:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Transpose:1x16x16x32 -> Add:1x16x16x32 -> Transpose:1x32x16x16 -> "
-                        "Conv:1x32x16x16 -> Mul:1x32x16x16 -> Conv:1x32x16x16 -> "
-                        "Transpose:1x16x16x32 -> Add:1x16x16x32 -> Transpose:1x32x16x16 -> "
-                        "Conv:1x32x16x16 -> Transpose:1x16x16x32 -> Add:1x16x16x32 -> "
-                        "Transpose:1x32x16x16 -> Conv:1x32x16x16 -> Transpose:1x16x16x32",
+                        "Add:1x32x16x16 -> Conv:1x32x16x16 -> Mul:1x32x16x16 -> "
+                        "Conv:1x32x16x16 -> Add:1x32x16x16 -> Conv:1x32x16x16 -> "
+                        "Add:1x32x16x16 -> Conv:1x32x16x16 -> Mul:1x32x16x16 -> "
+                        "Conv:1x32x16x16 -> Add:1x32x16x16 -> Conv:1x32x16x16 -> "
+                        "Mul:1x32x16x16 -> Conv:1x32x16x16 -> Add:1x32x16x16 -> "
+                        "Conv:1x32x16x16 -> Add:1x32x16x16 -> Conv:1x32x16x16 -> "
+                        "Transpose:1x16x16x32",
                         {
                             "counts": {
                                 "Conv": 17,
                                 "Add": 9,
                                 "Mul": 6,
-                                "Transpose": 17,
+                                "Transpose": 2,
                             }
                         },
                     )
@@ -283,7 +279,7 @@ register_example(
                                 "Conv": 17,
                                 "Add": 9,
                                 "Mul": 6,
-                                "Transpose": 17,
+                                "Transpose": 2,
                             }
                         },
                     )
