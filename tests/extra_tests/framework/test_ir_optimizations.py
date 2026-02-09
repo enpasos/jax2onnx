@@ -429,3 +429,80 @@ def test_lift_constants():
     # Name should be preserved or match usage
     assert init_val.name == "const_out"
     assert init_val.const_value is not None
+
+
+def test_reshape_fold_skips_non_isolated_chain_with_shape_consumer():
+    x = ir.val("in", ir.DataType.FLOAT, (4, 32))
+    x3d = ir.val("x3d", ir.DataType.FLOAT, (2, 2, 32))
+    max_out = ir.val("max_out", ir.DataType.FLOAT, (2, 2, 32))
+    shape_out = ir.val("shape_out", ir.DataType.INT64, (3,))
+    y = ir.val("out", ir.DataType.FLOAT, (4, 32))
+
+    shape_up = ir.Value(
+        name="shape_up",
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((3,)),
+        const_value=ir.tensor(np.asarray([2, 2, 32], dtype=np.int64)),
+    )
+    shape_down = ir.Value(
+        name="shape_down",
+        type=ir.TensorType(ir.DataType.INT64),
+        shape=ir.Shape((2,)),
+        const_value=ir.tensor(np.asarray([-1, 32], dtype=np.int64)),
+    )
+    zero = ir.Value(
+        name="zero",
+        type=ir.TensorType(ir.DataType.FLOAT),
+        shape=ir.Shape(()),
+        const_value=ir.tensor(np.asarray(0.0, dtype=np.float32)),
+    )
+
+    reshape_up = ir.Node(
+        op_type="Reshape",
+        domain="",
+        inputs=[x, shape_up],
+        outputs=[x3d],
+        name="Reshape_up",
+    )
+    max_mid = ir.Node(
+        op_type="Max",
+        domain="",
+        inputs=[x3d, zero],
+        outputs=[max_out],
+        name="Max_mid",
+    )
+    # Extra consumer keeps the elementwise middle node non-isolated.
+    shape_mid = ir.Node(
+        op_type="Shape",
+        domain="",
+        inputs=[max_out],
+        outputs=[shape_out],
+        name="Shape_mid",
+    )
+    reshape_down = ir.Node(
+        op_type="Reshape",
+        domain="",
+        inputs=[max_out, shape_down],
+        outputs=[y],
+        name="Reshape_down",
+    )
+
+    graph = ir.Graph(
+        name="reshape_non_isolated",
+        inputs=[x],
+        outputs=[y],
+        nodes=[reshape_up, max_mid, shape_mid, reshape_down],
+        initializers=[shape_up, shape_down, zero],
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    model.opset_imports[""] = 21
+
+    optimized = optimize_graph(model)
+    nodes = list(optimized.graph)
+    op_types = [node.op_type for node in nodes]
+
+    # The Reshape -> Max -> Reshape chain must not be folded because Max has
+    # an extra Shape consumer.
+    assert op_types.count("Reshape") == 2
+    max_node = next(node for node in nodes if node.name == "Max_mid")
+    assert max_node.inputs[0].name == "x3d"

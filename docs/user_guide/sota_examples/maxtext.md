@@ -31,6 +31,7 @@ poetry install --with maxtext
 ```
 
 > **Note:** This installs `omegaconf`, `transformers`, `sentencepiece`, `tensorflow-cpu`, and `tensorboardX`. `tensorflow-cpu` is required because MaxText uses `tensorboard` and some TF utilities.
+> It does **not** install the MaxText source tree itself; use `JAX2ONNX_MAXTEXT_SRC` (recommended) or install a `MaxText` package separately.
 
 ### Environment Configuration
 
