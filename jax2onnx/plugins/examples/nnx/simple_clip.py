@@ -26,7 +26,7 @@ register_example(
     component="SimpleModel",
     description="Minimal NNX model that applies jnp.clip.",
     source="https://github.com/enpasos/jax2onnx/issues/178",
-    since="0.11.3",
+    since="0.12.0",
     context="examples.nnx",
     children=["jax.numpy.clip"],
     testcases=[

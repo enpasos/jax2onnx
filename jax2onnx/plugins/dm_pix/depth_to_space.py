@@ -109,7 +109,7 @@ _TESTCASES: list[dict[str, Any]] = (
             "doc": "https://onnx.ai/onnx/operators/onnx__DepthToSpace.html",
         }
     ],
-    since="0.11.3",
+    since="0.12.0",
     context="primitives.dm_pix",
     component="depth_to_space",
     testcases=_TESTCASES,

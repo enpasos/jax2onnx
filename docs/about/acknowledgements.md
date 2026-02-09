@@ -10,6 +10,8 @@
 
 ✨ **[@benmacadam64](https://github.com/benmacadam64)** for championing the complex-number handling initiative.
 
+✨ **[@Artoriuz](https://github.com/Artoriuz)** for the original `depth_to_space` contribution and guidance on the associated NCHW/NHWC export path.
+
 ✨ **[@lutzroeder](https://github.com/lutzroeder)** for making shapes internal to ONNX function visible in his great Netron viewer.
 - [ONNX: Function value_info support #1447](https://github.com/lutzroeder/netron/issues/1447)
 

@@ -36,7 +36,7 @@ _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
             "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
         }
     ],
-    since="0.11.3",
+    since="0.12.0",
     context="primitives.jnp",
     component="mean",
     testcases=[

@@ -1,5 +1,6 @@
 # Past Versions
 
+- **0.11.2**: Replaced custom `ir_clone` logic with native `onnx-ir` `Graph.clone()`; unified the optimization pipeline around standard `onnx-ir` passes by removing redundant custom pass machinery; and hardened MaxDiffusion exports by fixing environment-dependent `UnboundLocalError` failures and correcting type annotations.
 - **0.11.1**: Added a comprehensive MaxText model family example stack (DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, Qwen) with stubbed dependencies and new primitives; stricter subgraph cleanup now produces cleaner, more minimal ONNX graphs.
 - **0.11.0**: Initial Flax Linen support: core layers, activation coverage, attention stack, recurrent stack, and Linen examples (MLP/CNN/Sequential); modernized IR optimization pipeline: standard `onnx_ir` CSE pass adoption, removed legacy helpers/getattr patterns, and simplified tests with direct graph iteration.
 - **0.10.4**: Fixed `vmap` batching for `jax.numpy.reshape`/`transpose` and other `jax.numpy` primitives; refactored the IR optimizer to use `onnx-ir` public APIs (`value.consumers()`, `graph.remove()`); added Common Subexpression Elimination (CSE) and Constant Lifting passes to `ir_optimizations.py`; added GitHub Actions CI for automated testing.

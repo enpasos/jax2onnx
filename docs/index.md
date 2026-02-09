@@ -20,10 +20,6 @@
 
 Check out the [Getting Started guide](user_guide/getting_started.md) to install and export your first model in minutes.
 
-## 📦 Current Version
-
-**v0.11.1** – MaxText example stack covering DeepSeek, Gemma, GPT-3, Kimi, Llama, Mistral, and Qwen families.
-
 See [Roadmap](about/roadmap.md) for planned features and [Past Versions](about/past_versions.md) for the full release archive.
 
 ---

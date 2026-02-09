@@ -40,7 +40,7 @@ register_example(
         "Residual block with squeeze-and-excite channel attention " "(from issue #168)."
     ),
     source="https://github.com/enpasos/jax2onnx/issues/168",
-    since="0.11.3",
+    since="0.12.0",
     context="examples.nnx",
     children=["nnx.Conv", "nnx.silu", "nnx.sigmoid", "jax.numpy.mean"],
     testcases=[

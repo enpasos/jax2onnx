@@ -129,7 +129,7 @@ register_example(
         "Nested residual blocks inside a residual group; regression harness for issue #173."
     ),
     source="https://github.com/enpasos/jax2onnx/issues/173",
-    since="0.11.3",
+    since="0.12.0",
     context="examples.nnx",
     children=["nnx.Conv", "nnx.List", "nnx.silu"],
     testcases=[

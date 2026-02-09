@@ -9,18 +9,25 @@
 
 ## Current Version
 
-### **jax2onnx 0.11.2** – Native IR cloning & code cleanup
+### **jax2onnx 0.12.0** - Layout controls, opset 23 defaults, and regression hardening
 
-* **Native `onnx-ir` graph cloning:**
-  Replaced the custom `ir_clone` implementation with `onnx-ir`'s native `Graph.clone()` method, improving maintainability and leveraging upstream validation (PR #162, #163).
+* **NCHW boundary layout support:**
+  Added `inputs_as_nchw` / `outputs_as_nchw` for `to_onnx(...)` and `allclose(...)`, with layout-optimization docs/tests and transpose-cleanup improvements for Conv-heavy graphs (PR #164, #172).
 
-* **Unified IR pass infrastructure:**
-  Streamlined the optimization pipeline by adopting standard `onnx-ir` passes and removing redundant custom pass logic (PR #151).
+* **Depth-to-space and residual-stack coverage:**
+  Added `dm_pix.depth_to_space` lowering to ONNX `DepthToSpace` and expanded NNX regression examples/tests for depth-to-space and nested residual groups (PR #167, #175, #176).
 
-* **MaxDiffusion robustness:**
-  Fixed environment-dependent crashes (`UnboundLocalError`) and corrected type annotations in the MaxDiffusion plugin stack.
+* **Primitive and IR improvements:**
+  Added `jax.numpy.mean` lowering to `ReduceMean`; fixed symbolic `dim_as_value` handling; and stabilized dynamic reshape folding used by CLIP/MaxText exports (PR #170, #171, #179).
 
+* **ONNX opset 23 path for attention models:**
+  Added opset >= 23 RotaryEmbedding/Attention support and made opset 23 the default in `to_onnx(...)` (PR #177).
 
+* **Gather/scatter regression fixes:**
+  Fixed scatter-add broadcast window handling and issue #52 lowering edge cases; fixed gather indexing and `vmap(dynamic_slice_in_dim)` gather lowering regressions (PR #181, #183, #184).
+
+* **Compatibility refresh:**
+  Expanded tested Python versions to 3.11-3.14 and updated runtime dependency floors (`onnx`, `onnxruntime`, `dm-pix`) for the new paths.
 
 ## Past Versions
 
