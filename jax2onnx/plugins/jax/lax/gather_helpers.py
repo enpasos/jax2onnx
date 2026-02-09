@@ -65,6 +65,7 @@ def index_lastdim_gather_to_gir(
             "op": "index_lastdim_gather",
             "gather_indices": gather_indices,
             "input_shape": input_shape,
+            "output_shape": list(input_shape[:-1]) + [len(gather_indices)],
         }
     ]
 

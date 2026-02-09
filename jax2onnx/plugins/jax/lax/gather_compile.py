@@ -68,6 +68,10 @@ def lax_gather_to_gir(
         else:
             if slice_sizes[dim] == operand_shape[dim]:  # whole slice -> passthrough
                 entry["mode"] = "passthrough"
+                if dim in dn.start_index_map:
+                    # Keep track of unused gather coordinates so downstream index
+                    # bookkeeping (expand/reorder) preserves the index-vector rank.
+                    entry["start_indices_var_index"] = dn.start_index_map.index(dim)
             else:  # partial slice, sometimes uses the start_indices too!
                 entry["mode"] = "range_slice"
                 # Dynamic start from indices_var
@@ -126,13 +130,25 @@ def lax_gather_to_gir(
 
     for i, dim_dims in enumerate(output_dims_from_input_dims):
         for dim in dim_dims:
-            dim["target_dimensions"] = list(set(dim.get("target_dimensions", []) + [i]))
+            dim["target_dimensions"] = sorted(
+                set(dim.get("target_dimensions", []) + [i])
+            )
 
     for dim in gir_entries:
         if "target_dimensions" not in dim:
             dim["target_dimensions"] = []
 
-    result_op = {"op": "general_gather", "dims": gir_entries}
+    result_op = {
+        "op": "general_gather",
+        "dims": gir_entries,
+        "indices_batch_shape": indices_shape,
+        "indices_batch_target_dimensions": [
+            out_dim
+            for out_dim in range(len(output_shape))
+            if out_dim not in set(dn.offset_dims)
+        ],
+        "indices_input_shape": list(indices_var.aval.shape),
+    }
 
     result_ops: list[GirInstruction] = []
 
@@ -226,7 +242,11 @@ def turn_dynamic_range_slice_to_gather(
     gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
-    index_input_shape, _ = calculate_index_shape(gir_instr_orig)
+    index_input_shape = list(
+        gir_instr_orig.get(
+            "indices_input_shape", calculate_index_shape(gir_instr_orig)[0]
+        )
+    )
     dims_to_extend = []
     dim_slice_sizes = []
     slice_target_dimensions = []
@@ -257,8 +277,21 @@ def turn_dynamic_range_slice_to_gather(
             gather_target_dimensions = dim["target_dimensions"]
 
     if gather_target_dimensions_shape is None:
-        gather_target_dimensions_shape = dim_slice_sizes
-        gather_target_dimensions = slice_target_dimensions
+        indices_batch_shape = list(gir_instr.get("indices_batch_shape", []))
+        indices_batch_target_dimensions = list(
+            gir_instr.get("indices_batch_target_dimensions", [])
+        )
+
+        # If there is no pre-existing collapsed gather dim, recover the missing
+        # index-batch output dimensions from original gather metadata.
+        if len(indices_batch_shape) == len(indices_batch_target_dimensions):
+            gather_target_dimensions_shape = indices_batch_shape + dim_slice_sizes
+            gather_target_dimensions = (
+                indices_batch_target_dimensions + slice_target_dimensions
+            )
+        else:
+            gather_target_dimensions_shape = dim_slice_sizes
+            gather_target_dimensions = slice_target_dimensions
 
     for dim in gir_instr["dims"]:
         if dim["mode"] == "dynamic_range_slice":
