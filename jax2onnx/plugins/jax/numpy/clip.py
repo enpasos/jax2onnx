@@ -78,6 +78,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
     jaxpr_primitive=_CLIP_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.clip.html",
     onnx=[
+        {"component": "Clip", "doc": "https://onnx.ai/onnx/operators/onnx__Clip.html"},
         {"component": "Max", "doc": "https://onnx.ai/onnx/operators/onnx__Max.html"},
         {"component": "Min", "doc": "https://onnx.ai/onnx/operators/onnx__Min.html"},
     ],
@@ -93,8 +94,8 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "post_check_onnx_graph": EG(
                 [
                     {
-                        "inputs": {1: {"const": 4.0}},
-                        "path": "Max:4 -> Min:4",
+                        "inputs": {1: {"const": 0.0}, 2: {"const": 4.0}},
+                        "path": "Clip:4",
                     }
                 ],
                 no_unused_inputs=True,
@@ -109,8 +110,8 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "post_check_onnx_graph": EG(
                 [
                     {
-                        "inputs": {1: {"const": 2.5}},
-                        "path": "Max:3 -> Min:3",
+                        "inputs": {1: {"const": -1.5}, 2: {"const": 2.5}},
+                        "path": "Clip:3",
                     }
                 ],
                 no_unused_inputs=True,
@@ -124,8 +125,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "post_check_onnx_graph": EG(
                 [
                     {
-                        "inputs": {1: {"const": 1.0}},
-                        "path": "Max:3 -> Min:3",
+                        "path": "Clip:3",
                     }
                 ],
                 no_unused_inputs=True,
@@ -139,8 +139,7 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "post_check_onnx_graph": EG(
                 [
                     {
-                        "inputs": {1: {"const": 2147483647.0}},
-                        "path": "Max:4 -> Min:4",
+                        "path": "Clip:4",
                     }
                 ],
                 no_unused_inputs=True,
@@ -195,24 +194,42 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
         lo_input = _cast_value(ctx, lo_val, lo_var, x_dtype, "lo")
         hi_input = _cast_value(ctx, hi_val, hi_var, x_dtype, "hi")
 
-        max_val = ctx.builder.Max(
-            x_val,
-            lo_input,
-            _outputs=[ctx.fresh_name("clip_max_tmp")],
-        )
-        max_val.type = ir.TensorType(dtype_enum)
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        _stamp_type_and_shape(max_val, x_shape)
-        _ensure_value_metadata(ctx, max_val)
-
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("clip_out")
-        result = ctx.builder.Min(
-            max_val,
-            hi_input,
-            _outputs=[desired_name],
-        )
-        result.type = ir.TensorType(dtype_enum)
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        lo_shape = tuple(getattr(getattr(lo_var, "aval", None), "shape", ()))
+        hi_shape = tuple(getattr(getattr(hi_var, "aval", None), "shape", ()))
+
+        # Clip with min/max inputs is available from opset 11 onward.
+        # ONNX Clip still requires min/max to be scalars, so use it only when
+        # both bounds are rank-0; otherwise keep broadcast-capable Max->Min.
+        if (
+            int(getattr(ctx.builder, "opset", 0) or 0) >= 11
+            and lo_shape == ()
+            and hi_shape == ()
+        ):
+            result = ctx.builder.Clip(
+                x_val,
+                lo_input,
+                hi_input,
+                _outputs=[desired_name],
+            )
+        else:
+            max_val = ctx.builder.Max(
+                x_val,
+                lo_input,
+                _outputs=[ctx.fresh_name("clip_max_tmp")],
+            )
+            max_val.type = ir.TensorType(dtype_enum)
+            _stamp_type_and_shape(max_val, x_shape)
+            _ensure_value_metadata(ctx, max_val)
+            result = ctx.builder.Min(
+                max_val,
+                hi_input,
+                _outputs=[desired_name],
+            )
+
+        result.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

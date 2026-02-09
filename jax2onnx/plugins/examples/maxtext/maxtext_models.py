@@ -78,7 +78,13 @@ else:
         elif spec.origin:
             MAXTEXT_PKG_PATH: Path | None = Path(spec.origin).resolve().parent
     else:
-        logger.warning("MaxText module not found in python path.")
+        logger.info(
+            "MaxText module not found in python path; skipping optional "
+            "examples.maxtext registration. "
+            "'poetry install --with maxtext' installs helper deps only; "
+            "also provide MaxText via JAX2ONNX_MAXTEXT_SRC "
+            "(recommended) or an installed 'MaxText' package."
+        )
 
 if MAXTEXT_PKG_PATH is not None:
     MAXTEXT_CONFIG_DIR: Path | None = MAXTEXT_PKG_PATH / "configs"

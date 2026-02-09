@@ -34,6 +34,9 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     "cast",
     "castlike",
     "not",
+    "max",
+    "min",
+    "clip",
 }
 
 ALLOWED_ELEMWISE: Set[str] = {
@@ -47,6 +50,9 @@ ALLOWED_ELEMWISE: Set[str] = {
     "Cast",
     "CastLike",
     "Not",
+    "Max",
+    "Min",
+    "Clip",
 }
 
 # Elementwise ops that are layout-invariant (used for transpose folding)
@@ -73,6 +79,9 @@ ELEMENTWISE_BINARY_OPS: Set[str] = {
     "Mul",
     "Sub",
     "Div",
+    "Max",
+    "Min",
+    "Clip",
 }
 
 # Unary ops that do not change data shape/dtype (used for propagation)
@@ -1575,6 +1584,39 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 i += 1
                 continue
             allowed_fwd = list(reversed(allowed_nodes))
+            chain_nodes: Set[ir.Node] = set(allowed_fwd)
+
+            # Safety gate: only fold reshape pairs when the chain is isolated.
+            # If any intermediate elementwise output also feeds non-chain
+            # consumers (notably Shape/Slice/Concat shape-reconstruction paths),
+            # removing the pair can change rank assumptions downstream.
+            safe_chain = True
+
+            t1_out = _node_output(T1)
+            if t1_out is not None:
+                for consumer in _consumer_nodes(nodes, t1_out):
+                    if consumer in chain_nodes or consumer is T2:
+                        continue
+                    safe_chain = False
+                    break
+
+            if safe_chain:
+                for node in allowed_fwd:
+                    out = _node_output(node)
+                    if out is None:
+                        continue
+                    for consumer in _consumer_nodes(nodes, out):
+                        if consumer in chain_nodes or consumer is T2:
+                            continue
+                        safe_chain = False
+                        break
+                    if not safe_chain:
+                        break
+
+            if not safe_chain:
+                i += 1
+                continue
+
             if RSH_DEBUG:
                 print(
                     "[reshapefold/up]",
