@@ -375,6 +375,23 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             and int(out_shape[0]) >= 0
             else None
         )
+        shape_axis0_static = (
+            int(shape[0])
+            if shape and isinstance(shape[0], (int, np.integer)) and int(shape[0]) >= 0
+            else None
+        )
+
+        def _override_compatible(candidate: Any) -> bool:
+            if not isinstance(candidate, (int, np.integer)):
+                return False
+            cand_int = int(candidate)
+            if cand_int <= 0:
+                return False
+            if shape_axis0_static is not None:
+                return cand_int == int(shape_axis0_static)
+            if out_axis0_static is not None:
+                return cand_int == int(out_axis0_static)
+            return True
 
         rrank = len(shape)
         reshape_dims: list[object] = [1] * rrank
@@ -403,7 +420,12 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             get_axis0_override(out_spec),
         ]
         if axis0_in_bdims:
-            override_candidates.append(getattr(ctx, "_static_loop_extent_axis0", None))
+            loop_override = getattr(ctx, "_static_loop_extent_axis0", None)
+            if _override_compatible(loop_override):
+                override_candidates.append(int(loop_override))
+        override_candidates = [
+            val for val in override_candidates if _override_compatible(val)
+        ]
         meta_override_axis0 = next(
             (
                 int(val)
@@ -414,16 +436,19 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         )
         if meta_override_axis0 is None:
             fallback_ctx = getattr(ctx, "_static_loop_extent_axis0", None)
-            if isinstance(fallback_ctx, (int, np.integer)) and int(fallback_ctx) > 0:
+            if axis0_in_bdims and _override_compatible(fallback_ctx):
                 meta_override_axis0 = int(fallback_ctx)
         if (
             isinstance(meta_override_axis0, (int, np.integer))
             and meta_override_axis0 > 0
+            and _override_compatible(meta_override_axis0)
         ):
             meta_override_axis0 = int(meta_override_axis0)
             if out_shape:
                 out_shape = (meta_override_axis0,) + out_shape[1:]
             target_shape_dims[0] = meta_override_axis0
+            if out_axis0_static is None or out_axis0_static <= 1:
+                out_axis0_static = meta_override_axis0
         debug = os.environ.get("J2O_DEBUG_BCAST_HINTS") == "1"
         for axis, d in enumerate(shape):
             if axis == 0 and out_axis0_static is not None and axis0_in_bdims:
@@ -435,7 +460,11 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     )
                 )
                 continue
-            if axis not in bdims and (allow_hints or allow_loop_hints):
+            if (
+                axis not in bdims
+                and (allow_hints or allow_loop_hints)
+                and not (axis == 0 and isinstance(d, (int, np.integer)))
+            ):
                 force_loop_axis0 = bool(
                     getattr(ctx, "_force_loop_extent_axis0", False)
                     and axis == 0
@@ -638,6 +667,10 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             if getattr(x_val, "type", None) is not None:
                 reshaped_val.type = x_val.type
             _ensure_value_metadata(ctx, reshaped_val)
+            reshape_axis0_static = (
+                _static_dim_as_int(reshape_dims[0]) if reshape_dims else None
+            )
+            carry_singleton_axis0 = reshape_axis0_static == 1
             reshape_override = next(
                 (
                     int(val)
@@ -646,7 +679,14 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         get_axis0_override(reshaped_val),
                         meta_override_axis0,
                     )
-                    if isinstance(val, (int, np.integer)) and int(val) > 0
+                    if (
+                        _override_compatible(val)
+                        or (
+                            carry_singleton_axis0
+                            and isinstance(val, (int, np.integer))
+                            and int(val) > 1
+                        )
+                    )
                 ),
                 None,
             )
@@ -659,10 +699,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Final expanded tensor should match the outvar's jax aval.
         if meta_override_axis0 is None:
             input_override = get_axis0_override(expand_input)
-            if (
-                isinstance(input_override, (int, np.integer))
-                and int(input_override) > 0
-            ):
+            if _override_compatible(input_override):
                 meta_override_axis0 = int(input_override)
 
         if meta_override_axis0 is None:
@@ -673,7 +710,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                         get_axis0_override(out_spec),
                         getattr(ctx, "_static_loop_extent_axis0", None),
                     )
-                    if isinstance(val, (int, np.integer)) and int(val) > 0
+                    if _override_compatible(val)
                 ),
                 None,
             )
@@ -713,6 +750,19 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             tgt_shape_val,
             _outputs=[desired_name],
         )
+        if out_shape and target_shape_dims:
+            out_axis0 = (
+                int(out_shape[0])
+                if isinstance(out_shape[0], (int, np.integer))
+                else None
+            )
+            target_axis0 = _static_dim_as_int(target_shape_dims[0])
+            if (
+                isinstance(target_axis0, int)
+                and target_axis0 > 1
+                and out_axis0 != target_axis0
+            ):
+                out_shape = (target_axis0,) + out_shape[1:]
         final_dtype = out_dtype or getattr(
             getattr(expand_input, "type", None), "dtype", None
         )
@@ -730,8 +780,32 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             and int(meta_override_axis0) >= 0
         ):
             override_int = int(meta_override_axis0)
-            set_axis0_override(expanded_out, override_int)
+            target_dim0_int: int | None = None
+            if target_shape_dims:
+                target_dim0_int = _static_dim_as_int(target_shape_dims[0])
+            if dim_pieces:
+                piece0_arr = _materialize_constant_array(ctx, dim_pieces[0])
+                if piece0_arr is not None:
+                    piece0_np = np.asarray(piece0_arr).reshape(-1)
+                    if piece0_np.size == 1:
+                        piece0_int = int(piece0_np[0])
+                        if piece0_int > 1:
+                            target_dim0_int = piece0_int
+            if isinstance(target_dim0_int, int) and target_dim0_int >= 0:
+                if target_dim0_int <= 1:
+                    override_int = target_dim0_int
+                elif target_dim0_int != override_int:
+                    override_int = int(target_dim0_int)
             if override_int > 1:
+                set_axis0_override(expanded_out, override_int)
+            else:
+                meta = getattr(expanded_out, "meta", None)
+                if isinstance(meta, dict):
+                    meta.pop("loop_axis0_override", None)
+            target_guarantees_override = (
+                isinstance(target_dim0_int, int) and target_dim0_int == override_int
+            )
+            if override_int > 1 and not target_guarantees_override:
                 expanded_out = ensure_axis0_extent(
                     ctx, expanded_out, override_int, reference=out_spec
                 )

@@ -107,6 +107,39 @@ class SlicePlugin(PrimitiveLeafPlugin):
         limits_val = _const_i64(ctx, normalized_limits, "slice_limits")
         axes_val = _const_i64(ctx, axes, "slice_axes")
 
+        def _axis0_extent_from_slice_spec() -> int | None:
+            try:
+                axis0_idx = axes.index(0)
+            except ValueError:
+                return None
+            if axis0_idx >= len(starts) or axis0_idx >= len(normalized_limits):
+                return None
+            try:
+                start0 = int(starts[axis0_idx])
+                limit0 = int(normalized_limits[axis0_idx])
+            except (TypeError, ValueError):
+                return None
+            if limit0 == np.iinfo(np.int64).max:
+                return None
+            step0 = 1
+            if strides and axis0_idx < len(strides):
+                try:
+                    step0 = int(strides[axis0_idx])
+                except (TypeError, ValueError):
+                    return None
+            if step0 == 0:
+                return None
+            if step0 > 0:
+                span = limit0 - start0
+                if span <= 0:
+                    return 0
+                return int((span + step0 - 1) // step0)
+            span = start0 - limit0
+            if span <= 0:
+                return 0
+            neg_step = -step0
+            return int((span + neg_step - 1) // neg_step)
+
         inputs = [x_val, starts_val, limits_val, axes_val]
         if strides:
             steps_val = _const_i64(ctx, strides, "slice_steps")
@@ -124,10 +157,23 @@ class SlicePlugin(PrimitiveLeafPlugin):
             dim0 = target_shape[0]
             if isinstance(dim0, (int, np.integer)):
                 axis0_extent = int(dim0)
+        if axis0_extent is None:
+            axis0_extent = _axis0_extent_from_slice_spec()
         x_override = get_axis0_override(x_val)
         spec_override = get_axis0_override(out_val)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
         override_sources = (x_override, spec_override, ctx_override)
+
+        def _compatible_override(candidate: object) -> bool:
+            if not isinstance(candidate, (int, np.integer)):
+                return False
+            cand_int = int(candidate)
+            if cand_int <= 1:
+                return False
+            if axis0_extent is None:
+                return True
+            return axis0_extent > 1 and cand_int == axis0_extent
+
         _axis0_debug(
             "slice override sources "
             f"value={getattr(out_tensor, 'name', None)} "
@@ -138,7 +184,7 @@ class SlicePlugin(PrimitiveLeafPlugin):
         override_candidates = [
             int(candidate)
             for candidate in override_sources
-            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+            if _compatible_override(candidate)
         ]
         _axis0_debug(
             "slice override candidates "
@@ -147,15 +193,13 @@ class SlicePlugin(PrimitiveLeafPlugin):
         )
         axis0_override = max(override_candidates, default=None)
         if (
-            axis0_override is not None
-            and axis0_extent is not None
-            and isinstance(axis0_extent, (int, np.integer))
+            axis0_override is None
+            and isinstance(axis0_extent, int)
             and axis0_extent > 1
-            and axis0_override < axis0_extent
         ):
-            axis0_override = int(axis0_extent)
+            axis0_override = axis0_extent
         need_expand = axis0_override is not None and (
-            axis0_extent is None or axis0_extent > 1
+            axis0_extent is None or axis0_override != axis0_extent
         )
         if target_shape:
             _stamp_type_and_shape(out_tensor, target_shape)
@@ -169,7 +213,8 @@ class SlicePlugin(PrimitiveLeafPlugin):
             )
         if expanded_target:
             _stamp_type_and_shape(out_tensor, expanded_target)
-        propagate_axis0_override(x_val, out_tensor)
         if axis0_override is not None:
             set_axis0_override(out_tensor, axis0_override)
+        elif axis0_extent is None:
+            propagate_axis0_override(x_val, out_tensor)
         ctx.bind_value_for_var(out_var, out_tensor)

@@ -249,6 +249,11 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
         x_override = get_axis0_override(operand_val)
         spec_override = get_axis0_override(out_spec)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        axis0_extent = None
+        if output_shape:
+            dim0 = output_shape[0]
+            if isinstance(dim0, (int, np.integer)):
+                axis0_extent = int(dim0)
         override_sources = (x_override, spec_override, ctx_override)
         _axis0_debug(
             "dynamic_slice override sources "
@@ -257,10 +262,21 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             f"x={getattr(operand_val, 'name', None)} "
             f"spec={getattr(out_spec, 'name', None)}"
         )
+
+        def _compatible_override(candidate: object) -> bool:
+            if not isinstance(candidate, (int, np.integer)):
+                return False
+            cand_int = int(candidate)
+            if cand_int <= 1:
+                return False
+            if axis0_extent is None:
+                return True
+            return axis0_extent > 1 and cand_int == axis0_extent
+
         override_candidates = [
             int(candidate)
             for candidate in override_sources
-            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+            if _compatible_override(candidate)
         ]
         _axis0_debug(
             "dynamic_slice override candidates "
@@ -268,8 +284,14 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             f"candidates={override_candidates}"
         )
         axis0_override = max(override_candidates, default=None)
-        propagate_axis0_override(operand_val, result)
+        if (
+            axis0_override is None
+            and isinstance(axis0_extent, int)
+            and axis0_extent > 1
+        ):
+            axis0_override = axis0_extent
+        if axis0_override is None and axis0_extent is None:
+            propagate_axis0_override(operand_val, result)
         if axis0_override is not None:
             set_axis0_override(result, axis0_override)
-        ctx.bind_value_for_var(out_var, result)
         ctx.bind_value_for_var(out_var, result)
