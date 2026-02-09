@@ -169,16 +169,23 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         for inp in inputs:
             propagate_axis0_override(inp, result)
         if norm_axis == 0:
-            override = next(
-                (
-                    int(val)
-                    for val in (
-                        get_axis0_override(inp) for inp in inputs  # type: ignore[arg-type]
-                    )
-                    if isinstance(val, (int, np.integer)) and int(val) > 1
-                ),
-                None,
+            out_axis0 = (
+                int(out_shape[0])
+                if out_shape
+                and isinstance(out_shape[0], (int, np.integer))
+                and int(out_shape[0]) >= 0
+                else None
             )
+            candidate_overrides = [
+                int(val)
+                for val in (
+                    get_axis0_override(inp) for inp in inputs  # type: ignore[arg-type]
+                )
+                if isinstance(val, (int, np.integer)) and int(val) > 1
+            ]
+            override = max(candidate_overrides, default=None)
+            if override is None and isinstance(out_axis0, int) and out_axis0 > 1:
+                override = out_axis0
             if override is not None:
                 set_axis0_override(result, override)
         ctx.bind_value_for_var(out_var, result)

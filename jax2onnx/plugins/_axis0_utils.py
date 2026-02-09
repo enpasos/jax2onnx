@@ -143,6 +143,11 @@ def _pad_axis0_to_extent(
             f"type={type(dim0)} value={_value_name(value)} override={override}"
         )
         return None
+    # Never materialize Pad when axis-0 already has real data (even dim==1):
+    # zero-padding changes semantics, while metadata/broadcast handling keeps
+    # values stable for loop-axis override propagation.
+    if dim0_int >= 1:
+        return None
     pad_amount = override - dim0_int
     if pad_amount <= 0:
         return None
@@ -238,6 +243,15 @@ def ensure_axis0_extent(
         return value
 
     dims_tuple = _shape_dims(value)
+    if not dims_tuple or len(dims_tuple) == 0:
+        # Rank-0 values already broadcast correctly in ONNX; forcing axis-0
+        # expansion from a scalar introduces trailing-axis broadcasts and shape
+        # metadata conflicts.
+        _axis0_debug(
+            "ensure_axis0_extent scalar-like value, skip "
+            f"override={override} value={_value_name(value)}"
+        )
+        return value
     dims = list(dims_tuple) if dims_tuple else None
     if (not dims or len(dims) == 0) and reference is not None:
         ref_dims = _shape_dims(reference)
@@ -432,33 +446,53 @@ def maybe_expand_binary_axis0(
     out_val: Any,
     out_var: Any | None = None,
 ) -> tuple[Any, Any, int | None]:
+    out_shape = _aval_shape_tuple(out_var) if out_var is not None else ()
+    out_axis0 = _static_dim_as_int(out_shape[0]) if out_shape else None
+    loop_override = (
+        ctx._static_loop_extent_axis0
+        if hasattr(ctx, "_static_loop_extent_axis0")
+        else None
+    )
+    allow_loop_override = (
+        isinstance(loop_override, (int, np.integer))
+        and int(loop_override) > 1
+        and (out_axis0 is None or int(loop_override) == int(out_axis0))
+    )
     override_sources = [
         get_axis0_override(lhs),
         get_axis0_override(rhs),
         get_axis0_override(out_val),
-        (
-            ctx._static_loop_extent_axis0
-            if hasattr(ctx, "_static_loop_extent_axis0")
-            else None
-        ),
     ]
+    if allow_loop_override:
+        override_sources.append(int(loop_override))
     override_candidates = [
         int(val)
         for val in override_sources
         if isinstance(val, (int, np.integer)) and int(val) > 1
     ]
+    if isinstance(out_axis0, int):
+        if out_axis0 > 1:
+            override_candidates = [
+                val for val in override_candidates if val == int(out_axis0)
+            ]
+        else:
+            override_candidates = []
     override = max(override_candidates, default=None)
 
     _axis0_debug(
         "maybe_expand_binary_axis0 "
         f"lhs={_value_name(lhs)} rhs={_value_name(rhs)} "
         f"out={_value_name(out_val)} override_candidates={override_candidates} "
-        f"selected={override}"
+        f"selected={override} out_axis0={out_axis0}"
     )
 
     if override is None:
         out_override = get_axis0_override(out_val)
-        if isinstance(out_override, (int, np.integer)) and int(out_override) > 1:
+        if (
+            isinstance(out_override, (int, np.integer))
+            and int(out_override) > 1
+            and (out_axis0 is None or int(out_override) == int(out_axis0))
+        ):
             override = int(out_override)
         else:
             return lhs, rhs, None
@@ -474,7 +508,7 @@ def maybe_expand_binary_axis0(
         if override is None or override <= 1:
             return False
         if rank == 0:
-            return True
+            return False
         if dim_int is None:
             return True
         return dim_int != override
@@ -530,7 +564,6 @@ def maybe_expand_binary_axis0(
         return fallback_lhs, fallback_rhs, override
 
     if out_var is not None:
-        out_shape = _aval_shape_tuple(out_var)
         if out_shape:
             fake_ref = SimpleNamespace(shape=SimpleNamespace(dims=out_shape))
             lhs_alt = ensure_axis0_extent(ctx, lhs, override, reference=fake_ref)
@@ -543,9 +576,6 @@ def maybe_expand_binary_axis0(
                     f"lhs_override={lhs3_override} rhs_override={rhs3_override} "
                 )
                 return lhs_alt, rhs_alt, override
-    out_shape = ()
-    if out_var is not None:
-        out_shape = _aval_shape_tuple(out_var)
     _axis0_debug(
         "maybe_expand_binary_axis0 override dropped "
         f"lhs_override={lhs_override} rhs_override={rhs_override} "

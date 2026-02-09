@@ -1085,9 +1085,7 @@ def _lower_scatter_window_full(
         return False
 
     try:
-        operand_to_update_full, operand_to_update_window = (
-            _resolve_operand_to_update_map(spec, operand_rank)
-        )
+        operand_to_update_full, _ = _resolve_operand_to_update_map(spec, operand_rank)
     except NotImplementedError:
         return False
 
@@ -1129,26 +1127,15 @@ def _lower_scatter_window_full(
 
     updates_rank = len(updates_shape)
     window_axes_update = {
-        update_axis for update_axis in operand_to_update_window.values()
+        int(update_axis) for update_axis in operand_to_update_full.values()
     }
     batch_axes = [ax for ax in range(updates_rank) if ax not in window_axes_update]
-
-    # Preserve the relative order of scatter-related update axes to keep the
-    # perm stable, but place them ahead of the window axes.
-    scatter_update_axes = [
-        operand_to_update_full[axis]
-        for axis in scatter_axes
-        if axis in operand_to_update_full
-    ]
-    for axis in scatter_update_axes:
-        if axis not in batch_axes:
-            batch_axes.append(axis)
     batch_axes.sort()
 
     window_axes_ordered = [
-        operand_to_update_window[axis]
+        operand_to_update_full[axis]
         for axis in range(operand_rank)
-        if axis in operand_to_update_window
+        if axis in operand_to_update_full
     ]
     perm = batch_axes + window_axes_ordered
     updates_perm_val = updates_val

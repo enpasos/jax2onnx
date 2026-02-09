@@ -157,13 +157,13 @@ def _deserialize_eqn(
     return eqn
 
 
-def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> core.Jaxpr:
+def _deserialize_jaxpr(desc: Dict[str, Any], loader: ArrayLoader) -> jax_core_ext.Jaxpr:
     var_map: Dict[str, jax_core_ext.Var] = {}
     constvars = [_deserialize_var(var, var_map) for var in desc["constvars"]]
     invars = [_deserialize_var(var, var_map) for var in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
     eqns = [_deserialize_eqn(eqn, loader, var_map) for eqn in desc["eqns"]]
-    return core.Jaxpr(constvars, invars, outvars, eqns)
+    return jax_core_ext.Jaxpr(constvars, invars, outvars, eqns)
 
 
 _PrimitiveType = getattr(jax_core_ext, "Primitive")
@@ -293,14 +293,14 @@ def _import_module(module_name: str) -> ModuleType:
 
 def _deserialize_closed_jaxpr(
     desc: Dict[str, Any], loader: ArrayLoader
-) -> core.ClosedJaxpr:
+) -> jax_core_ext.ClosedJaxpr:
     jaxpr = _deserialize_jaxpr(desc["jaxpr"], loader)
     consts = [_deserialize_value(c, loader) for c in desc["consts"]]
-    return core.ClosedJaxpr(jaxpr, consts)
+    return jax_core_ext.ClosedJaxpr(jaxpr, consts)
 
 
 def _load_payload() -> Tuple[
-    core.ClosedJaxpr,
+    jax_core_ext.ClosedJaxpr,
     jax.Array,
     jax.Array,
     jax.Array,
@@ -320,7 +320,7 @@ def _load_payload() -> Tuple[
 
 
 def _feed_forward_fn(
-    closed: core.ClosedJaxpr,
+    closed: jax_core_ext.ClosedJaxpr,
 ) -> Callable[[jax.Array, jax.Array, jax.Array], Any]:
     def ff(
         y_current: jax.Array,
@@ -609,9 +609,7 @@ def _run_onnx(prim0: jax.Array, t_arr: jax.Array, dt_arr: jax.Array) -> None:
             return
         raise
 
-    raise AssertionError(
-        "onnxruntime unexpectedly succeeded – jax2onnx issue #52 appears fixed"
-    )
+    print("[PASS] onnxruntime succeeded – jax2onnx issue #52 appears fixed.")
 
 
 def main() -> int:
@@ -620,10 +618,6 @@ def main() -> int:
     model_proto, _ = _export_to_onnx(ff, prim0, t_arr, dt_arr)
     _run_onnx(prim0, t_arr, dt_arr)
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 
 def _sanitize_params(params: Any) -> Any:
@@ -635,3 +629,7 @@ def _sanitize_params(params: Any) -> Any:
         return params
     sanitized.pop("copy_semantics", None)
     return sanitized
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

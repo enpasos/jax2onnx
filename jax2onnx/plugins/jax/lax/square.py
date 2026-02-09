@@ -61,10 +61,24 @@ class SquarePlugin(PrimitiveLeafPlugin):
         x_override = get_axis0_override(x_val)
         spec_override = get_axis0_override(out_spec)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        target_axis0 = None
+        if target_shape and isinstance(target_shape[0], int):
+            target_axis0 = int(target_shape[0])
+
+        def _compatible_override(candidate: object) -> bool:
+            if not isinstance(candidate, int):
+                return False
+            if candidate <= 1:
+                return False
+            if target_axis0 is None or target_axis0 <= 1:
+                return True
+            return candidate == target_axis0
+
         override_candidates = [
             int(candidate)
             for candidate in (x_override, spec_override, ctx_override)
-            if isinstance(candidate, int) and candidate > 1
+            if _compatible_override(candidate)
         ]
         axis0_override = max(override_candidates, default=None)
         _axis0_debug(
@@ -82,13 +96,17 @@ class SquarePlugin(PrimitiveLeafPlugin):
             result.type = out_spec.type
         result = ensure_axis0_extent(ctx, result, axis0_override, reference=x_val)
 
-        target_shape = tuple(getattr(out_var.aval, "shape", ()))
-        if axis0_override is not None and target_shape:
+        if (
+            axis0_override is not None
+            and target_shape
+            and (target_axis0 is None or target_axis0 <= 1)
+        ):
             target_shape = (axis0_override,) + target_shape[1:]
         if target_shape:
             _stamp_type_and_shape(result, target_shape)
         _ensure_value_metadata(ctx, result)
-        propagate_axis0_override(x_val, result)
         if axis0_override is not None:
             set_axis0_override(result, axis0_override)
+        elif target_axis0 is None or target_axis0 <= 1:
+            propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(out_var, result)

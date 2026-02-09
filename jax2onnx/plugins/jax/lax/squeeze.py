@@ -197,6 +197,21 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         spec_override = get_axis0_override(out_spec)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
         override_sources = (x_override, spec_override, ctx_override)
+        target_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        target_axis0 = None
+        if target_shape and isinstance(target_shape[0], (int, np.integer)):
+            target_axis0 = int(target_shape[0])
+
+        def _compatible_override(candidate: object) -> bool:
+            if not isinstance(candidate, (int, np.integer)):
+                return False
+            cand_int = int(candidate)
+            if cand_int <= 1:
+                return False
+            if target_axis0 is None or target_axis0 <= 1:
+                return True
+            return cand_int == target_axis0
+
         _axis0_debug(
             "squeeze override sources "
             f"value={getattr(result, 'name', None)} "
@@ -207,7 +222,7 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         override_candidates = [
             int(candidate)
             for candidate in override_sources
-            if isinstance(candidate, (int, np.integer)) and int(candidate) > 1
+            if _compatible_override(candidate)
         ]
         _axis0_debug(
             "squeeze override candidates "
@@ -233,7 +248,6 @@ class SqueezePlugin(PrimitiveLeafPlugin):
                 result, tuple(_to_ir_dim_for_shape(d) for d in out_dims)
             )
         else:
-            target_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
             if axis0_override is not None and target_shape and not axis0_removed:
                 target_shape = (axis0_override,) + target_shape[1:]
             _stamp_type_and_shape(result, target_shape)
@@ -242,5 +256,8 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         if axis0_removed and axis0_override is not None:
             set_axis0_override(out_spec, axis0_override)
         elif not axis0_removed:
-            propagate_axis0_override(x_val, result)
+            if axis0_override is not None:
+                set_axis0_override(result, axis0_override)
+            elif target_axis0 is None or target_axis0 <= 1:
+                propagate_axis0_override(x_val, result)
         ctx.bind_value_for_var(y_var, result)
