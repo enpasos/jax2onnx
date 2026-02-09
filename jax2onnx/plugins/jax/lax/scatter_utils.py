@@ -335,28 +335,51 @@ def _prepare_updates_for_scatternd(
             shape=(len(operand_shape),),
         )
 
-        slice_start = _const_i64(
-            ctx,
-            np.asarray([index_depth], dtype=np.int64),
-            "scatter_slice_start",
-        )
-        slice_end = _const_i64(
-            ctx,
-            np.asarray([len(operand_shape)], dtype=np.int64),
-            "scatter_slice_end",
-        )
-        slice_steps = _const_i64(
-            ctx, np.asarray([1], dtype=np.int64), "scatter_slice_step"
-        )
+        slice_dims_pieces: list[ir.Value] = []
+        for offset, dim in enumerate(slice_shape):
+            if isinstance(dim, (int, np.integer)):
+                slice_dims_pieces.append(
+                    _const_i64(
+                        ctx,
+                        np.asarray([int(dim)], dtype=np.int64),
+                        f"scatter_slice_dim_{offset}",
+                    )
+                )
+                continue
 
-        slice_dims = _builder_op(
-            ctx,
-            "Slice",
-            [operand_shape_val, slice_start, slice_end, axes0, slice_steps],
-            name_hint="scatter_slice_dims",
-            dtype=ir.DataType.INT64,
-            shape=(len(slice_shape),),
-        )
+            operand_axis = index_depth + offset
+            gather_idx = _const_i64(
+                ctx,
+                np.asarray([operand_axis], dtype=np.int64),
+                f"scatter_slice_idx_{offset}",
+            )
+            gathered_dim = _builder_op(
+                ctx,
+                "Gather",
+                [operand_shape_val, gather_idx],
+                name_hint=f"scatter_slice_dim_dyn_{offset}",
+                dtype=ir.DataType.INT64,
+                shape=(1,),
+                attributes={"axis": 0},
+            )
+            slice_dims_pieces.append(gathered_dim)
+
+        if slice_dims_pieces:
+            slice_dims = _builder_op(
+                ctx,
+                "Concat",
+                slice_dims_pieces,
+                name_hint="scatter_slice_dims",
+                dtype=ir.DataType.INT64,
+                shape=(len(slice_shape),),
+                attributes={"axis": 0},
+            )
+        else:
+            slice_dims = _const_i64(
+                ctx,
+                np.asarray([], dtype=np.int64),
+                "scatter_slice_dims",
+            )
 
         target_shape = _builder_op(
             ctx,
@@ -1275,7 +1298,41 @@ def lower_scatter_elementwise(
     )
     indices_ordered = _reorder_indices_columns(ctx, indices_2d, scatter_axes)
 
-    slice_shape = () if pattern == "elementwise" else operand_shape[index_depth:]
+    if pattern == "elementwise":
+        slice_shape: tuple[Any, ...] = ()
+    else:
+        operand_to_update, _ = _resolve_operand_to_update_map(spec, operand_rank)
+        window_operand_dims = _compute_window_operand_dims(spec, operand_rank)
+        resolved_slice_dims: list[Any] = []
+        for operand_axis in window_operand_dims:
+            update_axis = operand_to_update.get(operand_axis)
+            dim = (
+                updates_shape[update_axis]
+                if isinstance(update_axis, int) and update_axis < len(updates_shape)
+                else None
+            )
+            if dim is None and operand_axis < len(operand_shape):
+                dim = operand_shape[operand_axis]
+            resolved_slice_dims.append(dim)
+        slice_shape = tuple(resolved_slice_dims)
+        operand_tail = tuple(operand_shape[index_depth:])
+        tail_mismatch = len(slice_shape) != len(operand_tail)
+        if not tail_mismatch:
+            for lhs_dim, rhs_dim in zip(slice_shape, operand_tail):
+                lhs_static = _maybe_static_extent(lhs_dim)
+                rhs_static = _maybe_static_extent(rhs_dim)
+                if (
+                    lhs_static is not None
+                    and rhs_static is not None
+                    and lhs_static != rhs_static
+                ):
+                    tail_mismatch = True
+                    break
+        if tail_mismatch:
+            raise NotImplementedError(
+                "slice-window scatter requires expanded-index lowering"
+            )
+
     updates_prepared = _prepare_updates_for_scatternd(
         ctx,
         updates_val,
