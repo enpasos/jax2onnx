@@ -346,6 +346,8 @@ def to_onnx(
     protective_clone: bool = True,
     inputs_as_nchw: Optional[Sequence[int]] = None,
     outputs_as_nchw: Optional[Sequence[int]] = None,
+    input_names: Optional[Sequence[str]] = None,
+    output_names: Optional[Sequence[str]] = None,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -372,6 +374,15 @@ def to_onnx(
             except Exception:
                 pass
         jpr = closed.jaxpr
+
+        if input_names is not None and len(input_names) != len(jpr.invars):
+            raise ValueError(
+                f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
+            )
+        if output_names is not None and len(output_names) != len(jpr.outvars):
+            raise ValueError(
+                f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
+            )
 
         # 3) IR context & inputs/consts
         ctx: IRContext = IRContext(

@@ -12,6 +12,7 @@ To optimize this, you can use the `inputs_as_nchw` and `outputs_as_nchw` argumen
 
 - **`inputs_as_nchw`**: A sequence of input indices (e.g. `[0]`) that you promise to provide in NCHW layout. `jax2onnx` will insert a transpose at the beginning of the graph to convert NCHW to NHWC for the internal JAX logic. This often cancels out with the initial transpose expected by Conv layers, removing it entirely.
 - **`outputs_as_nchw`**: A sequence of output indices that you want to be returned in NCHW layout.
+- **`input_names` / `output_names`**: Optional sequences for explicit boundary names (for example `["image"]` and `["prediction"]`) when exporting.
 
 ## Example
 
@@ -33,6 +34,8 @@ onnx_model = to_onnx(
     my_conv_model,
     inputs=[jax.ShapeDtypeStruct((1, 32, 32, 3), jnp.float32)], # Shape is still specified as NHWC logic
     inputs_as_nchw=[0],
-    outputs_as_nchw=[0]
+    outputs_as_nchw=[0],
+    input_names=["image_nchw"],
+    output_names=["features_nchw"],
 )
 ```

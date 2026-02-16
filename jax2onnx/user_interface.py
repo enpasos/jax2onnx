@@ -25,6 +25,7 @@ Example:
 
 import logging
 import os
+import re
 from contextlib import contextmanager
 from typing import (
     TYPE_CHECKING,
@@ -219,6 +220,179 @@ def _materialize_input_params_on_ir(
         existing_inputs.add(name)
 
 
+_POSITIONAL_INPUT_NAME_RE = re.compile(r"^in_(\d+)(?:_nchw)?$")
+
+
+def _normalize_io_names(
+    names: Optional[Sequence[str]], *, kind: str
+) -> Optional[List[str]]:
+    if names is None:
+        return None
+    if isinstance(names, (str, bytes)):
+        raise TypeError(f"{kind} must be a sequence of strings, not a single string.")
+
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for idx, entry in enumerate(names):
+        if not isinstance(entry, str):
+            raise TypeError(f"{kind}[{idx}] must be a string, received {type(entry)}.")
+        if not entry.strip():
+            raise ValueError(f"{kind}[{idx}] must be a non-empty string.")
+        if entry in seen:
+            raise ValueError(f"{kind} entries must be unique; duplicate '{entry}'.")
+        seen.add(entry)
+        normalized.append(entry)
+    return normalized
+
+
+def _collect_top_graph_values(graph: ir.Graph) -> List[ir.Value]:
+    values: List[ir.Value] = []
+    seen: set[int] = set()
+
+    def _push(value: Optional[ir.Value]) -> None:
+        if value is None:
+            return
+        vid = id(value)
+        if vid in seen:
+            return
+        seen.add(vid)
+        values.append(value)
+
+    for value in graph.inputs:
+        _push(value)
+    for value in graph.outputs:
+        _push(value)
+    for value in graph.initializers.values():
+        _push(value)
+
+    for node in graph:
+        for value in node.inputs:
+            _push(value)
+        for value in node.outputs:
+            _push(value)
+
+    return values
+
+
+def _resolve_positional_inputs(
+    graph: ir.Graph, positional_input_count: int
+) -> List[ir.Value]:
+    if positional_input_count == 0:
+        return []
+
+    indexed: Dict[int, ir.Value] = {}
+    for value in graph.inputs:
+        name = getattr(value, "name", None)
+        if not isinstance(name, str):
+            continue
+        match = _POSITIONAL_INPUT_NAME_RE.fullmatch(name)
+        if match is None:
+            continue
+        idx = int(match.group(1))
+        indexed.setdefault(idx, value)
+
+    if all(idx in indexed for idx in range(positional_input_count)):
+        return [indexed[idx] for idx in range(positional_input_count)]
+
+    fallback = list(graph.inputs)[:positional_input_count]
+    if len(fallback) != positional_input_count:
+        raise ValueError(
+            "Cannot map custom input_names to graph inputs: positional inputs were pruned."
+        )
+    return fallback
+
+
+def _apply_custom_io_names_on_ir(
+    model: ir.Model,
+    *,
+    input_names: Optional[Sequence[str]],
+    output_names: Optional[Sequence[str]],
+    positional_input_count: int,
+) -> None:
+    if not input_names and not output_names:
+        return
+
+    graph = model.graph
+    rename_pairs: List[tuple[ir.Value, str]] = []
+
+    if input_names is not None:
+        positional_inputs = _resolve_positional_inputs(graph, positional_input_count)
+        if len(positional_inputs) != len(input_names):
+            raise ValueError(
+                f"input_names length ({len(input_names)}) does not match positional graph inputs ({len(positional_inputs)})."
+            )
+        rename_pairs.extend(zip(positional_inputs, input_names))
+
+    if output_names is not None:
+        graph_outputs = list(graph.outputs)
+        if len(graph_outputs) != len(output_names):
+            raise ValueError(
+                f"output_names length ({len(output_names)}) does not match graph outputs ({len(graph_outputs)})."
+            )
+        rename_pairs.extend(zip(graph_outputs, output_names))
+
+    if not rename_pairs:
+        return
+
+    target_by_value: Dict[int, str] = {}
+    for value, target in rename_pairs:
+        vid = id(value)
+        existing = target_by_value.get(vid)
+        if existing is None:
+            target_by_value[vid] = target
+            continue
+        if existing != target:
+            raise ValueError(
+                f"Conflicting custom names for one value: '{existing}' vs '{target}'."
+            )
+
+    targets = list(target_by_value.values())
+    if len(set(targets)) != len(targets):
+        raise ValueError("Custom input/output names must be globally unique.")
+
+    renamed_ids = set(target_by_value.keys())
+    occupied_by_other: set[str] = set()
+    for value in _collect_top_graph_values(graph):
+        name = getattr(value, "name", None)
+        if not name:
+            continue
+        if id(value) in renamed_ids:
+            continue
+        occupied_by_other.add(name)
+
+    collisions = sorted(name for name in targets if name in occupied_by_other)
+    if collisions:
+        joined = ", ".join(collisions)
+        raise ValueError(
+            f"Custom names collide with existing graph value names: {joined}."
+        )
+
+    rename_values = [
+        value
+        for value in _collect_top_graph_values(graph)
+        if id(value) in target_by_value and getattr(value, "name", None) is not None
+    ]
+
+    tmp_prefix = "__j2o_tmp_io_name_"
+    used_names = {
+        getattr(value, "name", "")
+        for value in _collect_top_graph_values(graph)
+        if getattr(value, "name", None)
+    }
+    tmp_by_id: Dict[int, str] = {}
+    for counter, value in enumerate(rename_values):
+        tmp = f"{tmp_prefix}{counter}"
+        while tmp in used_names:
+            counter += 1
+            tmp = f"{tmp_prefix}{counter}"
+        used_names.add(tmp)
+        tmp_by_id[id(value)] = tmp
+        value.name = tmp
+
+    for value in rename_values:
+        value.name = target_by_value[id(value)]
+
+
 if TYPE_CHECKING:
 
     @overload
@@ -235,6 +409,8 @@ if TYPE_CHECKING:
         output_path: None = ...,
         inputs_as_nchw: Optional[Sequence[int]] = ...,
         outputs_as_nchw: Optional[Sequence[int]] = ...,
+        input_names: Optional[Sequence[str]] = ...,
+        output_names: Optional[Sequence[str]] = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -251,6 +427,8 @@ if TYPE_CHECKING:
         output_path: Optional[PathLikeStr] = ...,
         inputs_as_nchw: Optional[Sequence[int]] = ...,
         outputs_as_nchw: Optional[Sequence[int]] = ...,
+        input_names: Optional[Sequence[str]] = ...,
+        output_names: Optional[Sequence[str]] = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -267,6 +445,8 @@ if TYPE_CHECKING:
         output_path: PathLikeStr,
         inputs_as_nchw: Optional[Sequence[int]] = ...,
         outputs_as_nchw: Optional[Sequence[int]] = ...,
+        input_names: Optional[Sequence[str]] = ...,
+        output_names: Optional[Sequence[str]] = ...,
     ) -> str: ...
 
 
@@ -283,6 +463,8 @@ def to_onnx(
     output_path: Optional[PathLikeStr] = None,
     inputs_as_nchw: Optional[Sequence[int]] = None,
     outputs_as_nchw: Optional[Sequence[int]] = None,
+    input_names: Optional[Sequence[str]] = None,
+    output_names: Optional[Sequence[str]] = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
@@ -320,6 +502,11 @@ def to_onnx(
         outputs_as_nchw: Optional sequence of output indices (0-based) that should be treated as NCHW layout.
             If specified for an output, jax2onnx assumes the external output should be NCHW and will automatically
             transpose the NHWC output derived from JAX graph to NCHW before returning it.
+        input_names: Optional sequence of names for positional model inputs.
+            When provided, names are assigned by positional index (0-based) after conversion.
+            These names do not apply to entries supplied through `input_params`.
+        output_names: Optional sequence of names for model outputs (0-based).
+            Names are assigned after conversion in output order.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -364,7 +551,8 @@ def to_onnx(
         f"enable_double_precision={enable_double_precision}, "
         f"record_primitive_calls_file={record_primitive_calls_file}, "
         f"return_mode={return_mode}, output_path={output_path}, "
-        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}"
+        f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
+        f"input_names={input_names}, output_names={output_names}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
@@ -385,6 +573,17 @@ def to_onnx(
     if inputs:
         normalized_inputs = _normalize_input_specs(inputs)
 
+    normalized_input_names = _normalize_io_names(input_names, kind="input_names")
+    normalized_output_names = _normalize_io_names(output_names, kind="output_names")
+
+    if normalized_input_names is not None and len(normalized_input_names) != len(
+        normalized_inputs
+    ):
+        raise ValueError(
+            f"input_names length ({len(normalized_input_names)}) must match "
+            f"the number of positional inputs ({len(normalized_inputs)})."
+        )
+
     param_map: Dict[str, object] = {}
     if input_params:
         for key, value in input_params.items():
@@ -394,6 +593,22 @@ def to_onnx(
                     f"received key of type {type(key)}."
                 )
             param_map[key] = value
+
+    if normalized_input_names is not None:
+        collisions = sorted(set(normalized_input_names).intersection(param_map.keys()))
+        if collisions:
+            names = ", ".join(collisions)
+            raise ValueError(
+                f"input_names collide with names reserved by input_params: {names}."
+            )
+
+    if normalized_output_names is not None:
+        collisions = sorted(set(normalized_output_names).intersection(param_map.keys()))
+        if collisions:
+            names = ", ".join(collisions)
+            raise ValueError(
+                f"output_names collide with names reserved by input_params: {names}."
+            )
 
     with _temporary_x64(enable_double_precision):
         result = to_onnx_impl(
@@ -407,6 +622,8 @@ def to_onnx(
             protective_clone=(normalized_mode == "ir"),
             inputs_as_nchw=inputs_as_nchw,
             outputs_as_nchw=outputs_as_nchw,
+            input_names=normalized_input_names,
+            output_names=normalized_output_names,
         )
 
         postprocess_ir_model(
@@ -445,6 +662,12 @@ def to_onnx(
         return dest
 
     _materialize_input_params_on_ir(result, param_map)
+    _apply_custom_io_names_on_ir(
+        result,
+        input_names=normalized_input_names,
+        output_names=normalized_output_names,
+        positional_input_count=len(normalized_inputs),
+    )
     if normalized_mode == "ir":
         return result
 
