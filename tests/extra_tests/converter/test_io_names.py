@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import jax.numpy as jnp
 
 from jax2onnx.user_interface import to_onnx
 
@@ -21,6 +22,10 @@ def _plus_one(x):
 
 def _identity_with_flag(x, deterministic: bool = True):
     return x if deterministic else x
+
+
+def _constant_pair():
+    return jnp.array([1.0], dtype=jnp.float32), jnp.array([2.0], dtype=jnp.float32)
 
 
 def test_custom_io_names_proto_mode():
@@ -60,6 +65,24 @@ def test_custom_io_names_with_nchw_boundary():
 
     assert [value.name for value in model.graph.input] == ["image"]
     assert [value.name for value in model.graph.output] == ["image_nchw"]
+
+
+def test_custom_output_names_support_swapping_constant_initializers():
+    baseline = to_onnx(_constant_pair, inputs=[], return_mode="ir")
+    baseline_names = [value.name for value in baseline.graph.outputs]
+    assert len(baseline_names) == 2
+    assert all(value.is_initializer() for value in baseline.graph.outputs)
+
+    swapped_names = [baseline_names[1], baseline_names[0]]
+    ir_model = to_onnx(
+        _constant_pair,
+        inputs=[],
+        output_names=swapped_names,
+        return_mode="ir",
+    )
+
+    assert [value.name for value in ir_model.graph.outputs] == swapped_names
+    assert sorted(ir_model.graph.initializers.keys()) == sorted(swapped_names)
 
 
 def test_default_names_unchanged_when_no_custom_names():
