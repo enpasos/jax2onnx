@@ -379,14 +379,12 @@ def _apply_custom_io_names_on_ir(
         for value in _collect_top_graph_values(graph)
         if getattr(value, "name", None)
     }
-    tmp_by_id: Dict[int, str] = {}
     for counter, value in enumerate(rename_values):
         tmp = f"{tmp_prefix}{counter}"
         while tmp in used_names:
             counter += 1
             tmp = f"{tmp_prefix}{counter}"
         used_names.add(tmp)
-        tmp_by_id[id(value)] = tmp
         value.name = tmp
 
     for value in rename_values:
