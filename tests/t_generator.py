@@ -599,6 +599,7 @@ def make_test_function(tp: dict[str, Any]):
         expected_num_funcs = tp.get("expected_number_of_function_instances")
         expected_output_shapes_from_testcase = tp.get("expected_output_shapes")
         onnx_input_names_from_testcase = tp.get("input_names")
+        onnx_output_names_from_testcase = tp.get("output_names")
         inputs_as_nchw = tp.get("inputs_as_nchw")
         outputs_as_nchw = tp.get("outputs_as_nchw")
 
@@ -625,6 +626,8 @@ def make_test_function(tp: dict[str, Any]):
                 output_path=model_path,
                 inputs_as_nchw=inputs_as_nchw,
                 outputs_as_nchw=outputs_as_nchw,
+                input_names=onnx_input_names_from_testcase,
+                output_names=onnx_output_names_from_testcase,
             )
             written_model_path = to_onnx(**to_onnx_kwargs)
             if written_model_path != model_path:
