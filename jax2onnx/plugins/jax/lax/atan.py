@@ -43,9 +43,19 @@ class AtanPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("atan_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("atan_out"))
+        desired_name = ctx.fresh_name("atan_out")
+        out_spec = ctx.get_value_for_var(out_var, name_hint=desired_name)
 
-        result = ctx.builder.Atan(x_val, _outputs=[out_spec.name])
+        output_name = desired_name
+        producer_attr = getattr(out_spec, "producer", None)
+        if callable(producer_attr):
+            producer = producer_attr()
+        else:
+            producer = producer_attr
+        if producer is not None:
+            output_name = ctx.fresh_name("atan_out")
+
+        result = ctx.builder.Atan(x_val, _outputs=[output_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
