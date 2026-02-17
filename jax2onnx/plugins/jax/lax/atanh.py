@@ -46,7 +46,11 @@ class AtanhPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("atanh_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("atanh_out"))
 
-        result = ctx.builder.Atanh(x_val, _outputs=[out_spec.name])
+        desired_name = out_spec.name
+        if hasattr(out_spec, "producer") and out_spec.producer() is not None:
+            desired_name = ctx.fresh_name(desired_name)
+
+        result = ctx.builder.Atanh(x_val, _outputs=[desired_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
