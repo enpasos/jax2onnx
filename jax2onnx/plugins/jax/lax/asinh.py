@@ -45,7 +45,11 @@ class AsinhPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("asinh_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("asinh_out"))
 
-        result = ctx.builder.Asinh(x_val, _outputs=[out_spec.name])
+        desired_name = out_spec.name
+        if out_spec.producer() is not None:
+            desired_name = ctx.fresh_name(out_spec.name)
+
+        result = ctx.builder.Asinh(x_val, _outputs=[desired_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
