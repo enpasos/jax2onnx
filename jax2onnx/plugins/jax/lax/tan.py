@@ -45,7 +45,13 @@ class TanPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("tan_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tan_out"))
 
-        result = ctx.builder.Tan(x_val, _outputs=[out_spec.name])
+        # Avoid reusing an output name that may already have a producer.
+        output_name = out_spec.name
+        producer_attr = getattr(out_spec, "producer", None)
+        if callable(producer_attr) and producer_attr() is not None:
+            output_name = ctx.fresh_name("tan_out")
+
+        result = ctx.builder.Tan(x_val, _outputs=[output_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
