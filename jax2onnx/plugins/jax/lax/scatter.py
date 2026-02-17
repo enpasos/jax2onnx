@@ -23,7 +23,11 @@ if TYPE_CHECKING:  # pragma: no cover
         {
             "component": "ScatterND",
             "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
-        }
+        },
+        {
+            "component": "NonZero",
+            "doc": "https://onnx.ai/onnx/operators/onnx__NonZero.html",
+        },
     ],
     since="0.4.4",
     context="primitives.lax",

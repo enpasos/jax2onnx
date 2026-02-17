@@ -780,14 +780,13 @@ def _filter_fill_or_drop_updates(
         shape=(None,),
     )
 
-    valid_idx = _builder_op(
-        ctx,
-        "NonZero",
-        [mask_flat],
-        name_hint="scatter_valid_idx",
-        dtype=ir.DataType.INT64,
-        shape=(1, None),
+    valid_idx = ctx.builder.NonZero(
+        mask_flat,
+        _outputs=[ctx.fresh_name("scatter_valid_idx")],
     )
+    valid_idx.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(valid_idx, (1, None))
+    _ensure_value_metadata(ctx, valid_idx)
 
     valid_idx_t = _builder_op(
         ctx,
