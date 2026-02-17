@@ -46,7 +46,15 @@ class AsinPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("asin_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("asin_out"))
 
-        result = ctx.builder.Asin(x_val, _outputs=[out_spec.name])
+        # Compute a safe output name: reuse out_spec.name if it has no producer,
+        # otherwise allocate a fresh, unique name.
+        desired_name = out_spec.name
+        if hasattr(out_spec, "producer"):
+            producer_fn = out_spec.producer
+            if callable(producer_fn) and producer_fn() is not None:
+                desired_name = ctx.fresh_name(desired_name)
+
+        result = ctx.builder.Asin(x_val, _outputs=[desired_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
