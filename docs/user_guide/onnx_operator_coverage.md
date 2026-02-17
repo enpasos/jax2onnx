@@ -17,8 +17,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 
 - Source index: `ONNX 1.21.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `199`
-- Operators referenced in plugins: `116`
-- Coverage: `58.3%`
+- Operators referenced in plugins: `118`
+- Coverage: `59.3%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Suggested Next Step` is heuristic and should be refined with roadmap priorities.
 - Extra plugin names not present in index: `4`
@@ -100,8 +100,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [GroupNormalization](https://onnx.ai/onnx/operators/onnx__GroupNormalization.html) | ✅ | ✅ | ✅ | `flax/linen/group_norm`<br>`flax/linen/instance_norm`<br>`flax/nnx/group_norm` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [HammingWindow](https://onnx.ai/onnx/operators/onnx__HammingWindow.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [HannWindow](https://onnx.ai/onnx/operators/onnx__HannWindow.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
-| [HardSigmoid](https://onnx.ai/onnx/operators/onnx__HardSigmoid.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
-| [HardSwish](https://onnx.ai/onnx/operators/onnx__HardSwish.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
+| [HardSigmoid](https://onnx.ai/onnx/operators/onnx__HardSigmoid.html) | ✅ | ✅ | ✅ | `jax/nn/hard_sigmoid` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [HardSwish](https://onnx.ai/onnx/operators/onnx__HardSwish.html) | ✅ | ✅ | ✅ | `jax/nn/hard_swish` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Hardmax](https://onnx.ai/onnx/operators/onnx__Hardmax.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
 | [Identity](https://onnx.ai/onnx/operators/onnx__Identity.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/identity`<br>`equinox/eqx/nn/rms_norm`<br>`jax/core/name`<br>`jax/lax/_control_flow_utils`<br>`jax/lax/broadcast_in_dim`<br>`jax/lax/cond`<br>... +19 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [If](https://onnx.ai/onnx/operators/onnx__If.html) | ✅ | ✅ | ✅ | `jax/lax/cond` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
