@@ -19,7 +19,6 @@ from jax2onnx.plugins._ir_shapes import (
     _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins.jax.lax._control_flow_utils import builder_cast, builder_identity
-from jax2onnx.plugins.jax.lax._index_utils import _builder_op
 
 
 def lower_arg_reduction(
@@ -71,19 +70,28 @@ def lower_arg_reduction(
         _to_ir_dim_for_shape(dim) for dim in getattr(out_var.aval, "shape", ())
     )
 
-    arg_tmp = _builder_op(
-        ctx,
-        op_name,
-        [arg_input],
-        name_hint=f"{name_prefix}_tmp",
-        dtype=ir.DataType.INT64,
-        shape=reduced_shape,
-        attributes={
-            "axis": axis,
-            "keepdims": 0,
-            "select_last_index": select_last,
-        },
-    )
+    tmp_name = ctx.fresh_name(f"{name_prefix}_tmp")
+    if op_name == "ArgMax":
+        arg_tmp = ctx.builder.ArgMax(
+            arg_input,
+            axis=axis,
+            keepdims=0,
+            select_last_index=select_last,
+            _outputs=[tmp_name],
+        )
+    elif op_name == "ArgMin":
+        arg_tmp = ctx.builder.ArgMin(
+            arg_input,
+            axis=axis,
+            keepdims=0,
+            select_last_index=select_last,
+            _outputs=[tmp_name],
+        )
+    else:
+        raise ValueError(f"Unsupported arg reduction op: {op_name}")
+    arg_tmp.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(arg_tmp, reduced_shape)
+    _ensure_value_metadata(ctx, arg_tmp)
 
     target_enum = _dtype_to_ir(index_dtype, ctx.builder.enable_double_precision)
     if target_enum == ir.DataType.INT64:

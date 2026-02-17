@@ -21,7 +21,11 @@ if TYPE_CHECKING:  # pragma: no cover
     jaxpr_primitive=jax.lax.sort_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sort.html",
     onnx=[
-        {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"}
+        {
+            "component": "GatherElements",
+            "doc": "https://onnx.ai/onnx/operators/onnx__GatherElements.html",
+        },
+        {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"},
     ],
     since="0.2.0",
     context="primitives.lax",

@@ -66,15 +66,16 @@ class BitwiseNotPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("not_out"))
 
         x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.bool_))
-        op_type = "Not" if x_dtype.kind == "b" else "BitwiseNot"
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("not_out")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("not_out")
 
-        builder_fn = getattr(ctx.builder, op_type)
-        result = builder_fn(x_val, _outputs=[desired_name])
+        if x_dtype.kind == "b":
+            result = ctx.builder.Not(x_val, _outputs=[desired_name])
+        else:
+            result = ctx.builder.BitwiseNot(x_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         if getattr(out_spec, "shape", None) is not None:

@@ -258,9 +258,13 @@ def _extract_python_bool(var) -> Optional[bool]:
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
     onnx=[
         {
+            "component": "Constant",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+        },
+        {
             "component": "Dropout",
             "doc": "https://onnx.ai/onnx/operators/onnx__Dropout.html",
-        }
+        },
     ],
     since="0.1.0",
     context="primitives.nnx",
