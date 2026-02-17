@@ -13,7 +13,6 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
-    lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
 )
 
@@ -78,13 +77,29 @@ class SoftsignPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
-        lower_unary_elementwise(
-            ctx,
-            eqn,
-            op_name="Softsign",
-            input_hint="softsign_in",
-            output_hint="softsign_out",
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("softsign_in"))
+        out_spec = ctx.get_value_for_var(
+            out_var, name_hint=ctx.fresh_name("softsign_out")
         )
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("softsign_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("softsign_out")
+
+        result = ctx.builder.Softsign(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        else:
+            result.type = getattr(x_val, "type", None)
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        else:
+            result.shape = getattr(x_val, "shape", None)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):
