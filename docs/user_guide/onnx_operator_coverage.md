@@ -17,8 +17,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 
 - Source index: `ONNX 1.21.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `199`
-- Operators referenced in plugins: `109`
-- Coverage: `54.8%`
+- Operators referenced in plugins: `114`
+- Coverage: `57.3%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Suggested Next Step` is heuristic and should be refined with roadmap priorities.
 - Extra plugin names not present in index: `4`
@@ -158,16 +158,16 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [RandomUniformLike](https://onnx.ai/onnx/operators/onnx__RandomUniformLike.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [Range](https://onnx.ai/onnx/operators/onnx__Range.html) | ✅ | ✅ | ✅ | `jax/lax/dynamic_update_slice`<br>`jax/lax/gather`<br>`jax/lax/iota`<br>`jax/lax/rev`<br>`jax/numpy/arange`<br>`jax/numpy/linspace` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Reciprocal](https://onnx.ai/onnx/operators/onnx__Reciprocal.html) | ✅ | ✅ | ✅ | `jax/lax/integer_pow` | `jax.numpy.reciprocal`<br>`jax.lax.integer_pow(x, -1)`<br>`1.0 / x` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
-| [ReduceL1](https://onnx.ai/onnx/operators/onnx__ReduceL1.html) | ➖ | ➖ | ➖ | ➖ | `jax.numpy.linalg.norm(ord=1)`<br>`jax.numpy.sum(jax.numpy.abs(x), axis=...)` | Good quick win: add primitive plugin, metadata, and expect_graph test. |
-| [ReduceL2](https://onnx.ai/onnx/operators/onnx__ReduceL2.html) | ➖ | ➖ | ➖ | ➖ | `jax.numpy.linalg.norm(ord=2)`<br>`jax.numpy.sqrt(jax.numpy.sum(x * x, axis=...))` | Good quick win: add primitive plugin, metadata, and expect_graph test. |
-| [ReduceLogSum](https://onnx.ai/onnx/operators/onnx__ReduceLogSum.html) | ➖ | ➖ | ➖ | ➖ | `jax.numpy.log(jax.numpy.sum(x, axis=...))` | Good quick win: add primitive plugin, metadata, and expect_graph test. |
-| [ReduceLogSumExp](https://onnx.ai/onnx/operators/onnx__ReduceLogSumExp.html) | ➖ | ➖ | ➖ | ➖ | `jax.nn.logsumexp`<br>`jax.scipy.special.logsumexp` | Good quick win: add primitive plugin, metadata, and expect_graph test. |
+| [ReduceL1](https://onnx.ai/onnx/operators/onnx__ReduceL1.html) | ✅ | ✅ | ✅ | `jax/lax/reduce_sum` | `jax.numpy.linalg.norm(ord=1)`<br>`jax.numpy.sum(jax.numpy.abs(x), axis=...)` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [ReduceL2](https://onnx.ai/onnx/operators/onnx__ReduceL2.html) | ✅ | ✅ | ✅ | `jax/lax/sqrt` | `jax.numpy.linalg.norm(ord=2)`<br>`jax.numpy.sqrt(jax.numpy.sum(x * x, axis=...))` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [ReduceLogSum](https://onnx.ai/onnx/operators/onnx__ReduceLogSum.html) | ✅ | ✅ | ✅ | `jax/lax/log` | `jax.numpy.log(jax.numpy.sum(x, axis=...))` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [ReduceLogSumExp](https://onnx.ai/onnx/operators/onnx__ReduceLogSumExp.html) | ✅ | ✅ | ✅ | `jax/lax/log` | `jax.nn.logsumexp`<br>`jax.scipy.special.logsumexp` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [ReduceMax](https://onnx.ai/onnx/operators/onnx__ReduceMax.html) | ✅ | ✅ | ➖ | `jax/lax/reduce_max`<br>`jax/lax/reduce_or` | Covered via existing plugin primitives. | Add real lowering usage (`builder.ReduceMax`) or remove stale metadata mapping. |
 | [ReduceMean](https://onnx.ai/onnx/operators/onnx__ReduceMean.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/numpy/mean` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [ReduceMin](https://onnx.ai/onnx/operators/onnx__ReduceMin.html) | ✅ | ✅ | ➖ | `jax/lax/reduce_and`<br>`jax/lax/reduce_min` | Covered via existing plugin primitives. | Add real lowering usage (`builder.ReduceMin`) or remove stale metadata mapping. |
 | [ReduceProd](https://onnx.ai/onnx/operators/onnx__ReduceProd.html) | ✅ | ✅ | ✅ | `flax/nnx/conv`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/reduce_prod`<br>`jax/numpy/prod` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [ReduceSum](https://onnx.ai/onnx/operators/onnx__ReduceSum.html) | ✅ | ✅ | ➖ | `flax/linen/dot_product_attention`<br>`jax/lax/reduce_sum`<br>`jax/lax/reduce_xor` | Covered via existing plugin primitives. | Add real lowering usage (`builder.ReduceSum`) or remove stale metadata mapping. |
-| [ReduceSumSquare](https://onnx.ai/onnx/operators/onnx__ReduceSumSquare.html) | ➖ | ➖ | ➖ | ➖ | `jax.numpy.sum(jax.numpy.square(x), axis=...)` | Good quick win: add primitive plugin, metadata, and expect_graph test. |
+| [ReduceSumSquare](https://onnx.ai/onnx/operators/onnx__ReduceSumSquare.html) | ✅ | ✅ | ✅ | `jax/lax/reduce_sum` | `jax.numpy.sum(jax.numpy.square(x), axis=...)` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [RegexFullMatch](https://onnx.ai/onnx/operators/onnx__RegexFullMatch.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Add only when demanded by target models; document priority. |
 | [Relu](https://onnx.ai/onnx/operators/onnx__Relu.html) | ✅ | ✅ | ✅ | `flax/nnx/relu`<br>`jax/nn/relu` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>`flax/linen/dense`<br>`flax/linen/dense_general`<br>... +17 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
