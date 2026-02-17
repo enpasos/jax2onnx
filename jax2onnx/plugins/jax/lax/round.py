@@ -44,7 +44,12 @@ class RoundPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("round_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("round_out"))
 
-        result = ctx.builder.Round(x_val, _outputs=[out_spec.name])
+        # Derive a safe output name; avoid reusing a name that already has a producer.
+        desired_name = out_spec.name
+        if getattr(out_spec, "producer", None) is not None:
+            desired_name = ctx.fresh_name("round_out")
+
+        result = ctx.builder.Round(x_val, _outputs=[desired_name])
         result.type = out_spec.type
         result.shape = out_spec.shape
         ctx.bind_value_for_var(out_var, result)
