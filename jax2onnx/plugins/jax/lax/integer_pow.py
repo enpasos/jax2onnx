@@ -24,7 +24,11 @@ if TYPE_CHECKING:  # pragma: no cover
         {
             "component": "Pow",
             "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html",
-        }
+        },
+        {
+            "component": "Reciprocal",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reciprocal.html",
+        },
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -43,7 +47,16 @@ if TYPE_CHECKING:  # pragma: no cover
                 ],
                 no_unused_inputs=True,
             ),
-        }
+        },
+        {
+            "testcase": "integer_pow_reciprocal",
+            "callable": lambda x: jax.lax.integer_pow(x, -1),
+            "input_values": [np.array([1.0, 2.0, 4.0], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                ["Reciprocal:3"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class IntegerPowPlugin(PrimitiveLeafPlugin):
@@ -62,17 +75,19 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ipow_out"))
 
         target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
-        exp_const = ctx.builder.add_initializer_from_scalar(
-            name=ctx.fresh_name("ipow_exp"),
-            value=np.array(exponent, dtype=target_dtype),
-        )
-
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Pow")
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ipow_out")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("Pow")
+            desired_name = ctx.fresh_name("ipow_out")
 
-        result = ctx.builder.Pow(base_val, exp_const, _outputs=[desired_name])
+        if exponent == -1:
+            result = ctx.builder.Reciprocal(base_val, _outputs=[desired_name])
+        else:
+            exp_const = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("ipow_exp"),
+                value=np.array(exponent, dtype=target_dtype),
+            )
+            result = ctx.builder.Pow(base_val, exp_const, _outputs=[desired_name])
 
         out_dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))

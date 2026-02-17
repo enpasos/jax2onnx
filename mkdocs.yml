@@ -61,6 +61,7 @@ nav:
       - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
       - Supported Components: user_guide/supported_components.md
+      - ONNX Operator Coverage: user_guide/onnx_operator_coverage.md
       - Examples: user_guide/examples.md
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
