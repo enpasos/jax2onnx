@@ -141,6 +141,7 @@ def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
             "input_shapes": [(4,)],
             "input_dtypes": [jnp.int32],
             "expected_output_shapes": [(4, 6)],
+            "run_only_f32_variant": True,
         },
     ],
 )
