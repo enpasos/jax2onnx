@@ -17,8 +17,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 
 - Source index: `ONNX 1.21.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `199`
-- Operators referenced in plugins: `107`
-- Coverage: `53.8%`
+- Operators referenced in plugins: `109`
+- Coverage: `54.8%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Suggested Next Step` is heuristic and should be refined with roadmap priorities.
 - Extra plugin names not present in index: `4`
@@ -47,7 +47,7 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [BitwiseAnd](https://onnx.ai/onnx/operators/onnx__BitwiseAnd.html) | ✅ | ✅ | ➖ | `jax/lax/and` | Covered via existing plugin primitives. | Add real lowering usage (`builder.BitwiseAnd`) or remove stale metadata mapping. |
 | [BitwiseNot](https://onnx.ai/onnx/operators/onnx__BitwiseNot.html) | ✅ | ✅ | ➖ | `jax/lax/bitwise_not` | Covered via existing plugin primitives. | Add real lowering usage (`builder.BitwiseNot`) or remove stale metadata mapping. |
 | [BitwiseOr](https://onnx.ai/onnx/operators/onnx__BitwiseOr.html) | ✅ | ✅ | ➖ | `jax/lax/or` | Covered via existing plugin primitives. | Add real lowering usage (`builder.BitwiseOr`) or remove stale metadata mapping. |
-| [BitwiseXor](https://onnx.ai/onnx/operators/onnx__BitwiseXor.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
+| [BitwiseXor](https://onnx.ai/onnx/operators/onnx__BitwiseXor.html) | ✅ | ✅ | ✅ | `jax/lax/xor` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [BlackmanWindow](https://onnx.ai/onnx/operators/onnx__BlackmanWindow.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [Cast](https://onnx.ai/onnx/operators/onnx__Cast.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`flax/linen/dot_product_attention`<br>`flax/nnx/dot_product_attention`<br>`flax/nnx/embed`<br>`jax/core/dim_as_value`<br>`jax/lax/_control_flow_utils`<br>... +28 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [CastLike](https://onnx.ai/onnx/operators/onnx__CastLike.html) | ✅ | ✅ | ✅ | `_utils`<br>`flax/linen/conv`<br>`flax/linen/dense_general`<br>`flax/nnx/conv`<br>`flax/nnx/linear`<br>`flax/nnx/linear_general`<br>... +1 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
@@ -80,11 +80,11 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [Elu](https://onnx.ai/onnx/operators/onnx__Elu.html) | ✅ | ✅ | ✅ | `flax/nnx/elu`<br>`jax/nn/elu` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Equal](https://onnx.ai/onnx/operators/onnx__Equal.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/eq`<br>`jax/lax/ne`<br>`jax/lax/select_n` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Erf](https://onnx.ai/onnx/operators/onnx__Erf.html) | ✅ | ✅ | ✅ | `jax/lax/erf` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
-| [Exp](https://onnx.ai/onnx/operators/onnx__Exp.html) | ✅ | ✅ | ✅ | `jax/lax/cosh`<br>`jax/lax/exp`<br>`jax/lax/sinh` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [Exp](https://onnx.ai/onnx/operators/onnx__Exp.html) | ✅ | ✅ | ✅ | `jax/lax/cosh`<br>`jax/lax/exp`<br>`jax/lax/expm1`<br>`jax/lax/sinh` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Expand](https://onnx.ai/onnx/operators/onnx__Expand.html) | ✅ | ✅ | ✅ | `_axis0_utils`<br>`jax/lax/broadcast_in_dim`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/gather`<br>`jax/lax/iota`<br>`jax/lax/scan` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [EyeLike](https://onnx.ai/onnx/operators/onnx__EyeLike.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [Flatten](https://onnx.ai/onnx/operators/onnx__Flatten.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
-| [Floor](https://onnx.ai/onnx/operators/onnx__Floor.html) | ✅ | ✅ | ✅ | `jax/random/random_bits` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [Floor](https://onnx.ai/onnx/operators/onnx__Floor.html) | ✅ | ✅ | ✅ | `jax/lax/floor`<br>`jax/random/random_bits` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [GRU](https://onnx.ai/onnx/operators/onnx__GRU.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Add only when demanded by target models; document priority. |
 | [Gather](https://onnx.ai/onnx/operators/onnx__Gather.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/embed`<br>`flax/nnx/conv`<br>`flax/nnx/embed`<br>`jax/core/dim_as_value`<br>... +11 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [GatherElements](https://onnx.ai/onnx/operators/onnx__GatherElements.html) | ✅ | ➖ | ✅ | `jax/lax/sort` | Covered via existing plugin primitives. | Add `onnx__GatherElements.html` metadata to owning `@register_primitive` entry. |
@@ -209,7 +209,7 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [StringConcat](https://onnx.ai/onnx/operators/onnx__StringConcat.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | If in scope, add container plugins; else mark explicitly out-of-scope. |
 | [StringNormalizer](https://onnx.ai/onnx/operators/onnx__StringNormalizer.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | If in scope, add container plugins; else mark explicitly out-of-scope. |
 | [StringSplit](https://onnx.ai/onnx/operators/onnx__StringSplit.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | If in scope, add container plugins; else mark explicitly out-of-scope. |
-| [Sub](https://onnx.ai/onnx/operators/onnx__Sub.html) | ✅ | ✅ | ✅ | `jax/lax/conv`<br>`jax/lax/dot_general`<br>`jax/lax/rem`<br>`jax/lax/rev`<br>`jax/lax/sinh`<br>`jax/lax/sub`<br>... +2 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [Sub](https://onnx.ai/onnx/operators/onnx__Sub.html) | ✅ | ✅ | ✅ | `jax/lax/conv`<br>`jax/lax/dot_general`<br>`jax/lax/expm1`<br>`jax/lax/rem`<br>`jax/lax/rev`<br>`jax/lax/sinh`<br>... +3 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Sum](https://onnx.ai/onnx/operators/onnx__Sum.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [Swish](https://onnx.ai/onnx/operators/onnx__Swish.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
 | [Tan](https://onnx.ai/onnx/operators/onnx__Tan.html) | ✅ | ✅ | ✅ | `jax/lax/tan` | `jax.lax.tan`<br>`jax.numpy.tan` | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
@@ -225,7 +225,7 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [Unsqueeze](https://onnx.ai/onnx/operators/onnx__Unsqueeze.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`dm_pix/depth_to_space`<br>`equinox/eqx/nn/conv`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/nnx/conv`<br>`jax/lax/dot_general`<br>... +10 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Upsample](https://onnx.ai/onnx/operators/onnx__Upsample.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [Where](https://onnx.ai/onnx/operators/onnx__Where.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`flax/nnx/dot_product_attention`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/select`<br>`jax/lax/select_n`<br>`jax/nn/dot_product_attention`<br>... +3 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
-| [Xor](https://onnx.ai/onnx/operators/onnx__Xor.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
+| [Xor](https://onnx.ai/onnx/operators/onnx__Xor.html) | ✅ | ✅ | ✅ | `jax/lax/xor` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 
 </div>
 
