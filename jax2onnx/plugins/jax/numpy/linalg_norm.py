@@ -10,6 +10,7 @@ from jax import core
 from jax.interpreters import batching
 import jax.numpy as jnp
 import onnx_ir as ir
+import numpy as np
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -19,6 +20,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -68,6 +70,30 @@ _LINALG_NORM_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.norm")
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "linalg_norm_global_ord1",
+            "callable": lambda x: jnp.linalg.norm(x, ord=1, axis=(1,), keepdims=True),
+            "input_shapes": [(2, 8, 3)],
+            "expected_output_shapes": [(2, 1, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Transpose:2x3x8 -> GlobalLpPool:2x3x1 -> Transpose:2x1x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "linalg_norm_global_ord1_nokeepdims",
+            "callable": lambda x: jnp.linalg.norm(x, ord=1, axis=(1,), keepdims=False),
+            "input_shapes": [(2, 8, 3)],
+            "expected_output_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x3x8 -> GlobalLpPool:2x3x1 -> Transpose:2x1x3 -> Squeeze:2x3"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
@@ -103,8 +129,9 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         axis_arg: int | tuple[int, ...]
         axis_arg = axes[0] if len(axes) == 1 else tuple(axes)
+        ord_arg = "fro" if ord_value == 2 else ord_value
         result = jax.eval_shape(
-            lambda arr: orig(arr, ord="fro", axis=axis_arg, keepdims=keepdims),
+            lambda arr: orig(arr, ord=ord_arg, axis=axis_arg, keepdims=keepdims),
             spec,
         )
         return core.ShapedArray(result.shape, result.dtype)
@@ -124,13 +151,12 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
         expected_spatial_axes = tuple(range(1, rank - 1))
         if (
             rank < 3
-            or not keepdims
-            or ord_value != 2
+            or ord_value not in (1, 2)
             or normalized_axes != expected_spatial_axes
         ):
             raise NotImplementedError(
                 "GlobalLpPool lowering supports rank>=3 with axis=all spatial "
-                "dimensions, ord='fro'/default, and keepdims=True."
+                "dimensions, ord=1/2/'fro', and keepdims on any setting."
             )
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("norm_in"))
@@ -189,7 +215,33 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
             final.type = spec_type
         elif dtype is not None:
             final.type = ir.TensorType(dtype)
+
+        transpose_out_dims = (n_label, *([1] * (rank - 2)), c_label)
+        _stamp_type_and_shape(
+            final,
+            tuple(_to_ir_dim_for_shape(d) for d in transpose_out_dims),
+        )
+        _ensure_value_metadata(ctx, final)
+
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        if not keepdims:
+            squeeze_axes = _const_i64(
+                ctx,
+                np.asarray(list(range(1, rank - 1)), dtype=np.int64),
+                "linalg_norm_keepdims_false_axes",
+            )
+            final = builder.Squeeze(
+                final,
+                squeeze_axes,
+                _outputs=[
+                    getattr(out_spec, "name", None)
+                    or ctx.fresh_name("linalg_norm_squeezed")
+                ],
+            )
+            if spec_type is not None:
+                final.type = spec_type
+            elif dtype is not None:
+                final.type = ir.TensorType(dtype)
         _stamp_type_and_shape(final, out_shape)
         _ensure_value_metadata(ctx, final)
         ctx.bind_value_for_var(out_var, final)
@@ -214,7 +266,7 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
                 keepdims: bool = False,
             ) -> jax.Array:
                 rank = getattr(x, "ndim", None)
-                if not isinstance(rank, int) or rank < 3 or not keepdims:
+                if not isinstance(rank, int) or rank < 3:
                     return orig(x, ord=ord, axis=axis, keepdims=keepdims)
 
                 if isinstance(axis, _Seq) and not isinstance(axis, (str, bytes)):
@@ -223,16 +275,41 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
                     return orig(x, ord=ord, axis=axis, keepdims=keepdims)
                 axes = tuple(a + rank if a < 0 else a for a in axes)
 
-                if not (
-                    ord is None or (isinstance(ord, str) and ord.lower() == "fro")
-                ) or axes != tuple(range(1, rank - 1)):
+                if isinstance(ord, str):
+                    if ord.lower() == "fro":
+                        ord_value = 2
+                    else:
+                        return orig(x, ord=ord, axis=axis, keepdims=keepdims)
+                elif ord is None:
+                    ord_value = 2
+                elif isinstance(ord, int):
+                    if ord == 1 and len(axes) == 1:
+                        ord_value = ord
+                    elif ord == 2 and len(axes) == 1:
+                        ord_value = ord
+                    else:
+                        return orig(x, ord=ord, axis=axis, keepdims=keepdims)
+                elif isinstance(ord, float):
+                    if ord in (1.0, 2.0):
+                        if int(ord) == 1 and len(axes) == 1:
+                            ord_value = 1
+                        elif int(ord) == 2 and len(axes) == 1:
+                            ord_value = 2
+                        else:
+                            return orig(x, ord=ord, axis=axis, keepdims=keepdims)
+                    else:
+                        return orig(x, ord=ord, axis=axis, keepdims=keepdims)
+                else:
+                    return orig(x, ord=ord, axis=axis, keepdims=keepdims)
+
+                if axes != tuple(range(1, rank - 1)):
                     return orig(x, ord=ord, axis=axis, keepdims=keepdims)
 
                 return cls._PRIM.bind(
                     jnp.asarray(x),
                     axes=axes,
-                    ord_value=2,
-                    keepdims=True,
+                    ord_value=ord_value,
+                    keepdims=keepdims,
                 )
 
             return _patched
@@ -258,7 +335,8 @@ def _norm_impl(
     orig = get_orig_impl(JnpLinalgNormPlugin._PRIM, JnpLinalgNormPlugin._FUNC_NAME)
     axis_arg: int | tuple[int, ...]
     axis_arg = axes[0] if len(axes) == 1 else tuple(axes)
-    return orig(jnp.asarray(x), ord="fro", axis=axis_arg, keepdims=keepdims)
+    ord_arg = "fro" if ord_value == 2 else ord_value
+    return orig(jnp.asarray(x), ord=ord_arg, axis=axis_arg, keepdims=keepdims)
 
 
 BatchDim = int | type(batching.not_mapped)
