@@ -17,8 +17,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 
 - Source index: `ONNX 1.21.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `199`
-- Operators referenced in plugins: `121`
-- Coverage: `60.8%`
+- Operators referenced in plugins: `124`
+- Coverage: `62.3%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Suggested Next Step` is heuristic and should be refined with roadmap priorities.
 - Extra plugin names not present in index: `4`
@@ -91,9 +91,9 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [GatherND](https://onnx.ai/onnx/operators/onnx__GatherND.html) | ✅ | ✅ | ✅ | `jax/lax/gather` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Gelu](https://onnx.ai/onnx/operators/onnx__Gelu.html) | ✅ | ✅ | ✅ | `flax/nnx/gelu`<br>`jax/nn/gelu` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Gemm](https://onnx.ai/onnx/operators/onnx__Gemm.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/conv_local`<br>`flax/linen/dense`<br>`flax/linen/dense_general`<br>`flax/linen/multi_head_attention`<br>... +6 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
-| [GlobalAveragePool](https://onnx.ai/onnx/operators/onnx__GlobalAveragePool.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
-| [GlobalLpPool](https://onnx.ai/onnx/operators/onnx__GlobalLpPool.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
-| [GlobalMaxPool](https://onnx.ai/onnx/operators/onnx__GlobalMaxPool.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
+| [GlobalAveragePool](https://onnx.ai/onnx/operators/onnx__GlobalAveragePool.html) | ✅ | ✅ | ✅ | `flax/linen/avg_pool`<br>`flax/nnx/avg_pool` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [GlobalLpPool](https://onnx.ai/onnx/operators/onnx__GlobalLpPool.html) | ✅ | ✅ | ✅ | `jax/numpy/linalg_norm` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [GlobalMaxPool](https://onnx.ai/onnx/operators/onnx__GlobalMaxPool.html) | ✅ | ✅ | ✅ | `flax/linen/max_pool`<br>`flax/nnx/max_pool` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Greater](https://onnx.ai/onnx/operators/onnx__Greater.html) | ✅ | ✅ | ✅ | `jax/lax/gt` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [GreaterOrEqual](https://onnx.ai/onnx/operators/onnx__GreaterOrEqual.html) | ✅ | ✅ | ✅ | `jax/lax/ge` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [GridSample](https://onnx.ai/onnx/operators/onnx__GridSample.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
@@ -219,7 +219,7 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [ThresholdedRelu](https://onnx.ai/onnx/operators/onnx__ThresholdedRelu.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
 | [Tile](https://onnx.ai/onnx/operators/onnx__Tile.html) | ✅ | ✅ | ✅ | `jax/numpy/tile` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [TopK](https://onnx.ai/onnx/operators/onnx__TopK.html) | ✅ | ✅ | ✅ | `jax/lax/sort`<br>`jax/lax/top_k`<br>`jax/numpy/sort` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
-| [Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | ✅ | ✅ | ✅ | `dm_pix/depth_to_space`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/avg_pool`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>`flax/linen/conv_transpose`<br>... +19 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
+| [Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | ✅ | ✅ | ✅ | `dm_pix/depth_to_space`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/avg_pool`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>`flax/linen/conv_transpose`<br>... +20 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [Trilu](https://onnx.ai/onnx/operators/onnx__Trilu.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
 | [Unique](https://onnx.ai/onnx/operators/onnx__Unique.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Common model op; prioritize based on user demand and add regression tests. |
 | [Unsqueeze](https://onnx.ai/onnx/operators/onnx__Unsqueeze.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`dm_pix/depth_to_space`<br>`equinox/eqx/nn/conv`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/nnx/conv`<br>`jax/lax/dot_general`<br>... +10 | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |

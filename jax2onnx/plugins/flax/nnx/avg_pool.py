@@ -30,6 +30,16 @@ if TYPE_CHECKING:
 _POOL_COUNTS: Final[dict[str, int]] = {
     "Transpose": 2,
     "AveragePool": 1,
+    "GlobalAveragePool": 0,
+    "Reshape": 0,
+    "CastLike": 0,
+    "Identity": 0,
+}
+
+_GLOBAL_POOL_COUNTS: Final[dict[str, int]] = {
+    "Transpose": 2,
+    "AveragePool": 0,
+    "GlobalAveragePool": 1,
     "Reshape": 0,
     "CastLike": 0,
     "Identity": 0,
@@ -38,6 +48,15 @@ _POOL_COUNTS: Final[dict[str, int]] = {
 
 def _make_expect(path: str, *, symbols: Optional[dict[str, Optional[int]]] = None):
     spec = [(path, {"counts": dict(_POOL_COUNTS)})]
+    if symbols is None:
+        return EG(spec, no_unused_inputs=True)
+    return EG(spec, symbols=symbols, no_unused_inputs=True)
+
+
+def _make_global_expect(
+    path: str, *, symbols: Optional[dict[str, Optional[int]]] = None
+):
+    spec = [(path, {"counts": dict(_GLOBAL_POOL_COUNTS)})]
     if symbols is None:
         return EG(spec, no_unused_inputs=True)
     return EG(spec, symbols=symbols, no_unused_inputs=True)
@@ -63,6 +82,11 @@ EXPECT_8_TO_4: Final = _make_expect(
     symbols={"B": None},
 )
 
+EXPECT_8_TO_1_GLOBAL: Final = _make_global_expect(
+    "Transpose:Bx3x8x8 -> GlobalAveragePool:Bx3x1x1 -> Transpose:Bx1x1x3",
+    symbols={"B": None},
+)
+
 
 @register_primitive(
     jaxpr_primitive="nnx.avg_pool",
@@ -71,6 +95,10 @@ EXPECT_8_TO_4: Final = _make_expect(
         {
             "component": "AveragePool",
             "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",
+        },
+        {
+            "component": "GlobalAveragePool",
+            "doc": "https://onnx.ai/onnx/operators/onnx__GlobalAveragePool.html",
         },
         {
             "component": "Transpose",
@@ -152,6 +180,16 @@ EXPECT_8_TO_4: Final = _make_expect(
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_8_TO_4,
+        },
+        {
+            "testcase": "avg_pool_global_window",
+            "callable": lambda x: nnx.avg_pool(
+                x, window_shape=(8, 8), strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [("B", 8, 8, 3)],
+            "expected_output_shapes": [("B", 1, 1, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_8_TO_1_GLOBAL,
         },
     ],
 )
@@ -276,14 +314,39 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             )
             _ensure_value_metadata(ctx, pool_in)
 
-        pool_result = builder.AveragePool(
-            pool_in,
-            _outputs=[ctx.fresh_name("AveragePool")],
-            kernel_shape=tuple(int(v) for v in window_shape),
-            strides=tuple(int(v) for v in actual_strides),
-            auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
-            count_include_pad=1 if count_include_pad else 0,
+        spatial_in = x_shape[1:-1]
+        spatial_out = y_shape[1:-1]
+        use_global_average_pool = (
+            need_layout_convert
+            and padding.upper() == "VALID"
+            and len(window_shape) == len(spatial_in)
+            and len(actual_strides) == len(window_shape)
+            and all(int(s) == 1 for s in actual_strides)
+            and all(
+                isinstance(dim, (int, np.integer))
+                for dim in (*spatial_in, *spatial_out)
+            )
+            and all(
+                int(win) == int(inp)
+                for win, inp in zip(window_shape, spatial_in, strict=False)
+            )
+            and all(int(out) == 1 for out in spatial_out)
         )
+
+        if use_global_average_pool:
+            pool_result = builder.GlobalAveragePool(
+                pool_in,
+                _outputs=[ctx.fresh_name("GlobalAveragePool")],
+            )
+        else:
+            pool_result = builder.AveragePool(
+                pool_in,
+                _outputs=[ctx.fresh_name("AveragePool")],
+                kernel_shape=tuple(int(v) for v in window_shape),
+                strides=tuple(int(v) for v in actual_strides),
+                auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+                count_include_pad=1 if count_include_pad else 0,
+            )
 
         dtype = getattr(getattr(x_val, "type", None), "dtype", None)
         if dtype is not None:

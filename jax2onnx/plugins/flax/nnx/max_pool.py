@@ -32,6 +32,23 @@ EXPECT_T_MP_T: Final = EG(
                 "counts": {
                     "Transpose": 2,
                     "MaxPool": 1,
+                    "GlobalMaxPool": 0,
+                    "Reshape": 0,
+                }
+            },
+        )
+    ]
+)
+
+EXPECT_T_GMP_T: Final = EG(
+    [
+        (
+            "Transpose -> GlobalMaxPool -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 2,
+                    "MaxPool": 0,
+                    "GlobalMaxPool": 1,
                     "Reshape": 0,
                 }
             },
@@ -51,7 +68,11 @@ MAX_POOL_PRIM.multiple_results = False
         {
             "component": "MaxPool",
             "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
-        }
+        },
+        {
+            "component": "GlobalMaxPool",
+            "doc": "https://onnx.ai/onnx/operators/onnx__GlobalMaxPool.html",
+        },
     ],
     since="0.2.0",
     context="primitives.nnx",
@@ -96,6 +117,16 @@ MAX_POOL_PRIM.multiple_results = False
             "expected_output_shapes": [("B", 5, 5, 3)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_T_MP_T,
+        },
+        {
+            "testcase": "max_pool_global_window",
+            "callable": lambda x: nnx.max_pool(
+                x, window_shape=(8, 8), strides=(1, 1), padding="VALID"
+            ),
+            "input_shapes": [("B", 8, 8, 3)],
+            "expected_output_shapes": [("B", 1, 1, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_T_GMP_T,
         },
     ],
 )
@@ -189,13 +220,38 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
             )
             _ensure_value_metadata(ctx, pool_in)
 
-        pool_result = builder.MaxPool(
-            pool_in,
-            _outputs=[ctx.fresh_name("MaxPool")],
-            kernel_shape=tuple(int(v) for v in window_shape),
-            strides=tuple(int(v) for v in strides),
-            auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+        spatial_in = x_shape[1:-1]
+        spatial_out = y_aval_shape[1:-1]
+        use_global_max_pool = (
+            need_layout_convert
+            and padding.upper() == "VALID"
+            and len(window_shape) == len(spatial_in)
+            and len(strides) == len(window_shape)
+            and all(int(s) == 1 for s in strides)
+            and all(
+                isinstance(dim, (int, np.integer))
+                for dim in (*spatial_in, *spatial_out)
+            )
+            and all(
+                int(win) == int(inp)
+                for win, inp in zip(window_shape, spatial_in, strict=False)
+            )
+            and all(int(out) == 1 for out in spatial_out)
         )
+
+        if use_global_max_pool:
+            pool_result = builder.GlobalMaxPool(
+                pool_in,
+                _outputs=[ctx.fresh_name("GlobalMaxPool")],
+            )
+        else:
+            pool_result = builder.MaxPool(
+                pool_in,
+                _outputs=[ctx.fresh_name("MaxPool")],
+                kernel_shape=tuple(int(v) for v in window_shape),
+                strides=tuple(int(v) for v in strides),
+                auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+            )
 
         dtype = getattr(getattr(x_val, "type", None), "dtype", None)
         if dtype is not None:
