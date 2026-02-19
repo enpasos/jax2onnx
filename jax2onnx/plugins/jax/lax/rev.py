@@ -24,7 +24,14 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     jaxpr_primitive=jax.lax.rev_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.rev.html",
     onnx=[
-        {"component": "Flip", "doc": "https://onnx.ai/onnx/operators/onnx__Flip.html"}
+        {
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {
+            "component": "Range",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
+        },
     ],
     since="0.7.5",
     context="primitives.lax",

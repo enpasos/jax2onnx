@@ -22,8 +22,8 @@ if TYPE_CHECKING:  # pragma: no cover
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.bitcast_convert_type.html",
     onnx=[
         {
-            "component": "Bitcast",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Bitcast.html",
+            "component": "BitCast",
+            "doc": "https://onnx.ai/onnx/operators/onnx__BitCast.html",
         }
     ],
     since="0.7.2",
@@ -36,7 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [np.array(3.5, dtype=np.float32)],
             "expected_output_dtypes": [np.int32],
             "post_check_onnx_graph": EG(
-                ["Bitcast"],
+                ["BitCast"],
                 no_unused_inputs=True,
             ),
             "skip_numeric_validation": True,
@@ -49,7 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_values": [np.array([0x3F800000, 0x40000000], dtype=np.uint32)],
             "expected_output_dtypes": [np.float32],
             "post_check_onnx_graph": EG(
-                ["Bitcast:2"],
+                ["BitCast:2"],
                 no_unused_inputs=True,
             ),
             "skip_numeric_validation": True,
@@ -57,7 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     ],
 )
 class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.bitcast_convert_type`` via ONNX Bitcast."""
+    """Lower ``lax.bitcast_convert_type`` via ONNX BitCast."""
 
     def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
         operand_var = eqn.invars[0]
@@ -74,12 +74,12 @@ class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("bitcast_out")
         )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Bitcast")
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("BitCast")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("Bitcast")
+            desired_name = ctx.fresh_name("BitCast")
 
-        result = ctx.builder.Bitcast(
+        result = ctx.builder.BitCast(
             operand_val,
             _outputs=[desired_name],
             to=int(target_dtype.value),

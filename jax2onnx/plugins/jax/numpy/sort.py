@@ -34,7 +34,7 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     jaxpr_primitive=_SORT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.sort.html",
     onnx=[
-        {"component": "Sort", "doc": "https://onnx.ai/onnx/operators/onnx__Sort.html"}
+        {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"}
     ],
     since="0.5.2",
     context="primitives.jnp",
