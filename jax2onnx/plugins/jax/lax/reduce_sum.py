@@ -17,6 +17,22 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
+def _const_scalar(value) -> float | int | None:
+    const = getattr(value, "const_value", None)
+    if const is None:
+        return None
+    try:
+        arr = np.asarray(const)
+    except Exception:
+        try:
+            arr = np.asarray(const.numpy())
+        except Exception:
+            return None
+    if arr.shape != ():
+        return None
+    return arr.item()
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.reduce_sum_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
@@ -153,6 +169,12 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             )
             if same_input:
                 target_base = lhs
+                op_name = "ReduceSumSquare"
+        elif getattr(producer, "op_type", "") == "Pow":
+            base, exponent = producer.inputs
+            exponent_scalar = _const_scalar(exponent)
+            if exponent_scalar is not None and np.allclose(exponent_scalar, 2):
+                target_base = base
                 op_name = "ReduceSumSquare"
 
         if op_name is None or target_base is None:
