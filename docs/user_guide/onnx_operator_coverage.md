@@ -17,8 +17,8 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 
 - Source index: `ONNX 1.21.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `200`
-- Operators referenced in plugins: `140`
-- Coverage: `70.0%`
+- Operators referenced in plugins: `141`
+- Coverage: `70.5%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Suggested Next Step` is heuristic and should be refined with roadmap priorities.
 - Extra plugin names not present in index: `1`
@@ -153,7 +153,7 @@ poetry run python scripts/generate_onnx_operator_coverage.py
 | [QuantizeLinear](https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Decide quantization scope, then add lowerings/tests or mark as not planned. |
 | [RMSNormalization](https://onnx.ai/onnx/operators/onnx__RMSNormalization.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/linen/rms_norm`<br>`flax/nnx/rms_norm` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [RNN](https://onnx.ai/onnx/operators/onnx__RNN.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Add only when demanded by target models; document priority. |
-| [RandomNormal](https://onnx.ai/onnx/operators/onnx__RandomNormal.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
+| [RandomNormal](https://onnx.ai/onnx/operators/onnx__RandomNormal.html) | ✅ | ✅ | ✅ | `jax/random/normal` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [RandomNormalLike](https://onnx.ai/onnx/operators/onnx__RandomNormalLike.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
 | [RandomUniform](https://onnx.ai/onnx/operators/onnx__RandomUniform.html) | ✅ | ✅ | ✅ | `jax/random/random_bits` | Covered via existing plugin primitives. | Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata. |
 | [RandomUniformLike](https://onnx.ai/onnx/operators/onnx__RandomUniformLike.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. | Evaluate demand and either implement plugin support or document non-goal. |
