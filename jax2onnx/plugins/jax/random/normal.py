@@ -29,7 +29,11 @@ _RANDOM_NORMAL_PRIM.multiple_results = False
         {
             "component": "RandomNormal",
             "doc": "https://onnx.ai/onnx/operators/onnx__RandomNormal.html",
-        }
+        },
+        {
+            "component": "RandomNormalLike",
+            "doc": "https://onnx.ai/onnx/operators/onnx__RandomNormalLike.html",
+        },
     ],
     since="0.12.1",
     context="primitives.random",
@@ -46,14 +50,14 @@ _RANDOM_NORMAL_PRIM.multiple_results = False
             "run_only_f32_variant": True,
             "skip_numeric_validation": True,
             "post_check_onnx_graph": EG(
-                ["RandomNormal:2x3"],
+                ["RandomNormal:2x3 -> RandomNormalLike:2x3"],
                 no_unused_inputs=True,
             ),
         }
     ],
 )
 class RandomNormalPlugin(PrimitiveLeafPlugin):
-    """Lower ``jax.random.normal`` to ONNX ``RandomNormal``."""
+    """Lower ``jax.random.normal`` to ONNX ``RandomNormalLike``."""
 
     _PRIM: ClassVar[Primitive] = _RANDOM_NORMAL_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -92,20 +96,34 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("random_normal_out")
 
-        result = ctx.builder.RandomNormal(
-            _outputs=[desired_name],
+        template = ctx.builder.RandomNormal(
+            _outputs=[ctx.fresh_name("random_normal_template")],
             dtype=int(dtype_enum.value),
             shape=shape_param,
+            seed=0.0,
+        )
+        template.type = ir.TensorType(dtype_enum)
+        if getattr(out_spec, "shape", None) is not None:
+            template.shape = out_spec.shape
+        else:
+            template.shape = ir.Shape(shape_param)
+
+        result = ctx.builder.RandomNormalLike(
+            template,
+            _outputs=[desired_name],
+            dtype=int(dtype_enum.value),
+            mean=0.0,
+            scale=1.0,
             seed=0.0,
         )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
-            result.type = ir.TensorType(dtype_enum)
+            result.type = template.type
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:
-            result.shape = ir.Shape(shape_param)
+            result.shape = template.shape
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
