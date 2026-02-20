@@ -16,6 +16,7 @@ from jax import core
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -47,6 +48,36 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
     return None
 
 
+def _flatten_axis_for_static_target(
+    input_shape: Sequence[object],
+    target_shape: Sequence[object],
+    newshape_elems: Sequence[int | object],
+) -> int | None:
+    if len(target_shape) != 2 or len(input_shape) == 0:
+        return None
+    # Keep the optimization deliberately narrow to avoid changing established
+    # higher-rank model paths (e.g., layer-norm/ViT flatten+restore patterns).
+    if len(input_shape) > 3:
+        return None
+    if not any(
+        isinstance(dim, (int, np.integer)) and int(dim) == -1 for dim in newshape_elems
+    ):
+        return None
+    if not all(
+        isinstance(dim, (int, np.integer)) for dim in (*input_shape, *target_shape)
+    ):
+        return None
+
+    in_dims = [int(dim) for dim in input_shape]
+    out_left, out_right = (int(target_shape[0]), int(target_shape[1]))
+    for axis in range(len(in_dims) + 1):
+        left = int(np.prod(in_dims[:axis], dtype=np.int64))
+        right = int(np.prod(in_dims[axis:], dtype=np.int64))
+        if left == out_left and right == out_right:
+            return axis
+    return None
+
+
 def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
     height, width, channels = inputs.shape
     new_depth = channels // (block_size * block_size)
@@ -62,7 +93,11 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
         {
             "component": "Reshape",
             "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
-        }
+        },
+        {
+            "component": "Flatten",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Flatten.html",
+        },
     ],
     since="0.1.0",
     context="primitives.jnp",
@@ -87,6 +122,15 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
             ),
         },
         {
+            "testcase": "reshape_flatten_static_uses_flatten",
+            "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
+            "input_shapes": [(3, 4, 5)],
+            "post_check_onnx_graph": EG(
+                ["Flatten:3x20"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "reshape_3",
             "callable": lambda a: jnp.reshape(a, (2, -1)),
             "input_shapes": [(3, 4)],
@@ -99,10 +143,19 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
             "testcase": "reshape_4",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 3, 4)],
-            "post_check_onnx_graph": EG(
-                ["Reshape:Bx12"],
-                symbols={"B": None},
-                no_unused_inputs=True,
+            "post_check_onnx_graph": (
+                lambda m, flatten=EG(
+                    ["Flatten:Bx12"],
+                    symbols={"B": None},
+                    no_unused_inputs=True,
+                ), reshape=EG(
+                    ["Reshape:Bx12"],
+                    symbols={"B": None},
+                    no_unused_inputs=True,
+                ): flatten(
+                    m
+                )
+                or reshape(m)
             ),
         },
         {
@@ -191,10 +244,19 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
             "testcase": "reshape_symbolic_flatten",
             "callable": lambda a: jnp.reshape(a, (a.shape[0], -1)),
             "input_shapes": [("B", 8, 4)],
-            "post_check_onnx_graph": EG(
-                ["Reshape:Bx32"],
-                symbols={"B": None},
-                no_unused_inputs=True,
+            "post_check_onnx_graph": (
+                lambda m, flatten=EG(
+                    ["Flatten:Bx32"],
+                    symbols={"B": None},
+                    no_unused_inputs=True,
+                ), reshape=EG(
+                    ["Reshape:Bx32"],
+                    symbols={"B": None},
+                    no_unused_inputs=True,
+                ): flatten(
+                    m
+                )
+                or reshape(m)
             ),
         },
         {
@@ -208,6 +270,14 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
                 ["Reshape:1x4x4x2x2x1 -> Transpose:1x4x2x4x2x1 -> Reshape:1x8x8x1"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "reshape_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.reshape(y, (2, 2)) ** 2)
+            )(x),
+            "input_shapes": [(4,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -259,6 +329,27 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
 
         newshape_elems = tuple(_iter_newshape(newshape_param))
+        flatten_axis = _flatten_axis_for_static_target(
+            input_shape, target_shape, newshape_elems
+        )
+        if flatten_axis is not None:
+            flatten_out = builder.Flatten(
+                arr_val,
+                axis=flatten_axis,
+                _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("Flatten")],
+            )
+            spec_type = getattr(out_spec, "type", None)
+            if spec_type is not None:
+                flatten_out.type = spec_type
+            else:
+                arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
+                if arr_dtype is not None:
+                    flatten_out.type = ir.TensorType(arr_dtype)
+            _stamp_type_and_shape(flatten_out, target_shape)
+            _ensure_value_metadata(ctx, flatten_out)
+            ctx.bind_value_for_var(out_var, flatten_out)
+            return
+
         shape_components: list[ir.Value] = []
         shape_tensor_rank = len(newshape_elems)
 
@@ -482,6 +573,9 @@ def _reshape_batch(
 
 
 batching.primitive_batchers[JnpReshapePlugin._PRIM] = _reshape_batch
+
+
+register_fallback_jvp_rule(JnpReshapePlugin._PRIM, _reshape_impl)
 
 
 JnpReshapePlugin._PRIM.def_abstract_eval(JnpReshapePlugin.abstract_eval)

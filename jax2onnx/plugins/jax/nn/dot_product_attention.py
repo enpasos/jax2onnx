@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import nn as jax_nn
 from jax.extend.core import Primitive
+from jax.interpreters import batching
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -541,6 +542,21 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 [
                     "Transpose:1x1x16x4 -> MatMul:1x1x16x16 -> Mul:1x1x16x16 -> "
                     "Softmax:1x1x16x16 -> MatMul:1x1x16x4 -> Transpose:1x16x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_vmap_tnh_issue190",
+            "callable": lambda q, k, v: jax.vmap(
+                lambda qq, kk, vv: jax_nn.dot_product_attention(qq, kk, vv)
+            )(q, k, v),
+            "input_shapes": [(2, 4, 8, 16), (2, 4, 8, 16), (2, 4, 8, 16)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x8x4x16 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
+                    "Softmax:2x8x4x4 -> MatMul:2x8x4x16 -> Transpose:2x4x8x16"
                 ],
                 no_unused_inputs=True,
             ),
@@ -1148,3 +1164,124 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 @DotProductAttentionPlugin._PRIM.def_impl
 def _impl(*args, **kwargs) -> ArrayLike:
     return _ORIG_DOT_PRODUCT_ATTENTION(*args, **kwargs)
+
+
+BatchDim = int | type(batching.not_mapped)
+
+
+def _flatten_first_two_dims(x: jax.Array) -> jax.Array:
+    if x.ndim < 2:
+        raise NotImplementedError(
+            "dot_product_attention batching rule expected at least rank-2 operands"
+        )
+    return jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:])
+
+
+def _dpa_batch_rule(
+    batched_args: tuple[object, ...],
+    batch_dims: tuple[BatchDim, ...],
+    *,
+    is_causal: bool = False,
+    has_mask: bool = False,
+    has_query_lengths: bool = False,
+    has_key_value_lengths: bool = False,
+) -> tuple[jax.Array, BatchDim]:
+    axis_size: int | None = None
+    for arg, bdim in zip(batched_args, batch_dims):
+        if bdim is batching.not_mapped:
+            continue
+        shape = getattr(arg, "shape", None)
+        if shape is None or bdim >= len(shape):
+            continue
+        axis_size = shape[bdim]
+        break
+
+    params = {
+        "is_causal": bool(is_causal),
+        "has_mask": bool(has_mask),
+        "has_query_lengths": bool(has_query_lengths),
+        "has_key_value_lengths": bool(has_key_value_lengths),
+    }
+
+    if axis_size is None:
+        out = DotProductAttentionPlugin._PRIM.bind(*batched_args, **params)
+        return out, batching.not_mapped
+
+    prepared_args = [
+        batching.bdim_at_front(arg, bdim, axis_size)
+        for arg, bdim in zip(batched_args, batch_dims)
+    ]
+
+    q = prepared_args[0]
+    k = prepared_args[1]
+    v = prepared_args[2]
+
+    if not (hasattr(q, "ndim") and hasattr(k, "ndim") and hasattr(v, "ndim")):
+        raise NotImplementedError(
+            "dot_product_attention batching rule requires array-like operands"
+        )
+
+    if q.ndim == 4 and k.ndim == 4 and v.ndim == 4:
+        out = DotProductAttentionPlugin._PRIM.bind(*prepared_args, **params)
+        return out, 0
+
+    if q.ndim != 5 or k.ndim != 5 or v.ndim != 5:
+        raise NotImplementedError(
+            "dot_product_attention batching currently supports rank-4 inputs "
+            "under a single vmap level"
+        )
+
+    mapped_size = q.shape[0]
+    inner_batch = q.shape[1]
+
+    merged_args: list[jax.Array] = [
+        _flatten_first_two_dims(q),
+        _flatten_first_two_dims(k),
+        _flatten_first_two_dims(v),
+    ]
+
+    idx = 3
+    if has_mask:
+        mask_val = prepared_args[idx]
+        idx += 1
+        if not hasattr(mask_val, "ndim"):
+            raise NotImplementedError(
+                "dot_product_attention batching requires array-like mask values"
+            )
+        if mask_val.ndim >= 5:
+            merged_args.append(_flatten_first_two_dims(mask_val))
+        else:
+            merged_args.append(mask_val)
+
+    if has_query_lengths:
+        q_len_val = prepared_args[idx]
+        idx += 1
+        if not hasattr(q_len_val, "ndim"):
+            raise NotImplementedError(
+                "dot_product_attention batching requires array-like query lengths"
+            )
+        if q_len_val.ndim >= 2:
+            merged_args.append(_flatten_first_two_dims(q_len_val))
+        else:
+            merged_args.append(q_len_val)
+
+    if has_key_value_lengths:
+        kv_len_val = prepared_args[idx]
+        if not hasattr(kv_len_val, "ndim"):
+            raise NotImplementedError(
+                "dot_product_attention batching requires array-like key/value lengths"
+            )
+        if kv_len_val.ndim >= 2:
+            merged_args.append(_flatten_first_two_dims(kv_len_val))
+        else:
+            merged_args.append(kv_len_val)
+
+    merged_out = DotProductAttentionPlugin._PRIM.bind(*merged_args, **params)
+    out = jnp.reshape(
+        merged_out,
+        (mapped_size, inner_batch) + tuple(merged_out.shape[1:]),
+    )
+    return out, 0
+
+
+batching.primitive_batchers[DotProductAttentionPlugin._PRIM] = _dpa_batch_rule

@@ -16,6 +16,7 @@ from onnx_ir import Attr, AttributeType
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     make_jnp_primitive,
@@ -109,6 +110,12 @@ _MEAN_PRIM: Final = make_jnp_primitive("jax.numpy.mean")
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "mean_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.mean(y, axis=1)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -348,3 +355,6 @@ def _mean_batch_rule(
 
 
 batching.primitive_batchers[JnpMeanPlugin._PRIM] = _mean_batch_rule
+
+
+register_jvp_via_jax_jvp(JnpMeanPlugin._PRIM, _mean_impl)

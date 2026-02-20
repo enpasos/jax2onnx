@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -13,7 +15,6 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
-    lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
 )
 
@@ -62,6 +63,12 @@ _MISH_PRIM.multiple_results = False
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "mish_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.mish(y) ** 2))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class MishPlugin(PrimitiveLeafPlugin):
@@ -75,13 +82,27 @@ class MishPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
-        lower_unary_elementwise(
-            ctx,
-            eqn,
-            op_name="Mish",
-            input_hint="mish_in",
-            output_hint="mish_out",
-        )
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("mish_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("mish_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("mish_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("mish_out")
+
+        result = ctx.builder.Mish(x_val, _outputs=[desired_name])
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        else:
+            result.type = getattr(x_val, "type", None)
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        else:
+            result.shape = getattr(x_val, "shape", None)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):
@@ -115,3 +136,25 @@ def _mish_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(MishPlugin._PRIM)
+
+
+def _mish_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    softplus_x = jax.lax.log(jax.lax.add(one, jax.lax.exp(x)))
+    tanh_sp = jax.lax.tanh(softplus_x)
+    primal_out = jax.lax.mul(x, tanh_sp)
+
+    sigmoid_x = jax.lax.div(one, jax.lax.add(one, jax.lax.exp(jax.lax.neg(x))))
+    sech2 = jax.lax.sub(one, jax.lax.mul(tanh_sp, tanh_sp))
+    deriv = jax.lax.add(tanh_sp, jax.lax.mul(x, jax.lax.mul(sigmoid_x, sech2)))
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[MishPlugin._PRIM] = _mish_jvp_rule

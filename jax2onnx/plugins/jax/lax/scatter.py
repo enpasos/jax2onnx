@@ -21,9 +21,21 @@ if TYPE_CHECKING:  # pragma: no cover
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter.html",
     onnx=[
         {
+            "component": "Scatter",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Scatter.html",
+        },
+        {
+            "component": "ScatterElements",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ScatterElements.html",
+        },
+        {
             "component": "ScatterND",
             "doc": "https://onnx.ai/onnx/operators/onnx__ScatterND.html",
-        }
+        },
+        {
+            "component": "NonZero",
+            "doc": "https://onnx.ai/onnx/operators/onnx__NonZero.html",
+        },
     ],
     since="0.4.4",
     context="primitives.lax",
@@ -79,6 +91,29 @@ if TYPE_CHECKING:  # pragma: no cover
             "input_shapes": [(5,)],
             "post_check_onnx_graph": EG(
                 ["ScatterND"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "scatter_elements_set_vector_promise_in_bounds",
+            "callable": lambda operand, indices, updates: jax.lax.scatter(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+                mode=jax.lax.GatherScatterMode.PROMISE_IN_BOUNDS,
+            ),
+            "input_values": [
+                np.zeros((5,), dtype=np.float32),
+                np.array([[1], [3]], dtype=np.int32),
+                np.array([10.0, 20.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": EG(
+                ["ScatterElements"],
                 no_unused_inputs=True,
             ),
         },

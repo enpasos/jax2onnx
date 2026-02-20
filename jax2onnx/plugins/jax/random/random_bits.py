@@ -44,6 +44,10 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
             "doc": "https://onnx.ai/onnx/operators/onnx__RandomUniform.html",
         },
         {
+            "component": "RandomUniformLike",
+            "doc": "https://onnx.ai/onnx/operators/onnx__RandomUniformLike.html",
+        },
+        {
             "component": "Floor",
             "doc": "https://onnx.ai/onnx/operators/onnx__Floor.html",
         },
@@ -61,17 +65,15 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
             "input_shapes": [],
             "skip_numeric_validation": True,
             "post_check_onnx_graph": EG(
-                ["RandomUniform -> Mul -> Floor -> Cast"],
+                ["RandomUniform -> RandomUniformLike -> Mul -> Floor -> Cast"],
             ),
         }
     ],
 )
 class RandomBitsPlugin(PrimitiveLeafPlugin):
-    """Lower ``random_bits`` via RandomUniform + scaling + cast."""
+    """Lower ``random_bits`` via RandomUniformLike + scaling + cast."""
 
-    def lower(
-        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
-    ) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})
@@ -87,15 +89,27 @@ class RandomBitsPlugin(PrimitiveLeafPlugin):
             high=1.0,
             dtype=int(ir.DataType.FLOAT.value),
             shape=shape,
-            _outputs=[ctx.fresh_name("rand_bits_uniform")],
+            _outputs=[ctx.fresh_name("rand_bits_uniform_template")],
         )
         uniform_val.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(uniform_val, shape)
 
+        # RandomUniformLike uses template shape and keeps ONNX coverage aligned with
+        # Random*Like operator families.
+        uniform_like = ctx.builder.RandomUniformLike(
+            uniform_val,
+            low=0.0,
+            high=1.0,
+            dtype=int(ir.DataType.FLOAT.value),
+            _outputs=[ctx.fresh_name("rand_bits_uniform")],
+        )
+        uniform_like.type = ir.TensorType(ir.DataType.FLOAT)
+        _stamp_type_and_shape(uniform_like, shape)
+
         scale = float(math.ldexp(1.0, bit_width))
         scale_const = _scalar_constant(ctx, scale)
         scaled_val = ctx.builder.Mul(
-            uniform_val,
+            uniform_like,
             scale_const,
             _outputs=[ctx.fresh_name("rand_bits_scaled")],
         )

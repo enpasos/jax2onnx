@@ -21,7 +21,11 @@ if TYPE_CHECKING:  # pragma: no cover
     jaxpr_primitive=jax.lax.sort_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sort.html",
     onnx=[
-        {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"}
+        {
+            "component": "GatherElements",
+            "doc": "https://onnx.ai/onnx/operators/onnx__GatherElements.html",
+        },
+        {"component": "TopK", "doc": "https://onnx.ai/onnx/operators/onnx__TopK.html"},
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -77,14 +81,33 @@ class SortPlugin(PrimitiveLeafPlugin):
             ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sort_out"))
             for out_var in outvars
         ]
+        key_input = key_val
+        key_is_bool = False
+        key_aval_dtype = getattr(getattr(key_var, "aval", None), "dtype", None)
+        if key_aval_dtype is not None:
+            try:
+                key_is_bool = np.dtype(key_aval_dtype) == np.bool_
+            except TypeError:
+                key_is_bool = False
 
         axis_size = key_shape[axis] if key_shape else 1
         if not isinstance(axis_size, (int, np.integer)):
             raise TypeError("lax.sort currently requires static axis length")
 
+        if key_is_bool:
+            key_input = ctx.builder.Cast(
+                key_val,
+                to=ir.DataType.INT32,
+                _outputs=[ctx.fresh_name("sort_key_i32")],
+            )
+            key_input.type = ir.TensorType(ir.DataType.INT32)
+            key_input.dtype = ir.DataType.INT32
+            _stamp_type_and_shape(key_input, key_shape)
+            _ensure_value_metadata(ctx, key_input)
+
         k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
         values, indices = ctx.builder.TopK(
-            key_val,
+            key_input,
             k_val,
             _outputs=[
                 ctx.fresh_name("sort_values"),
@@ -95,7 +118,15 @@ class SortPlugin(PrimitiveLeafPlugin):
             sorted=1,
         )
         key_dtype = getattr(getattr(key_val, "type", None), "dtype", None)
-        if key_dtype is not None:
+        if key_is_bool:
+            values = ctx.builder.Cast(
+                values,
+                to=ir.DataType.BOOL,
+                _outputs=[ctx.fresh_name("sort_values_bool")],
+            )
+            values.type = ir.TensorType(ir.DataType.BOOL)
+            values.dtype = ir.DataType.BOOL
+        elif key_dtype is not None:
             values.type = ir.TensorType(key_dtype)
             values.dtype = key_dtype
 

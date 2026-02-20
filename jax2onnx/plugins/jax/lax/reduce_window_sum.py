@@ -81,9 +81,13 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_window_sum.html",
     onnx=[
         {
+            "component": "LpPool",
+            "doc": "https://onnx.ai/onnx/operators/onnx__LpPool.html",
+        },
+        {
             "component": "Conv",
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
-        }
+        },
     ],
     since="0.10.1",
     context="primitives.lax",
@@ -165,6 +169,39 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
             ),
             "run_only_f32_variant": True,
         },
+        {
+            "testcase": "reduce_window_sum_abs_lppool_opset23",
+            "callable": lambda x: reduce_window_sum(
+                jax.numpy.abs(x),
+                window_dimensions=(2, 2),
+                window_strides=(1, 1),
+                padding=((0, 1), (0, 1)),
+            ),
+            "input_shapes": [(3, 3)],
+            "opset_version": 23,
+            "post_check_onnx_graph": EG(
+                ["Abs -> Unsqueeze -> Unsqueeze -> LpPool -> Squeeze"],
+                no_unused_inputs=True,
+            ),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "reduce_window_sum_abs_lppool_dilated_opset23",
+            "callable": lambda x: reduce_window_sum(
+                jax.numpy.abs(x),
+                window_dimensions=(1, 3),
+                window_strides=(2, 1),
+                padding=((0, 0), (1, 1)),
+                window_dilation=(1, 2),
+            ),
+            "input_shapes": [(3, 5)],
+            "opset_version": 23,
+            "post_check_onnx_graph": EG(
+                ["Abs -> Unsqueeze -> Unsqueeze -> LpPool -> Squeeze"],
+                no_unused_inputs=True,
+            ),
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
@@ -238,6 +275,18 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         operand_shape = tuple(
             getattr(getattr(operand_var, "aval", None), "shape", ()) or ()
         )
+        opset = int(getattr(ctx.builder, "opset", 21))
+        operand_producer = None
+        operand_producer_getter = getattr(operand_val, "producer", None)
+        if callable(operand_producer_getter):
+            operand_producer = operand_producer_getter()
+        abs_input_pattern = getattr(operand_producer, "op_type", "") == "Abs"
+        use_lppool = (
+            opset >= 22
+            and abs_input_pattern
+            and np.issubdtype(np_dtype, np.floating)
+            and all(int(v) == 1 for v in base_dilation)
+        )
 
         working_val = operand_val
         if needs_cast_back:
@@ -287,15 +336,6 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, unsq1)
 
         kernel_shape = (1, 1) + tuple(window_dims)
-        kernel_array = np.ones(kernel_shape, dtype=conv_np_dtype)
-        kernel_val = ctx.builder.add_initializer_from_array(
-            name=ctx.fresh_name("reduce_window_sum_kernel"),
-            array=kernel_array,
-        )
-        kernel_val.type = ir.TensorType(conv_dtype_enum)
-        _stamp_type_and_shape(kernel_val, kernel_shape)
-        _ensure_value_metadata(ctx, kernel_val)
-
         conv_kwargs: dict[str, object] = {
             "strides": window_strides,
             "group": 1,
@@ -306,12 +346,36 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
         if any(d != 1 for d in window_dilation):
             conv_kwargs["dilations"] = window_dilation
 
-        conv_out = ctx.builder.Conv(
-            unsq1,
-            kernel_val,
-            _outputs=[ctx.fresh_name("reduce_window_sum_conv")],
-            **conv_kwargs,
-        )
+        if use_lppool:
+            lppool_kwargs: dict[str, object] = {
+                "kernel_shape": tuple(window_dims),
+                "strides": window_strides,
+                "p": 1,
+            }
+            if any(pads_flat):
+                lppool_kwargs["pads"] = pads_flat
+            if any(d != 1 for d in window_dilation):
+                lppool_kwargs["dilations"] = window_dilation
+            conv_out = ctx.builder.LpPool(
+                unsq1,
+                _outputs=[ctx.fresh_name("reduce_window_sum_lppool")],
+                **lppool_kwargs,
+            )
+        else:
+            kernel_array = np.ones(kernel_shape, dtype=conv_np_dtype)
+            kernel_val = ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name("reduce_window_sum_kernel"),
+                array=kernel_array,
+            )
+            kernel_val.type = ir.TensorType(conv_dtype_enum)
+            _stamp_type_and_shape(kernel_val, kernel_shape)
+            _ensure_value_metadata(ctx, kernel_val)
+            conv_out = ctx.builder.Conv(
+                unsq1,
+                kernel_val,
+                _outputs=[ctx.fresh_name("reduce_window_sum_conv")],
+                **conv_kwargs,
+            )
         conv_out.type = ir.TensorType(conv_dtype_enum)
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ())
         _stamp_type_and_shape(conv_out, (1, 1) + out_shape)

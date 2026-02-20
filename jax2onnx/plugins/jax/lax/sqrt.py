@@ -18,9 +18,13 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sqrt.html",
     onnx=[
         {
+            "component": "ReduceL2",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceL2.html",
+        },
+        {
             "component": "Sqrt",
             "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html",
-        }
+        },
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -34,7 +38,23 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
                 ["Sqrt:3"],
                 no_unused_inputs=True,
             ),
-        }
+        },
+        {
+            "testcase": "sqrt_reduce_sum_square_axis1",
+            "callable": lambda x: jax.lax.sqrt(
+                jax.numpy.sum(jax.numpy.square(x), axis=1)
+            ),
+            "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "ReduceL2:2",
+                        "inputs": {1: {"const": 1.0}},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class SqrtPlugin(PrimitiveLeafPlugin):
@@ -49,6 +69,31 @@ class SqrtPlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("sqrt_out")
+
+        input_producer_getter = getattr(x_val, "producer", lambda: None)
+        input_producer = (
+            input_producer_getter() if callable(input_producer_getter) else None
+        )
+        if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
+            reduce_inputs = list(getattr(input_producer, "inputs", ()))
+            if reduce_inputs:
+                keepdims_attr = input_producer.attributes.get("keepdims")
+                keepdims = int(
+                    getattr(keepdims_attr, "value", keepdims_attr)
+                    if keepdims_attr is not None
+                    else 1
+                )
+                result = ctx.builder.ReduceL2(
+                    *reduce_inputs,
+                    keepdims=keepdims,
+                    _outputs=[desired_name],
+                )
+                if getattr(out_spec, "type", None) is not None:
+                    result.type = out_spec.type
+                if getattr(out_spec, "shape", None) is not None:
+                    result.shape = out_spec.shape
+                ctx.bind_value_for_var(out_var, result)
+                return
 
         result = ctx.builder.Sqrt(x_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:

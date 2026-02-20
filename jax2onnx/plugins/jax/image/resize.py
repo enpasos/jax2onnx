@@ -54,9 +54,13 @@ def _canonical_method(method: str) -> str:
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.image.resize.html",
     onnx=[
         {
+            "component": "Upsample",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Upsample.html",
+        },
+        {
             "component": "Resize",
             "doc": "https://onnx.ai/onnx/operators/onnx__Resize.html",
-        }
+        },
     ],
     since="0.10.0",
     context="primitives.jax_image",
@@ -80,6 +84,40 @@ def _canonical_method(method: str) -> str:
             "input_shapes": [(1, 1, 3)],
             "expected_output_shapes": [(2, 2, 3)],
             "post_check_onnx_graph": EG(["Resize"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "resize_nearest_opset9_upsample",
+            "callable": lambda x: jimage.resize(
+                x, (4, 4), method="nearest", antialias=False
+            ),
+            "input_shapes": [(2, 2)],
+            "expected_output_shapes": [(4, 4)],
+            "opset_version": 9,
+            "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "resize_linear_opset9_upsample",
+            "callable": lambda x: jimage.resize(
+                x, (3, 5), method="linear", antialias=False
+            ),
+            "input_shapes": [(2, 2)],
+            "expected_output_shapes": [(3, 5)],
+            "opset_version": 9,
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "resize_nearest_rank3_opset9_upsample",
+            "callable": lambda x: jimage.resize(
+                x, (2, 4, 6), method="nearest", antialias=False
+            ),
+            "input_shapes": [(1, 2, 3)],
+            "expected_output_shapes": [(2, 4, 6)],
+            "opset_version": 9,
+            "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
             "run_only_f32_variant": True,
         },
     ],
@@ -133,6 +171,47 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         image_val = ctx.get_value_for_var(
             image_var, name_hint=ctx.fresh_name("resize_input")
         )
+        image_dtype = getattr(getattr(image_val, "type", None), "dtype", None)
+
+        opset = int(getattr(ctx.builder, "opset", 21))
+        if opset <= 9:
+            if method not in {"nearest", "linear"}:
+                raise NotImplementedError(
+                    "resize with opset<=9 supports nearest/linear only"
+                )
+            input_shape = tuple(getattr(getattr(image_var, "aval", None), "shape", ()))
+            if len(input_shape) != len(shape):
+                raise NotImplementedError(
+                    "resize opset<=9 requires static input rank matching output rank"
+                )
+
+            scales_list: list[float] = []
+            for in_dim_raw, out_dim in zip(input_shape, shape):
+                in_dim = _normalized_dim(in_dim_raw)
+                if in_dim is None or in_dim <= 0:
+                    raise NotImplementedError(
+                        "resize opset<=9 requires static positive input dimensions"
+                    )
+                scales_list.append(float(out_dim) / float(in_dim))
+
+            scales_const = ctx.builder.add_initializer_from_array(
+                name=ctx.fresh_name("upsample_scales"),
+                array=np.asarray(scales_list, dtype=np.float32),
+            )
+            upsample_out = ctx.builder.Upsample(
+                image_val,
+                scales_const,
+                _outputs=[ctx.fresh_name("upsample_out")],
+                mode=method,
+            )
+            if image_dtype is not None:
+                upsample_out.type = ir.TensorType(image_dtype)
+            _stamp_type_and_shape(
+                upsample_out, tuple(_normalized_dim(dim) for dim in shape)
+            )
+            _ensure_value_metadata(ctx, upsample_out)
+            ctx.bind_value_for_var(out_var, upsample_out)
+            return
 
         empty_f32 = np.asarray([], dtype=np.float32)
         roi = ctx.builder.add_initializer_from_array(
@@ -167,7 +246,6 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             **resize_kwargs,
         )
 
-        image_dtype = getattr(getattr(image_val, "type", None), "dtype", None)
         if image_dtype is not None:
             resize_out.type = ir.TensorType(image_dtype)
         _stamp_type_and_shape(resize_out, tuple(_normalized_dim(dim) for dim in shape))

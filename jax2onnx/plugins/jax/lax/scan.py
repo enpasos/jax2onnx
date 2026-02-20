@@ -305,8 +305,8 @@ def _two_scans_diff_len_with_broadcast_f32():
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
     onnx=[
         {
-            "component": "Scan",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Scan.html",
+            "component": "Loop",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html",
         }
     ],
     since="0.5.1",

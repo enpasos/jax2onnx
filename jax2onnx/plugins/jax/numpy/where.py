@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -250,6 +250,14 @@ def _create_problematic_where_sequence(cond_input, data_input):
             "callable": lambda x: jax.vmap(lambda y: jnp.where(y > 0, y, -y))(x),
             "input_shapes": [(3, 4)],
         },
+        {
+            "testcase": "where_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.where(y > 0, y, 0.0)))(
+                x
+            ),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpWherePlugin(PrimitiveLeafPlugin):
@@ -403,6 +411,29 @@ def _where_impl(condition, x=None, y=None):
         )
     orig = get_orig_impl(JnpWherePlugin._PRIM, JnpWherePlugin._FUNC_NAME)
     return orig(condition, x, y)
+
+
+def _where_jvp_rule(
+    primals: tuple[jax.Array, ...],
+    tangents: tuple[jax.Array, ...],
+    **_: object,
+) -> tuple[jax.Array, jax.Array]:
+    condition, x, y = primals
+    _condition_dot, x_dot, y_dot = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+    y_dot = ad.instantiate_zeros(y_dot)
+
+    try:
+        orig = get_orig_impl(JnpWherePlugin._PRIM, JnpWherePlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.where
+
+    primal_out = orig(condition, x, y)
+    tangent_out = orig(condition, x_dot, y_dot)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[JnpWherePlugin._PRIM] = _where_jvp_rule
 
 
 JnpWherePlugin._PRIM.def_abstract_eval(JnpWherePlugin.abstract_eval)

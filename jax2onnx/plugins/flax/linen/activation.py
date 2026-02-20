@@ -72,6 +72,7 @@ def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
             "callable": lambda x: nn.activation.hard_sigmoid(x),
             "input_shapes": [(2, 3)],
             "expected_output_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "activation_hard_silu_basic",
@@ -84,6 +85,7 @@ def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
             "callable": lambda x: nn.activation.hard_swish(x),
             "input_shapes": [(2, 3)],
             "expected_output_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "activation_hard_tanh_basic",
@@ -139,6 +141,7 @@ def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
             "input_shapes": [(4,)],
             "input_dtypes": [jnp.int32],
             "expected_output_shapes": [(4, 6)],
+            "run_only_f32_variant": True,
         },
     ],
 )

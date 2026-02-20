@@ -12,7 +12,7 @@ from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
 from jax import core
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -131,6 +131,14 @@ def _as_int64(
                 lambda y: jnp.take(y, np.array([0, 2], dtype=np.int32), axis=0)
             )(x),
             "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "take_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.take(y, jnp.array([0, 2]), axis=1))
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -252,6 +260,30 @@ def _take_impl(
 ) -> jax.Array:
     orig = get_orig_impl(JnpTakePlugin._PRIM, JnpTakePlugin._FUNC_NAME)
     return orig(arr, indices, axis=axis, mode=mode)
+
+
+def _take_jvp_rule(
+    primals: tuple[jax.Array, ...],
+    tangents: tuple[jax.Array, ...],
+    *,
+    axis: int | None = None,
+    mode: str | None = None,
+) -> tuple[jax.Array, jax.Array]:
+    arr, indices = primals
+    arr_dot, _indices_dot = tangents
+    arr_dot = ad.instantiate_zeros(arr_dot)
+
+    try:
+        orig = get_orig_impl(JnpTakePlugin._PRIM, JnpTakePlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.take
+
+    primal_out = orig(arr, indices, axis=axis, mode=mode)
+    tangent_out = orig(arr_dot, indices, axis=axis, mode=mode)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[JnpTakePlugin._PRIM] = _take_jvp_rule
 
 
 JnpTakePlugin._PRIM.def_abstract_eval(JnpTakePlugin.abstract_eval)

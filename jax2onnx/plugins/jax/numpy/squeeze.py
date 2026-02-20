@@ -15,6 +15,7 @@ from jax.interpreters import batching
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -154,6 +155,14 @@ def _normalize_axes(axes: int | Sequence[int] | None, rank: int) -> tuple[int, .
             "testcase": "squeeze_vmap_batching",
             "callable": lambda x: jax.vmap(lambda y: jnp.squeeze(y, axis=0))(x),
             "input_shapes": [(3, 1, 4)],
+        },
+        {
+            "testcase": "squeeze_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.squeeze(y, axis=0) ** 2)
+            )(x),
+            "input_shapes": [(1, 4)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -307,3 +316,6 @@ def _squeeze_batch_rule(
 
 
 batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule
+
+
+register_fallback_jvp_rule(JnpSqueezePlugin._PRIM, _squeeze_impl)

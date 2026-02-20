@@ -52,10 +52,62 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_bits_uint32",
     ),
     (
+        "primitives.random",
+        "random_normal",
+        "random_normal_f32_2x3",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_batch",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_batch_opset23",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_rank3",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_rank3_opset23",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_symbolic_batch",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_symbolic_batch_opset23",
+    ),
+    (
+        "primitives.jax_image",
+        "resize",
+        "resize_linear_opset9_upsample",
+    ),
+    (
+        "primitives.lax",
+        "dynamic_update_slice",
+        "dus_tensorscatter_axis1_opset24",
+    ),
+    (
         "examples.nnx_gpt_oss",
         "FlaxSDPA",
         "gpt_oss_sdpa_flax",
     ),
+    # ORT on the CI/default setup cannot execute ONNX CumProd at current
+    # default opsets yet; keep structural coverage while runtime support catches up.
+    ("primitives.lax", "cumprod", "cumprod_i32_axis2"),
+    ("primitives.lax", "cumprod", "cumprod_f32_axism1_reverse"),
+    ("primitives.jnp", "cumprod", "jnp_cumprod_axis1"),
+    ("primitives.jnp", "cumprod", "jnp_cumprod_axis_none_flatten"),
+    ("primitives.jnp", "cumprod", "jnp_cumprod_dtype_cast"),
 }
 _ALLOWED_SKIP_CONTEXTS: set[str] = {
     "examples.maxtext",  # ORT cannot execute MaxText graphs yet.

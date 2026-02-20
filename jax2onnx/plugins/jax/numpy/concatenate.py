@@ -15,6 +15,7 @@ from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -136,6 +137,14 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "concatenate_grad_issue191",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.concatenate((y, y), axis=0))
+            )(x),
+            "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -351,3 +360,22 @@ def _concatenate_batch_rule(
 
 
 batching.primitive_batchers[JnpConcatenatePlugin._PRIM] = _concatenate_batch_rule
+
+
+def _concatenate_fallback_jvp_impl(
+    *arrays: object, axis: int = 0, dtype: DTypeLike | None = None
+) -> jax.Array:
+    axis_int = int(axis)
+    arrays_tuple = tuple(arrays)
+    try:
+        orig = get_orig_impl(
+            JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
+        )
+    except RuntimeError:
+        orig = _ORIGINAL_JNP_CONCATENATE
+    if dtype is None:
+        return orig(arrays_tuple, axis=axis_int)
+    return orig(arrays_tuple, axis=axis_int, dtype=dtype)
+
+
+register_fallback_jvp_rule(JnpConcatenatePlugin._PRIM, _concatenate_fallback_jvp_impl)

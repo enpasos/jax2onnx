@@ -6,6 +6,8 @@ from typing import Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
@@ -80,6 +82,14 @@ _GELU_PRIM.multiple_results = False
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "gelu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.gelu(y, approximate=False) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -166,3 +176,58 @@ def _gelu_batch_rule(
 
 
 batching.primitive_batchers[GeluPlugin._PRIM] = _gelu_batch_rule
+
+
+def _gelu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
+) -> tuple[ArrayLike, ArrayLike]:
+    approximate = bool(params.get("approximate", True))
+
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    half = jnp.asarray(0.5, dtype=x.dtype)
+
+    if approximate:
+        c = jnp.asarray(0.044715, dtype=x.dtype)
+        k = jnp.asarray(0.7978845608028654, dtype=x.dtype)  # sqrt(2/pi)
+
+        x_sq = jax.lax.mul(x, x)
+        x_cu = jax.lax.mul(x_sq, x)
+        inner = jax.lax.add(x, jax.lax.mul(c, x_cu))
+        u = jax.lax.mul(k, inner)
+        tanh_u = jax.lax.tanh(u)
+
+        primal_out = jax.lax.mul(jax.lax.mul(half, x), jax.lax.add(one, tanh_u))
+
+        three_c = jnp.asarray(0.134145, dtype=x.dtype)  # 3*0.044715
+        du_dx = jax.lax.mul(k, jax.lax.add(one, jax.lax.mul(three_c, x_sq)))
+        sech2 = jax.lax.sub(one, jax.lax.mul(tanh_u, tanh_u))
+        dt_dx = jax.lax.mul(sech2, du_dx)
+        deriv = jax.lax.add(
+            jax.lax.mul(half, jax.lax.add(one, tanh_u)),
+            jax.lax.mul(jax.lax.mul(half, x), dt_dx),
+        )
+    else:
+        inv_sqrt2 = jnp.asarray(0.7071067811865475, dtype=x.dtype)
+        inv_sqrt_2pi = jnp.asarray(0.3989422804014327, dtype=x.dtype)
+
+        x_sq = jax.lax.mul(x, x)
+        cdf = jax.lax.mul(
+            half,
+            jax.lax.add(one, jax.lax.erf(jax.lax.mul(x, inv_sqrt2))),
+        )
+        pdf = jax.lax.mul(
+            inv_sqrt_2pi,
+            jax.lax.exp(jax.lax.neg(jax.lax.mul(half, x_sq))),
+        )
+        primal_out = jax.lax.mul(x, cdf)
+        deriv = jax.lax.add(cdf, jax.lax.mul(x, pdf))
+
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[GeluPlugin._PRIM] = _gelu_jvp_rule

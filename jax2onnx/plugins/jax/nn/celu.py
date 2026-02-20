@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -13,7 +15,6 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
-    lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
 )
 
@@ -73,6 +74,14 @@ _CELU_PRIM.multiple_results = False
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "celu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.celu(y, alpha=0.3) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class CeluPlugin(PrimitiveLeafPlugin):
@@ -90,15 +99,31 @@ class CeluPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         alpha = float(eqn.params.get("alpha", 1.0))
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-        lower_unary_elementwise(
-            ctx,
-            eqn,
-            op_name="Celu",
-            input_hint="celu_in",
-            output_hint="celu_out",
-            attrs={"alpha": alpha},
+        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("celu_in"))
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("celu_out"))
+
+        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("celu_out")
+        producer = getattr(out_spec, "producer", None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name("celu_out")
+
+        result = ctx.builder.Celu(
+            x_val,
+            _outputs=[desired_name],
+            alpha=alpha,
         )
+        if getattr(out_spec, "type", None) is not None:
+            result.type = out_spec.type
+        else:
+            result.type = getattr(x_val, "type", None)
+        if getattr(out_spec, "shape", None) is not None:
+            result.shape = out_spec.shape
+        else:
+            result.shape = getattr(x_val, "shape", None)
+        ctx.bind_value_for_var(out_var, result)
 
     @classmethod
     def ensure_abstract_eval_bound(cls):
@@ -144,3 +169,29 @@ def _celu_impl(x: ArrayLike, alpha: float = 1.0) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(CeluPlugin._PRIM)
+
+
+def _celu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
+) -> tuple[ArrayLike, ArrayLike]:
+    alpha = float(params.get("alpha", 1.0))
+
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    zero = jnp.asarray(0.0, dtype=x.dtype)
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    alpha_x = jnp.asarray(alpha, dtype=x.dtype)
+
+    x_div_alpha = jax.lax.div(x, alpha_x)
+    neg_branch = jax.lax.mul(alpha_x, jax.lax.sub(jax.lax.exp(x_div_alpha), one))
+    primal_out = jax.lax.select(jax.lax.gt(x, zero), x, neg_branch)
+
+    one_like_x = jax.lax.broadcast_in_dim(one, x.shape, ())
+    deriv = jax.lax.select(jax.lax.gt(x, zero), one_like_x, jax.lax.exp(x_div_alpha))
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[CeluPlugin._PRIM] = _celu_jvp_rule

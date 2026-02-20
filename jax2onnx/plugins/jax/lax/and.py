@@ -76,11 +76,10 @@ class AndPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("and_out")
 
-        is_bool = np.issubdtype(prefer_dtype, np.bool_)
-        op_type = "And" if is_bool else "BitwiseAnd"
-        builder_fn = getattr(ctx.builder, op_type)
-
-        result = builder_fn(lhs_val, rhs_val, _outputs=[desired_name])
+        if np.issubdtype(prefer_dtype, np.bool_):
+            result = ctx.builder.And(lhs_val, rhs_val, _outputs=[desired_name])
+        else:
+            result = ctx.builder.BitwiseAnd(lhs_val, rhs_val, _outputs=[desired_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         if getattr(out_spec, "shape", None) is not None:

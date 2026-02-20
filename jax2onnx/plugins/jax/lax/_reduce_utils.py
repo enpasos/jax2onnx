@@ -97,12 +97,63 @@ def lower_reduction(
     if callable(producer) and producer() is not None:
         desired_name = ctx.fresh_name(op_type)
 
-    reduce_fn = getattr(ctx.builder, op_type)
-    result = reduce_fn(
-        *inputs,
-        keepdims=1 if keepdims else 0,
-        _outputs=[desired_name],
-    )
+    keepdims_attr = 1 if keepdims else 0
+    if op_type == "ReduceSum":
+        result = ctx.builder.ReduceSum(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceProd":
+        result = ctx.builder.ReduceProd(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceMax":
+        result = ctx.builder.ReduceMax(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceMin":
+        result = ctx.builder.ReduceMin(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceL1":
+        result = ctx.builder.ReduceL1(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceL2":
+        result = ctx.builder.ReduceL2(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceLogSum":
+        result = ctx.builder.ReduceLogSum(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceLogSumExp":
+        result = ctx.builder.ReduceLogSumExp(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    elif op_type == "ReduceSumSquare":
+        result = ctx.builder.ReduceSumSquare(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[desired_name],
+        )
+    else:
+        raise ValueError(f"Unsupported reduction op: {op_type}")
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     aval_dtype = getattr(out_var.aval, "dtype", None)
@@ -144,17 +195,23 @@ def lower_boolean_reduction(ctx: Any, eqn, *, mode: str) -> None:
         inputs.append(axes_const)
 
     if mode == "reduce_xor":
-        reduce_op = "ReduceSum"
+        reduce_out = ctx.builder.ReduceSum(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[ctx.fresh_name("ReduceSum")],
+        )
     elif mode == "reduce_or":
-        reduce_op = "ReduceMax"
+        reduce_out = ctx.builder.ReduceMax(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[ctx.fresh_name("ReduceMax")],
+        )
     else:
-        reduce_op = "ReduceMin"
-
-    reduce_out = getattr(ctx.builder, reduce_op)(
-        *inputs,
-        keepdims=keepdims_attr,
-        _outputs=[ctx.fresh_name(reduce_op)],
-    )
+        reduce_out = ctx.builder.ReduceMin(
+            *inputs,
+            keepdims=keepdims_attr,
+            _outputs=[ctx.fresh_name("ReduceMin")],
+        )
     reduce_out.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(reduce_out, out_shape)
     _ensure_value_metadata(ctx, reduce_out)
