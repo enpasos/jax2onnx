@@ -11,10 +11,11 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
-from jax.interpreters import ad, batching
+from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -361,31 +362,20 @@ def _concatenate_batch_rule(
 batching.primitive_batchers[JnpConcatenatePlugin._PRIM] = _concatenate_batch_rule
 
 
-def _concatenate_jvp_rule(
-    primals: tuple[object, ...],
-    tangents: tuple[object, ...],
-    *,
-    axis: int = 0,
-    dtype: DTypeLike | None = None,
-) -> tuple[jax.Array, jax.Array]:
+def _concatenate_fallback_jvp_impl(
+    *arrays: object, axis: int = 0, dtype: DTypeLike | None = None
+) -> jax.Array:
     axis_int = int(axis)
-    primal_args = tuple(primals)
-    tangent_args = tuple(ad.instantiate_zeros(t) for t in tangents)
-
+    arrays_tuple = tuple(arrays)
     try:
         orig = get_orig_impl(
             JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
         )
     except RuntimeError:
         orig = _ORIGINAL_JNP_CONCATENATE
-
     if dtype is None:
-        primal_out = orig(primal_args, axis=axis_int)
-        tangent_out = orig(tangent_args, axis=axis_int)
-    else:
-        primal_out = orig(primal_args, axis=axis_int, dtype=dtype)
-        tangent_out = orig(tangent_args, axis=axis_int, dtype=dtype)
-    return primal_out, tangent_out
+        return orig(arrays_tuple, axis=axis_int)
+    return orig(arrays_tuple, axis=axis_int, dtype=dtype)
 
 
-ad.primitive_jvps[JnpConcatenatePlugin._PRIM] = _concatenate_jvp_rule
+register_fallback_jvp_rule(JnpConcatenatePlugin._PRIM, _concatenate_fallback_jvp_impl)

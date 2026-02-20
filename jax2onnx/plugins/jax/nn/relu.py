@@ -6,6 +6,8 @@ from typing import Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
+from jax.interpreters import ad
+import jax.numpy as jnp
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -68,6 +70,12 @@ _RELU_PRIM.multiple_results = False
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "relu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.relu(y) ** 2))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -134,3 +142,21 @@ def _relu_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(ReluPlugin._PRIM)
+
+
+def _relu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    zero_x = jnp.zeros((), dtype=x.dtype)
+    primal_out = jax.lax.max(x, zero_x)
+
+    zero_dot = jnp.zeros_like(x_dot)
+    tangent_out = jax.lax.select(jax.lax.gt(x, zero_x), x_dot, zero_dot)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[ReluPlugin._PRIM] = _relu_jvp_rule

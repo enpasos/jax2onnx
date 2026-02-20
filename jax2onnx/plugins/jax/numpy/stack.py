@@ -18,6 +18,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -130,6 +131,14 @@ BatchDim = int | type(batching.not_mapped)
                 ["Unsqueeze:1 -> Concat:2"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "stack_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.stack((y, y), axis=0) ** 2)
+            )(x),
+            "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -302,7 +311,18 @@ def _stack_impl(arrays: Iterable[ArrayLike], *, axis: int = 0) -> jax.Array:
     return orig(arrays, axis=axis)
 
 
+def _stack_fallback_jvp_impl(*arrays: ArrayLike, axis: int = 0) -> jax.Array:
+    try:
+        orig = get_orig_impl(JnpStackPlugin._PRIM, JnpStackPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.stack
+    return orig(tuple(arrays), axis=axis)
+
+
 JnpStackPlugin._PRIM.def_abstract_eval(JnpStackPlugin.abstract_eval)
 
 
 batching.primitive_batchers[JnpStackPlugin._PRIM] = _stack_batch_rule
+
+
+register_fallback_jvp_rule(JnpStackPlugin._PRIM, _stack_fallback_jvp_impl)

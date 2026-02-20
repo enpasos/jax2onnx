@@ -14,6 +14,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -141,6 +142,14 @@ def _normalize_axes(axes: AxesArg, rank: int) -> tuple[int, ...]:
             "callable": lambda x: jax.vmap(lambda y: jnp.transpose(y, (1, 0)))(x),
             "input_shapes": [(3, 2, 4)],
         },
+        {
+            "testcase": "transpose_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.transpose(y, (1, 0)) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpTransposePlugin(PrimitiveLeafPlugin):
@@ -260,3 +269,6 @@ def _transpose_batch_rule(
 
 
 batching.primitive_batchers[JnpTransposePlugin._PRIM] = _transpose_batch_rule
+
+
+register_fallback_jvp_rule(JnpTransposePlugin._PRIM, _transpose_impl)

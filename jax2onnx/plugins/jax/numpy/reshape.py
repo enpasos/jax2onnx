@@ -16,6 +16,7 @@ from jax import core
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -269,6 +270,14 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
                 ["Reshape:1x4x4x2x2x1 -> Transpose:1x4x2x4x2x1 -> Reshape:1x8x8x1"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "reshape_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.reshape(y, (2, 2)) ** 2)
+            )(x),
+            "input_shapes": [(4,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -564,6 +573,9 @@ def _reshape_batch(
 
 
 batching.primitive_batchers[JnpReshapePlugin._PRIM] = _reshape_batch
+
+
+register_fallback_jvp_rule(JnpReshapePlugin._PRIM, _reshape_impl)
 
 
 JnpReshapePlugin._PRIM.def_abstract_eval(JnpReshapePlugin.abstract_eval)

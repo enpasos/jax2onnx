@@ -16,6 +16,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -132,6 +133,14 @@ def _split_sizes(
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "split_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.split(y, 2, axis=0)[0] ** 2)
+            )(x),
+            "input_shapes": [(4,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -352,3 +361,6 @@ def _split_batch_rule(
 
 
 batching.primitive_batchers[JnpSplitPlugin._PRIM] = _split_batch_rule
+
+
+register_fallback_jvp_rule(JnpSplitPlugin._PRIM, _split_impl)

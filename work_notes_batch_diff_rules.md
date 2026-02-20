@@ -76,32 +76,28 @@ Quick scan scope:
 - Files defining custom primitives (`make_jnp_primitive(...)` or `Primitive(...)`).
 
 Current status:
-- Total custom-primitive modules scanned: `60`
-- With batching rule (`primitive_batchers` or unary helper): `51` (`85.0%`)
-- With explicit autodiff rule (`ad.defjvp` / `primitive_jvps` / transpose/linear rules): `0` (`0.0%`)
+- Total custom-primitive modules scanned: `61`
+- With batching rule (`primitive_batchers` or unary helper): `52` (`85.2%`)
+- With explicit autodiff rule (`ad.defjvp` / `primitive_jvps` / transpose/linear rules): `8` (`13.1%`)
 
 By area:
-- `jax/numpy`: `35` total, `30` batching, `0` autodiff
-- `jax/nn`: `22` total, `21` batching, `0` autodiff
+- `jax/numpy`: `36` total, `30` batching, `7` autodiff
+- `jax/nn`: `22` total, `22` batching, `1` autodiff
 - `jax/random`: `3` total, `0` batching, `0` autodiff
 
 ## Verified Conversion Gaps
 
 Direct `to_onnx(...)` checks confirm the rule gap:
-- `grad(jnp.concatenate)` -> `NotImplementedError` (missing differentiation rule)
 - `grad(jax.nn.dot_product_attention)` -> `NotImplementedError`
-- `vmap(jax.nn.dot_product_attention)` -> `NotImplementedError` (missing batching rule)
-- `grad(jnp.reshape)` -> `NotImplementedError`
-- `grad(jax.nn.relu)` -> `NotImplementedError`
 
 ## Coverage List (Prioritized)
 
 | Primitive / Group | Current vmap | Current grad | Recommended Approach | Priority | Action |
 |---|---|---|---|---|---|
-| `jax.numpy.concatenate` (`_CONCAT_PRIM`) | Yes | No | A (fallback) | P0 | Add `ad.defjvp` fallback rule to original `jnp.concatenate`. |
-| `jax.nn.dot_product_attention` (`_DPA_PRIM`) | No | No | B for vmap, then staged grad plan | P0 | Add explicit batching rule with `_DPA_PRIM.bind(...)`; add grad unblocker path after vmap is stable. |
-| Shape-only numpy wrappers (`reshape`, `squeeze`, `transpose`, `stack`, `split`, `tile`) | Mostly Yes | No | A (fallback) | P0 | Add shared autodiff helper for shape ops to reduce repeated code. |
-| Core nn activations (`relu`, `sigmoid`, `silu`, `gelu`, `elu`, `leaky_relu`, `softplus`, `softsign`, `selu`, `celu`, `mish`) | Yes | No | A (fallback) | P1 | Add a common unary autodiff registration helper and apply to all differentiable activations. |
+| `jax.numpy.concatenate` (`_CONCAT_PRIM`) | Yes | Yes | A (fallback) | Done | Implemented via fallback JVP + plugin testcase (`concatenate_grad_issue191`). |
+| `jax.nn.dot_product_attention` (`_DPA_PRIM`) | Yes | No | B for vmap, then staged grad plan | P0 | vmap implemented; next is gradient rule strategy without losing macro structure. |
+| Shape-only numpy wrappers (`reshape`, `squeeze`, `transpose`, `stack`, `split`, `tile`) | Mostly Yes | Yes | A (fallback) | P0 | Implemented via shared fallback helper; `tile` uses `lax`-decomposition in JVP to avoid raw `tile` conversion gaps. |
+| Core nn activations (`relu`, `sigmoid`, `silu`, `gelu`, `elu`, `leaky_relu`, `softplus`, `softsign`, `selu`, `celu`, `mish`) | Yes | Partial | A (fallback/manual) | P1 | `relu` grad rule implemented; continue with remaining differentiable activations. |
 | Reduction-like wrappers (`mean`, `prod`, `logsumexp`, `log_softmax`, `softmax`, `standardize`) | Mostly Yes | No | A first, B only if graph quality degrades | P1 | Add autodiff fallback rules; verify ONNX graph quality with focused tests. |
 | Non-differentiable by nature (`hardmax`, `one_hot`, random samplers) | Mixed | No | Explicit non-goal | P1 | Document as "no grad support by design" and add policy tests for clear error behavior. |
 | Missing batching in deterministic numpy ops (`arange`, `compress`, `eye`, `linalg_det`, `windows`) | No | No | A (fallback) | P2 | Add batching rules only where real model demand exists. |
@@ -139,3 +135,49 @@ Implemented in this branch:
 Regression coverage added via plugin metadata testcases:
 - `primitives.jnp / concatenate / concatenate_grad_issue191`
 - `primitives.nn / dot_product_attention / dpa_vmap_tnh_issue190`
+
+## Continued Progress (Post #190/#191)
+
+Implemented in this branch:
+
+- Added shared fallback autodiff helper:
+  - `jax2onnx/plugins/jax/_autodiff_utils.py`
+  - provides `register_fallback_jvp_rule(...)` for primitive JVP registration.
+
+- Extended shape-wrapper gradient support:
+  - `jax2onnx/plugins/jax/numpy/reshape.py`
+    - registered fallback JVP for `_RESHAPE_PRIM`.
+    - added plugin testcase:
+      `reshape_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/squeeze.py`
+    - registered fallback JVP + testcase:
+      `squeeze_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/transpose.py`
+    - registered fallback JVP + testcase:
+      `transpose_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/stack.py`
+    - registered fallback JVP + testcase:
+      `stack_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/split.py`
+    - registered fallback JVP + testcase:
+      `split_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/tile.py`
+    - registered fallback JVP + testcase:
+      `tile_grad_issue_batch_diff_rules`.
+    - JVP fallback uses `lax.reshape` + `lax.broadcast_in_dim` to keep
+      conversion on supported primitives in grad traces.
+
+- Refactored concatenate gradient registration:
+  - `jax2onnx/plugins/jax/numpy/concatenate.py`
+    - now uses the shared helper through a variadic adapter
+      (`_concatenate_fallback_jvp_impl`).
+
+- Added relu gradient support:
+  - `jax2onnx/plugins/jax/nn/relu.py`
+    - registered explicit primitive JVP rule for `_RELU_PRIM`.
+    - added plugin testcase:
+      `relu_grad_issue_batch_diff_rules`.
+
+Validation:
+- `tests/primitives/test_jnp.py -k "concatenate_grad_issue191 or reshape_grad_issue_batch_diff_rules or squeeze_grad_issue_batch_diff_rules or transpose_grad_issue_batch_diff_rules or stack_grad_issue_batch_diff_rules or split_grad_issue_batch_diff_rules or tile_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules"` passes.
