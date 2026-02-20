@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -63,6 +65,14 @@ _SOFTSIGN_PRIM.multiple_results = False
                 ["Softsign:2x3"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "softsign_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.soft_sign(y) ** 2))(
+                x
+            ),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -145,3 +155,23 @@ def _softsign_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(SoftsignPlugin._PRIM)
+
+
+def _softsign_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    denom = jax.lax.add(one, jax.lax.abs(x))
+    primal_out = jax.lax.div(x, denom)
+
+    denom_sq = jax.lax.mul(denom, denom)
+    local_grad = jax.lax.div(one, denom_sq)
+    tangent_out = jax.lax.mul(x_dot, local_grad)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[SoftsignPlugin._PRIM] = _softsign_jvp_rule

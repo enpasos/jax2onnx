@@ -12,7 +12,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 from jax import core
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -100,6 +100,14 @@ def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
                 lambda y: jnp.select([y > 0], [y], default=-y)
             )(x),
             "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "select_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.select([y > 0], [y], default=0.0))
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -286,6 +294,35 @@ def _select_impl(
 ) -> jax.Array:
     orig = get_orig_impl(JnpSelectPlugin._PRIM, JnpSelectPlugin._FUNC_NAME)
     return orig(condlist, choicelist, default=default)
+
+
+def _select_jvp_rule(
+    primals: tuple[jax.Array, ...],
+    tangents: tuple[jax.Array, ...],
+    *,
+    num_conds: int,
+    num_choices: int,
+) -> tuple[jax.Array, jax.Array]:
+    conds = primals[:num_conds]
+    choices = primals[num_conds : num_conds + num_choices]
+    default = primals[-1]
+
+    choice_tangents = tuple(
+        ad.instantiate_zeros(t) for t in tangents[num_conds : num_conds + num_choices]
+    )
+    default_tangent = ad.instantiate_zeros(tangents[-1])
+
+    try:
+        orig = get_orig_impl(JnpSelectPlugin._PRIM, JnpSelectPlugin._FUNC_NAME)
+    except RuntimeError:
+        orig = jnp.select
+
+    primal_out = orig(list(conds), list(choices), default=default)
+    tangent_out = orig(list(conds), list(choice_tangents), default=default_tangent)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[JnpSelectPlugin._PRIM] = _select_jvp_rule
 
 
 JnpSelectPlugin._PRIM.def_abstract_eval(JnpSelectPlugin.abstract_eval)

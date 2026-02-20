@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -64,6 +66,14 @@ _SOFTPLUS_PRIM.multiple_results = False
                 ["Softplus:4"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "softplus_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.softplus(y) ** 2))(
+                x
+            ),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -130,3 +140,22 @@ def _softplus_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(SoftplusPlugin._PRIM)
+
+
+def _softplus_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    primal_out = jax.lax.log(jax.lax.add(one, jax.lax.exp(x)))
+
+    neg_x = jax.lax.neg(x)
+    sigmoid_x = jax.lax.div(one, jax.lax.add(one, jax.lax.exp(neg_x)))
+    tangent_out = jax.lax.mul(x_dot, sigmoid_x)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[SoftplusPlugin._PRIM] = _softplus_jvp_rule

@@ -11,6 +11,7 @@ from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax.pow import lower_pow
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
@@ -108,6 +109,12 @@ _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
             "callable": lambda x: jax.vmap(lambda y: jnp.power(y, 2.0))(x),
             "input_shapes": [(3, 4)],
         },
+        {
+            "testcase": "power_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.power(y, 2.0)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpPowerPlugin(_BaseJnpPow):
@@ -119,6 +126,9 @@ class JnpPowerPlugin(_BaseJnpPow):
 def _power_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpPowerPlugin._PRIM, JnpPowerPlugin._FUNC_NAME)
     return orig(x, y)
+
+
+register_jvp_via_jax_jvp(JnpPowerPlugin._PRIM, _power_impl)
 
 
 _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
@@ -164,6 +174,12 @@ _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
             "callable": lambda x: jax.vmap(lambda y: jnp.pow(y, 2.0))(x),
             "input_shapes": [(3, 4)],
         },
+        {
+            "testcase": "pow_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.pow(y, 2.0)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpPowPlugin(_BaseJnpPow):
@@ -175,6 +191,9 @@ class JnpPowPlugin(_BaseJnpPow):
 def _pow_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpPowPlugin._PRIM, JnpPowPlugin._FUNC_NAME)
     return orig(x, y)
+
+
+register_jvp_via_jax_jvp(JnpPowPlugin._PRIM, _pow_impl)
 
 
 def _make_pow_batch_rule(prim):

@@ -12,6 +12,7 @@ from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -48,6 +49,12 @@ _OUTER_PRIM: Final = make_jnp_primitive("jax.numpy.outer")
             "testcase": "outer_vmap_batching",
             "callable": lambda a, b: jax.vmap(jnp.outer)(a, b),
             "input_shapes": [(3, 3), (3, 4)],
+        },
+        {
+            "testcase": "outer_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.outer(y, y)))(x),
+            "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -118,6 +125,9 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
 def _outer_impl(a: ArrayLike, b: ArrayLike) -> jax.Array:
     orig = get_orig_impl(JnpOuterPlugin._PRIM, JnpOuterPlugin._FUNC_NAME)
     return orig(a, b)
+
+
+register_jvp_via_jax_jvp(JnpOuterPlugin._PRIM, _outer_impl)
 
 
 JnpOuterPlugin._PRIM.def_abstract_eval(JnpOuterPlugin.abstract_eval)

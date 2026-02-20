@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._patching import MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -69,6 +70,14 @@ _JAX_LOGSUMEXP_ORIG: Final = jax.nn.logsumexp
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "logsumexp_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.logsumexp(y, axis=1) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -306,3 +315,6 @@ def _logsumexp_batch_rule(
 
 
 batching.primitive_batchers[LogSumExpPlugin._PRIM] = _logsumexp_batch_rule
+
+
+register_jvp_via_jax_jvp(LogSumExpPlugin._PRIM, _logsumexp_impl)

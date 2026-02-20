@@ -17,6 +17,7 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
@@ -161,6 +162,14 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "clip_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.clip(y, -0.2, 0.3)))(
+                x
+            ),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpClipPlugin(PrimitiveLeafPlugin):
@@ -278,6 +287,9 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
 def _clip_impl(x: ArrayLike, a_min: ArrayLike, a_max: ArrayLike) -> jax.Array:
     orig = get_orig_impl(JnpClipPlugin._PRIM, JnpClipPlugin._FUNC_NAME)
     return orig(x, a_min, a_max)
+
+
+register_jvp_via_jax_jvp(JnpClipPlugin._PRIM, _clip_impl)
 
 
 JnpClipPlugin._PRIM.def_abstract_eval(JnpClipPlugin.abstract_eval)

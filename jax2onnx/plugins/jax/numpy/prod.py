@@ -11,7 +11,7 @@ from numpy.typing import ArrayLike
 import jax
 from jax import core
 import jax.numpy as jnp
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -123,6 +123,17 @@ _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
                 ],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "prod_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.prod(y, axis=1)))(x),
+            "input_values": [
+                np.asarray(
+                    [[0.0, 2.0, 3.0], [4.0, 0.0, 6.0]],
+                    dtype=np.float32,
+                )
+            ],
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "prod_vmap_batching",
@@ -318,3 +329,101 @@ def _prod_batch_rule(
 
 
 batching.primitive_batchers[JnpProdPlugin._PRIM] = _prod_batch_rule
+
+
+def _normalize_reduction_axes(
+    axes: tuple[int, ...] | None, rank: int
+) -> tuple[int, ...]:
+    if axes is None:
+        return tuple(range(rank))
+    if rank == 0:
+        return ()
+    normalized = tuple((int(ax) + rank) % rank for ax in axes)
+    # Keep a stable unique ordering for squeeze/reduction usage.
+    return tuple(sorted(dict.fromkeys(normalized)))
+
+
+def _prod_jvp_rule(
+    primals: tuple[jax.Array, ...],
+    tangents: tuple[jax.Array, ...],
+    *,
+    axes: tuple[int, ...] | None = None,
+    axes_is_tuple: bool = False,
+    dtype: np.dtype[Any] | type | None = None,
+    keepdims: bool = False,
+) -> tuple[jax.Array, jax.Array]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    primal_out = JnpProdPlugin._PRIM.bind(
+        x,
+        axes=axes,
+        axes_is_tuple=axes_is_tuple,
+        dtype=dtype,
+        keepdims=keepdims,
+    )
+
+    reduction_axes = _normalize_reduction_axes(axes, x.ndim)
+    if not reduction_axes:
+        tangent_out = jax.lax.convert_element_type(x_dot, primal_out.dtype)
+        return primal_out, tangent_out
+
+    zero = jnp.asarray(0.0, dtype=primal_out.dtype)
+    x_cast = jax.lax.convert_element_type(x, primal_out.dtype)
+    x_dot_cast = jax.lax.convert_element_type(x_dot, primal_out.dtype)
+    is_zero = jax.lax.eq(x_cast, zero)
+
+    y_keep = JnpProdPlugin._PRIM.bind(
+        x,
+        axes=axes,
+        axes_is_tuple=axes_is_tuple,
+        dtype=dtype,
+        keepdims=True,
+    )
+
+    safe_x = jax.lax.select(is_zero, jnp.ones_like(x_cast), x_cast)
+    safe_ratio = jax.lax.select(
+        is_zero, jnp.zeros_like(x_dot_cast), jax.lax.div(x_dot_cast, safe_x)
+    )
+    tangent_no_zero = jax.lax.mul(
+        y_keep,
+        jnp.sum(safe_ratio, axis=reduction_axes, keepdims=True),
+    )
+
+    nonzero_prod = JnpProdPlugin._PRIM.bind(
+        safe_x,
+        axes=axes,
+        axes_is_tuple=axes_is_tuple,
+        dtype=dtype,
+        keepdims=True,
+    )
+    tangent_zero_terms = jnp.sum(
+        jax.lax.select(is_zero, x_dot_cast, jnp.zeros_like(x_dot_cast)),
+        axis=reduction_axes,
+        keepdims=True,
+    )
+    tangent_one_zero = jax.lax.mul(nonzero_prod, tangent_zero_terms)
+
+    zero_count = jnp.sum(
+        jax.lax.convert_element_type(is_zero, jnp.int32),
+        axis=reduction_axes,
+        keepdims=True,
+    )
+    tangent_keep = jax.lax.select(
+        jax.lax.eq(zero_count, 0),
+        tangent_no_zero,
+        jax.lax.select(
+            jax.lax.eq(zero_count, 1), tangent_one_zero, jnp.zeros_like(tangent_no_zero)
+        ),
+    )
+
+    if keepdims:
+        tangent_out = tangent_keep
+    else:
+        tangent_out = jax.lax.squeeze(tangent_keep, reduction_axes)
+
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[JnpProdPlugin._PRIM] = _prod_jvp_rule

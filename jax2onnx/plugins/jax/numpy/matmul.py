@@ -26,6 +26,7 @@ from jax2onnx.plugins._complex_utils import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -163,6 +164,12 @@ def _matmul_shape(
             "testcase": "matmul_vmap_batching",
             "callable": lambda a, b: jax.vmap(jnp.matmul)(a, b),
             "input_shapes": [(3, 2, 4), (3, 4, 5)],
+        },
+        {
+            "testcase": "matmul_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.matmul(y, y.T)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -421,6 +428,9 @@ def _matmul_impl(
         preferred_element_type=preferred_element_type,
         out_sharding=out_sharding,
     )
+
+
+register_jvp_via_jax_jvp(JnpMatmulPlugin._PRIM, _matmul_impl)
 
 
 JnpMatmulPlugin._PRIM.def_abstract_eval(JnpMatmulPlugin.abstract_eval)

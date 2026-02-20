@@ -20,6 +20,7 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -65,6 +66,12 @@ _CONJ_PRIM: Final = make_jnp_primitive("jax.numpy.conj")
             "testcase": "conj_vmap_batching",
             "callable": lambda x: jax.vmap(jnp.conj)(x),
             "input_shapes": [(3, 4)],
+        },
+        {
+            "testcase": "conj_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.conj(y)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -162,6 +169,9 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
 def _conj_impl(x: ArrayLike) -> ArrayLike:
     orig = get_orig_impl(JnpConjPlugin._PRIM, JnpConjPlugin._FUNC_NAME)
     return orig(x)
+
+
+register_jvp_via_jax_jvp(JnpConjPlugin._PRIM, _conj_impl)
 
 
 JnpConjPlugin._PRIM.def_abstract_eval(

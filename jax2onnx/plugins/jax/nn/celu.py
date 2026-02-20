@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -71,6 +73,14 @@ _CELU_PRIM.multiple_results = False
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "celu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.celu(y, alpha=0.3) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -159,3 +169,29 @@ def _celu_impl(x: ArrayLike, alpha: float = 1.0) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(CeluPlugin._PRIM)
+
+
+def _celu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
+) -> tuple[ArrayLike, ArrayLike]:
+    alpha = float(params.get("alpha", 1.0))
+
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    zero = jnp.asarray(0.0, dtype=x.dtype)
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    alpha_x = jnp.asarray(alpha, dtype=x.dtype)
+
+    x_div_alpha = jax.lax.div(x, alpha_x)
+    neg_branch = jax.lax.mul(alpha_x, jax.lax.sub(jax.lax.exp(x_div_alpha), one))
+    primal_out = jax.lax.select(jax.lax.gt(x, zero), x, neg_branch)
+
+    one_like_x = jax.lax.broadcast_in_dim(one, x.shape, ())
+    deriv = jax.lax.select(jax.lax.gt(x, zero), one_like_x, jax.lax.exp(x_div_alpha))
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[CeluPlugin._PRIM] = _celu_jvp_rule

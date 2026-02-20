@@ -11,6 +11,7 @@ from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
@@ -72,6 +73,14 @@ def _axis_attr_equals(model, expected: int) -> bool:
             "callable": lambda x: jax.nn.log_softmax(x, axis=-1),
             "input_shapes": [(2, 3, 4)],
             "post_check_onnx_graph": lambda m: _axis_attr_equals(m, 2),
+        },
+        {
+            "testcase": "log_softmax_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.log_softmax(y, axis=1) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -212,3 +221,6 @@ def _log_softmax_batch_rule(
 
 
 batching.primitive_batchers[LogSoftmaxPlugin._PRIM] = _log_softmax_batch_rule
+
+
+register_jvp_via_jax_jvp(LogSoftmaxPlugin._PRIM, _log_softmax_impl)

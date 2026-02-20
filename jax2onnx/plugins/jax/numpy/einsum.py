@@ -15,6 +15,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -186,6 +187,12 @@ def _normalize_equation(equation: str) -> str:
                 ["Einsum:2x2x8x4x5"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "einsum_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.einsum("ij,ij->", y, y))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -388,6 +395,27 @@ def _einsum_impl(
     if _dot_general is not None:
         kwargs["_dot_general"] = _dot_general
     return orig(equation, *operands, **kwargs)
+
+
+def _einsum_jvp_impl(
+    *operands: ArrayLike,
+    equation: str,
+    precision: Any | None = None,
+    optimize: Any | None = None,
+    preferred_element_type: Any | None = None,
+    _dot_general: Any | None = None,
+) -> jax.Array:
+    return _einsum_impl(
+        equation,
+        *operands,
+        precision=precision,
+        optimize=optimize,
+        preferred_element_type=preferred_element_type,
+        _dot_general=_dot_general,
+    )
+
+
+register_jvp_via_jax_jvp(JnpEinsumPlugin._PRIM, _einsum_jvp_impl)
 
 
 JnpEinsumPlugin._PRIM.def_abstract_eval(JnpEinsumPlugin.abstract_eval)

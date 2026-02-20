@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -75,6 +77,14 @@ _LEAKY_RELU_PRIM.multiple_results = False
                 ["LeakyRelu:5"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "leaky_relu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.leaky_relu(y, negative_slope=0.2) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -147,3 +157,29 @@ def _leaky_relu_impl(x: ArrayLike, negative_slope: float = 0.01) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(LeakyReluPlugin._PRIM)
+
+
+def _leaky_relu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
+) -> tuple[ArrayLike, ArrayLike]:
+    negative_slope = float(params.get("negative_slope", 0.01))
+
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    zero = jnp.asarray(0.0, dtype=x.dtype)
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    slope = jnp.asarray(negative_slope, dtype=x.dtype)
+
+    neg_branch = jax.lax.mul(slope, x)
+    primal_out = jax.lax.select(jax.lax.gt(x, zero), x, neg_branch)
+
+    one_like_x = jax.lax.broadcast_in_dim(one, x.shape, ())
+    slope_like_x = jax.lax.broadcast_in_dim(slope, x.shape, ())
+    deriv = jax.lax.select(jax.lax.gt(x, zero), one_like_x, slope_like_x)
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[LeakyReluPlugin._PRIM] = _leaky_relu_jvp_rule

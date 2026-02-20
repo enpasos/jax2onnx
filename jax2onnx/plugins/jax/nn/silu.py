@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -67,6 +69,12 @@ _SILU_PRIM.multiple_results = False
                 ["Sigmoid:3x4 -> Mul:3x4"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "silu_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.silu(y) ** 2))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -186,3 +194,25 @@ def _silu_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(SiluPlugin._PRIM)
+
+
+def _silu_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    neg_x = jax.lax.neg(x)
+    sigmoid_x = jax.lax.div(one, jax.lax.add(one, jax.lax.exp(neg_x)))
+    primal_out = jax.lax.mul(x, sigmoid_x)
+
+    one_minus_sigmoid = jax.lax.sub(one, sigmoid_x)
+    x_times = jax.lax.mul(x, one_minus_sigmoid)
+    grad_factor = jax.lax.mul(sigmoid_x, jax.lax.add(one, x_times))
+    tangent_out = jax.lax.mul(x_dot, grad_factor)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[SiluPlugin._PRIM] = _silu_jvp_rule

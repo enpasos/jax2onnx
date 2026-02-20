@@ -14,6 +14,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -68,6 +69,17 @@ def _compress_len(cond: tuple[bool, ...], axis_dim: int) -> int:
                 ["Compress:3x2"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "compress_jvp_issue_batch_diff_rules",
+            "callable": lambda x: jax.jvp(
+                lambda y: jnp.compress(np.array([True, False, True]), y, axis=1),
+                (x,),
+                (jnp.ones_like(x),),
+            )[1],
+            "input_shapes": [(2, 3)],
+            "expected_output_shapes": [(2, 2)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -160,12 +172,45 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                 fill_value: ArrayLike = 0,
             ) -> jax.Array:
                 # Only intercept the subset that maps directly to ONNX Compress.
-                if (
-                    out is not None
-                    or size is not None
-                    or fill_value != 0
-                    or axis is None
-                ):
+                if out is not None or size is not None or axis is None:
+                    return cast(Callable[..., jax.Array], orig)(
+                        condition,
+                        a,
+                        axis=axis,
+                        out=out,
+                        size=size,
+                        fill_value=fill_value,
+                    )
+                if isinstance(fill_value, core.Tracer):
+                    return cast(Callable[..., jax.Array], orig)(
+                        condition,
+                        a,
+                        axis=axis,
+                        out=out,
+                        size=size,
+                        fill_value=fill_value,
+                    )
+                try:
+                    fill_arr = np.asarray(fill_value)
+                except Exception:
+                    return cast(Callable[..., jax.Array], orig)(
+                        condition,
+                        a,
+                        axis=axis,
+                        out=out,
+                        size=size,
+                        fill_value=fill_value,
+                    )
+                if not (fill_arr.shape == () and fill_arr.item() == 0):
+                    return cast(Callable[..., jax.Array], orig)(
+                        condition,
+                        a,
+                        axis=axis,
+                        out=out,
+                        size=size,
+                        fill_value=fill_value,
+                    )
+                if isinstance(condition, core.Tracer):
                     return cast(Callable[..., jax.Array], orig)(
                         condition,
                         a,
@@ -211,7 +256,24 @@ def _compress_impl(
     cond: tuple[bool, ...],
 ) -> jax.Array:
     orig = get_orig_impl(JnpCompressPlugin._PRIM, JnpCompressPlugin._FUNC_NAME)
-    return orig(np.asarray(cond, dtype=np.bool_), a, axis=axis)
+    arr = jnp.asarray(a)
+    axis_norm = _canonical_axis(int(axis), arr.ndim)
+    axis_dim = arr.shape[axis_norm]
+    if not isinstance(axis_dim, (int, np.integer)):
+        raise NotImplementedError(
+            "jnp.compress lowering currently requires static axis dimension"
+        )
+    size = _compress_len(cond, int(axis_dim))
+    return orig(
+        np.asarray(cond, dtype=np.bool_),
+        arr,
+        axis=axis_norm,
+        size=size,
+        fill_value=0,
+    )
+
+
+register_jvp_via_jax_jvp(JnpCompressPlugin._PRIM, _compress_impl)
 
 
 JnpCompressPlugin._PRIM.def_abstract_eval(JnpCompressPlugin.abstract_eval)

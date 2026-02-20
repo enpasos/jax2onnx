@@ -78,11 +78,11 @@ Quick scan scope:
 Current status:
 - Total custom-primitive modules scanned: `61`
 - With batching rule (`primitive_batchers` or unary helper): `52` (`85.2%`)
-- With explicit autodiff rule (`ad.defjvp` / `primitive_jvps` / transpose/linear rules): `8` (`13.1%`)
+- With explicit autodiff rule (`ad.defjvp` / `primitive_jvps` / transpose/linear rules): `34` (`55.7%`)
 
 By area:
-- `jax/numpy`: `36` total, `30` batching, `7` autodiff
-- `jax/nn`: `22` total, `22` batching, `1` autodiff
+- `jax/numpy`: `36` total, `30` batching, `19` autodiff
+- `jax/nn`: `22` total, `22` batching, `15` autodiff
 - `jax/random`: `3` total, `0` batching, `0` autodiff
 
 ## Verified Conversion Gaps
@@ -97,8 +97,8 @@ Direct `to_onnx(...)` checks confirm the rule gap:
 | `jax.numpy.concatenate` (`_CONCAT_PRIM`) | Yes | Yes | A (fallback) | Done | Implemented via fallback JVP + plugin testcase (`concatenate_grad_issue191`). |
 | `jax.nn.dot_product_attention` (`_DPA_PRIM`) | Yes | No | B for vmap, then staged grad plan | P0 | vmap implemented; next is gradient rule strategy without losing macro structure. |
 | Shape-only numpy wrappers (`reshape`, `squeeze`, `transpose`, `stack`, `split`, `tile`) | Mostly Yes | Yes | A (fallback) | P0 | Implemented via shared fallback helper; `tile` uses `lax`-decomposition in JVP to avoid raw `tile` conversion gaps. |
-| Core nn activations (`relu`, `sigmoid`, `silu`, `gelu`, `elu`, `leaky_relu`, `softplus`, `softsign`, `selu`, `celu`, `mish`) | Yes | Partial | A (fallback/manual) | P1 | `relu` grad rule implemented; continue with remaining differentiable activations. |
-| Reduction-like wrappers (`mean`, `prod`, `logsumexp`, `log_softmax`, `softmax`, `standardize`) | Mostly Yes | No | A first, B only if graph quality degrades | P1 | Add autodiff fallback rules; verify ONNX graph quality with focused tests. |
+| Core nn activations (`relu`, `sigmoid`, `silu`, `gelu`, `elu`, `leaky_relu`, `softplus`, `softsign`, `selu`, `celu`, `mish`) | Yes | Yes | A (fallback/manual) | Done | Gradient rules implemented for all listed differentiable activations with plugin regression coverage. |
+| Reduction-like wrappers (`mean`, `prod`, `logsumexp`, `log_softmax`, `softmax`, `standardize`) | Mostly Yes | Yes | A first, B only if graph quality degrades | P1 | Grad rules implemented for `mean`, `prod`, `logsumexp`, `log_softmax`, `softmax`, and `standardize`, with plugin regression coverage. |
 | Non-differentiable by nature (`hardmax`, `one_hot`, random samplers) | Mixed | No | Explicit non-goal | P1 | Document as "no grad support by design" and add policy tests for clear error behavior. |
 | Missing batching in deterministic numpy ops (`arange`, `compress`, `eye`, `linalg_det`, `windows`) | No | No | A (fallback) | P2 | Add batching rules only where real model demand exists. |
 | Random samplers (`bernoulli`, `categorical`, `normal`) | No | No | Usually non-goal for grad, selective for vmap | P2 | Keep grad unsupported; decide whether per-op vmap support is needed for target workloads. |
@@ -172,12 +172,159 @@ Implemented in this branch:
     - now uses the shared helper through a variadic adapter
       (`_concatenate_fallback_jvp_impl`).
 
+- Added add gradient support:
+  - `jax2onnx/plugins/jax/numpy/add.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `add_grad_issue_batch_diff_rules`.
+
+- Added additional numpy wrapper gradient support:
+  - `jax2onnx/plugins/jax/numpy/pow.py`
+    - registered `jax.jvp`-based primitive rules for both
+      `_POWER_PRIM` and `_POW_PRIM`.
+    - added plugin testcases:
+      `power_grad_issue_batch_diff_rules`,
+      `pow_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/outer.py`
+    - registered `jax.jvp`-based primitive rule for `_OUTER_PRIM`.
+    - added plugin testcase:
+      `outer_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/matmul.py`
+    - registered `jax.jvp`-based primitive rule for `_MATMUL_PRIM`.
+    - added plugin testcase:
+      `matmul_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/clip.py`
+    - registered `jax.jvp`-based primitive rule for `_CLIP_PRIM`.
+    - added plugin testcase:
+      `clip_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/conj.py`
+    - registered `jax.jvp`-based primitive rule for `_CONJ_PRIM`.
+    - added plugin testcase:
+      `conj_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/einsum.py`
+    - registered `jax.jvp`-based primitive rule for `_EINSUM_PRIM`
+      using an adapter that preserves the `equation` parameter layout.
+    - added plugin testcase:
+      `einsum_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/take.py`
+    - registered explicit primitive JVP rule for `_TAKE_PRIM` with
+      fallback-to-original `jnp.take` evaluation in the JVP path
+      (avoids `float0` and transpose issues).
+    - added plugin testcase:
+      `take_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/where.py`
+    - registered explicit primitive JVP rule for `_WHERE_PRIM` with
+      fallback-to-original `jnp.where` evaluation.
+    - added plugin testcase:
+      `where_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/select.py`
+    - registered explicit primitive JVP rule for `_SELECT_PRIM` (variadic
+      cond/choice operands) with fallback-to-original `jnp.select`.
+    - added plugin testcase:
+      `select_grad_issue_batch_diff_rules`.
+
 - Added relu gradient support:
   - `jax2onnx/plugins/jax/nn/relu.py`
     - registered explicit primitive JVP rule for `_RELU_PRIM`.
     - added plugin testcase:
       `relu_grad_issue_batch_diff_rules`.
 
+- Added sigmoid and silu gradient support:
+  - `jax2onnx/plugins/jax/nn/sigmoid.py`
+    - registered explicit primitive JVP rule for `_SIGMOID_PRIM`.
+    - added plugin testcase:
+      `sigmoid_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/silu.py`
+    - registered explicit primitive JVP rule for `_SILU_PRIM`.
+    - added plugin testcase:
+      `silu_grad_issue_batch_diff_rules`.
+
+- Added softplus and softsign gradient support:
+  - `jax2onnx/plugins/jax/nn/softplus.py`
+    - registered explicit primitive JVP rule for `_SOFTPLUS_PRIM`.
+    - added plugin testcase:
+      `softplus_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/softsign.py`
+    - registered explicit primitive JVP rule for `_SOFTSIGN_PRIM`.
+    - added plugin testcase:
+      `softsign_grad_issue_batch_diff_rules`.
+
+- Added elu and leaky_relu gradient support:
+  - `jax2onnx/plugins/jax/nn/elu.py`
+    - registered explicit primitive JVP rule for `_ELU_PRIM` (including `alpha`).
+    - added plugin testcase:
+      `elu_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/leaky_relu.py`
+    - registered explicit primitive JVP rule for `_LEAKY_RELU_PRIM`
+      (including `negative_slope`).
+    - added plugin testcase:
+      `leaky_relu_grad_issue_batch_diff_rules`.
+
+- Added gelu, selu, celu, and mish gradient support:
+  - `jax2onnx/plugins/jax/nn/gelu.py`
+    - registered explicit primitive JVP rule for `_GELU_PRIM`
+      (both `approximate=True` and `approximate=False` branches).
+    - added plugin testcase:
+      `gelu_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/selu.py`
+    - registered explicit primitive JVP rule for `_SELU_PRIM`.
+    - added plugin testcase:
+      `selu_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/celu.py`
+    - registered explicit primitive JVP rule for `_CELU_PRIM`
+      (including `alpha`).
+    - added plugin testcase:
+      `celu_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/mish.py`
+    - registered explicit primitive JVP rule for `_MISH_PRIM`.
+    - added plugin testcase:
+      `mish_grad_issue_batch_diff_rules`.
+
+- Added reduction-wrapper gradient support (quick-win wave):
+  - `jax2onnx/plugins/jax/_autodiff_utils.py`
+    - added `register_jvp_via_jax_jvp(...)` helper for robust non-linear JVP registration.
+  - `jax2onnx/plugins/jax/numpy/mean.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `mean_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/logsumexp.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `logsumexp_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/log_softmax.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `log_softmax_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/softmax.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `softmax_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/nn/standardize.py`
+    - registered `jax.jvp`-based primitive rule.
+    - added plugin testcase:
+      `standardize_grad_issue_batch_diff_rules`.
+  - `jax2onnx/plugins/jax/numpy/prod.py`
+    - registered explicit zero-stable primitive JVP rule (handles 0/1/>1 zeros
+      in reduction slices without `where` transpose dependencies).
+    - added plugin testcase:
+      `prod_grad_issue_batch_diff_rules`.
+
 Validation:
 - `tests/primitives/test_jnp.py -k "concatenate_grad_issue191 or reshape_grad_issue_batch_diff_rules or squeeze_grad_issue_batch_diff_rules or transpose_grad_issue_batch_diff_rules or stack_grad_issue_batch_diff_rules or split_grad_issue_batch_diff_rules or tile_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "prod_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "Test_prod"` passes.
+- `tests/primitives/test_jnp.py -k "clip_grad_issue_batch_diff_rules or power_grad_issue_batch_diff_rules or pow_grad_issue_batch_diff_rules or outer_grad_issue_batch_diff_rules or matmul_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "Test_clip or Test_power or Test_pow or Test_outer or Test_matmul"` passes.
+- `tests/primitives/test_jnp.py -k "conj_grad_issue_batch_diff_rules or einsum_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "Test_conj or Test_einsum"` passes.
+- `tests/primitives/test_jnp.py -k "take_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "Test_take"` passes.
+- `tests/primitives/test_jnp.py -k "where_grad_issue_batch_diff_rules or select_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "Test_where or Test_select"` passes.
 - `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules or sigmoid_grad_issue_batch_diff_rules or silu_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules or sigmoid_grad_issue_batch_diff_rules or silu_grad_issue_batch_diff_rules or softplus_grad_issue_batch_diff_rules or softsign_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules or sigmoid_grad_issue_batch_diff_rules or silu_grad_issue_batch_diff_rules or softplus_grad_issue_batch_diff_rules or softsign_grad_issue_batch_diff_rules or elu_grad_issue_batch_diff_rules or leaky_relu_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "relu_grad_issue_batch_diff_rules or sigmoid_grad_issue_batch_diff_rules or silu_grad_issue_batch_diff_rules or softplus_grad_issue_batch_diff_rules or softsign_grad_issue_batch_diff_rules or elu_grad_issue_batch_diff_rules or leaky_relu_grad_issue_batch_diff_rules or gelu_grad_issue_batch_diff_rules or selu_grad_issue_batch_diff_rules or celu_grad_issue_batch_diff_rules or mish_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_jnp.py -k "mean_grad_issue_batch_diff_rules"` passes.
+- `tests/primitives/test_nn.py -k "logsumexp_grad_issue_batch_diff_rules or log_softmax_grad_issue_batch_diff_rules or softmax_grad_issue_batch_diff_rules or standardize_grad_issue_batch_diff_rules"` passes.

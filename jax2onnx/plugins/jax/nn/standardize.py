@@ -12,6 +12,7 @@ from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.nn._builder_utils import register_unary_elementwise_batch_rule
@@ -73,6 +74,14 @@ def _normalize_axes(axis: int | Sequence[int] | None, rank: int) -> tuple[int, .
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "standardize_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jax.nn.standardize(y, axis=1, epsilon=0.0) ** 2)
+            )(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -220,3 +229,6 @@ def _standardize_impl(
 
 
 register_unary_elementwise_batch_rule(StandardizePlugin._PRIM)
+
+
+register_jvp_via_jax_jvp(StandardizePlugin._PRIM, _standardize_impl)

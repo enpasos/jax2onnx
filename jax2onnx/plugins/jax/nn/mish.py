@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -60,6 +62,12 @@ _MISH_PRIM.multiple_results = False
                 ["Mish:2x3x4"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "mish_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.mish(y) ** 2))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -128,3 +136,25 @@ def _mish_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(MishPlugin._PRIM)
+
+
+def _mish_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    softplus_x = jax.lax.log(jax.lax.add(one, jax.lax.exp(x)))
+    tanh_sp = jax.lax.tanh(softplus_x)
+    primal_out = jax.lax.mul(x, tanh_sp)
+
+    sigmoid_x = jax.lax.div(one, jax.lax.add(one, jax.lax.exp(jax.lax.neg(x))))
+    sech2 = jax.lax.sub(one, jax.lax.mul(tanh_sp, tanh_sp))
+    deriv = jax.lax.add(tanh_sp, jax.lax.mul(x, jax.lax.mul(sigmoid_x, sech2)))
+    tangent_out = jax.lax.mul(x_dot, deriv)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[MishPlugin._PRIM] = _mish_jvp_rule

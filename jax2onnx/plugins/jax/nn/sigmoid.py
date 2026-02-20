@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
+from jax.interpreters import ad
+import jax.numpy as jnp
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -52,6 +54,14 @@ _SIGMOID_PRIM.multiple_results = False
                 ["Sigmoid:2x5"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "sigmoid_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jax.nn.sigmoid(y) ** 2))(
+                x
+            ),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -118,3 +128,24 @@ def _sigmoid_impl(x: ArrayLike) -> ArrayLike:
 
 
 register_unary_elementwise_batch_rule(SigmoidPlugin._PRIM)
+
+
+def _sigmoid_jvp_rule(
+    primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **_: object
+) -> tuple[ArrayLike, ArrayLike]:
+    (x,) = primals
+    (x_dot,) = tangents
+    x_dot = ad.instantiate_zeros(x_dot)
+
+    one = jnp.asarray(1.0, dtype=x.dtype)
+    neg_x = jax.lax.neg(x)
+    denom = jax.lax.add(one, jax.lax.exp(neg_x))
+    primal_out = jax.lax.div(one, denom)
+
+    one_minus = jax.lax.sub(one, primal_out)
+    local_grad = jax.lax.mul(primal_out, one_minus)
+    tangent_out = jax.lax.mul(x_dot, local_grad)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[SigmoidPlugin._PRIM] = _sigmoid_jvp_rule

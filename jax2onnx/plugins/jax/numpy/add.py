@@ -13,6 +13,7 @@ from jax.interpreters import batching
 from jax2onnx.plugins.jax.lax.add import lower_add
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
@@ -72,6 +73,12 @@ _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
             "callable": lambda x: jax.vmap(lambda y: jnp.add(y, 1.0))(x),
             "input_shapes": [(3, 4)],
         },
+        {
+            "testcase": "add_grad_issue_batch_diff_rules",
+            "callable": lambda x: jax.grad(lambda y: jnp.sum(jnp.add(y, 1.0)))(x),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class JnpAddPlugin(PrimitiveLeafPlugin):
@@ -99,6 +106,9 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
 def _add_impl(*args: object, **kwargs: object) -> object:
     orig = get_orig_impl(JnpAddPlugin._PRIM, JnpAddPlugin._FUNC_NAME)
     return orig(*args, **kwargs)
+
+
+register_jvp_via_jax_jvp(JnpAddPlugin._PRIM, _add_impl)
 
 
 def _add_batch_rule(args, dims, **params):
