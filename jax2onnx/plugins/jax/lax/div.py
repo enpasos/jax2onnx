@@ -275,6 +275,17 @@ def _match_lpnormalization_pattern(
             ),
         },
         {
+            "testcase": "div_add_half_fuses_to_mean_symbolic",
+            "callable": lambda x1, x2: (x1 + x2) / 2.0,
+            "input_shapes": [("B", 3), ("B", 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Mean:Bx3"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "div_add_third_no_mean",
             "callable": lambda x1, x2: (x1 + x2) / 3.0,
             "input_shapes": [(2, 3), (2, 3)],

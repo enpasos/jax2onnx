@@ -90,6 +90,9 @@ New plugins:
   - Added rank-3 logits stress testcases:
     - `random_categorical_logits_rank3` (opset 21, `Multinomial`)
     - `random_categorical_logits_rank3_opset23` (Gumbel-max fallback path)
+  - Added symbolic batch testcase and lowering support:
+    - `random_categorical_logits_symbolic_batch` (`run_only_dynamic`)
+    - dynamic output-shape reconstruction via `Shape -> Slice -> Reshape`.
 
 Extended existing plugins:
 
@@ -104,6 +107,8 @@ Extended existing plugins:
     - `resize_nearest_rank3_opset9_upsample`
 - `jax2onnx/plugins/jax/lax/div.py`
   - Added fusion `(x + y) / 2 -> Mean`.
+  - Added symbolic-shape fusion testcase:
+    - `div_add_half_fuses_to_mean_symbolic`
   - Added fusion `x / ||x|| -> LpNormalization` for supported L1/L2 denominator patterns.
   - Added `Mean` fusion guard testcases:
     - `div_add_third_no_mean`

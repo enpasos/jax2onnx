@@ -77,6 +77,16 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_categorical_logits_rank3_opset23",
     ),
     (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_symbolic_batch",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_symbolic_batch_opset23",
+    ),
+    (
         "primitives.jax_image",
         "resize",
         "resize_linear_opset9_upsample",
