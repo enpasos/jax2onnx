@@ -137,10 +137,34 @@ class Atan2Plugin(PrimitiveLeafPlugin):
         x_over_y.type = ir.TensorType(out_dtype)
         _stamp_type_and_shape(x_over_y, out_shape)
         _ensure_value_metadata(ctx, x_over_y)
-        base = ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")])
-        base.type = ir.TensorType(out_dtype)
-        _stamp_type_and_shape(base, out_shape)
-        _ensure_value_metadata(ctx, base)
+
+        if out_dtype == ir.DataType.DOUBLE:
+            atan_input = _cast_to(
+                ctx,
+                x_over_y,
+                target_dtype=ir.DataType.FLOAT,
+                output_shape=out_shape,
+                name_hint="atan2_atan_in_f32",
+            )
+            atan_f32 = ctx.builder.Atan(
+                atan_input,
+                _outputs=[ctx.fresh_name("atan2_base_f32")],
+            )
+            atan_f32.type = ir.TensorType(ir.DataType.FLOAT)
+            _stamp_type_and_shape(atan_f32, out_shape)
+            _ensure_value_metadata(ctx, atan_f32)
+            base = _cast_to(
+                ctx,
+                atan_f32,
+                target_dtype=ir.DataType.DOUBLE,
+                output_shape=out_shape,
+                name_hint="atan2_base_f64",
+            )
+        else:
+            base = ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")])
+            base.type = ir.TensorType(out_dtype)
+            _stamp_type_and_shape(base, out_shape)
+            _ensure_value_metadata(ctx, base)
 
         y_gt0 = ctx.builder.Greater(y_ready, zero, _outputs=[ctx.fresh_name("y_gt0")])
         y_lt0 = ctx.builder.Less(y_ready, zero, _outputs=[ctx.fresh_name("y_lt0")])
