@@ -38,6 +38,9 @@ poetry install --with maxtext
 *   **`JAX2ONNX_MAXTEXT_SRC`** (Optional): Path to a local clone of the MaxText repository. If not set, the system attempts to resolve it from an installed `MaxText` package.
 *   **`JAX2ONNX_MAXTEXT_MODELS`** (Optional): A comma-separated list of model config names to test (e.g., `llama2-7b.yml`). If unset, it defaults to a standard set of representative models.
 
+If auto-discovery finds an incompatible `MaxText` package, `jax2onnx` now skips `examples.maxtext` registration (instead of generating placeholder failing tests).  
+Set `JAX2ONNX_MAXTEXT_SRC` to a known compatible checkout to force and validate MaxText integration.
+
 ## Testing
 
 To run all the latest MaxText examples (use `poetry run` to stay in the project venv):
