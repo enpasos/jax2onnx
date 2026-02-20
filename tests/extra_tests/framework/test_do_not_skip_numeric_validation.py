@@ -57,6 +57,16 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_normal_f32_2x3",
     ),
     (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_batch",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_batch_opset23",
+    ),
+    (
         "examples.nnx_gpt_oss",
         "FlaxSDPA",
         "gpt_oss_sdpa_flax",

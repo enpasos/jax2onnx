@@ -1259,6 +1259,9 @@ def lower_scatter_elementwise(
     updates_shape: Sequence[Any],
     spec: ScatterSpec,
     reduction: str,
+    mode: Any,
+    unique_indices: bool,
+    out_var: Any,
     out_val: ir.Value,
 ) -> None:
     """Lower supported scatter variants to ``ScatterND``."""
@@ -1333,6 +1336,64 @@ def lower_scatter_elementwise(
     if reduction_norm not in {"none", "add", "max", "min", "mul"}:
         raise ValueError(f"unsupported scatter reduction '{reduction}'")
 
+    if (
+        pattern == "elementwise"
+        and reduction_norm == "none"
+        and operand_rank == 1
+        and index_depth == 1
+        and _is_promise_in_bounds_mode(mode)
+    ):
+        squeeze_axes = _const_i64(
+            ctx,
+            np.asarray([1], dtype=np.int64),
+            "scatter_elements_axes",
+        )
+        indices_1d = _builder_op(
+            ctx,
+            "Squeeze",
+            [indices_ordered, squeeze_axes],
+            name_hint="scatter_elements_indices",
+            dtype=ir.DataType.INT64,
+            shape=(None,),
+        )
+        out_name = out_val.name or ctx.fresh_name("Scatter")
+        if unique_indices and _supports_legacy_scatter(ctx):
+            result = ctx.builder.Scatter(
+                operand_val,
+                indices_1d,
+                updates_prepared,
+                axis=0,
+                _outputs=[out_name],
+            )
+            _stamp_type_and_shape(result, tuple(operand_shape))
+            result.type = ir.TensorType(operand_val.type.dtype)
+            result.dtype = operand_val.type.dtype
+            _ensure_value_metadata(ctx, result)
+            axis0_extent = _maybe_static_extent(
+                operand_shape[0] if operand_shape else None
+            )
+            if axis0_extent and axis0_extent > 1:
+                set_axis0_override(result, axis0_extent)
+            ctx.bind_value_for_var(out_var, result)
+            return
+        out_name = out_val.name or ctx.fresh_name("ScatterElements")
+        result = ctx.builder.ScatterElements(
+            operand_val,
+            indices_1d,
+            updates_prepared,
+            axis=0,
+            _outputs=[out_name],
+        )
+        _stamp_type_and_shape(result, tuple(operand_shape))
+        result.type = ir.TensorType(operand_val.type.dtype)
+        result.dtype = operand_val.type.dtype
+        _ensure_value_metadata(ctx, result)
+        axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
+        if axis0_extent and axis0_extent > 1:
+            set_axis0_override(result, axis0_extent)
+        ctx.bind_value_for_var(out_var, result)
+        return
+
     attr_map = {"reduction": reduction_norm} if reduction_norm != "none" else None
     produced = _builder_op(
         ctx,
@@ -1353,6 +1414,21 @@ def lower_scatter_elementwise(
     if axis0_extent and axis0_extent > 1:
         set_axis0_override(out_val, axis0_extent)
         set_axis0_override(produced, axis0_extent)
+
+
+def _is_promise_in_bounds_mode(mode: Any) -> bool:
+    if mode is None:
+        return False
+    mode_name = getattr(mode, "name", None)
+    if mode_name is not None:
+        return mode_name.upper() == "PROMISE_IN_BOUNDS"
+    return "PROMISE_IN_BOUNDS" in str(mode).upper()
+
+
+def _supports_legacy_scatter(ctx: Any) -> bool:
+    builder = getattr(ctx, "builder", None)
+    opset = int(getattr(builder, "opset", 21))
+    return opset <= 10
 
 
 def ensure_supported_mode(mode: Any) -> None:
@@ -1387,6 +1463,7 @@ def lower_scatter_common(
     params = getattr(eqn, "params", {})
     spec = _normalize_dimension_numbers(params.get("dimension_numbers"))
     mode = params.get("mode")
+    unique_indices = bool(params.get("unique_indices", False))
     ensure_supported_mode(mode)
 
     operand_val = ctx.get_value_for_var(
@@ -1415,6 +1492,9 @@ def lower_scatter_common(
             updates_shape=updates_shape,
             spec=spec,
             reduction=reduction,
+            mode=mode,
+            unique_indices=unique_indices,
+            out_var=out_var,
             out_val=out_val,
         )
         return

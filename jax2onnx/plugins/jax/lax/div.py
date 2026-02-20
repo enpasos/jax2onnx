@@ -103,10 +103,35 @@ def _lower_complex_div(
     return packed, target_dtype
 
 
+def _const_scalar_as_float(value: ir.Value) -> Optional[float]:
+    const_val = getattr(value, "const_value", None)
+    if const_val is None:
+        return None
+    try:
+        arr = np.asarray(const_val.numpy())
+    except Exception:
+        try:
+            arr = np.asarray(const_val)
+        except Exception:
+            return None
+    if arr.size != 1:
+        return None
+    try:
+        return float(arr.reshape(()))
+    except (TypeError, ValueError):
+        return None
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.div_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.div.html",
-    onnx=[{"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"}],
+    onnx=[
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {
+            "component": "Mean",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Mean.html",
+        },
+    ],
     since="0.2.0",
     context="primitives.lax",
     component="div",
@@ -131,6 +156,16 @@ def _lower_complex_div(
                         "inputs": {1: {"const": 2.0}},
                     }
                 ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_add_half_fuses_to_mean",
+            "callable": lambda x1, x2: (x1 + x2) / 2.0,
+            "input_shapes": [(2, 3), (2, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Mean:2x3"],
                 no_unused_inputs=True,
             ),
         },
@@ -229,10 +264,36 @@ class DivPlugin(PrimitiveLeafPlugin):
                     break
             return
 
-        result = cast(
-            ir.Value,
-            ctx.builder.Div(lhs_val, rhs_val, _outputs=[output_name]),
-        )
+        out_aval_dtype = getattr(getattr(out_var, "aval", None), "dtype", None)
+        out_is_f64 = False
+        if out_aval_dtype is not None:
+            try:
+                out_is_f64 = np.dtype(out_aval_dtype) == np.dtype(np.float64)
+            except TypeError:
+                out_is_f64 = False
+
+        lhs_producer = None
+        producer = getattr(lhs_val, "producer", None)
+        if callable(producer):
+            lhs_producer = producer()
+        rhs_scalar = _const_scalar_as_float(rhs_val)
+        if (
+            not out_is_f64
+            and rhs_scalar is not None
+            and np.isclose(rhs_scalar, 2.0)
+            and getattr(lhs_producer, "op_type", "") == "Add"
+            and len(getattr(lhs_producer, "inputs", ())) == 2
+        ):
+            add_lhs, add_rhs = lhs_producer.inputs
+            result = cast(
+                ir.Value,
+                ctx.builder.Mean(add_lhs, add_rhs, _outputs=[output_name]),
+            )
+        else:
+            result = cast(
+                ir.Value,
+                ctx.builder.Div(lhs_val, rhs_val, _outputs=[output_name]),
+            )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         stamp_axis0_binary_result(result, out_var, out_spec, override)
