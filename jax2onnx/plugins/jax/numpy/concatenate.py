@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -136,6 +136,14 @@ _CONCAT_PRIM: Final = make_jnp_primitive("jax.numpy.concatenate")
                 symbols={"B": None},
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "concatenate_grad_issue191",
+            "callable": lambda x: jax.grad(
+                lambda y: jnp.sum(jnp.concatenate((y, y), axis=0))
+            )(x),
+            "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -351,3 +359,33 @@ def _concatenate_batch_rule(
 
 
 batching.primitive_batchers[JnpConcatenatePlugin._PRIM] = _concatenate_batch_rule
+
+
+def _concatenate_jvp_rule(
+    primals: tuple[object, ...],
+    tangents: tuple[object, ...],
+    *,
+    axis: int = 0,
+    dtype: DTypeLike | None = None,
+) -> tuple[jax.Array, jax.Array]:
+    axis_int = int(axis)
+    primal_args = tuple(primals)
+    tangent_args = tuple(ad.instantiate_zeros(t) for t in tangents)
+
+    try:
+        orig = get_orig_impl(
+            JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
+        )
+    except RuntimeError:
+        orig = _ORIGINAL_JNP_CONCATENATE
+
+    if dtype is None:
+        primal_out = orig(primal_args, axis=axis_int)
+        tangent_out = orig(tangent_args, axis=axis_int)
+    else:
+        primal_out = orig(primal_args, axis=axis_int, dtype=dtype)
+        tangent_out = orig(tangent_args, axis=axis_int, dtype=dtype)
+    return primal_out, tangent_out
+
+
+ad.primitive_jvps[JnpConcatenatePlugin._PRIM] = _concatenate_jvp_rule

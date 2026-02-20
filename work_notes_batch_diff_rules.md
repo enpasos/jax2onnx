@@ -53,3 +53,89 @@ For any newly added custom primitives in `jax2onnx` that replace high-level JAX 
 1.  **Assess:** Does this primitive represent a high-level composite operation (like attention) or a fundamental operation (like concat)?
 2.  **Decide:** Choose Approach A or B based on whether the fallback expansion produces a desirable or undesirable ONNX graph.
 3.  **Implement:** Provide at least the batching rule (`vmap` support) and, if applicable, the JVP rule (`grad` support).
+
+## Review of This Note (2026-02-20)
+
+I agree with the core direction and with both approaches.
+
+Two clarifications are important:
+
+1.  Not every primitive needs a gradient rule.
+    - Random and indexing/selection style ops can be intentionally non-differentiable.
+    - For these, we should document "no grad support by design" and avoid accidental regressions.
+2.  "grad support" can require more than one mechanism in complex cases.
+    - `ad.defjvp` fallback is usually the fastest unblocker.
+    - For high-level macro primitives (for example attention), we may later need a stricter explicit rule strategy to preserve macro structure in exported graphs.
+
+## Rule Coverage Snapshot (Current)
+
+Quick scan scope:
+- `jax2onnx/plugins/jax/numpy/*.py`
+- `jax2onnx/plugins/jax/nn/*.py`
+- `jax2onnx/plugins/jax/random/*.py`
+- Files defining custom primitives (`make_jnp_primitive(...)` or `Primitive(...)`).
+
+Current status:
+- Total custom-primitive modules scanned: `60`
+- With batching rule (`primitive_batchers` or unary helper): `51` (`85.0%`)
+- With explicit autodiff rule (`ad.defjvp` / `primitive_jvps` / transpose/linear rules): `0` (`0.0%`)
+
+By area:
+- `jax/numpy`: `35` total, `30` batching, `0` autodiff
+- `jax/nn`: `22` total, `21` batching, `0` autodiff
+- `jax/random`: `3` total, `0` batching, `0` autodiff
+
+## Verified Conversion Gaps
+
+Direct `to_onnx(...)` checks confirm the rule gap:
+- `grad(jnp.concatenate)` -> `NotImplementedError` (missing differentiation rule)
+- `grad(jax.nn.dot_product_attention)` -> `NotImplementedError`
+- `vmap(jax.nn.dot_product_attention)` -> `NotImplementedError` (missing batching rule)
+- `grad(jnp.reshape)` -> `NotImplementedError`
+- `grad(jax.nn.relu)` -> `NotImplementedError`
+
+## Coverage List (Prioritized)
+
+| Primitive / Group | Current vmap | Current grad | Recommended Approach | Priority | Action |
+|---|---|---|---|---|---|
+| `jax.numpy.concatenate` (`_CONCAT_PRIM`) | Yes | No | A (fallback) | P0 | Add `ad.defjvp` fallback rule to original `jnp.concatenate`. |
+| `jax.nn.dot_product_attention` (`_DPA_PRIM`) | No | No | B for vmap, then staged grad plan | P0 | Add explicit batching rule with `_DPA_PRIM.bind(...)`; add grad unblocker path after vmap is stable. |
+| Shape-only numpy wrappers (`reshape`, `squeeze`, `transpose`, `stack`, `split`, `tile`) | Mostly Yes | No | A (fallback) | P0 | Add shared autodiff helper for shape ops to reduce repeated code. |
+| Core nn activations (`relu`, `sigmoid`, `silu`, `gelu`, `elu`, `leaky_relu`, `softplus`, `softsign`, `selu`, `celu`, `mish`) | Yes | No | A (fallback) | P1 | Add a common unary autodiff registration helper and apply to all differentiable activations. |
+| Reduction-like wrappers (`mean`, `prod`, `logsumexp`, `log_softmax`, `softmax`, `standardize`) | Mostly Yes | No | A first, B only if graph quality degrades | P1 | Add autodiff fallback rules; verify ONNX graph quality with focused tests. |
+| Non-differentiable by nature (`hardmax`, `one_hot`, random samplers) | Mixed | No | Explicit non-goal | P1 | Document as "no grad support by design" and add policy tests for clear error behavior. |
+| Missing batching in deterministic numpy ops (`arange`, `compress`, `eye`, `linalg_det`, `windows`) | No | No | A (fallback) | P2 | Add batching rules only where real model demand exists. |
+| Random samplers (`bernoulli`, `categorical`, `normal`) | No | No | Usually non-goal for grad, selective for vmap | P2 | Keep grad unsupported; decide whether per-op vmap support is needed for target workloads. |
+
+## Suggested Execution Order
+
+1.  Land P0 for `concatenate` and `dot_product_attention`.
+2.  Introduce a shared fallback-autodiff utility for common unary and shape ops.
+3.  Mark explicit non-goals (non-differentiable primitives) in docs/tests.
+4.  Expand batching only for demand-driven primitives with missing rules.
+
+## Implementation Status for #190 and #191
+
+Implemented in this branch:
+
+- `#191` (`jax.numpy.concatenate` under `jax.grad`)
+  - Added primitive autodiff/JVP registration for `_CONCAT_PRIM` in
+    `jax2onnx/plugins/jax/numpy/concatenate.py`.
+  - Rule uses fallback-to-native behavior (original `jnp.concatenate`) for
+    primal and tangent computation.
+  - Verified with conversion regression:
+    `to_onnx(jax.grad(lambda x: jnp.sum(jnp.concatenate((x, x), axis=0))))`.
+
+- `#190` (`jax.nn.dot_product_attention` under `jax.vmap`)
+  - Added explicit batching rule for `_DPA_PRIM` in
+    `jax2onnx/plugins/jax/nn/dot_product_attention.py` via
+    `batching.primitive_batchers`.
+  - Rule keeps `_DPA_PRIM.bind(...)` in the batched path and handles both:
+    - direct mapped rank-4 input path,
+    - vmap-over-TNH path by flattening/unflattening the first two batch axes.
+  - Verified with conversion regression for per-sample TNH kernel:
+    `to_onnx(vmap(lambda q,k,v: jax.nn.dot_product_attention(q,k,v)))`.
+
+Regression coverage added via plugin metadata testcases:
+- `primitives.jnp / concatenate / concatenate_grad_issue191`
+- `primitives.nn / dot_product_attention / dpa_vmap_tnh_issue190`
