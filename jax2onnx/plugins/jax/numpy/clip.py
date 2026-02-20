@@ -170,6 +170,11 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
         },
+        {
+            "testcase": "clip_keyword_min_alias",
+            "callable": lambda x: jnp.clip(x, min=-0.1),
+            "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
+        },
     ],
 )
 class JnpClipPlugin(PrimitiveLeafPlugin):
@@ -258,7 +263,19 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
                 a: ArrayLike,
                 a_min: ArrayLike | None = None,
                 a_max: ArrayLike | None = None,
+                *,
+                min: ArrayLike | None = None,
+                max: ArrayLike | None = None,
             ) -> jax.Array:
+                if min is not None:
+                    if a_min is not None:
+                        raise TypeError("clip received both 'a_min' and 'min'")
+                    a_min = min
+                if max is not None:
+                    if a_max is not None:
+                        raise TypeError("clip received both 'a_max' and 'max'")
+                    a_max = max
+
                 x = jnp.asarray(a)
                 dtype = x.dtype
                 lo_default, hi_default = _dtype_min_max(_np_dtype(dtype))
