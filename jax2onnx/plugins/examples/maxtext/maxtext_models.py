@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import glob
+import importlib
 import importlib.machinery
 import importlib.util
 import logging
@@ -40,12 +41,50 @@ DEFAULT_MODELS: tuple[str, ...] = (
 MAXTEXT_SRC_ENV: str = os.environ.get("JAX2ONNX_MAXTEXT_SRC", "").strip()
 
 
+def _has_model_configs(pkg_path: Path) -> bool:
+    return (pkg_path / "configs" / "models").is_dir()
+
+
+def _select_best_pkg(candidates: list[tuple[Path, Path]]) -> tuple[Path, Path] | None:
+    if not candidates:
+        return None
+    # Prefer package layouts that expose model configs directly.
+    with_models = [item for item in candidates if _has_model_configs(item[1])]
+    if with_models:
+        return with_models[0]
+    return candidates[0]
+
+
 def _resolve_maxtext_paths(path: Path) -> tuple[Path | None, Path | None]:
-    if (path / "MaxText").is_dir():
-        return path, path / "MaxText"
-    src_pkg = path / "src" / "MaxText"
-    if src_pkg.is_dir():
-        return path / "src", src_pkg
+    candidates: list[tuple[Path, Path]] = []
+
+    # Case 1: repo root path (contains src/{maxtext,MaxText})
+    src_root = path / "src"
+    if src_root.is_dir():
+        for pkg_name in ("maxtext", "MaxText"):
+            pkg = src_root / pkg_name
+            if pkg.is_dir():
+                candidates.append((src_root, pkg))
+
+    # Case 2: directly pointing at a python source root containing the packages.
+    for pkg_name in ("maxtext", "MaxText"):
+        pkg = path / pkg_name
+        if pkg.is_dir():
+            candidates.append((path, pkg))
+
+    # Case 3: directly pointing at a package directory.
+    if path.name in {"maxtext", "MaxText"} and path.is_dir():
+        candidates.append((path.parent, path))
+        sibling_name = "MaxText" if path.name == "maxtext" else "maxtext"
+        sibling = path.parent / sibling_name
+        if sibling.is_dir():
+            candidates.append((path.parent, sibling))
+
+    best = _select_best_pkg(candidates)
+    if best is not None:
+        return best
+
+    # Legacy fallback: path points to a package-like dir with configs.
     if (path / "configs").is_dir():
         return path.parent, path
     return None, None
@@ -70,13 +109,23 @@ if MAXTEXT_SRC_ENV:
         )
 else:
     logger.info("JAX2ONNX_MAXTEXT_SRC not set. Attempting to import MaxText...")
-    spec: importlib.machinery.ModuleSpec | None = importlib.util.find_spec("MaxText")
+    spec: importlib.machinery.ModuleSpec | None = importlib.util.find_spec(
+        "MaxText"
+    ) or importlib.util.find_spec("maxtext")
     if spec is not None:
         search_locations: list[str] = list(spec.submodule_search_locations or [])
         if search_locations:
-            MAXTEXT_PKG_PATH: Path | None = Path(search_locations[0]).resolve()
+            resolved_search: tuple[Path | None, Path | None] = _resolve_maxtext_paths(
+                Path(search_locations[0]).resolve()
+            )
+            MAXTEXT_SRC_PATH: Path | None = resolved_search[0]
+            MAXTEXT_PKG_PATH: Path | None = resolved_search[1]
         elif spec.origin:
-            MAXTEXT_PKG_PATH: Path | None = Path(spec.origin).resolve().parent
+            resolved_origin: tuple[Path | None, Path | None] = _resolve_maxtext_paths(
+                Path(spec.origin).resolve().parent
+            )
+            MAXTEXT_SRC_PATH: Path | None = resolved_origin[0]
+            MAXTEXT_PKG_PATH: Path | None = resolved_origin[1]
     else:
         logger.info(
             "MaxText module not found in python path; skipping optional "
@@ -1027,12 +1076,34 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         from MaxText import pyconfig as _pyconfig
         from MaxText import model_creation_utils as _model_creation_utils
         from MaxText.common_types import MODEL_MODE_TRAIN as _MODEL_MODE_TRAIN
-        from MaxText.layers import embeddings as _embeddings
+
+        _embeddings: types.ModuleType | None = None
+        try:
+            from MaxText.layers import embeddings as _embeddings_mod
+
+            _embeddings: types.ModuleType | None = _embeddings_mod
+        except Exception:
+            try:
+                _embeddings: types.ModuleType | None = importlib.import_module(
+                    "MaxText.layers.embeddings"
+                )
+            except Exception:
+                try:
+                    _embeddings: types.ModuleType | None = importlib.import_module(
+                        "maxtext.layers.embeddings"
+                    )
+                except Exception:
+                    logger.info(
+                        "MaxText/maxtext layers.embeddings could not be imported; "
+                        "skipping optional rotary-timescale patch."
+                    )
 
         pyconfig: types.ModuleType | None = _pyconfig
         model_creation_utils: types.ModuleType | None = _model_creation_utils
         MODEL_MODE_TRAIN: str = _MODEL_MODE_TRAIN
-        if not getattr(_embeddings, "_JAX2ONNX_ROTARY_PATCHED", False):
+        if _embeddings is not None and not getattr(
+            _embeddings, "_JAX2ONNX_ROTARY_PATCHED", False
+        ):
             _embeddings._JAX2ONNX_ROTARY_PATCHED = True
 
             def _concrete_dim(value: object, name: str) -> int:
@@ -1085,57 +1156,56 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         MAXTEXT_AVAILABLE: bool = True
     except Exception as exc:
         _MAXTEXT_IMPORT_ERROR: Exception | None = exc
-        logger.warning(
-            "MaxText import failed (%s). Registered placeholder test to report error.",
-            exc,
-        )
-        register_example(
-            component="MaxText_Import_Check",
-            description="Placeholder checking MaxText import status",
-            context="examples.maxtext",
-            testcases=[
-                {
-                    "testcase": "maxtext_import_check",
-                    "input_shapes": [],
-                    "run_only_f32_variant": True,
-                    "skip_numeric_validation": True,
-                    # We inject a runtime check in the generated test class or rely on the fact
-                    # that get_maxtext_model will fail if called.
-                    # But construct_and_call isn't used here.
-                    # Let's just create a test that fails immediately if run.
-                    "callable": lambda *a: (
-                        _MAXTEXT_IMPORT_ERROR and (_ for _ in r"") or None
-                    ),  # Raise on call
-                }
-            ],
-        )
-
-        # Actually, let's just make a cleaner callable that raises
-        def _raise_import_error(*args, **kwargs):
-            raise ImportError(
-                f"MaxText import failed previously: {_MAXTEXT_IMPORT_ERROR}"
+        if MAXTEXT_SRC_ENV:
+            logger.warning(
+                "MaxText import failed (%s). "
+                "JAX2ONNX_MAXTEXT_SRC is set, so registering an explicit environment error example.",
+                exc,
             )
 
-        register_example(
-            component="MaxText_Environment_Error",
-            description="Placeholder reporting environment errors",
-            context="examples.maxtext",
-            testcases=[
-                {
-                    "testcase": "environment_check_fails",
-                    "callable": _raise_import_error,
-                    "input_shapes": [],
-                    "run_only_f32_variant": True,
-                    "skip_numeric_validation": True,
-                }
-            ],
-        )
+            def _raise_import_error(*args, **kwargs):
+                raise ImportError(
+                    f"MaxText import failed previously: {_MAXTEXT_IMPORT_ERROR}"
+                )
+
+            register_example(
+                component="MaxText_Environment_Error",
+                description="Placeholder reporting environment errors",
+                context="examples.maxtext",
+                testcases=[
+                    {
+                        "testcase": "environment_check_fails",
+                        "callable": _raise_import_error,
+                        "input_shapes": [],
+                        "run_only_f32_variant": True,
+                        "skip_numeric_validation": True,
+                    }
+                ],
+            )
+        else:
+            logger.info(
+                "MaxText import failed during optional auto-discovery (%s); "
+                "skipping examples.maxtext registration. "
+                "Set JAX2ONNX_MAXTEXT_SRC to a compatible MaxText checkout to enable MaxText examples.",
+                exc,
+            )
 
 
 def _format_override(key: str, value: object) -> str:
     if isinstance(value, bool):
         return f"{key}={'true' if value else 'false'}"
     return f"{key}={value}"
+
+
+def _effective_model_overrides(model_name: str) -> dict[str, object]:
+    overrides = dict(MODEL_OVERRIDES)
+    # DeepSeek sparse-indexer configs reject q_lora_rank == 0.
+    if model_name.startswith("deepseek"):
+        overrides["q_lora_rank"] = 8
+        # Recent DeepSeek configs can enable sparse indexer with attention
+        # backends that are unsupported in reduced test settings.
+        overrides["use_sparse_indexer"] = False
+    return overrides
 
 
 def _selected_model_names() -> set[str] | None:
@@ -1349,7 +1419,8 @@ def get_maxtext_model(
         "enable_checkpointing=false",
         "use_jax_splash=false",
     ]
-    argv.extend(_format_override(k, v) for k, v in MODEL_OVERRIDES.items())
+    effective_overrides = _effective_model_overrides(model_name)
+    argv.extend(_format_override(k, v) for k, v in effective_overrides.items())
 
     config = pyconfig.initialize(argv)
     if rngs is None:
