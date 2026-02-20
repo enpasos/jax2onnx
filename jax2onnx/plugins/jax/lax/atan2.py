@@ -134,7 +134,13 @@ class Atan2Plugin(PrimitiveLeafPlugin):
             y_ready,
             _outputs=[ctx.fresh_name("atan2_div")],
         )
+        x_over_y.type = ir.TensorType(out_dtype)
+        _stamp_type_and_shape(x_over_y, out_shape)
+        _ensure_value_metadata(ctx, x_over_y)
         base = ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")])
+        base.type = ir.TensorType(out_dtype)
+        _stamp_type_and_shape(base, out_shape)
+        _ensure_value_metadata(ctx, base)
 
         y_gt0 = ctx.builder.Greater(y_ready, zero, _outputs=[ctx.fresh_name("y_gt0")])
         y_lt0 = ctx.builder.Less(y_ready, zero, _outputs=[ctx.fresh_name("y_lt0")])
