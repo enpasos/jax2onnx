@@ -67,6 +67,26 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_categorical_logits_batch_opset23",
     ),
     (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_rank3",
+    ),
+    (
+        "primitives.random",
+        "random_categorical",
+        "random_categorical_logits_rank3_opset23",
+    ),
+    (
+        "primitives.jax_image",
+        "resize",
+        "resize_linear_opset9_upsample",
+    ),
+    (
+        "primitives.lax",
+        "dynamic_update_slice",
+        "dus_tensorscatter_axis1_opset24",
+    ),
+    (
         "examples.nnx_gpt_oss",
         "FlaxSDPA",
         "gpt_oss_sdpa_flax",

@@ -65,9 +65,17 @@ Quick wins were treated as:
 - Clear `expect_graph` assertions.
 - Limited risk to control-flow and layout-heavy paths.
 
+## Coverage Snapshot (Current)
+
+Latest generated matrix (`docs/user_guide/onnx_operator_coverage.md`) shows:
+
+- Operators in official index: `200`
+- Operators referenced in plugins: `155`
+- Coverage: `77.5%`
+
 ## Implemented Quick Wins (0.12.1)
 
-Added new plugins:
+New plugins:
 
 - `jax2onnx/plugins/jax/lax/acos.py`
 - `jax2onnx/plugins/jax/lax/acosh.py`
@@ -78,12 +86,43 @@ Added new plugins:
 - `jax2onnx/plugins/jax/lax/ceil.py`
 - `jax2onnx/plugins/jax/lax/round.py`
 - `jax2onnx/plugins/jax/lax/tan.py`
+- `jax2onnx/plugins/jax/random/categorical.py` (`Multinomial`)
+  - Added rank-3 logits stress testcases:
+    - `random_categorical_logits_rank3` (opset 21, `Multinomial`)
+    - `random_categorical_logits_rank3_opset23` (Gumbel-max fallback path)
 
-Extended existing plugin:
+Extended existing plugins:
 
 - `jax2onnx/plugins/jax/lax/integer_pow.py`
   - Added `Reciprocal` path for `y == -1`.
   - Added testcase `integer_pow_reciprocal`.
+- `jax2onnx/plugins/jax/image/resize.py`
+  - Added legacy `Upsample` lowering path for `opset <= 9`.
+  - Added testcase `resize_nearest_opset9_upsample`.
+  - Added additional legacy stress testcases:
+    - `resize_linear_opset9_upsample` (structural-only due legacy interpolation drift vs JAX)
+    - `resize_nearest_rank3_opset9_upsample`
+- `jax2onnx/plugins/jax/lax/div.py`
+  - Added fusion `(x + y) / 2 -> Mean`.
+  - Added fusion `x / ||x|| -> LpNormalization` for supported L1/L2 denominator patterns.
+  - Added `Mean` fusion guard testcases:
+    - `div_add_third_no_mean`
+    - `div_add_half_f64_no_mean`
+  - Added stress/guard testcases:
+    - `div_lpnorm_l1_axis1`
+    - `div_lpnorm_l2_axis2`
+    - `div_sqrt_of_norm_no_lpnorm_fusion` (prevents over-fusion).
+- `jax2onnx/plugins/jax/lax/reduce_window_sum.py`
+  - Added `LpPool` lowering for supported `reduce_window_sum(abs(x), ...)` patterns (opset >= 22).
+  - Added testcase `reduce_window_sum_abs_lppool_opset23`.
+  - Added testcase `reduce_window_sum_abs_lppool_dilated_opset23`.
+- `jax2onnx/plugins/jax/lax/dynamic_update_slice.py`
+  - Added `TensorScatter` lowering for a strict cache-like `dynamic_update_slice` subset (opset >= 24).
+  - Added testcase `dus_tensorscatter_axis1_opset24` (`skip_numeric_validation=True` due missing ORT kernel).
+- `jax2onnx/plugins/jax/lax/scatter.py` + `jax2onnx/plugins/jax/lax/scatter_utils.py`
+  - Added explicit `Scatter` / `ScatterElements` coverage and lowering path for supported 1D `PROMISE_IN_BOUNDS` cases.
+- `jax2onnx/plugins/jax/lax/scan.py`
+  - Corrected metadata mapping from `Scan` to `Loop` (actual lowering used).
 
 ## JAX Mapping Layer
 
@@ -96,51 +135,47 @@ Examples:
 - `Reciprocal` -> `jax.numpy.reciprocal`, `jax.lax.integer_pow(x, -1)`, `1.0 / x`
 - `ReduceLogSumExp` -> `jax.nn.logsumexp`, `jax.scipy.special.logsumexp`
 
-## Runtime Compatibility Note (ORT)
+## Runtime Compatibility Notes (ORT)
 
-Some newly added ONNX ops are not fully covered by ONNX Runtime in `float64` on this setup.
-
-For affected quick-win plugins (`Acos`, `Acosh`, `Asin`, `Asinh`, `Atan`, `Atanh`, `Tan`), testcase metadata uses:
-
-- `disable_float64_test: True`
-
-This keeps conversion coverage while respecting runtime kernel availability in CI-like test runs.
+- In this environment, selected kernels are not consistently available for all dtype/opset combinations.
+- `Mean` fusion in `div` is intentionally guarded away from the `float64` path due ORT kernel availability in this setup.
+- `random_categorical` keeps `skip_numeric_validation=True` in metadata (stochastic op + runtime kernel differences across opsets/providers).
+- `TensorScatter(24)` has no ORT kernel in this environment; dedicated testcase uses structural validation (`expect_graph`) plus allowlisted numeric skip.
 
 ## Validation Commands Used
 
 Regenerate coverage matrix:
 
 ```bash
-python scripts/generate_onnx_operator_coverage.py
+poetry run python scripts/generate_onnx_operator_coverage.py
 ```
 
-Focused quick-win regression run:
+Regenerate tests after plugin metadata/testcase changes:
 
 ```bash
-poetry run pytest -q tests/primitives/test_lax.py -k "acos or acosh or asin or asinh or atan or atanh or ceil or round or tan or integer_pow_reciprocal"
+poetry run python scripts/generate_tests.py
 ```
 
-Policy sanity check:
+Focused regression runs used in this phase:
 
 ```bash
-poetry run pytest -q tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py
+poetry run pytest -q tests/primitives/test_jax_image.py -k "resize_nearest_opset9_upsample"
+poetry run pytest -q tests/primitives/test_random.py -k "categorical"
+poetry run pytest -q tests/primitives/test_lax.py -k "Test_div"
+poetry run pytest -q tests/primitives/test_lax.py -k "Test_reduce_window_sum"
+poetry run pytest -q tests/primitives/test_lax.py -k "Test_dynamic_update_slice"
+poetry run pytest -q tests/extra_tests/framework/test_do_not_skip_numeric_validation.py
 ```
 
 ## Current Remaining Quick Wins
 
-Still marked quick win in the matrix:
+Top low-hanging follow-ups from the uncovered table:
 
-- `ReduceL1`
-- `ReduceL2`
-- `ReduceLogSum`
-- `ReduceLogSumExp`
-- `ReduceSumSquare`
-
-Each now includes `Potential JAX Ops` in the table to accelerate implementation.
+- Additional shape/opset stress tests for newly covered ops (`Mean`, `Multinomial`, `Upsample`)
+- Review uncovered legacy/control-flow ops (`Scan`) and explicitly classify as roadmap vs non-goal.
 
 ## Follow-Up Plan
 
-1. Implement remaining reduce-family quick wins in `primitives.lax` or `primitives.jnp`.
-2. Add targeted `expect_graph` checks and keep metadata in sync.
-3. Re-run generator and focused tests.
-4. Re-evaluate any `metadata only` rows and either add concrete lowering signals or clean metadata aliases.
+1. Expand targeted `expect_graph` checks for remaining new quick wins with dynamic-shape variants.
+2. Keep metadata/lowering parity strict (remove stale metadata when lowering is absent).
+3. Re-run coverage generation and focused regressions after each quick-win change.

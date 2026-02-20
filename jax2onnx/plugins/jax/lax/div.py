@@ -122,11 +122,116 @@ def _const_scalar_as_float(value: ir.Value) -> Optional[float]:
         return None
 
 
+def _const_axes(value: ir.Value) -> Optional[list[int]]:
+    const_val = getattr(value, "const_value", None)
+    if const_val is None:
+        return None
+    try:
+        arr = np.asarray(const_val.numpy())
+    except Exception:
+        try:
+            arr = np.asarray(const_val)
+        except Exception:
+            return None
+    if arr.size == 0:
+        return []
+    try:
+        return [int(v) for v in arr.reshape(-1).tolist()]
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_value(lhs: ir.Value, rhs: ir.Value) -> bool:
+    if lhs is rhs:
+        return True
+    lhs_name = getattr(lhs, "name", None)
+    rhs_name = getattr(rhs, "name", None)
+    return lhs_name is not None and lhs_name == rhs_name
+
+
+def _producer(value: ir.Value) -> object | None:
+    getter = getattr(value, "producer", None)
+    if callable(getter):
+        return getter()
+    return None
+
+
+def _unwrap_passthrough(value: ir.Value) -> ir.Value:
+    current = value
+    passthrough_ops = {"Expand", "Reshape", "Identity", "Cast", "CastLike"}
+    while True:
+        node = _producer(current)
+        if getattr(node, "op_type", "") not in passthrough_ops:
+            return current
+        inputs = list(getattr(node, "inputs", ()))
+        if not inputs:
+            return current
+        next_val = inputs[0]
+        if not isinstance(next_val, ir.Value):
+            return current
+        current = next_val
+
+
+def _match_lpnormalization_pattern(
+    lhs_val: ir.Value,
+    rhs_val: ir.Value,
+) -> tuple[int, int] | None:
+    """Match ``x / ||x||_p`` style denominators and return ``(p, axis)``."""
+
+    rhs_core = _unwrap_passthrough(rhs_val)
+    rhs_node = _producer(rhs_core)
+    op_type = getattr(rhs_node, "op_type", "")
+
+    reduce_node = None
+    p = None
+    if op_type == "ReduceL1":
+        reduce_node = rhs_node
+        p = 1
+    elif op_type == "ReduceL2":
+        reduce_node = rhs_node
+        p = 2
+    elif op_type == "Sqrt":
+        sqrt_inputs = list(getattr(rhs_node, "inputs", ()))
+        if not sqrt_inputs:
+            return None
+        sqrt_in = sqrt_inputs[0]
+        if not isinstance(sqrt_in, ir.Value):
+            return None
+        reduce_val = _unwrap_passthrough(sqrt_in)
+        candidate = _producer(reduce_val)
+        candidate_type = getattr(candidate, "op_type", "")
+        if candidate_type == "ReduceSumSquare":
+            reduce_node = candidate
+            p = 2
+        else:
+            return None
+    else:
+        return None
+
+    reduce_inputs = list(getattr(reduce_node, "inputs", ()))
+    if not reduce_inputs:
+        return None
+    reduce_base = reduce_inputs[0]
+    if not isinstance(reduce_base, ir.Value):
+        return None
+    if not _same_value(reduce_base, lhs_val):
+        return None
+
+    axes = _const_axes(reduce_inputs[1]) if len(reduce_inputs) > 1 else None
+    if axes is None or len(axes) != 1:
+        return None
+    return int(p), int(axes[0])
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.div_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.div.html",
     onnx=[
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {
+            "component": "LpNormalization",
+            "doc": "https://onnx.ai/onnx/operators/onnx__LpNormalization.html",
+        },
         {
             "component": "Mean",
             "doc": "https://onnx.ai/onnx/operators/onnx__Mean.html",
@@ -166,6 +271,83 @@ def _const_scalar_as_float(value: ir.Value) -> Optional[float]:
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Mean:2x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_add_third_no_mean",
+            "callable": lambda x1, x2: (x1 + x2) / 3.0,
+            "input_shapes": [(2, 3), (2, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Div:2x3"],
+                must_absent=["Mean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_add_half_f64_no_mean",
+            "callable": lambda x1, x2: (x1 + x2) / 2.0,
+            "input_shapes": [(2, 3), (2, 3)],
+            "run_only_f64_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Div:2x3"],
+                must_absent=["Mean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_lpnorm_l2_axis1",
+            "callable": lambda x: x
+            / jax.numpy.sqrt(jax.numpy.sum(jax.numpy.square(x), axis=1, keepdims=True)),
+            "input_values": [
+                np.asarray(
+                    [[1.0, -2.0, 3.0], [4.0, 5.0, -6.0]],
+                    dtype=np.float32,
+                )
+            ],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LpNormalization:2x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_lpnorm_l1_axis1",
+            "callable": lambda x: x
+            / jax.numpy.sum(jax.numpy.abs(x), axis=1, keepdims=True),
+            "input_values": [
+                np.asarray(
+                    [[1.0, -2.0, 3.0], [4.0, 5.0, -6.0]],
+                    dtype=np.float32,
+                )
+            ],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LpNormalization:2x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_lpnorm_l2_axis2",
+            "callable": lambda x: x
+            / jax.numpy.sqrt(jax.numpy.sum(jax.numpy.square(x), axis=2, keepdims=True)),
+            "input_shapes": [(2, 3, 4)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LpNormalization:2x3x4"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "div_sqrt_of_norm_no_lpnorm_fusion",
+            "callable": lambda x: x
+            / jax.numpy.sqrt(jax.numpy.linalg.norm(x, ord=2, axis=1, keepdims=True)),
+            "input_shapes": [(2, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Div:2x3"],
+                must_absent=["LpNormalization"],
                 no_unused_inputs=True,
             ),
         },
@@ -277,6 +459,28 @@ class DivPlugin(PrimitiveLeafPlugin):
         if callable(producer):
             lhs_producer = producer()
         rhs_scalar = _const_scalar_as_float(rhs_val)
+        lpnorm_match = _match_lpnormalization_pattern(lhs_val, rhs_val)
+        if lpnorm_match is not None:
+            p, axis = lpnorm_match
+            result = cast(
+                ir.Value,
+                ctx.builder.LpNormalization(
+                    lhs_val,
+                    axis=axis,
+                    p=p,
+                    _outputs=[output_name],
+                ),
+            )
+            if getattr(out_spec, "type", None) is not None:
+                result.type = out_spec.type
+            stamp_axis0_binary_result(result, out_var, out_spec, override)
+            if override is not None:
+                set_axis0_override(result, override)
+            propagate_axis0_override(lhs_val, result)
+            propagate_axis0_override(rhs_val, result)
+            ctx.bind_value_for_var(out_var, result)
+            return
+
         if (
             not out_is_f64
             and rhs_scalar is not None

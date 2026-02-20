@@ -76,6 +76,79 @@ _CATEGORICAL_PRIM.multiple_results = False
             ),
             "opset_version": 23,
         },
+        {
+            "testcase": "random_categorical_logits_rank3",
+            "callable": lambda logits: jax.random.categorical(
+                jax.random.PRNGKey(0), logits
+            ),
+            "input_values": [
+                np.asarray(
+                    [
+                        [
+                            [0.1, 0.2, 0.7],
+                            [0.2, 0.7, 0.1],
+                            [0.6, 0.2, 0.2],
+                            [0.3, 0.3, 0.4],
+                        ],
+                        [
+                            [0.7, 0.2, 0.1],
+                            [0.1, 0.3, 0.6],
+                            [0.4, 0.5, 0.1],
+                            [0.2, 0.2, 0.6],
+                        ],
+                    ],
+                    dtype=np.float32,
+                )
+            ],
+            "expected_output_shapes": [(2, 4)],
+            "expected_output_dtypes": [np.dtype(np.int32)],
+            "run_only_f32_variant": True,
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Reshape:8x3 -> Softmax:8x3 -> Multinomial:8x1 -> Squeeze:8 -> Cast:8 -> Reshape:2x4"
+                ],
+                no_unused_inputs=True,
+            ),
+            "opset_version": 21,
+        },
+        {
+            "testcase": "random_categorical_logits_rank3_opset23",
+            "callable": lambda logits: jax.random.categorical(
+                jax.random.PRNGKey(0), logits
+            ),
+            "input_values": [
+                np.asarray(
+                    [
+                        [
+                            [0.1, 0.2, 0.7],
+                            [0.2, 0.7, 0.1],
+                            [0.6, 0.2, 0.2],
+                            [0.3, 0.3, 0.4],
+                        ],
+                        [
+                            [0.7, 0.2, 0.1],
+                            [0.1, 0.3, 0.6],
+                            [0.4, 0.5, 0.1],
+                            [0.2, 0.2, 0.6],
+                        ],
+                    ],
+                    dtype=np.float32,
+                )
+            ],
+            "expected_output_shapes": [(2, 4)],
+            "expected_output_dtypes": [np.dtype(np.int32)],
+            "run_only_f32_variant": True,
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Reshape:8x3 -> RandomUniformLike:8x3 -> Log:8x3 -> Neg:8x3 -> Log:8x3 -> Neg:8x3 -> Add:8x3 -> ArgMax:8 -> Cast:8 -> Reshape:2x4"
+                ],
+                must_absent=["Multinomial"],
+                no_unused_inputs=True,
+            ),
+            "opset_version": 23,
+        },
     ],
 )
 class RandomCategoricalPlugin(PrimitiveLeafPlugin):

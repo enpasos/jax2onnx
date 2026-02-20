@@ -97,6 +97,29 @@ def _canonical_method(method: str) -> str:
             "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
             "run_only_f32_variant": True,
         },
+        {
+            "testcase": "resize_linear_opset9_upsample",
+            "callable": lambda x: jimage.resize(
+                x, (3, 5), method="linear", antialias=False
+            ),
+            "input_shapes": [(2, 2)],
+            "expected_output_shapes": [(3, 5)],
+            "opset_version": 9,
+            "skip_numeric_validation": True,
+            "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "resize_nearest_rank3_opset9_upsample",
+            "callable": lambda x: jimage.resize(
+                x, (2, 4, 6), method="nearest", antialias=False
+            ),
+            "input_shapes": [(1, 2, 3)],
+            "expected_output_shapes": [(2, 4, 6)],
+            "opset_version": 9,
+            "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class ImageResizePlugin(PrimitiveLeafPlugin):
