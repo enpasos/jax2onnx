@@ -1,0 +1,2476 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/user_guide/examples/">
+      
+      
+        <link rel="prev" href="../onnx_operator_coverage/">
+      
+      
+        <link rel="next" href="../sota_examples/gpt_oss/getting_weights/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+    
+    
+      
+        <title>Examples - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#examples" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Examples
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
+<!-- AUTOGENERATED EXAMPLES TABLE START -->
+
+<div class="examples-table">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Component</th>
+<th style="text-align: left;">Description</th>
+<th style="text-align: left;">Testcases</th>
+<th style="text-align: left;">Since</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">MlpExample</td>
+<td style="text-align: left;">A simple Equinox MLP (converter pipeline).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_training_mode.onnx"><code>mlp_training_mode</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_training_mode_f64.onnx"><code>mlp_training_mode_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_inference_mode.onnx"><code>mlp_inference_mode</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_inference_mode_f64.onnx"><code>mlp_inference_mode_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_batched_training_mode.onnx"><code>mlp_batched_training_mode</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/mlp_batched_training_mode_f64.onnx"><code>mlp_batched_training_mode_f64</code></a> ✅</td>
+<td style="text-align: left;">0.8.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">SimpleLinearExample</td>
+<td style="text-align: left;">A simple linear layer example using Equinox (converter).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/simple_linear.onnx"><code>simple_linear</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/simple_linear_f64.onnx"><code>simple_linear_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/nn_linear.onnx"><code>nn_linear</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx/nn_linear_f64.onnx"><code>nn_linear_f64</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">Attention</td>
+<td style="text-align: left;">Multi-Head Self-Attention using Equinox modules.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/attention_dynamic.onnx"><code>attention_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/attention.onnx"><code>attention</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">AttentionCore</td>
+<td style="text-align: left;">Multi-Head Self-Attention without rotary processing.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/attention_core_dynamic.onnx"><code>attention_core_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/attention_core.onnx"><code>attention_core</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">Block</td>
+<td style="text-align: left;">Transformer Block.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/transformer_block_dynamic.onnx"><code>transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/transformer_block.onnx"><code>transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">DINOv3VisionTransformer</td>
+<td style="text-align: left;">DINOv3 Vision Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14_dynamic.onnx"><code>eqx_dinov3_vit_Ti14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_Ti14.onnx"><code>eqx_dinov3_vit_Ti14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14_dynamic.onnx"><code>eqx_dinov3_vit_S14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S14.onnx"><code>eqx_dinov3_vit_S14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14_dynamic.onnx"><code>eqx_dinov3_vit_B14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_B14.onnx"><code>eqx_dinov3_vit_B14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16_dynamic.onnx"><code>eqx_dinov3_vit_S16_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/eqx_dinov3_vit_S16.onnx"><code>eqx_dinov3_vit_S16</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">PatchEmbed</td>
+<td style="text-align: left;">Image to Patch Embedding.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_dino/patch_embed.onnx"><code>patch_embed</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">AttentionBlock</td>
+<td style="text-align: left;">Self-attention block with rotary embeddings and sinks.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_attention_block.onnx"><code>gpt_oss_attention_block</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">MLPBlock</td>
+<td style="text-align: left;">Mixture-of-experts SwiGLU feed-forward block.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_mlp_block.onnx"><code>gpt_oss_mlp_block</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">RMSNorm</td>
+<td style="text-align: left;">Root mean square normalisation used by GPT-OSS.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_rmsnorm_dynamic.onnx"><code>gpt_oss_rmsnorm_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_rmsnorm.onnx"><code>gpt_oss_rmsnorm</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">Transformer</td>
+<td style="text-align: left;">Full GPT-OSS Transformer stack.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_transformer.onnx"><code>gpt_oss_transformer</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerBlock</td>
+<td style="text-align: left;">GPT-OSS Transformer layer (attention + MoE).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_transformer_block_dynamic.onnx"><code>gpt_oss_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/eqx_gpt_oss/gpt_oss_transformer_block.onnx"><code>gpt_oss_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT</td>
+<td style="text-align: left;">A simple GPT model that reuses nnx.MultiHeadAttention.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_dynamic.onnx"><code>gpt_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt.onnx"><code>gpt</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_Attention</td>
+<td style="text-align: left;">A multi-head attention layer.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_attention.onnx"><code>gpt_attention</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_CausalSelfAttention</td>
+<td style="text-align: left;">A causal self-attention module.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_causal_self_attention_dynamic.onnx"><code>gpt_causal_self_attention_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_causal_self_attention.onnx"><code>gpt_causal_self_attention</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_Embeddings</td>
+<td style="text-align: left;">Combines token and position embeddings with dropout.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_embeddings_dynamic.onnx"><code>gpt_embeddings_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_embeddings.onnx"><code>gpt_embeddings</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_Head</td>
+<td style="text-align: left;">The head of the GPT model.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_head_dynamic.onnx"><code>gpt_head_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_head.onnx"><code>gpt_head</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_MLP</td>
+<td style="text-align: left;">An MLP block with GELU activation from nanoGPT.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_mlp_dynamic.onnx"><code>gpt_mlp_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_mlp.onnx"><code>gpt_mlp</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_PositionEmbedding</td>
+<td style="text-align: left;">A positional embedding layer using nnx.Embed.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_position_embedding.onnx"><code>gpt_position_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_TokenEmbedding</td>
+<td style="text-align: left;">A token embedding layer using nnx.Embed.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_token_embedding_dynamic.onnx"><code>gpt_token_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_token_embedding.onnx"><code>gpt_token_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_TransformerBlock</td>
+<td style="text-align: left;">A transformer block combining attention and MLP.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_block_dynamic.onnx"><code>gpt_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_block.onnx"><code>gpt_block</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_TransformerStack</td>
+<td style="text-align: left;">A stack of transformer blocks.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_transformer_stack_dynamic.onnx"><code>gpt_transformer_stack_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_transformer_stack.onnx"><code>gpt_transformer_stack</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPT_broadcast_add</td>
+<td style="text-align: left;">Simple dynamic broadcast + add</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_broadcast_add_dynamic_dynamic.onnx"><code>gpt_broadcast_add_dynamic_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_broadcast_add_dynamic_dynamic_f64.onnx"><code>gpt_broadcast_add_dynamic_dynamic_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_broadcast_add_dynamic.onnx"><code>gpt_broadcast_add_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/gpt/gpt_broadcast_add_dynamic_f64.onnx"><code>gpt_broadcast_add_dynamic_f64</code></a> ✅</td>
+<td style="text-align: left;">0.7.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">cfl_timestep</td>
+<td style="text-align: left;">Tests the CFL condition timestep calculation.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jaxfluids/cfl_timestep_f64.onnx"><code>cfl_timestep_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.5</td>
+</tr>
+<tr>
+<td style="text-align: left;">weno_reconstruction</td>
+<td style="text-align: left;">Tests the complex arithmetic pattern found in WENO schemes.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jaxfluids/weno_reconstruction_f64.onnx"><code>weno_reconstruction_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.5</td>
+</tr>
+<tr>
+<td style="text-align: left;">fori_loop_test</td>
+<td style="text-align: left;">fori_loop_test: demonstrates jax.lax.fori_loop with a simple loop.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/fori_loop_test.onnx"><code>fori_loop_test</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/fori_loop_test_f64.onnx"><code>fori_loop_test_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_abs</td>
+<td style="text-align: left;">Test jnp.abs from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/abs_fn.onnx"><code>abs_fn</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/abs_fn_f64.onnx"><code>abs_fn_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_arange</td>
+<td style="text-align: left;">Test jnp.arange from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/arange_fn.onnx"><code>arange_fn</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_fori_loop</td>
+<td style="text-align: left;">Test jax.lax.fori_loop from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/fori_loop_fn.onnx"><code>fori_loop_fn</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/fori_loop_fn_f64.onnx"><code>fori_loop_fn_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_linspace</td>
+<td style="text-align: left;">Test jnp.linspace from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/linspace_fn.onnx"><code>linspace_fn</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_scan</td>
+<td style="text-align: left;">Test jax.lax.scan from issue 18 (no xs)</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/scan_fn.onnx"><code>scan_fn</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_sign</td>
+<td style="text-align: left;">Test jnp.sign from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/sign_fn.onnx"><code>sign_fn</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/sign_fn_f64.onnx"><code>sign_fn_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_where</td>
+<td style="text-align: left;">Test jnp.where from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/where_fn.onnx"><code>where_fn</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/where_fn_f64.onnx"><code>where_fn_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">issue18_while_loop</td>
+<td style="text-align: left;">Test jax.lax.while_loop from issue 18</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/while_loop_fn.onnx"><code>while_loop_fn</code></a> ✅</td>
+<td style="text-align: left;">0.9.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">select_test</td>
+<td style="text-align: left;">Demonstrates jnp.select with scalar and tensor predicates.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/select_test_all_options.onnx"><code>select_test_all_options</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/select_test_scalar_select_option_0.onnx"><code>select_test_scalar_select_option_0</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/select_test_scalar_select_option_1.onnx"><code>select_test_scalar_select_option_1</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/select_test_scalar_select_option_2.onnx"><code>select_test_scalar_select_option_2</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/select_test_default_case.onnx"><code>select_test_default_case</code></a> ✅</td>
+<td style="text-align: left;">0.9.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">sort_test</td>
+<td style="text-align: left;">sort_test: demonstrates jnp.sort on slices of an input array.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/jnp/sort_test_basic.onnx"><code>sort_test_basic</code></a> ✅</td>
+<td style="text-align: left;">0.9.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">cond_scatter_add_mul</td>
+<td style="text-align: left;">Scatter add/mul inside conditional branches (converter).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/cond_scatter_add_mul_f64_a.onnx"><code>cond_scatter_add_mul_f64_a</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/cond_scatter_add_mul_f64_b.onnx"><code>cond_scatter_add_mul_f64_b</code></a> ✅</td>
+<td style="text-align: left;">0.8.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">cond_scatter_repro</td>
+<td style="text-align: left;">Reproduces a bug where lax.cond subgraphs do not inherit parent initializers.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/cond_scatter_repro_f64.onnx"><code>cond_scatter_repro_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.4</td>
+</tr>
+<tr>
+<td style="text-align: left;">remat2</td>
+<td style="text-align: left;">Tests a simple case of <code>jax.checkpoint</code> (also known as <code>jax.remat2</code>).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/checkpoint_scalar_f32.onnx"><code>checkpoint_scalar_f32</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/checkpoint_scalar_f32_f64.onnx"><code>checkpoint_scalar_f32_f64</code></a> ✅</td>
+<td style="text-align: left;">0.6.5</td>
+</tr>
+<tr>
+<td style="text-align: left;">scatter_window</td>
+<td style="text-align: left;">Window-scatter (H×W patch) with implicit batch (depth-3 path). Exercises GatherScatterMode.FILL_OR_DROP and double precision. Regression of a prior conversion failure.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/scatter_window_update_f64_example.onnx"><code>scatter_window_update_f64_example</code></a> ✅</td>
+<td style="text-align: left;">0.7.4</td>
+</tr>
+<tr>
+<td style="text-align: left;">two_times_silu</td>
+<td style="text-align: left;">Regression for calling jax.nn.silu twice (issue #139).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/two_times_silu_scalar.onnx"><code>two_times_silu_scalar</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/lax/two_times_silu_scalar_f64.onnx"><code>two_times_silu_scalar_f64</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">LinenCNN</td>
+<td style="text-align: left;">A simple convolutional neural network (CNN).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_cnn_static.onnx"><code>simple_cnn_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_cnn_dynamic.onnx"><code>simple_cnn_dynamic</code></a> ✅</td>
+<td style="text-align: left;">0.11.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">LinenMLP</td>
+<td style="text-align: left;">A simple Linen MLP with BatchNorm, Dropout, and GELU activation.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_static.onnx"><code>simple_linen_mlp_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_static_f64.onnx"><code>simple_linen_mlp_static_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_dynamic.onnx"><code>simple_linen_mlp_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_dynamic_f64.onnx"><code>simple_linen_mlp_dynamic_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_with_call_params_dynamic.onnx"><code>simple_linen_mlp_with_call_params_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_with_call_params_dynamic_f64.onnx"><code>simple_linen_mlp_with_call_params_dynamic_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_with_call_params.onnx"><code>simple_linen_mlp_with_call_params</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_with_call_params_f64.onnx"><code>simple_linen_mlp_with_call_params_f64</code></a> ✅</td>
+<td style="text-align: left;">0.11.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">LinenMLPSequential</td>
+<td style="text-align: left;">A Linen MLP built from flax.linen.Sequential.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_sequential_static.onnx"><code>simple_linen_mlp_sequential_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_sequential_static_f64.onnx"><code>simple_linen_mlp_sequential_static_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_sequential_dynamic.onnx"><code>simple_linen_mlp_sequential_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/linen/simple_linen_mlp_sequential_dynamic_f64.onnx"><code>simple_linen_mlp_sequential_dynamic_f64</code></a> ✅</td>
+<td style="text-align: left;">0.11.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek2_16b</td>
+<td style="text-align: left;">MaxText model: deepseek2-16b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek2-16b.onnx"><code>maxtext_deepseek2-16b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek2_236b</td>
+<td style="text-align: left;">MaxText model: deepseek2-236b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek2-236b.onnx"><code>maxtext_deepseek2-236b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek3_2_671b</td>
+<td style="text-align: left;">MaxText model: deepseek3.2-671b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek3.2-671b.onnx"><code>maxtext_deepseek3.2-671b</code></a> ✅</td>
+<td style="text-align: left;">0.12.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek3_671b</td>
+<td style="text-align: left;">MaxText model: deepseek3-671b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek3-671b.onnx"><code>maxtext_deepseek3-671b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek3_671b_2dfsdp</td>
+<td style="text-align: left;">MaxText model: deepseek3-671b-2dfsdp</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek3-671b-2dfsdp.onnx"><code>maxtext_deepseek3-671b-2dfsdp</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek3_test</td>
+<td style="text-align: left;">MaxText model: deepseek3-test</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek3-test.onnx"><code>maxtext_deepseek3-test</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek3_tiny</td>
+<td style="text-align: left;">MaxText model: deepseek3-tiny</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek3-tiny.onnx"><code>maxtext_deepseek3-tiny</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_deepseek_custom</td>
+<td style="text-align: left;">MaxText model: deepseek-custom</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_deepseek-custom.onnx"><code>maxtext_deepseek-custom</code></a> ✅</td>
+<td style="text-align: left;">0.12.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma2_27b</td>
+<td style="text-align: left;">MaxText model: gemma2-27b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma2-27b.onnx"><code>maxtext_gemma2-27b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma2_2b</td>
+<td style="text-align: left;">MaxText model: gemma2-2b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma2-2b.onnx"><code>maxtext_gemma2-2b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma2_9b</td>
+<td style="text-align: left;">MaxText model: gemma2-9b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma2-9b.onnx"><code>maxtext_gemma2-9b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma3_12b</td>
+<td style="text-align: left;">MaxText model: gemma3-12b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma3-12b.onnx"><code>maxtext_gemma3-12b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma3_27b</td>
+<td style="text-align: left;">MaxText model: gemma3-27b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma3-27b.onnx"><code>maxtext_gemma3-27b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma3_4b</td>
+<td style="text-align: left;">MaxText model: gemma3-4b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma3-4b.onnx"><code>maxtext_gemma3-4b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma_2b</td>
+<td style="text-align: left;">MaxText model: gemma-2b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma-2b.onnx"><code>maxtext_gemma-2b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gemma_7b</td>
+<td style="text-align: left;">MaxText model: gemma-7b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gemma-7b.onnx"><code>maxtext_gemma-7b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gpt3_175b</td>
+<td style="text-align: left;">MaxText model: gpt3-175b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gpt3-175b.onnx"><code>maxtext_gpt3-175b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gpt3_22b</td>
+<td style="text-align: left;">MaxText model: gpt3-22b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gpt3-22b.onnx"><code>maxtext_gpt3-22b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gpt3_52k</td>
+<td style="text-align: left;">MaxText model: gpt3-52k</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gpt3-52k.onnx"><code>maxtext_gpt3-52k</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_gpt3_6b</td>
+<td style="text-align: left;">MaxText model: gpt3-6b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_gpt3-6b.onnx"><code>maxtext_gpt3-6b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_kimi_k2_1t</td>
+<td style="text-align: left;">MaxText model: kimi-k2-1t</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_kimi-k2-1t.onnx"><code>maxtext_kimi-k2-1t</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama2_13b</td>
+<td style="text-align: left;">MaxText model: llama2-13b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama2-13b.onnx"><code>maxtext_llama2-13b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama2_70b</td>
+<td style="text-align: left;">MaxText model: llama2-70b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama2-70b.onnx"><code>maxtext_llama2-70b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama2_7b</td>
+<td style="text-align: left;">MaxText model: llama2-7b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama2-7b.onnx"><code>maxtext_llama2-7b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_1_405b</td>
+<td style="text-align: left;">MaxText model: llama3.1-405b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3.1-405b.onnx"><code>maxtext_llama3.1-405b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_1_70b</td>
+<td style="text-align: left;">MaxText model: llama3.1-70b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3.1-70b.onnx"><code>maxtext_llama3.1-70b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_1_8b</td>
+<td style="text-align: left;">MaxText model: llama3.1-8b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3.1-8b.onnx"><code>maxtext_llama3.1-8b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_3_70b</td>
+<td style="text-align: left;">MaxText model: llama3.3-70b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3.3-70b.onnx"><code>maxtext_llama3.3-70b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_405b</td>
+<td style="text-align: left;">MaxText model: llama3-405b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3-405b.onnx"><code>maxtext_llama3-405b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_70b</td>
+<td style="text-align: left;">MaxText model: llama3-70b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3-70b.onnx"><code>maxtext_llama3-70b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_llama3_8b</td>
+<td style="text-align: left;">MaxText model: llama3-8b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_llama3-8b.onnx"><code>maxtext_llama3-8b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_mistral_7b</td>
+<td style="text-align: left;">MaxText model: mistral-7b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_mistral-7b.onnx"><code>maxtext_mistral-7b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_olmo3_32b</td>
+<td style="text-align: left;">MaxText model: olmo3-32b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_olmo3-32b.onnx"><code>maxtext_olmo3-32b</code></a> ✅</td>
+<td style="text-align: left;">0.12.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_olmo3_7b</td>
+<td style="text-align: left;">MaxText model: olmo3-7b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_olmo3-7b.onnx"><code>maxtext_olmo3-7b</code></a> ✅</td>
+<td style="text-align: left;">0.12.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_olmo3_7b_pt</td>
+<td style="text-align: left;">MaxText model: olmo3-7b-pt</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_olmo3-7b-pt.onnx"><code>maxtext_olmo3-7b-pt</code></a> ✅</td>
+<td style="text-align: left;">0.12.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_0_6b</td>
+<td style="text-align: left;">MaxText model: qwen3-0.6b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-0.6b.onnx"><code>maxtext_qwen3-0.6b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_14b</td>
+<td style="text-align: left;">MaxText model: qwen3-14b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-14b.onnx"><code>maxtext_qwen3-14b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_235b_a22b</td>
+<td style="text-align: left;">MaxText model: qwen3-235b-a22b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-235b-a22b.onnx"><code>maxtext_qwen3-235b-a22b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_30b_a3b</td>
+<td style="text-align: left;">MaxText model: qwen3-30b-a3b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-30b-a3b.onnx"><code>maxtext_qwen3-30b-a3b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_32b</td>
+<td style="text-align: left;">MaxText model: qwen3-32b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-32b.onnx"><code>maxtext_qwen3-32b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_480b_a35b</td>
+<td style="text-align: left;">MaxText model: qwen3-480b-a35b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-480b-a35b.onnx"><code>maxtext_qwen3-480b-a35b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_4b</td>
+<td style="text-align: left;">MaxText model: qwen3-4b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-4b.onnx"><code>maxtext_qwen3-4b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_4b_thinking_2507</td>
+<td style="text-align: left;">MaxText model: qwen3-4b-thinking-2507</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-4b-thinking-2507.onnx"><code>maxtext_qwen3-4b-thinking-2507</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_8b</td>
+<td style="text-align: left;">MaxText model: qwen3-8b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-8b.onnx"><code>maxtext_qwen3-8b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_next_80b_a3b</td>
+<td style="text-align: left;">MaxText model: qwen3-next-80b-a3b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-next-80b-a3b.onnx"><code>maxtext_qwen3-next-80b-a3b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">MaxText_qwen3_omni_30b_a3b</td>
+<td style="text-align: left;">MaxText model: qwen3-omni-30b-a3b</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/maxtext/maxtext_qwen3-omni-30b-a3b.onnx"><code>maxtext_qwen3-omni-30b-a3b</code></a> ✅</td>
+<td style="text-align: left;">0.11.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">AutoEncoder</td>
+<td style="text-align: left;">A simple autoencoder example (converter pipeline).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_autoencoder.onnx"><code>simple_autoencoder</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_autoencoder_f64.onnx"><code>simple_autoencoder_f64</code></a> ✅</td>
+<td style="text-align: left;">0.2.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">CNN</td>
+<td style="text-align: left;">A simple convolutional neural network (CNN).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_cnn_static.onnx"><code>simple_cnn_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_cnn_dynamic.onnx"><code>simple_cnn_dynamic</code></a> ✅</td>
+<td style="text-align: left;">0.2.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">DepthToSpaceResNet</td>
+<td style="text-align: left;">Residual conv stack followed by dm_pix.depth_to_space upsampling.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/depth_to_space_resnet_static.onnx"><code>depth_to_space_resnet_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/depth_to_space_resnet_inputs_outputs_as_nchw.onnx"><code>depth_to_space_resnet_inputs_outputs_as_nchw</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/depth_to_space_resnet_inputs_outputs_as_nchw_dynamic_hw.onnx"><code>depth_to_space_resnet_inputs_outputs_as_nchw_dynamic_hw</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/depth_to_space_resnet_scaled_inputs_outputs_as_nchw.onnx"><code>depth_to_space_resnet_scaled_inputs_outputs_as_nchw</code></a> ✅</td>
+<td style="text-align: left;">0.11.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">ForiLoop</td>
+<td style="text-align: left;">fori_loop example using nnx-compatible primitives (converter).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter.onnx"><code>fori_loop_counter</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter_f64.onnx"><code>fori_loop_counter_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter_custom_io_names.onnx"><code>fori_loop_counter_custom_io_names</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter_custom_io_names_f64.onnx"><code>fori_loop_counter_custom_io_names_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter_custom_io_names_two_inputs.onnx"><code>fori_loop_counter_custom_io_names_two_inputs</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/fori_loop_counter_custom_io_names_two_inputs_f64.onnx"><code>fori_loop_counter_custom_io_names_two_inputs_f64</code></a> ✅</td>
+<td style="text-align: left;">0.5.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">GRUCell</td>
+<td style="text-align: left;">Flax/nnx GRUCell lowered through converter primitives.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/gru_cell_basic.onnx"><code>gru_cell_basic</code></a> ✅</td>
+<td style="text-align: left;">0.7.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">MLP</td>
+<td style="text-align: left;">A simple Multi-Layer Perceptron (MLP) with BatchNorm, Dropout, and GELU activation.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_static.onnx"><code>simple_mlp_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_static_f64.onnx"><code>simple_mlp_static_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_dynamic.onnx"><code>simple_mlp_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_dynamic_f64.onnx"><code>simple_mlp_dynamic_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_with_call_params_dynamic.onnx"><code>simple_mlp_with_call_params_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_with_call_params_dynamic_f64.onnx"><code>simple_mlp_with_call_params_dynamic_f64</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_with_call_params.onnx"><code>simple_mlp_with_call_params</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_mlp_with_call_params_f64.onnx"><code>simple_mlp_with_call_params_f64</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">MultiHeadAttention</td>
+<td style="text-align: left;">nnx.MultiHeadAttention exercised in several configurations, including custom attention_fn and symbolic batch variants.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_nn_dynamic.onnx"><code>multihead_attention_nn_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_nn.onnx"><code>multihead_attention_nn</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_nnx_dynamic.onnx"><code>multihead_attention_nnx_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_nnx.onnx"><code>multihead_attention_nnx</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_2_nnx_dynamic.onnx"><code>multihead_attention_2_nnx_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/multihead_attention_2_nnx.onnx"><code>multihead_attention_2_nnx</code></a> ✅</td>
+<td style="text-align: left;">0.2.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">NestedResidualGroup</td>
+<td style="text-align: left;">Nested residual blocks inside a residual group; regression harness for issue #173.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_group_static.onnx"><code>nested_residual_group_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_group_static_nchw.onnx"><code>nested_residual_group_static_nchw</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_group_with_lead_conv_static.onnx"><code>nested_residual_group_with_lead_conv_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_stack_static.onnx"><code>nested_residual_stack_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_stack_static_no_extra_transpose.onnx"><code>nested_residual_stack_static_no_extra_transpose</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/nested_residual_stack_with_lead_conv_static.onnx"><code>nested_residual_stack_with_lead_conv_static</code></a> ✅</td>
+<td style="text-align: left;">0.12.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ResBlock</td>
+<td style="text-align: left;">Residual block with squeeze-and-excite channel attention (from issue #168).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/resblock_channel_attention_static.onnx"><code>resblock_channel_attention_static</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/resblock_channel_attention_static_nchw.onnx"><code>resblock_channel_attention_static_nchw</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/resblock_channel_attention_dynamic_hw.onnx"><code>resblock_channel_attention_dynamic_hw</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/resblock_channel_attention_dynamic_hw_nchw.onnx"><code>resblock_channel_attention_dynamic_hw_nchw</code></a> ✅</td>
+<td style="text-align: left;">0.12.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">SequentialReLU</td>
+<td style="text-align: left;">Two stateless nnx.relu activations chained via nnx.Sequential.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/sequential_double_relu.onnx"><code>sequential_double_relu</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/sequential_double_relu_f64.onnx"><code>sequential_double_relu_f64</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">SequentialWithResidual</td>
+<td style="text-align: left;">nnx.Sequential nested within a residual block to regress earlier bugs.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/sequential_nested_with_residual.onnx"><code>sequential_nested_with_residual</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">SimpleModel</td>
+<td style="text-align: left;">Minimal NNX model that applies jnp.clip.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_model_clip_nhwc.onnx"><code>simple_model_clip_nhwc</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/simple_model_clip_nchw_io.onnx"><code>simple_model_clip_nchw_io</code></a> ✅</td>
+<td style="text-align: left;">0.12.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerDecoderWithSequential</td>
+<td style="text-align: left;">Tiny nnx Transformer decoder using nnx.Sequential in the FFN block.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/tiny_decoder_with_sequential.onnx"><code>tiny_decoder_with_sequential</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/tiny_decoder_with_sequential_and_full_dynamic_shapes_dynamic.onnx"><code>tiny_decoder_with_sequential_and_full_dynamic_shapes_dynamic</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerDecoderWithoutSequential</td>
+<td style="text-align: left;">Tiny nnx Transformer decoder with explicit FFN layers (no Sequential).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx/tiny_decoder_without_sequential.onnx"><code>tiny_decoder_without_sequential</code></a> ✅</td>
+<td style="text-align: left;">0.7.1</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxDINOv3VisionTransformer</td>
+<td style="text-align: left;">DINOv3 Vision Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_Ti14_dynamic.onnx"><code>nnx_dinov3_vit_Ti14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_Ti14.onnx"><code>nnx_dinov3_vit_Ti14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_S14_dynamic.onnx"><code>nnx_dinov3_vit_S14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_S14.onnx"><code>nnx_dinov3_vit_S14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_B14_dynamic.onnx"><code>nnx_dinov3_vit_B14_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_B14.onnx"><code>nnx_dinov3_vit_B14</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_S16_dynamic.onnx"><code>nnx_dinov3_vit_S16_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_dinov3_vit_S16.onnx"><code>nnx_dinov3_vit_S16</code></a> ✅</td>
+<td style="text-align: left;">0.10.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">NnxDinoAttention</td>
+<td style="text-align: left;">Multi-Head Self-Attention using Flax/NNX modules.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_attention_dynamic.onnx"><code>nnx_attention_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_attention.onnx"><code>nnx_attention</code></a> ✅</td>
+<td style="text-align: left;">0.10.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">NnxDinoAttentionCore</td>
+<td style="text-align: left;">Multi-Head Self-Attention without rotary processing.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_attention_core_dynamic.onnx"><code>nnx_attention_core_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_attention_core.onnx"><code>nnx_attention_core</code></a> ✅</td>
+<td style="text-align: left;">0.10.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">NnxDinoBlock</td>
+<td style="text-align: left;">Transformer Block.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_transformer_block_dynamic.onnx"><code>nnx_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_transformer_block.onnx"><code>nnx_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.10.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">NnxDinoPatchEmbed</td>
+<td style="text-align: left;">Image to Patch Embedding.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_dino/nnx_patch_embed.onnx"><code>nnx_patch_embed</code></a> ✅</td>
+<td style="text-align: left;">0.10.3</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxAttentionBlock</td>
+<td style="text-align: left;">Attention block from the GPT-OSS Flax reference (no KV cache).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_attention_flax.onnx"><code>gpt_oss_attention_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxMLPBlock</td>
+<td style="text-align: left;">Mixture-of-experts MLP block from the GPT-OSS Flax port.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_mlp_flax.onnx"><code>gpt_oss_mlp_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxRMSNorm</td>
+<td style="text-align: left;">Flax RMSNorm used in the GPT-OSS JAX port.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_rmsnorm_flax_dynamic.onnx"><code>gpt_oss_rmsnorm_flax_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_rmsnorm_flax.onnx"><code>gpt_oss_rmsnorm_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxRotaryEmbedding</td>
+<td style="text-align: left;">Rotary position embedding helper from the GPT-OSS Flax port.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_rotary_flax.onnx"><code>gpt_oss_rotary_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxSDPA</td>
+<td style="text-align: left;">JIT sdpa helper from the GPT-OSS Flax port.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_sdpa_flax.onnx"><code>gpt_oss_sdpa_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxTransformer</td>
+<td style="text-align: left;">Full GPT-OSS Flax transformer (embedding, blocks, head).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_transformer_flax.onnx"><code>gpt_oss_transformer_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlaxTransformerBlock</td>
+<td style="text-align: left;">Single GPT-OSS Flax transformer block (attention + MoE MLP).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/nnx_gpt_oss/gpt_oss_transformer_block_flax.onnx"><code>gpt_oss_transformer_block_flax</code></a> ✅</td>
+<td style="text-align: left;">0.10.2</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_000</td>
+<td style="text-align: left;">One function boundary on an outer NNX module (new-world).</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/000_one_function_on_outer_layer_dynamic.onnx"><code>000_one_function_on_outer_layer_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/000_one_function_on_outer_layer.onnx"><code>000_one_function_on_outer_layer</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_001</td>
+<td style="text-align: left;">one function on an inner layer.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/001_one_function_inner_dynamic.onnx"><code>001_one_function_inner_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/001_one_function_inner.onnx"><code>001_one_function_inner</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_002</td>
+<td style="text-align: left;">two nested functions.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/002_two_nested_functions_dynamic.onnx"><code>002_two_nested_functions_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/002_two_nested_functions.onnx"><code>002_two_nested_functions</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_003</td>
+<td style="text-align: left;">two nested functions.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/003_two_simple_nested_functions_dynamic.onnx"><code>003_two_simple_nested_functions_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/003_two_simple_nested_functions.onnx"><code>003_two_simple_nested_functions</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_004</td>
+<td style="text-align: left;">nested function plus component</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/004_nested_function_plus_component_dynamic.onnx"><code>004_nested_function_plus_component_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/004_nested_function_plus_component.onnx"><code>004_nested_function_plus_component</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_005</td>
+<td style="text-align: left;">nested function plus more components</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/005_nested_function_plus_component_dynamic.onnx"><code>005_nested_function_plus_component_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/005_nested_function_plus_component.onnx"><code>005_nested_function_plus_component</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_006</td>
+<td style="text-align: left;">one function on an outer layer.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/006_one_function_outer_dynamic.onnx"><code>006_one_function_outer_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/006_one_function_outer.onnx"><code>006_one_function_outer</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_007</td>
+<td style="text-align: left;">transformer block with nested mlp block with call parameter</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/007_transformer_block_dynamic.onnx"><code>007_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/007_transformer_block.onnx"><code>007_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_008</td>
+<td style="text-align: left;">transformer block with nested mlp block no call parameter</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/008_transformer_block_dynamic.onnx"><code>008_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/008_transformer_block.onnx"><code>008_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_009</td>
+<td style="text-align: left;">transformer block using decorator on class and function</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/009_transformer_block_dynamic.onnx"><code>009_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/009_transformer_block.onnx"><code>009_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_010</td>
+<td style="text-align: left;">transformer stack</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/010_transformer_stack_dynamic.onnx"><code>010_transformer_stack_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/010_transformer_stack.onnx"><code>010_transformer_stack</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_012</td>
+<td style="text-align: left;">Vision Transformer (ViT)</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/012_vit_conv_embedding_dynamic.onnx"><code>012_vit_conv_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/012_vit_conv_embedding.onnx"><code>012_vit_conv_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_013</td>
+<td style="text-align: left;">Vision Transformer (ViT)</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/013_vit_conv_embedding_with_call_params_dynamic.onnx"><code>013_vit_conv_embedding_with_call_params_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/013_vit_conv_embedding_with_call_params.onnx"><code>013_vit_conv_embedding_with_call_params</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/013_vit_conv_embedding_with_internal_call_params_dynamic.onnx"><code>013_vit_conv_embedding_with_internal_call_params_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/013_vit_conv_embedding_with_internal_call_params.onnx"><code>013_vit_conv_embedding_with_internal_call_params</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_014</td>
+<td style="text-align: left;">one function on an outer layer.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/014_one_function_with_input_param_with_default_value.onnx"><code>014_one_function_with_input_param_with_default_value</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/014_one_function_without_input_param_with_default_value_dynamic.onnx"><code>014_one_function_without_input_param_with_default_value_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/014_one_function_without_input_param_with_default_value.onnx"><code>014_one_function_without_input_param_with_default_value</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_015</td>
+<td style="text-align: left;">one function on an outer layer.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/015_one_function_with_input_param_without_default_value_dynamic.onnx"><code>015_one_function_with_input_param_without_default_value_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/015_one_function_with_input_param_without_default_value.onnx"><code>015_one_function_with_input_param_without_default_value</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_016</td>
+<td style="text-align: left;">nested function plus more components</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/016_internal_function_with_input_param_with_default_value_dynamic.onnx"><code>016_internal_function_with_input_param_with_default_value_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/016_internal_function_with_input_param_with_default_value.onnx"><code>016_internal_function_with_input_param_with_default_value</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">onnx_functions_017</td>
+<td style="text-align: left;">Demonstrates @onnx_function(unique=True) reuse across call sites.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/onnx_functions/017_unique_function_reuse.onnx"><code>017_unique_function_reuse</code></a> ✅</td>
+<td style="text-align: left;">0.10.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ClassificationHead</td>
+<td style="text-align: left;">Classification head for Vision Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_classification_head_dynamic.onnx"><code>vit_classification_head_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_classification_head.onnx"><code>vit_classification_head</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ClassificationHeadFlatten</td>
+<td style="text-align: left;">Classification head for Vision Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_classification_head_flat_dynamic.onnx"><code>vit_classification_head_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_classification_head_flat.onnx"><code>vit_classification_head_flat</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ConcatClsToken</td>
+<td style="text-align: left;">Concatenate CLS token to the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_concat_cls_token_dynamic.onnx"><code>vit_concat_cls_token_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_concat_cls_token.onnx"><code>vit_concat_cls_token</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ConcatClsTokenFlatten</td>
+<td style="text-align: left;">Concatenate CLS token to the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_concat_cls_token_flat_dynamic.onnx"><code>vit_concat_cls_token_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_concat_cls_token_flat.onnx"><code>vit_concat_cls_token_flat</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ConvEmbedding</td>
+<td style="text-align: left;">Convolutional Token Embedding for MNIST with hierarchical downsampling.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_mnist_conv_embedding_dynamic.onnx"><code>vit_mnist_conv_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_mnist_conv_embedding.onnx"><code>vit_mnist_conv_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">ConvEmbeddingFlatten</td>
+<td style="text-align: left;">Convolutional Token Embedding for MNIST with hierarchical downsampling.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_mnist_conv_embedding_flat_dynamic.onnx"><code>vit_mnist_conv_embedding_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_mnist_conv_embedding_flat.onnx"><code>vit_mnist_conv_embedding_flat</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">FeedForward</td>
+<td style="text-align: left;">MLP in Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_feed_forward_dynamic.onnx"><code>vit_feed_forward_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_feed_forward.onnx"><code>vit_feed_forward</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">FeedForwardFlatten</td>
+<td style="text-align: left;">MLP in Transformer</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_feed_forward_flat_dynamic.onnx"><code>vit_feed_forward_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_feed_forward_flat.onnx"><code>vit_feed_forward_flat</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GetToken</td>
+<td style="text-align: left;">Get the CLS token from the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_get_token_dynamic.onnx"><code>vit_get_token_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_get_token.onnx"><code>vit_get_token</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">GetTokenFlatten</td>
+<td style="text-align: left;">Get the CLS token from the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_get_token_flat_dynamic.onnx"><code>vit_get_token_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_get_token_flat.onnx"><code>vit_get_token_flat</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">PatchEmbedding</td>
+<td style="text-align: left;">Cutting the image into patches and linearly embedding them.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_patch_embedding_dynamic.onnx"><code>vit_patch_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_patch_embedding.onnx"><code>vit_patch_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">PatchEmbeddingFlatten</td>
+<td style="text-align: left;">Cutting the image into patches and linearly embedding them.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_patch_embedding_flat_dynamic.onnx"><code>vit_patch_embedding_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_patch_embedding_flat.onnx"><code>vit_patch_embedding_flat</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">PositionalEmbedding</td>
+<td style="text-align: left;">Add positional embedding to the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_positional_embedding_dynamic.onnx"><code>vit_positional_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_positional_embedding.onnx"><code>vit_positional_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">PositionalEmbeddingFlatten</td>
+<td style="text-align: left;">Add positional embedding to the input embedding</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_positional_embedding_flat_dynamic.onnx"><code>vit_positional_embedding_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_positional_embedding_flat.onnx"><code>vit_positional_embedding_flat</code></a> ✅</td>
+<td style="text-align: left;">0.4.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerBlock</td>
+<td style="text-align: left;">Transformer from 'Attention Is All You Need.'</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_block_dynamic.onnx"><code>vit_transformer_block_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_block.onnx"><code>vit_transformer_block</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerBlockFlatten</td>
+<td style="text-align: left;">Transformer from 'Attention Is All You Need.'</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_block_flat_dynamic.onnx"><code>vit_transformer_block_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_block_flat.onnx"><code>vit_transformer_block_flat</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerStack</td>
+<td style="text-align: left;">Stack of Transformer blocks</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_stack_dynamic.onnx"><code>vit_transformer_stack_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_stack.onnx"><code>vit_transformer_stack</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">TransformerStackFlatten</td>
+<td style="text-align: left;">Stack of Transformer blocks</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_stack_flat_dynamic.onnx"><code>vit_transformer_stack_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_transformer_stack_flat.onnx"><code>vit_transformer_stack_flat</code></a> ✅</td>
+<td style="text-align: left;">0.1.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">VisionTransformer</td>
+<td style="text-align: left;">A Vision Transformer (ViT) model for MNIST with configurable embedding type.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_conv_embedding_dynamic.onnx"><code>vit_model_conv_embedding_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_conv_embedding.onnx"><code>vit_model_conv_embedding</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_patch_embedding.onnx"><code>vit_model_patch_embedding</code></a> ✅</td>
+<td style="text-align: left;">0.2.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">VisionTransformerFlatten</td>
+<td style="text-align: left;">A Vision Transformer (ViT) model for MNIST with configurable embedding type.</td>
+<td style="text-align: left;"><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_conv_embedding_flat_dynamic.onnx"><code>vit_model_conv_embedding_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_conv_embedding_flat.onnx"><code>vit_model_conv_embedding_flat</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_patch_embedding_flat_dynamic.onnx"><code>vit_model_patch_embedding_flat_dynamic</code></a> ✅<br><a href="https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/examples/vit/vit_model_patch_embedding_flat.onnx"><code>vit_model_patch_embedding_flat</code></a> ✅</td>
+<td style="text-align: left;">0.2.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- AUTOGENERATED EXAMPLES TABLE END -->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

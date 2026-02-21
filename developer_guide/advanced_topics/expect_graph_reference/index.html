@@ -1,0 +1,2382 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/developer_guide/advanced_topics/expect_graph_reference/">
+      
+      
+        <link rel="prev" href="../complex_numbers/">
+      
+      
+        <link rel="next" href="../ir_optimizer/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+    
+    
+      
+        <title>Expected Graph Reference - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#expect_graph-checklist-for-plugins" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Expected Graph Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../user_guide/sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#encoding-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Encoding shapes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-match-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional match options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Additional match options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-options-per-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry options (per pattern)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#global-options-function-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global options (function arguments)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-naming-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function naming compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintaining-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintaining Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guardrails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to use it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference-snippets-oct-2025-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference snippets (Oct 2025 refresh)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reference snippets (Oct 2025 refresh)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scatter-add-sweep-primitiveslaxscatter_add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scatter add sweep (primitives.lax.scatter_add)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-18-loop-fixtures-examplesjnpissue18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue 18 loop fixtures (examples.jnp.issue18)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flaxnnx-gru-cell-examplesnnxgru_cell_basic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flax/NNX GRU cell (examples.nnx.gru_cell_basic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nnx-multi-head-attention-examplesnnxmulti_head_attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NNX Multi-head attention (examples.nnx.multi_head_attention)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equinox-dinov3-vision-transformer-exampleseqx_dino" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equinox DINOv3 vision transformer (examples.eqx_dino)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equinox-dino-building-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equinox DINO building blocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpt-components-examplesgpt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPT components (examples.gpt)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vision-transformer-components-examplesvit-examplesvit_flat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vision Transformer components (examples.vit, examples.vit_flat)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer-decoder-variants-examplesnnxtransformer_decoder_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transformer decoder variants (examples.nnx.transformer_decoder_*)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#encoding-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Encoding shapes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-match-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional match options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Additional match options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-options-per-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry options (per pattern)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#global-options-function-arguments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global options (function arguments)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-naming-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function naming compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintaining-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintaining Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guardrails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to use it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference-snippets-oct-2025-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference snippets (Oct 2025 refresh)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reference snippets (Oct 2025 refresh)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scatter-add-sweep-primitiveslaxscatter_add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scatter add sweep (primitives.lax.scatter_add)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-18-loop-fixtures-examplesjnpissue18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue 18 loop fixtures (examples.jnp.issue18)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flaxnnx-gru-cell-examplesnnxgru_cell_basic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flax/NNX GRU cell (examples.nnx.gru_cell_basic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nnx-multi-head-attention-examplesnnxmulti_head_attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NNX Multi-head attention (examples.nnx.multi_head_attention)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equinox-dinov3-vision-transformer-exampleseqx_dino" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equinox DINOv3 vision transformer (examples.eqx_dino)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#equinox-dino-building-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Equinox DINO building blocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gpt-components-examplesgpt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPT components (examples.gpt)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vision-transformer-components-examplesvit-examplesvit_flat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vision Transformer components (examples.vit, examples.vit_flat)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer-decoder-variants-examplesnnxtransformer_decoder_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transformer decoder variants (examples.nnx.transformer_decoder_*)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="expect_graph-checklist-for-plugins"><code>expect_graph</code> checklist for plugins<a class="headerlink" href="#expect_graph-checklist-for-plugins" title="Permanent link">&para;</a></h1>
+<p><code>expect_graph</code> (from <code>jax2onnx.plugins._post_check_onnx_graph</code>) is the lightweight
+structural assertion helper used by plugin tests and examples. It lets a test
+express the operators, ordering, and shapes that should appear in a converted
+IR/ONNX graph without dumping the full model. This document captures the
+conventions we rely on when writing or reviewing <code>post_check_onnx_graph</code>
+expectations.</p>
+<blockquote>
+<p><strong>Test metadata reminder:</strong> when wiring new examples/tests, construct callables
+via <code>construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)</code> so the
+harness can rebuild deterministic f32/f64 variants. See the builder guide for the
+full randomness and dtype rules.</p>
+</blockquote>
+<h2 id="import">Import<a class="headerlink" href="#import" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins._post_check_onnx_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">expect_graph</span> <span class="k">as</span> <span class="n">EG</span>
+</span></code></pre></div>
+<p>Alias it to <code>EG</code> inside tests to keep callsites short.</p>
+<blockquote>
+<p><strong>Builder reminder:</strong> structural tests assume plugins emitted nodes via
+<code>ctx.builder</code>. Review the <a href="../onnx_ir_builder/">ONNX IR Builder Guide</a> if
+<code>_outputs</code> naming or initializer wiring looks suspicious; policy tests now
+enforce those contracts.</p>
+</blockquote>
+<h2 id="basic-usage">Basic usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h2>
+<p>Pass a list of patterns to <code>expect_graph</code>. Each pattern is either a string or a
+<code>(string, options)</code> tuple. Nodes are written in evaluation order with <code>-&gt;</code>
+separating them.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">EG</span><span class="p">([</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="s2">&quot;Transpose -&gt; Conv -&gt; Relu -&gt; AveragePool&quot;</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">])</span>
+</span></code></pre></div>
+<p>The pattern above requires the graph to contain that exact operator chain.
+Failing to find it raises an assertion with a summarized diff of the graph.</p>
+<h2 id="encoding-shapes">Encoding shapes<a class="headerlink" href="#encoding-shapes" title="Permanent link">&para;</a></h2>
+<p>Append <code>:shape</code> to a node name to assert the <em>output</em> shape of that node. Use
+<code>x</code> separators (e.g. <code>Bx32x28x28</code>). Leave dimensions symbolic by reusing the
+string symbol that the test harness passed as an input shape (for example
+<code>"B"</code>).</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">EG</span><span class="p">([</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="s2">&quot;Gemm:Bx256 -&gt; Relu:Bx256 -&gt; Gemm:Bx10&quot;</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="p">])</span>
+</span></code></pre></div>
+<p>Write concrete integers for known static sizes (<code>3x1x28x28</code>). Symbols and
+integers can be mixed (<code>B?x256</code> is not supported; prefer <code>symbols={"B": None}</code>
+if you need to unify multiple strings).</p>
+<h2 id="additional-match-options">Additional match options<a class="headerlink" href="#additional-match-options" title="Permanent link">&para;</a></h2>
+<p>Attach an options dictionary to require counts, forbid nodes, or tweak the
+search.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">EG</span><span class="p">([</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="p">(</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>        <span class="s2">&quot;Transpose:3x1x28x28 -&gt; Conv:3x32x28x28 -&gt; Relu:3x32x28x28 -&gt; Gemm:3x256&quot;</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>        <span class="p">{</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>            <span class="s2">&quot;counts&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;Transpose&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Conv&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Relu&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Gemm&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="p">},</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="p">),</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">],</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;all&quot;</span><span class="p">,</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="n">must_absent</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Not&quot;</span><span class="p">],</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="entry-options-per-pattern">Entry options (per pattern)<a class="headerlink" href="#entry-options-per-pattern" title="Permanent link">&para;</a></h3>
+<p>Use these in the options dictionary of a <code>(pattern, options)</code> tuple:</p>
+<ul>
+<li><code>attrs</code>: Map of operator name to required attribute values (e.g. <code>{"Softmax": {"axis": -1}}</code>).</li>
+<li><code>counts</code>: map of op type to the exact number of occurrences expected.</li>
+<li><code>must_absent</code>: list of operator names that must not appear anywhere in the searched graph(s).</li>
+<li><code>symbols</code>: dictionary mapping symbolic dim labels to <code>None</code> (any value) or an integer.</li>
+</ul>
+<h3 id="global-options-function-arguments">Global options (function arguments)<a class="headerlink" href="#global-options-function-arguments" title="Permanent link">&para;</a></h3>
+<p>Pass these as keyword arguments to <code>expect_graph</code>:</p>
+<ul>
+<li><code>mode</code>: one of <code>"all"</code> (default; all patterns must match), <code>"any"</code> (at least one matches), or <code>"exact"</code> (the entire graph must equal the pattern).</li>
+<li><code>must_absent</code>: global list of operator names that must not appear anywhere.</li>
+<li><code>no_unused_inputs</code>: when <code>True</code>, fail if the graph retains dangling inputs.</li>
+<li><code>no_unused_function_inputs</code>: extend the check to imported ONNX function bodies (requires <code>search_functions=True</code>).</li>
+<li><code>search_functions</code>: include function bodies (control-flow subgraphs) in the search.</li>
+<li><code>symbols</code>: dictionary mapping symbolic dim labels to <code>None</code> or an integer (unifies across all patterns).</li>
+</ul>
+<p>The matcher automatically walks through helper nodes that frequently sit on the
+main data edge (by default we skip <code>Reshape</code>, <code>Identity</code>, <code>Cast</code>, <code>CastLike</code>,
+<code>Squeeze</code>, <code>Unsqueeze</code>, <code>Flatten</code>, <code>Shape</code>, <code>Gather</code>, <code>Concat</code>, <code>Add</code>, and
+<code>Where</code>). This lets a single pattern cover sequential graphs where tensors fan
+out into shape-building side chains, such as the CNN dynamic example where the
+<code>Transpose</code> output feeds both <code>Reshape</code> and the shape-construction subgraph.</p>
+<h3 id="function-naming-compatibility">Function naming compatibility<a class="headerlink" href="#function-naming-compatibility" title="Permanent link">&para;</a></h3>
+<p>Function exports now keep the original callable name as the node <code>op_type</code>
+(<code>TransformerBlock</code>, <code>MLPBlock</code>, …) and move the numeric suffix into
+<code>node.name</code>/<code>domain</code> (<code>TransformerBlock_2</code>, <code>custom.TransformerBlock_2</code>, …). To
+keep older expectations valid, <code>expect_graph</code> automatically strips trailing
+<code>_123</code> suffixes when comparing <code>op_type</code> and normalises graph filters such as
+<code>fn:custom.TransformerBlock_2</code>. Prefer matching on the base <code>op_type</code> unless a
+specific call-site needs to be distinguished by name.</p>
+<h2 id="practical-tips">Practical tips<a class="headerlink" href="#practical-tips" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Prefer a single path that covers the interesting operators rather than every
+  node in the graph. Keep counts strict if extra occurrences would signal a
+  regression.</li>
+<li>Include shapes for layers where layout or dimension handling is important
+  (transposes, pooling, reshapes). Shape assertions catch missing
+  <code>_stamp_type_and_shape</code> calls and layout errors quickly.</li>
+<li>Keep expectations small for dynamic tests; the static counterpart usually
+  asserts shapes, while a dynamic test covers symbolic behaviour or flags.</li>
+<li>Use <code>mode="all"</code> with multiple patterns to check disjoint subgraphs, or
+  <code>mode="exact"</code> when the entire graph must be anchored (rare; harder to
+  maintain).</li>
+<li>If the graph contains fused or optimizer-inserted elementwise ops, anchor the
+  pattern on the surrounding operators and rely on <code>counts</code> to constrain the
+  totals.</li>
+</ul>
+<h2 id="maintaining-coverage">Maintaining Coverage<a class="headerlink" href="#maintaining-coverage" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Every plugin/example should ship an <code>expect_graph(...)</code> snippet alongside tests; rerun <code>python scripts/emit_expect_graph.py &lt;testcase&gt;</code> whenever behaviour changes.</li>
+<li>Regenerate and update this guide after each sweep so metadata and documentation stay in sync.</li>
+<li>When new fixtures land, add them to the coverage snapshot and verify the relevant pytest target before updating this doc.</li>
+</ul>
+<h2 id="workflow-checklist">Workflow Checklist<a class="headerlink" href="#workflow-checklist" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Identify the next uncovered component (scan for missing <code>register_example</code> / <code>register_primitive</code> entries if needed).</li>
+<li>Capture the snippet via <code>poetry run python scripts/emit_expect_graph.py &lt;testcase&gt;</code>.</li>
+<li>Update metadata/tests with the snippet, run the focused pytest target, then expand to the broader suite if applicable.</li>
+<li>Refresh this guide (and coverage tables) with the new snippet.</li>
+<li>Before wrapping, ensure everything is documented and guardrails (RNG helpers, ONNX-IR boundaries, attention normalisation) are respected.</li>
+</ol>
+<h2 id="guardrails">Guardrails<a class="headerlink" href="#guardrails" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Converter/plugins must remain ONNX-IR only (no protobuf imports).</li>
+<li>Use <code>construct_and_call(...).with_requested_dtype()</code> and <code>with_rng_seed(...)</code>; split PRNG keys before reuse.</li>
+<li>Attention plugins must retain masked-weight normalisation; expect_graph snippets should reflect the normalised path.</li>
+<li>Run core tooling (<code>poetry run pytest -q</code>, <code>poetry run ruff check .</code>, <code>poetry run mypy src</code>) for larger sweeps.</li>
+</ul>
+<h2 id="where-to-use-it">Where to use it<a class="headerlink" href="#where-to-use-it" title="Permanent link">&para;</a></h2>
+<p><code>post_check_onnx_graph</code> entries appear inside example/plugin test metadata (see
+<code>jax2onnx/plugins/examples/nnx/cnn.py</code> for a reference). The helper works with
+any object that produces an ONNX IR graph compatible with
+<code>onnx_ir.GraphProto</code>. The same API is shared by policy tests under
+<code>tests/extra_tests</code>.</p>
+<p>When adding new metadata entries, seed them with a minimal structural check,
+run the example once to capture the intended op sequence, and then layer on
+shape assertions and counts to guard against regressions.</p>
+<h2 id="reference-snippets-oct-2025-refresh">Reference snippets (Oct 2025 refresh)<a class="headerlink" href="#reference-snippets-oct-2025-refresh" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>NNX reminder:</strong> follow the Oct 2025 AGENTS note—seed nnx fixtures via
+<code>with_rng_seed(...)</code> (no inline lambdas) so callables stay hashable under JAX
+0.7. Attention plugins must keep masked-weight normalisation enabled; retain
+the helper path when updating metadata or docs.</p>
+</blockquote>
+<h3 id="scatter-add-sweep-primitiveslaxscatter_add">Scatter add sweep (<code>primitives.lax.scatter_add</code>)<a class="headerlink" href="#scatter-add-sweep-primitiveslaxscatter_add" title="Permanent link">&para;</a></h3>
+<p>The converter now anchors the full regression matrix on <code>ScatterND</code>. These
+snippets were regenerated with <code>JAX_ENABLE_X64=1</code> to keep f64 parity.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ScatterND:4&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scatter_add_vector</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">EG</span><span class="p">([{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;ScatterND:6&#39;</span><span class="p">,</span> <span class="s1">&#39;inputs&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">2</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const&#39;</span><span class="p">:</span> <span class="mf">5.0</span><span class="p">}}}],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scatter_add_scalar</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ScatterND:5&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scatter_add_simple_1d / scatter_add_batch_updates_1d_operand</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ScatterND:2x3&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scatter_add_window_2d_operand_1d_indices</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ScatterND:5x208x1x1&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scatter_add_mismatched_window_dims_from_user_report</span>
+</span></code></pre></div>
+<p>Additional user-report variants (<code>report2</code>, <code>report3</code>, fluids pattern, depth
+helpers) share the same <code>ScatterND:&lt;shape&gt;</code> signature and reuse the wrapper
+helpers documented in <code>jax2onnx/plugins/jax/lax/scatter_add.py</code>.</p>
+<h3 id="issue-18-loop-fixtures-examplesjnpissue18">Issue 18 loop fixtures (<code>examples.jnp.issue18</code>)<a class="headerlink" href="#issue-18-loop-fixtures-examplesjnpissue18" title="Permanent link">&para;</a></h3>
+<p>Regenerated loop traces now expose the control-flow helpers and the loop-carried
+symbol. Remember to pass <code>search_functions=True</code> when validating subgraph bodies.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">EG</span><span class="p">([{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Loop&#39;</span><span class="p">,</span> <span class="s1">&#39;inputs&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const&#39;</span><span class="p">:</span> <span class="mf">5.0</span><span class="p">},</span> <span class="mi">1</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const_bool&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}}}],</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>   <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># fori_loop_fn</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">EG</span><span class="p">([{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Less -&gt; Loop&#39;</span><span class="p">,</span> <span class="s1">&#39;inputs&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const&#39;</span><span class="p">:</span> <span class="mf">9.223372036854776e18</span><span class="p">},</span> <span class="mi">3</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">}}}],</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>   <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># while_loop_fn</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;Loop:B&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># scan_fn</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;Greater:3 -&gt; Where:3&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># where_fn</span>
+</span></code></pre></div>
+<h3 id="flaxnnx-gru-cell-examplesnnxgru_cell_basic">Flax/NNX GRU cell (<code>examples.nnx.gru_cell_basic</code>)<a class="headerlink" href="#flaxnnx-gru-cell-examplesnnxgru_cell_basic" title="Permanent link">&para;</a></h3>
+<p>The ONNX lowering now fuses the <code>Tanh</code> stage, resulting in twin <code>Add</code> paths off
+the Sigmoid gate outputs. Regenerate the snippet after adjusting module wiring,
+and keep the RNG helpers in place so the sample stays deterministic.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="p">[</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>        <span class="s2">&quot;Gemm:2x12 -&gt; Split:2x4 -&gt; Add:2x4 -&gt; Sigmoid:2x4 -&gt; Sub:2x4 -&gt; Mul:2x4 -&gt; Add:2x4&quot;</span><span class="p">,</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>        <span class="s2">&quot;Gemm:2x12 -&gt; Split:2x4 -&gt; Add:2x4 -&gt; Sigmoid:2x4 -&gt; Sub:2x4 -&gt; Mul:2x4 -&gt; Add:2x4 -&gt; Add:2x4&quot;</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="p">],</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="nnx-multi-head-attention-examplesnnxmulti_head_attention">NNX Multi-head attention (<code>examples.nnx.multi_head_attention</code>)<a class="headerlink" href="#nnx-multi-head-attention-examplesnnxmulti_head_attention" title="Permanent link">&para;</a></h3>
+<p>Both the pure JAX (<code>multihead_attention_nn</code>) and nnx-driven (<code>multihead_attention_nnx</code>,
+<code>multihead_attention_2_nnx</code>) variants emit the same core chain after reshaping
+queries/keys/values. Symbols capture the batch size; <code>search_functions=True</code>
+keeps subgraph rewrites under the function export.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="p">[</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>        <span class="s2">&quot;Reshape:?x256 -&gt; Gemm:?x256 -&gt; Reshape:Bx4x8x32 -&gt; &quot;</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>        <span class="s2">&quot;Transpose:Bx8x4x32 -&gt; MatMul:Bx8x4x4 -&gt; Mul:Bx8x4x4 -&gt; &quot;</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>        <span class="s2">&quot;Softmax:Bx8x4x4 -&gt; MatMul:Bx8x4x32 -&gt; Transpose:Bx4x8x32 -&gt; &quot;</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        <span class="s2">&quot;Reshape:?x256 -&gt; Gemm:?x256 -&gt; Reshape:Bx4x256&quot;</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="p">],</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="equinox-dinov3-vision-transformer-exampleseqx_dino">Equinox DINOv3 vision transformer (<code>examples.eqx_dino</code>)<a class="headerlink" href="#equinox-dinov3-vision-transformer-exampleseqx_dino" title="Permanent link">&para;</a></h3>
+<p>Use the bundled helper to emit snippets for each variant (<code>eqx_dinov3_vit_Ti14</code>,
+<code>_S14</code>, <code>_B14</code>, <code>_S16</code>). All of them collapse into a single <code>VisionTransformer</code>
+node with the expected patch/token layout. Ensure <code>no_unused_inputs=True</code> stays
+set so cached weights or mask inputs do not linger.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;VisionTransformer:Bx257x192&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="c1"># S16/S14/B14 variants only differ in the trailing dimension (384/768) and the token count.</span>
+</span></code></pre></div>
+<h3 id="equinox-dino-building-blocks">Equinox DINO building blocks<a class="headerlink" href="#equinox-dino-building-blocks" title="Permanent link">&para;</a></h3>
+<p>While covering the DINO stack, keep these helpers in sync:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;PatchEmbed_1:1x256x384&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># PatchEmbed</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">EG</span><span class="p">([{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Gemm&#39;</span><span class="p">,</span> <span class="s1">&#39;counts&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;Gemm&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">}},</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;MatMul&#39;</span><span class="p">,</span> <span class="s1">&#39;counts&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;MatMul&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">}},</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Softmax&#39;</span><span class="p">,</span> <span class="s1">&#39;counts&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;Softmax&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}}],</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>   <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># AttentionCore</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">EG</span><span class="p">([{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;MatMul&#39;</span><span class="p">,</span> <span class="s1">&#39;counts&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;MatMul&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">}},</span> <span class="s1">&#39;Softmax&#39;</span><span class="p">],</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>   <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Attention</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;Block_1:Bx257x384&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">must_absent</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Identity&#39;</span><span class="p">])</span>  <span class="c1"># Block</span>
+</span></code></pre></div>
+<h3 id="gpt-components-examplesgpt">GPT components (<code>examples.gpt</code>)<a class="headerlink" href="#gpt-components-examplesgpt" title="Permanent link">&para;</a></h3>
+<p><code>GPT_Attention</code> and <code>GPT_CausalSelfAttention</code> rely on the shared <code>_no_cast_where</code>
+helper, which fails the test if any <code>Cast -&gt; Where</code> chain appears in the exported
+graph (and reruns with diagnostics to surface the offending path). The rest of
+the GPT stack leans on compact structural checks:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;MLP_1:Bx1024x768&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_MLP</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;Block_1:Bx1024x768&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_TransformerBlock</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;TokenEmbedding_1:Bx1024x768&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_TokenEmbedding</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;PositionEmbedding_1:1x1024x768&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_PositionEmbedding</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;GPTTransformerStack_1:Bx1024x768&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_TransformerStack</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;GPTEmbeddings_1:Bx1024x768&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_Embeddings</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;GPTHead_1:Bx1024x3144&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_Head</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;Add:Bx4x5&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># GPT_broadcast_add</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>    <span class="p">[{</span><span class="s1">&#39;graph&#39;</span><span class="p">:</span> <span class="s1">&#39;custom.PositionEmbedding.1:PositionEmbedding&#39;</span><span class="p">,</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>      <span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Range -&gt; Unsqueeze -&gt; Expand -&gt; Gather&#39;</span><span class="p">,</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>      <span class="s1">&#39;must_absent&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;Cast&#39;</span><span class="p">]}],</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>    <span class="n">no_unused_function_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="p">)</span>  <span class="c1"># GPT</span>
+</span></code></pre></div>
+<h3 id="vision-transformer-components-examplesvit-examplesvit_flat">Vision Transformer components (<code>examples.vit</code>, <code>examples.vit_flat</code>)<a class="headerlink" href="#vision-transformer-components-examplesvit-examplesvit_flat" title="Permanent link">&para;</a></h3>
+<p>Patch/conv embeddings and the final classifier keep the ViT snippets compact.
+When working on the flattened variants, keep the reshape/transposes anchored so
+the sequence length stays guarded.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;PatchEmbedding_1:Bx49x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ConvEmbedding_1:Bx49x128&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;FeedForward_1:Bx10x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;TransformerBlock_1:Bx10x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;TransformerStack_1:Bx10x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ConcatClsToken_1:Bx50x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;PositionalEmbedding_1:Bx50x256&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;VisionTransformer_1:Bx10&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># conv embedding model</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;VisionTransformer_1:2x10&#39;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># patch embedding model</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;LayerNormalization -&gt; Gemm -&gt; LogSoftmax&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># flattened ViT heads</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    <span class="p">[</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>        <span class="s2">&quot;Reshape:Bx7x4x7x4x1 -&gt; Transpose:Bx7x7x4x4x1 -&gt; &quot;</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>        <span class="s2">&quot;Reshape:Bx49x16 -&gt; Reshape:?x16 -&gt; Gemm:?x256 -&gt; Reshape:Bx49x256&quot;</span>
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>    <span class="p">],</span>
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="p">)</span>  <span class="c1"># PatchEmbeddingFlatten</span>
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>    <span class="p">[</span><span class="s1">&#39;Slice -&gt; Squeeze&#39;</span><span class="p">,</span> <span class="p">{</span><span class="s1">&#39;path&#39;</span><span class="p">:</span> <span class="s1">&#39;Transpose:50xBx256 -&gt; Gather:Bx256&#39;</span><span class="p">,</span> <span class="s1">&#39;inputs&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;const&#39;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">}}}],</span>
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>    <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;any&#39;</span><span class="p">,</span>
+</span><span id="__span-11-22"><a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+</span><span id="__span-11-23"><a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-11-24"><a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="p">)</span>  <span class="c1"># GetToken</span>
+</span><span id="__span-11-25"><a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="n">EG</span><span class="p">([</span><span class="s1">&#39;ClassificationHead_1:Bx10&#39;</span><span class="p">],</span> <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="transformer-decoder-variants-examplesnnxtransformer_decoder_">Transformer decoder variants (<code>examples.nnx.transformer_decoder_*</code>)<a class="headerlink" href="#transformer-decoder-variants-examplesnnxtransformer_decoder_" title="Permanent link">&para;</a></h3>
+<p>Both decoder flavours share the same residual-add/LayerNorm cadence; the
+sequential version also has a dynamic-shape testcase.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="p">[</span><span class="s2">&quot;Add:2x8x16 -&gt; LayerNormalization:2x8x16 -&gt; Add:2x8x16 -&gt; LayerNormalization:2x8x16 -&gt; Add:2x8x16 -&gt; LayerNormalization:2x8x16&quot;</span><span class="p">],</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="p">)</span>  <span class="c1"># TransformerDecoderWithSequential (static shapes)</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>    <span class="p">[</span><span class="s2">&quot;Add:BxHx16 -&gt; LayerNormalization:BxHx16 -&gt; Add:BxHx16 -&gt; LayerNormalization:BxHx16 -&gt; Add:BxHx16 -&gt; LayerNormalization:BxHx16&quot;</span><span class="p">],</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    <span class="n">search_functions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;H&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="p">)</span>  <span class="c1"># TransformerDecoderWithSequential (dynamic shapes)</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="n">EG</span><span class="p">(</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>    <span class="p">[</span><span class="s2">&quot;Add:Bx8x16 -&gt; LayerNormalization:Bx8x16 -&gt; Add:Bx8x16 -&gt; LayerNormalization:Bx8x16 -&gt; Add:Bx8x16 -&gt; LayerNormalization:Bx8x16&quot;</span><span class="p">],</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>    <span class="n">symbols</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;B&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">},</span>
+</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>    <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="p">)</span>  <span class="c1"># TransformerDecoderWithoutSequential</span>
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

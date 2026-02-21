@@ -1,0 +1,3477 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/user_guide/onnx_operator_coverage/">
+      
+      
+        <link rel="prev" href="../supported_components/">
+      
+      
+        <link rel="next" href="../examples/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+    
+    
+      
+        <title>ONNX Operator Coverage - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#onnx-operator-coverage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ONNX Operator Coverage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-names-not-in-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Names Not In Index
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-names-not-in-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Names Not In Index
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="onnx-operator-coverage">ONNX Operator Coverage<a class="headerlink" href="#onnx-operator-coverage" title="Permanent link">&para;</a></h1>
+<p>This matrix starts from the official ONNX operator index and shows which operators are referenced in <code>jax2onnx/plugins</code>.</p>
+<ul>
+<li><code>Metadata</code>: at least one <code>onnx__&lt;Op&gt;.html</code> operator link was found in plugin metadata.</li>
+<li><code>Lowering</code>: at least one <code>builder.&lt;Op&gt;(...)</code> call was found in plugin code.</li>
+<li><code>Potential JAX Ops</code>: candidate JAX APIs that naturally map to the ONNX operator.</li>
+<li><code>Suggested Next Step</code>: heuristic recommendation to improve support quality or coverage.</li>
+</ul>
+<p>Regenerate this page with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/generate_onnx_operator_coverage.py
+</span></code></pre></div>
+<!-- AUTOGENERATED ONNX OPERATOR TABLE START -->
+
+<ul>
+<li>Source index: <code>ONNX 1.21.0 documentation</code> (<code>https://onnx.ai/onnx/operators/index.html</code>)</li>
+<li>Operators in index: <code>200</code></li>
+<li>Operators referenced in plugins: <code>155</code></li>
+<li>Coverage: <code>77.5%</code></li>
+<li><code>Potential JAX Ops</code> lists candidate JAX entry points for each operator.</li>
+<li><code>Suggested Next Step</code> is heuristic and should be refined with roadmap priorities.</li>
+<li>Extra plugin names not present in index: <code>1</code></li>
+</ul>
+<div class="onnx-operator-coverage-table">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">ONNX Operator</th>
+<th style="text-align: left;">In Plugins</th>
+<th style="text-align: left;">Metadata</th>
+<th style="text-align: left;">Lowering</th>
+<th style="text-align: left;">Plugin Modules</th>
+<th style="text-align: left;">Potential JAX Ops</th>
+<th style="text-align: left;">Suggested Next Step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Abs.html">Abs</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/abs</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Acos.html">Acos</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/acos</code></td>
+<td style="text-align: left;"><code>jax.lax.acos</code><br><code>jax.numpy.arccos</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Acosh.html">Acosh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/acosh</code></td>
+<td style="text-align: left;"><code>jax.lax.acosh</code><br><code>jax.numpy.arccosh</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Add.html">Add</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/linen/einsum</code><br><code>flax/linen/multi_head_attention</code><br><code>flax/linen/multi_head_dot_product_attention</code><br>... +22</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__AffineGrid.html">AffineGrid</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__And.html">And</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/and</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ArgMax.html">ArgMax</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_arg_utils</code><br><code>jax/lax/argmax</code><br><code>jax/random/categorical</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ArgMin.html">ArgMin</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_arg_utils</code><br><code>jax/lax/argmin</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Asin.html">Asin</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/asin</code></td>
+<td style="text-align: left;"><code>jax.lax.asin</code><br><code>jax.numpy.arcsin</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Asinh.html">Asinh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/asinh</code></td>
+<td style="text-align: left;"><code>jax.lax.asinh</code><br><code>jax.numpy.arcsinh</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Atan.html">Atan</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/atan</code></td>
+<td style="text-align: left;"><code>jax.lax.atan</code><br><code>jax.numpy.arctan</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Atanh.html">Atanh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/atanh</code></td>
+<td style="text-align: left;"><code>jax.lax.atanh</code><br><code>jax.numpy.arctanh</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Attention.html">Attention</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/nnx/dot_product_attention</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__AveragePool.html">AveragePool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/avg_pool</code><br><code>flax/linen/pool</code><br><code>flax/nnx/avg_pool</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BatchNormalization.html">BatchNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/batch_norm</code><br><code>flax/nnx/batch_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Bernoulli.html">Bernoulli</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/bernoulli</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitCast.html">BitCast</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/bitcast_convert_type</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitShift.html">BitShift</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/shift_left</code><br><code>jax/lax/shift_right_logical</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitwiseAnd.html">BitwiseAnd</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/and</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitwiseNot.html">BitwiseNot</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/bitwise_not</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitwiseOr.html">BitwiseOr</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/or</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BitwiseXor.html">BitwiseXor</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/xor</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__BlackmanWindow.html">BlackmanWindow</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Cast.html">Cast</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/nnx/dot_product_attention</code><br><code>flax/nnx/embed</code><br><code>jax/core/dim_as_value</code><br><code>jax/lax/_control_flow_utils</code><br>... +35</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__CastLike.html">CastLike</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_utils</code><br><code>flax/linen/conv</code><br><code>flax/linen/dense_general</code><br><code>flax/nnx/conv</code><br><code>flax/nnx/linear</code><br><code>flax/nnx/linear_general</code><br>... +1</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Ceil.html">Ceil</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/ceil</code></td>
+<td style="text-align: left;"><code>jax.lax.ceil</code><br><code>jax.numpy.ceil</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Celu.html">Celu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/celu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__CenterCropPad.html">CenterCropPad</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Clip.html">Clip</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/clip</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Col2Im.html">Col2Im</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Compress.html">Compress</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/compress</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Concat.html">Concat</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_axis0_utils</code><br><code>_complex_utils</code><br><code>equinox/eqx/nn/linear</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>flax/linen/dense</code><br>... +19</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ConcatFromSequence.html">ConcatFromSequence</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Constant.html">Constant</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/dropout</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html">ConstantOfShape</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/eye</code><br><code>jax/numpy/full</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Conv.html">Conv</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/conv</code><br><code>flax/linen/conv</code><br><code>flax/linen/conv_local</code><br><code>flax/linen/recurrent</code><br><code>flax/nnx/conv</code><br><code>jax/lax/conv</code><br>... +1</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ConvInteger.html">ConvInteger</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ConvTranspose.html">ConvTranspose</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/conv_transpose</code><br><code>jax/lax/conv</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Cos.html">Cos</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cos</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Cosh.html">Cosh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cosh</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__CumProd.html">CumProd</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cumprod</code><br><code>jax/numpy/cumprod</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__CumSum.html">CumSum</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cumsum</code><br><code>jax/numpy/cumsum</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__DFT.html">DFT</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/fft</code><br><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__DeformConv.html">DeformConv</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__DepthToSpace.html">DepthToSpace</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>dm_pix/depth_to_space</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__DequantizeLinear.html">DequantizeLinear</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Det.html">Det</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/linalg_det</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Div.html">Div</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/linen/spectral_norm</code><br><code>flax/linen/weight_norm</code><br><code>flax/nnx/rms_norm</code><br><code>jax/lax/div</code><br>... +3</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Dropout.html">Dropout</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/dropout</code><br><code>flax/linen/dropout</code><br><code>flax/nnx/dot_product_attention</code><br><code>flax/nnx/dropout</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__DynamicQuantizeLinear.html">DynamicQuantizeLinear</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Einsum.html">Einsum</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/einsum</code><br><code>flax/nnx/einsum</code><br><code>jax/lax/dot_general</code><br><code>jax/numpy/einsum</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Elu.html">Elu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/elu</code><br><code>jax/nn/elu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Equal.html">Equal</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/eq</code><br><code>jax/lax/ne</code><br><code>jax/lax/select_n</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Erf.html">Erf</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/erf</code><br><code>jax/lax/erfc</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Exp.html">Exp</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cosh</code><br><code>jax/lax/exp</code><br><code>jax/lax/expm1</code><br><code>jax/lax/sinh</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Expand.html">Expand</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_axis0_utils</code><br><code>jax/lax/broadcast_in_dim</code><br><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/gather</code><br><code>jax/lax/iota</code><br><code>jax/lax/scan</code><br>... +3</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__EyeLike.html">EyeLike</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/eye</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Flatten.html">Flatten</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/reshape</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Floor.html">Floor</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/floor</code><br><code>jax/random/random_bits</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GRU.html">GRU</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Gather.html">Gather</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/embed</code><br><code>flax/nnx/conv</code><br><code>flax/nnx/embed</code><br><code>jax/core/dim_as_value</code><br>... +13</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GatherElements.html">GatherElements</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/sort</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GatherND.html">GatherND</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/gather</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Gelu.html">Gelu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/gelu</code><br><code>jax/nn/gelu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Gemm.html">Gemm</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/linear</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/conv_local</code><br><code>flax/linen/dense</code><br><code>flax/linen/dense_general</code><br><code>flax/linen/multi_head_attention</code><br>... +6</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GlobalAveragePool.html">GlobalAveragePool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/avg_pool</code><br><code>flax/nnx/avg_pool</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GlobalLpPool.html">GlobalLpPool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/linalg_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GlobalMaxPool.html">GlobalMaxPool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/max_pool</code><br><code>flax/nnx/max_pool</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Greater.html">Greater</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/gt</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GreaterOrEqual.html">GreaterOrEqual</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/ge</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GridSample.html">GridSample</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__GroupNormalization.html">GroupNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/group_norm</code><br><code>flax/linen/instance_norm</code><br><code>flax/nnx/group_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__HammingWindow.html">HammingWindow</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__HannWindow.html">HannWindow</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__HardSigmoid.html">HardSigmoid</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/hard_sigmoid</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__HardSwish.html">HardSwish</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/hard_swish</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Hardmax.html">Hardmax</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/hardmax</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Identity.html">Identity</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/identity</code><br><code>equinox/eqx/nn/rms_norm</code><br><code>jax/core/name</code><br><code>jax/lax/_control_flow_utils</code><br><code>jax/lax/broadcast_in_dim</code><br><code>jax/lax/cond</code><br>... +19</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__If.html">If</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cond</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ImageDecoder.html">ImageDecoder</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__InstanceNormalization.html">InstanceNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/instance_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__IsInf.html">IsInf</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/is_finite</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__IsNaN.html">IsNaN</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/is_finite</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LRN.html">LRN</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LSTM.html">LSTM</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LayerNormalization.html">LayerNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/layer_norm</code><br><code>flax/linen/layer_norm</code><br><code>flax/nnx/layer_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LeakyRelu.html">LeakyRelu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/leaky_relu</code><br><code>jax/nn/leaky_relu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Less.html">Less</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention</code><br><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/lt</code><br><code>jax/numpy/unique</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LessOrEqual.html">LessOrEqual</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/le</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Log.html">Log</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/log</code><br><code>jax/lax/log1p</code><br><code>jax/random/categorical</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LogSoftmax.html">LogSoftmax</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/log_softmax</code><br><code>jax/nn/log_softmax</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Loop.html">Loop</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code><br><code>jax/lax/_control_flow_utils</code><br><code>jax/lax/fori_loop</code><br><code>jax/lax/scan</code><br><code>jax/lax/while_loop</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LpNormalization.html">LpNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/div</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__LpPool.html">LpPool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/reduce_window_sum</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MatMul.html">MatMul</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/linen/multi_head_attention</code><br><code>flax/linen/multi_head_dot_product_attention</code><br><code>flax/linen/self_attention</code><br><code>flax/linen/spectral_norm</code><br>... +4</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MatMulInteger.html">MatMulInteger</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Max.html">Max</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/clamp</code><br><code>jax/lax/max</code><br><code>jax/numpy/clip</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MaxPool.html">MaxPool</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/max_pool</code><br><code>flax/linen/min_pool</code><br><code>flax/linen/pool</code><br><code>flax/nnx/max_pool</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MaxRoiPool.html">MaxRoiPool</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Common model op; prioritize based on user demand and add regression tests.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MaxUnpool.html">MaxUnpool</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Mean.html">Mean</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/div</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MeanVarianceNormalization.html">MeanVarianceNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/standardize</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__MelWeightMatrix.html">MelWeightMatrix</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Min.html">Min</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/clamp</code><br><code>jax/lax/min</code><br><code>jax/numpy/clip</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Mish.html">Mish</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/mish</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Mod.html">Mod</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_xor</code><br><code>jax/lax/rem</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Mul.html">Mul</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>equinox/eqx/nn/rms_norm</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/linen/multi_head_attention</code><br>... +20</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Multinomial.html">Multinomial</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/categorical</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Neg.html">Neg</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>flax/linen/min_pool</code><br><code>flax/linen/pool</code><br><code>jax/lax/cosh</code><br><code>jax/lax/neg</code><br>... +2</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__NegativeLogLikelihoodLoss.html">NegativeLogLikelihoodLoss</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__NonMaxSuppression.html">NonMaxSuppression</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__NonZero.html">NonZero</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/scatter</code><br><code>jax/lax/scatter_utils</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Not.html">Not</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/dropout</code><br><code>flax/nnx/dot_product_attention</code><br><code>flax/nnx/dropout</code><br><code>jax/lax/bitwise_not</code><br><code>jax/lax/is_finite</code><br><code>jax/lax/ne</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__OneHot.html">OneHot</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/one_hot</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Optional.html">Optional</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__OptionalGetElement.html">OptionalGetElement</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__OptionalHasElement.html">OptionalHasElement</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Or.html">Or</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/is_finite</code><br><code>jax/lax/or</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__PRelu.html">PRelu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/prelu</code><br><code>flax/nnx/prelu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Pad.html">Pad</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_axis0_utils</code><br><code>jax/lax/pad</code><br><code>jax/lax/reduce_window_sum</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Pow.html">Pow</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>flax/nnx/rms_norm</code><br><code>jax/lax/exp2</code><br><code>jax/lax/integer_pow</code><br><code>jax/lax/pow</code><br><code>jax/numpy/pow</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__QLinearConv.html">QLinearConv</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__QLinearMatMul.html">QLinearMatMul</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html">QuantizeLinear</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Decide quantization scope, then add lowerings/tests or mark as not planned.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RMSNormalization.html">RMSNormalization</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>flax/linen/rms_norm</code><br><code>flax/nnx/rms_norm</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RNN.html">RNN</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RandomNormal.html">RandomNormal</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/normal</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RandomNormalLike.html">RandomNormalLike</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/normal</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RandomUniform.html">RandomUniform</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/random_bits</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RandomUniformLike.html">RandomUniformLike</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/random/categorical</code><br><code>jax/random/random_bits</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Range.html">Range</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/gather</code><br><code>jax/lax/iota</code><br><code>jax/lax/rev</code><br><code>jax/numpy/arange</code><br><code>jax/numpy/linspace</code><br>... +1</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Reciprocal.html">Reciprocal</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/integer_pow</code></td>
+<td style="text-align: left;"><code>jax.numpy.reciprocal</code><br><code>jax.lax.integer_pow(x, -1)</code><br><code>1.0 / x</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceL1.html">ReduceL1</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_sum</code></td>
+<td style="text-align: left;"><code>jax.numpy.linalg.norm(ord=1)</code><br><code>jax.numpy.sum(jax.numpy.abs(x), axis=...)</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceL2.html">ReduceL2</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/sqrt</code></td>
+<td style="text-align: left;"><code>jax.numpy.linalg.norm(ord=2)</code><br><code>jax.numpy.sqrt(jax.numpy.sum(x * x, axis=...))</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceLogSum.html">ReduceLogSum</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/log</code></td>
+<td style="text-align: left;"><code>jax.numpy.log(jax.numpy.sum(x, axis=...))</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceLogSumExp.html">ReduceLogSumExp</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/log</code><br><code>jax/nn/logsumexp</code></td>
+<td style="text-align: left;"><code>jax.nn.logsumexp</code><br><code>jax.scipy.special.logsumexp</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceMax.html">ReduceMax</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_max</code><br><code>jax/lax/reduce_or</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceMean.html">ReduceMean</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>flax/nnx/rms_norm</code><br><code>jax/numpy/mean</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceMin.html">ReduceMin</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_and</code><br><code>jax/lax/reduce_min</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceProd.html">ReduceProd</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/conv</code><br><code>jax/lax/_reduce_utils</code><br><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/reduce_prod</code><br><code>jax/numpy/prod</code><br><code>jax/numpy/size</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceSum.html">ReduceSum</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention</code><br><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_sum</code><br><code>jax/lax/reduce_xor</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReduceSumSquare.html">ReduceSumSquare</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/_reduce_utils</code><br><code>jax/lax/reduce_sum</code></td>
+<td style="text-align: left;"><code>jax.numpy.sum(jax.numpy.square(x), axis=...)</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RegexFullMatch.html">RegexFullMatch</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Relu.html">Relu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/relu</code><br><code>jax/nn/relu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Reshape.html">Reshape</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/linear</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/conv</code><br><code>flax/linen/conv_local</code><br><code>flax/linen/dense</code><br><code>flax/linen/dense_general</code><br>... +19</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Resize.html">Resize</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/image/resize</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ReverseSequence.html">ReverseSequence</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RoiAlign.html">RoiAlign</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__RotaryEmbedding.html">RotaryEmbedding</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rotary_positional_embedding</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Round.html">Round</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/round</code></td>
+<td style="text-align: left;"><code>jax.lax.round</code><br><code>jax.numpy.round</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__STFT.html">STFT</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Scan.html">Scan</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Scatter.html">Scatter</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/scatter</code><br><code>jax/lax/scatter_utils</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ScatterElements.html">ScatterElements</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/scatter</code><br><code>jax/lax/scatter_utils</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ScatterND.html">ScatterND</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/scatter</code><br><code>jax/lax/scatter_add</code><br><code>jax/lax/scatter_max</code><br><code>jax/lax/scatter_min</code><br><code>jax/lax/scatter_mul</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Selu.html">Selu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/selu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceAt.html">SequenceAt</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceConstruct.html">SequenceConstruct</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceEmpty.html">SequenceEmpty</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceErase.html">SequenceErase</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceInsert.html">SequenceInsert</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceLength.html">SequenceLength</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SequenceMap.html">SequenceMap</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Shape.html">Shape</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_axis0_utils</code><br><code>equinox/eqx/nn/linear</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/dense</code><br><code>flax/linen/dense_general</code><br><code>flax/nnx/conv</code><br>... +11</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Shrink.html">Shrink</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sigmoid.html">Sigmoid</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code><br><code>flax/nnx/sigmoid</code><br><code>jax/lax/logistic</code><br><code>jax/nn/sigmoid</code><br><code>jax/nn/silu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sign.html">Sign</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/sign</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sin.html">Sin</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/cos</code><br><code>jax/lax/sin</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sinh.html">Sinh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/sinh</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Size.html">Size</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/size</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Slice.html">Slice</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_axis0_utils</code><br><code>equinox/eqx/nn/linear</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/conv_transpose</code><br><code>flax/linen/dense</code><br><code>flax/linen/dense_general</code><br>... +8</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Softmax.html">Softmax</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/dot_product_attention</code><br><code>flax/linen/multi_head_attention</code><br><code>flax/linen/multi_head_dot_product_attention</code><br><code>flax/linen/self_attention</code><br><code>flax/nnx/dot_product_attention</code><br>... +4</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SoftmaxCrossEntropyLoss.html">SoftmaxCrossEntropyLoss</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Softplus.html">Softplus</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/nnx/softplus</code><br><code>jax/nn/softplus</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Softsign.html">Softsign</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/softsign</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SpaceToDepth.html">SpaceToDepth</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>dm_pix/space_to_depth</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Split.html">Split</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>jax/lax/split</code><br><code>jax/numpy/split</code><br><code>jax/numpy/unstack</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__SplitToSequence.html">SplitToSequence</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Evaluate demand and either implement plugin support or document non-goal.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sqrt.html">Sqrt</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>equinox/eqx/nn/rms_norm</code><br><code>flax/nnx/rms_norm</code><br><code>jax/lax/rsqrt</code><br><code>jax/lax/sqrt</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Squeeze.html">Squeeze</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>dm_pix/depth_to_space</code><br><code>dm_pix/space_to_depth</code><br><code>equinox/eqx/nn/conv</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>jax/lax/reduce_window_sum</code><br><code>jax/lax/squeeze</code><br>... +5</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__StringConcat.html">StringConcat</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__StringNormalizer.html">StringNormalizer</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__StringSplit.html">StringSplit</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">If in scope, add container plugins; else mark explicitly out-of-scope.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sub.html">Sub</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/conv</code><br><code>jax/lax/dot_general</code><br><code>jax/lax/erfc</code><br><code>jax/lax/expm1</code><br><code>jax/lax/rem</code><br><code>jax/lax/rev</code><br>... +5</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Sum.html">Sum</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/add_any</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Swish.html">Swish</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/silu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Tan.html">Tan</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/tan</code></td>
+<td style="text-align: left;"><code>jax.lax.tan</code><br><code>jax.numpy.tan</code></td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Tanh.html">Tanh</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code><br><code>flax/nnx/tanh</code><br><code>jax/lax/tanh</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__TensorScatter.html">TensorScatter</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/dynamic_update_slice</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__TfIdfVectorizer.html">TfIdfVectorizer</a></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">No clear direct primitive; likely composite JAX expression.</td>
+<td style="text-align: left;">Add only when demanded by target models; document priority.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__ThresholdedRelu.html">ThresholdedRelu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/nn/thresholded_relu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Tile.html">Tile</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/tile</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__TopK.html">TopK</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/sort</code><br><code>jax/lax/top_k</code><br><code>jax/numpy/sort</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Transpose.html">Transpose</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>dm_pix/depth_to_space</code><br><code>dm_pix/space_to_depth</code><br><code>equinox/eqx/nn/multihead_attention</code><br><code>flax/linen/avg_pool</code><br><code>flax/linen/conv</code><br><code>flax/linen/conv_local</code><br>... +22</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Trilu.html">Trilu</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/trilu</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Unique.html">Unique</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/numpy/unique</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Unsqueeze.html">Unsqueeze</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code><br><code>dm_pix/depth_to_space</code><br><code>dm_pix/space_to_depth</code><br><code>equinox/eqx/nn/conv</code><br><code>equinox/eqx/nn/rotary_positional_embedding</code><br><code>flax/nnx/conv</code><br>... +11</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Upsample.html">Upsample</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/image/resize</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Where.html">Where</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention</code><br><code>flax/nnx/dot_product_attention</code><br><code>jax/lax/dynamic_update_slice</code><br><code>jax/lax/select</code><br><code>jax/lax/select_n</code><br><code>jax/nn/dot_product_attention</code><br>... +4</td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="https://onnx.ai/onnx/operators/onnx__Xor.html">Xor</a></td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>jax/lax/xor</code></td>
+<td style="text-align: left;">Covered via existing plugin primitives.</td>
+<td style="text-align: left;">Keep covered; broaden tests (dynamic shapes/dtypes/opset) and sync metadata.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- AUTOGENERATED ONNX OPERATOR TABLE END -->
+
+<h2 id="plugin-names-not-in-index">Plugin Names Not In Index<a class="headerlink" href="#plugin-names-not-in-index" title="Permanent link">&para;</a></h2>
+<p>This section lists operator-like names found in plugins that do not appear in the ONNX index page.</p>
+<!-- AUTOGENERATED ONNX OPERATOR EXTRA START -->
+
+<div class="onnx-operator-extra-table">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name Found in Plugins</th>
+<th style="text-align: left;">Metadata</th>
+<th style="text-align: left;">Lowering</th>
+<th style="text-align: left;">Plugin Modules</th>
+<th style="text-align: left;">Potential JAX Ops</th>
+<th style="text-align: left;">Suggested Next Step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>Complex</code></td>
+<td style="text-align: left;">➖</td>
+<td style="text-align: left;">✅</td>
+<td style="text-align: left;"><code>_complex_utils</code></td>
+<td style="text-align: left;"><code>jax.lax.complex</code><br><code>jax.numpy.asarray(..., dtype=complex64/128)</code></td>
+<td style="text-align: left;">Internal helper op composition; keep as helper, not as ONNX coverage target.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- AUTOGENERATED ONNX OPERATOR EXTRA END -->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
