@@ -1602,7 +1602,7 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
-    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
     {version = ">=1.23.3", markers = "python_version >= \"3.11\""},
 ]
 
@@ -1778,13 +1778,13 @@ files = [
 
 [[package]]
 name = "netron"
-version = "8.9.0"
+version = "8.9.1"
 description = "Viewer for neural network, deep learning and machine learning models."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "netron-8.9.0-py3-none-any.whl", hash = "sha256:79bc02b0f07b0b7362f5cb704fbd29562350a51d5ca7442ceb4c65727a5f1ffc"},
+    {file = "netron-8.9.1-py3-none-any.whl", hash = "sha256:5016c5499c25a74b321ea5676dc02581707beff899e295d04ec9033ac01050ec"},
 ]
 
 [[package]]
@@ -2364,7 +2364,7 @@ files = [
 [package.dependencies]
 typing-extensions = [
     {version = ">=4.12.0", markers = "python_version >= \"3.13\""},
-    {version = ">=4.6.0"},
+    {version = ">=4.6.0", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
