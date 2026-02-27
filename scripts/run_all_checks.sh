@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 RUN_MAXTEXT="${JAX2ONNX_RUN_MAXTEXT:-0}"
+RUN_MAXTEXT_ACTIVE=0
 
 cd "${REPO_ROOT}"
 
@@ -14,6 +15,18 @@ poetry run pre-commit run --all-files
 step=$((step + 1))
 
 if [[ "${RUN_MAXTEXT}" == "1" ]]; then
+  PYTHON_MM="$(poetry run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  PYTHON_MINOR="$(poetry run python -c 'import sys; print(sys.version_info.minor)')"
+  if (( PYTHON_MINOR < 12 )); then
+    echo "[${step}] Skipping MaxText SotA checks on Python ${PYTHON_MM} (requires >= 3.12)."
+    unset JAX2ONNX_MAXTEXT_SRC || true
+    unset JAX2ONNX_MAXTEXT_MODELS || true
+  else
+    RUN_MAXTEXT_ACTIVE=1
+  fi
+fi
+
+if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   MAXTEXT_SRC="${JAX2ONNX_MAXTEXT_SRC:-${REPO_ROOT}/tmp/maxtext}"
   MAXTEXT_MODELS="${JAX2ONNX_MAXTEXT_MODELS:-all}"
   export JAX2ONNX_MAXTEXT_SRC="${MAXTEXT_SRC}"
@@ -33,7 +46,7 @@ echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
 step=$((step + 1))
 
-if [[ "${RUN_MAXTEXT}" == "1" ]]; then
+if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   echo "[${step}] Running MaxText SotA tests..."
   poetry run pytest -q tests/examples/test_maxtext.py
   step=$((step + 1))

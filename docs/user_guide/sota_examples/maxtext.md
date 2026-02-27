@@ -69,6 +69,8 @@ By default, `run_all_checks.sh` does not run MaxText checks. With
 `JAX2ONNX_RUN_MAXTEXT=1`, it prepares `JAX2ONNX_MAXTEXT_SRC` (default:
 `tmp/maxtext`), installs `--with maxtext`, regenerates tests, runs
 `tests/examples/test_maxtext.py`, then executes the full pytest suite.
+On Python 3.11, the script automatically skips the MaxText block and continues
+with the regular checks.
 
 This will:
 1.  Dynamically discover MaxText configs.

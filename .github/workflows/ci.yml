@@ -43,11 +43,11 @@ jobs:
         poetry run pip install pytest-xdist
 
     - name: Run full checks (with MaxText)
-      if: matrix.python-version == '3.11'
+      if: matrix.python-version == '3.12'
       env:
         JAX2ONNX_RUN_MAXTEXT: "1"
       run: ./scripts/run_all_checks.sh
 
     - name: Run full checks
-      if: matrix.python-version != '3.11'
+      if: matrix.python-version != '3.12'
       run: ./scripts/run_all_checks.sh
