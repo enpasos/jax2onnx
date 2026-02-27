@@ -474,13 +474,39 @@ def make_test_function(tp: dict[str, Any]):
             "_enable_double_precision_test_setting", False
         )
         callable_factory = tp.get("callable_factory")
+
+        # Emulate `to_onnx` float64 context manager so that implicit JAX initializations happen
+        # in the correct float mode before being traced.
+        def _instantiate_with_x64_config(obj):
+            if not hasattr(obj, "instantiate"):
+                return obj
+            read_config = jax.config.read if hasattr(jax.config, "read") else None
+            if callable(read_config):
+                previous = bool(read_config("jax_enable_x64"))
+            else:
+                previous = (
+                    bool(jax.config.jax_enable_x64)
+                    if hasattr(jax.config, "jax_enable_x64")
+                    else False
+                )
+            target = bool(current_enable_double_precision)
+            if previous != target:
+                jax.config.update("jax_enable_x64", target)
+            try:
+                return obj.instantiate()
+            finally:
+                if previous != target:
+                    jax.config.update("jax_enable_x64", previous)
+
         if callable_factory is not None:
             desired_dtype = (
                 jnp.float64 if current_enable_double_precision else jnp.float32
             )
             callable_obj = callable_factory(desired_dtype)
+            callable_obj = _instantiate_with_x64_config(callable_obj)
         else:
             callable_obj = tp["callable"]
+            callable_obj = _instantiate_with_x64_config(callable_obj)
 
         input_values_from_testcase = tp.get("input_values")
         input_shapes_from_testcase = tp.get("input_shapes")

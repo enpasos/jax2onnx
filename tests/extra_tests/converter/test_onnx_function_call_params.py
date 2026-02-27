@@ -30,7 +30,7 @@ def test_onnx_function_consumes_call_time_param():
         FunctionDropout,
         rate=0.25,
         rngs=with_rng_seed(0),
-    )
+    ).instantiate()
 
     model = to_onnx(
         fn=fn,

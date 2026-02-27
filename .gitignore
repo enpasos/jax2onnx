@@ -18,3 +18,4 @@ jax2onnx.log
 *.onnx.data
 /jax2onnx.iml  
 site
+.jax_cache
