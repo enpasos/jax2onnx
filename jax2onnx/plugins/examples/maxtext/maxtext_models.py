@@ -1567,6 +1567,8 @@ def _register_examples(configs: Iterable[Path]) -> None:
         "gpt-oss",
         "llama4",
         "quant",
+        # deepseek-custom enables Engram and requires external HF credentials.
+        "deepseek-custom",
     ]
 
     for config_path in configs:
