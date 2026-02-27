@@ -29,14 +29,31 @@ fi
 if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   MAXTEXT_SRC="${JAX2ONNX_MAXTEXT_SRC:-${REPO_ROOT}/tmp/maxtext}"
   MAXTEXT_MODELS="${JAX2ONNX_MAXTEXT_MODELS:-all}"
+  MAXTEXT_REF="${JAX2ONNX_MAXTEXT_REF:-17d805e3488104b5de96bd19be09491ff73c57c1}"
   export JAX2ONNX_MAXTEXT_SRC="${MAXTEXT_SRC}"
   export JAX2ONNX_MAXTEXT_MODELS="${MAXTEXT_MODELS}"
+  export JAX2ONNX_MAXTEXT_REF="${MAXTEXT_REF}"
 
   echo "[${step}] Preparing MaxText SotA checks..."
   if [[ ! -d "${MAXTEXT_SRC}" ]]; then
     mkdir -p "$(dirname "${MAXTEXT_SRC}")"
-    git clone https://github.com/AI-Hypercomputer/maxtext.git "${MAXTEXT_SRC}"
+    git clone --depth 1 https://github.com/AI-Hypercomputer/maxtext.git "${MAXTEXT_SRC}"
+  else
+    echo "Using existing MaxText checkout at ${MAXTEXT_SRC}. Target ref: ${MAXTEXT_REF}."
   fi
+  if [[ ! -d "${MAXTEXT_SRC}/.git" ]]; then
+    echo "Error: ${MAXTEXT_SRC} exists but is not a git checkout." >&2
+    exit 1
+  fi
+  if git -C "${MAXTEXT_SRC}" fetch --depth 1 origin "${MAXTEXT_REF}"; then
+    git -C "${MAXTEXT_SRC}" checkout --detach FETCH_HEAD
+  else
+    echo "Direct fetch for '${MAXTEXT_REF}' failed; retrying with full history..."
+    git -C "${MAXTEXT_SRC}" fetch --tags origin
+    git -C "${MAXTEXT_SRC}" fetch --unshallow origin || true
+    git -C "${MAXTEXT_SRC}" checkout --detach "${MAXTEXT_REF}"
+  fi
+  echo "MaxText checkout: $(git -C "${MAXTEXT_SRC}" rev-parse --short HEAD)"
 
   poetry install --with maxtext
   step=$((step + 1))

@@ -13,7 +13,7 @@ import shutil
 import sys
 import types
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 
 import jax
 import jax.numpy as jnp
@@ -189,6 +189,25 @@ def _prefer_explicit_maxtext_src_on_syspath() -> None:
             continue
         if not _module_origin_is_within(module_obj, MAXTEXT_SRC_PATH):
             del sys.modules[module_name]
+
+
+def _import_first_available(
+    candidates: Iterable[tuple[str, str | None]],
+) -> object:
+    """Import the first working module/attribute from ordered candidates."""
+    last_exc: Exception | None = None
+    for module_name, attr_name in candidates:
+        try:
+            module = importlib.import_module(module_name)
+            if attr_name is None:
+                return module
+            return getattr(module, attr_name)
+        except Exception as exc:  # pragma: no cover - environment dependent
+            last_exc = exc
+            continue
+    if last_exc is not None:
+        raise last_exc
+    raise ImportError("No import candidates were provided.")
 
 
 MODEL_OVERRIDES: dict[str, object] = {
@@ -1123,9 +1142,38 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         _ensure_qwix_stub()
         _ensure_aqt_stub()
         _ensure_tokamax_stub()
-        from MaxText import pyconfig as _pyconfig
-        from MaxText import model_creation_utils as _model_creation_utils
-        from MaxText.common_types import MODEL_MODE_TRAIN as _MODEL_MODE_TRAIN
+        _pyconfig: types.ModuleType = cast(
+            types.ModuleType,
+            _import_first_available(
+                (
+                    ("MaxText", "pyconfig"),
+                    ("MaxText.pyconfig", None),
+                    ("maxtext.configs", "pyconfig"),
+                    ("maxtext.configs.pyconfig", None),
+                )
+            ),
+        )
+        _model_creation_utils: types.ModuleType = cast(
+            types.ModuleType,
+            _import_first_available(
+                (
+                    ("MaxText", "model_creation_utils"),
+                    ("MaxText.model_creation_utils", None),
+                    ("maxtext.utils", "model_creation_utils"),
+                    ("maxtext.utils.model_creation_utils", None),
+                )
+            ),
+        )
+        _MODEL_MODE_TRAIN: str = cast(
+            str,
+            _import_first_available(
+                (
+                    ("MaxText.common_types", "MODEL_MODE_TRAIN"),
+                    ("maxtext.common.common_types", "MODEL_MODE_TRAIN"),
+                    ("maxtext.common_types", "MODEL_MODE_TRAIN"),
+                )
+            ),
+        )
 
         _embeddings: types.ModuleType | None = None
         try:
