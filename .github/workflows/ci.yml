@@ -50,4 +50,8 @@ jobs:
 
     - name: Run full checks
       if: matrix.python-version != '3.12'
+      env:
+        JAX2ONNX_RUN_MAXTEXT: "0"
+        JAX2ONNX_MAXTEXT_SRC: ""
+        JAX2ONNX_MAXTEXT_MODELS: ""
       run: ./scripts/run_all_checks.sh
