@@ -3,16 +3,43 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+RUN_MAXTEXT="${JAX2ONNX_RUN_MAXTEXT:-0}"
 
 cd "${REPO_ROOT}"
 
-echo "[1/3] Running pre-commit on all files..."
+step=1
+
+echo "[${step}] Running pre-commit on all files..."
 poetry run pre-commit run --all-files
+step=$((step + 1))
 
-echo "[2/3] Generating tests..."
+if [[ "${RUN_MAXTEXT}" == "1" ]]; then
+  MAXTEXT_SRC="${JAX2ONNX_MAXTEXT_SRC:-${REPO_ROOT}/tmp/maxtext}"
+  MAXTEXT_MODELS="${JAX2ONNX_MAXTEXT_MODELS:-all}"
+  export JAX2ONNX_MAXTEXT_SRC="${MAXTEXT_SRC}"
+  export JAX2ONNX_MAXTEXT_MODELS="${MAXTEXT_MODELS}"
+
+  echo "[${step}] Preparing MaxText SotA checks..."
+  if [[ ! -d "${MAXTEXT_SRC}" ]]; then
+    mkdir -p "$(dirname "${MAXTEXT_SRC}")"
+    git clone https://github.com/AI-Hypercomputer/maxtext.git "${MAXTEXT_SRC}"
+  fi
+
+  poetry install --with maxtext
+  step=$((step + 1))
+fi
+
+echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
+step=$((step + 1))
 
-echo "[3/3] Running pytest..."
+if [[ "${RUN_MAXTEXT}" == "1" ]]; then
+  echo "[${step}] Running MaxText SotA tests..."
+  poetry run pytest -q tests/examples/test_maxtext.py
+  step=$((step + 1))
+fi
+
+echo "[${step}] Running pytest..."
 if poetry run python -c "import xdist" >/dev/null 2>&1; then
   echo "Using pytest-xdist: -n auto --dist=loadscope"
   poetry run pytest -n auto --dist=loadscope

@@ -58,6 +58,18 @@ poetry run pytest -q tests/examples/test_maxtext.py
 
 ONNX outputs land in `docs/onnx/examples/maxtext`.
 
+You can also include the same MaxText SotA checks in the standard repository
+runner:
+
+```bash
+JAX2ONNX_RUN_MAXTEXT=1 ./scripts/run_all_checks.sh
+```
+
+By default, `run_all_checks.sh` does not run MaxText checks. With
+`JAX2ONNX_RUN_MAXTEXT=1`, it prepares `JAX2ONNX_MAXTEXT_SRC` (default:
+`tmp/maxtext`), installs `--with maxtext`, regenerates tests, runs
+`tests/examples/test_maxtext.py`, then executes the full pytest suite.
+
 This will:
 1.  Dynamically discover MaxText configs.
 2.  Instantiate the models with minimal inference settings (batch_size=1, seq_len=32).

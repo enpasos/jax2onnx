@@ -136,10 +136,7 @@ Notes:
 ## 4. Flax/NNX routing parity harness
 
 The parity harness from PR #217 verifies that the staged Flax/NNX model makes
-identical expert choices to the PyTorch reference. There is an optional slow
-smoke test in `tests/extra_tests/test_flax_routing_parity.py` that runs the
-harness with `--max-layers 4 --max-tokens 2` on CPU whenever checkpoints are
-present.
+identical expert choices to the PyTorch reference.
 
 To run the harness manually (e.g. with longer prompts or more layers):
 
@@ -271,17 +268,3 @@ poetry run python scripts/export_eqx_gpt_oss_example_with_mapped_weights.py \
 - `--save-eqx` keeps the mapped Equinox parameters around for future exports.
 - Pass a higher `--seq-len` (e.g. 512) once the 256-token run succeeds; longer
   sequences raise memory pressure while tracing the attention blocks.
-
-## 6. (Legacy) Validate Equinox parity (optional)
-
-Numerical comparisons between the PyTorch and ONNX/JAX paths are covered by the
-regression tests in `tests/extra_tests/test_eqx_gpt_oss_parity.py`. When the
-optional dependencies above are installed, this test asserts the Equinox model
-tracks the PyTorch reference to within a small tolerance (absolute differences
-stay below `~1e0` when working in bfloat16).
-
-Run a focused check with:
-
-```bash
-poetry run pytest -q tests/extra_tests/test_eqx_gpt_oss_parity.py
-```

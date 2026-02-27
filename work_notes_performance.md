@@ -62,3 +62,34 @@ To systematically improve the performance from this baseline, we will:
   - Run 2: `564.28s` (0:09:24)
 - Conclusion: Persistent JAX compilation cache is not the dominant performance lever in this setup.
 - Action: Removed the explicit compilation-cache wiring from `tests/conftest.py` to reduce test-environment complexity.
+
+## Update (2026-02-27): Real Performance Gain via xdist
+- Switched test execution to parallel workers (`pytest-xdist`) using:
+  ```bash
+  poetry run pytest -n auto --dist=loadscope
+  ```
+- Result:
+  - `2292 passed, 3 skipped, 2 xfailed, 14682 warnings in 210.69s (0:03:30)`
+- Compared to the prior serial baseline (`561.62s`), this is a ~`2.67x` speedup and currently the strongest verified improvement.
+
+## Workflow / CI Alignment
+- Added local helper script:
+  ```bash
+  ./scripts/run_all_checks.sh
+  ```
+  which runs:
+  1. `poetry run pre-commit run --all-files`
+  2. `poetry run python scripts/generate_tests.py`
+  3. `poetry run pytest -n auto --dist=loadscope` (falls back to serial pytest if `xdist` is missing)
+- Updated CI workflow to call the same script and ensure `pytest-xdist` is installed.
+- Updated docs so contributor instructions include:
+  - `./scripts/run_all_checks.sh`
+  - `poetry run python scripts/generate_readme.py` (which now also runs `scripts/generate_tests.py`)
+
+## Current Non-Pass Status (Expected)
+- `3 skipped`:
+  - `test_eqx_gpt_oss_parity.py`: optional `gpt_oss` dependency missing.
+  - `test_flax_routing_parity.py`: parity checkout/script and/or checkpoints unavailable.
+  - `test_initializer_shape_guard.py`: guard intentionally disabled (`tests/_initializer_guard.py`).
+- `2 xfailed`:
+  - `tests/extra_tests/loop/test_loop_scatter_payload_regression.py` known issue #52 regression checks (`scatter` loop extent handling).

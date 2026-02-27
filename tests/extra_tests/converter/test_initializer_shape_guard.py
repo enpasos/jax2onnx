@@ -4,12 +4,8 @@
 
 from __future__ import annotations
 
-import pytest
-
-from tests._initializer_guard import GUARD_ENABLED, run_metadata_sweep
+from tests._initializer_guard import run_metadata_sweep
 
 
 def test_initializers_do_not_flow_through_shape_only_ops():
-    if not GUARD_ENABLED:
-        pytest.skip("initializer guard disabled (see tests/_initializer_guard.py)")
     run_metadata_sweep()

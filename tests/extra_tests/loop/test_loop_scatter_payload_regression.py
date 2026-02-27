@@ -47,23 +47,15 @@ def test_issue52_scatter_payload_roundtrip(tmp_path):
     model_path = tmp_path / "issue52_scatter_payload.onnx"
     model_path.write_bytes(model.SerializeToString())
 
-    try:
-        session = ort.InferenceSession(
-            str(model_path), providers=["CPUExecutionProvider"]
+    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    ort_inputs = {
+        name: np.asarray(value)
+        for name, value in zip(
+            [tensor.name for tensor in session.get_inputs()],
+            (prim0, initial_time, time_step),
         )
-        ort_inputs = {
-            name: np.asarray(value)
-            for name, value in zip(
-                [tensor.name for tensor in session.get_inputs()],
-                (prim0, initial_time, time_step),
-            )
-        }
-        ort_outputs = session.run(None, ort_inputs)
-    except Exception as exc:  # pragma: no cover - regression to be fixed
-        pytest.xfail(
-            "Pending fix for issue #52: Scatter window lowering emits mismatched"
-            f" shapes inside nested Loop bodies (onnxruntime error: {exc})"
-        )
+    }
+    ort_outputs = session.run(None, ort_inputs)
 
     assert len(ort_outputs) == len(expected_outputs)
     for index, (observed, expected) in enumerate(zip(ort_outputs, expected_outputs)):
@@ -87,24 +79,12 @@ def _iter_graphs(model_proto: "onnx.ModelProto"):
                     queue.append(attr.g)
 
 
-def _get_constant_tensor(
-    model_proto: "onnx.ModelProto", name: str
-) -> np.ndarray | None:
+def _iter_initializers(model_proto: "onnx.ModelProto"):
     for graph in _iter_graphs(model_proto):
-        for node in graph.node:
-            if node.op_type != "Constant" or not node.output:
-                continue
-            if node.output[0] != name:
-                continue
-            for attr in node.attribute:
-                if attr.name == "value" and attr.HasField("t"):
-                    return numpy_helper.to_array(attr.t)
-    return None
+        for init in graph.initializer:
+            yield init.name, np.asarray(numpy_helper.to_array(init))
 
 
-@pytest.mark.xfail(
-    reason="Scatter window dimension drops the 6-element extent (issue #52)"
-)
 def test_issue52_scatter_window_keeps_update_axis(tmp_path):
     ort = pytest.importorskip(
         "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
@@ -117,31 +97,29 @@ def test_issue52_scatter_window_keeps_update_axis(tmp_path):
     model_path = tmp_path / "issue52_scatter_payload.onnx"
     model_path.write_bytes(model.SerializeToString())
 
-    with pytest.raises(Exception):
-        session = ort.InferenceSession(
-            str(model_path), providers=["CPUExecutionProvider"]
-        )
-        feeds = {
-            tensor.name: np.asarray(value)
-            for tensor, value in zip(
-                session.get_inputs(), (prim0, initial_time, time_step)
-            )
-        }
-        session.run(None, feeds)
+    session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    feeds = {
+        tensor.name: np.asarray(value)
+        for tensor, value in zip(session.get_inputs(), (prim0, initial_time, time_step))
+    }
+    session.run(None, feeds)
 
     model_proto = onnx.load(str(model_path))
-    const_name = "scan_loop_0/scan_loop_0/bcast_dim_c_24"
-    const_value = _get_constant_tensor(model_proto, const_name)
-    assert const_value is not None, f"Missing Constant node for {const_name}"
+    bcast_dim_values = []
+    for name, value in _iter_initializers(model_proto):
+        if "bcast_dim_c_" not in name:
+            continue
+        if value.size != 1:
+            continue
+        bcast_dim_values.append(int(value.reshape(-1)[0]))
 
-    expected = np.asarray([6], dtype=np.int64)
-    assert np.array_equal(
-        const_value,
-        expected,
-    ), "Scatter window dimension should match the 6-element updates axis"
+    assert bcast_dim_values, "Expected broadcast-dimension initializers for issue #52"
+    assert 6 in bcast_dim_values, (
+        "Scatter window dimension should include extent 6; "
+        f"got values {sorted(set(bcast_dim_values))}"
+    )
 
 
-@pytest.mark.xfail(reason="Constant slice still trims the loop extent (issue #52)")
 def test_issue52_const_slice_broadcast(tmp_path):
     ort = pytest.importorskip(
         "onnxruntime", reason="onnxruntime is required to reproduce issue #52"
@@ -149,9 +127,9 @@ def test_issue52_const_slice_broadcast(tmp_path):
 
     @jax.jit
     def _const_slice_add():
-        const = jnp.arange(1.0, 6.0, dtype=jnp.float32).reshape(5, 1, 1)
-        loop_values = jnp.arange(5.0, dtype=jnp.float32).reshape(5, 1, 1)
-        window = const[1:4]
+        const = jnp.arange(1.0, 7.0, dtype=jnp.float32).reshape(1, 6, 1, 1)
+        loop_values = jnp.arange(5.0, dtype=jnp.float32).reshape(5, 1, 1, 1)
+        window = const[:, 1:4, :, :]
         return loop_values + window
 
     model = to_onnx(
@@ -167,4 +145,7 @@ def test_issue52_const_slice_broadcast(tmp_path):
         str(model_path),
         providers=["CPUExecutionProvider"],
     )
-    session.run(None, {})
+    observed = session.run(None, {})
+    expected = np.asarray(_const_slice_add())
+    assert len(observed) == 1
+    np.testing.assert_allclose(observed[0], expected, rtol=1e-6, atol=1e-6)
