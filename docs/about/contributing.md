@@ -47,6 +47,19 @@ poetry run pytest
 poetry run pytest tests/test_my_feature.py
 ```
 
+### Repository Helper Scripts
+
+```bash
+# Run pre-commit, regenerate tests, then run pytest (fails fast on first error)
+./scripts/run_all_checks.sh
+
+# Optional: include MaxText SotA checks in the same runner
+JAX2ONNX_RUN_MAXTEXT=1 ./scripts/run_all_checks.sh
+
+# Regenerate README/MkDocs coverage sections (also runs scripts/generate_tests.py)
+poetry run python scripts/generate_readme.py
+```
+
 ### Documentation
 
 To preview documentation changes locally:

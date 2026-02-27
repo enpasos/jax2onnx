@@ -66,6 +66,7 @@ priority = "supplemental"
 
 
 
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
 pytest-json-report = "^1.5.0"
@@ -80,6 +81,7 @@ mkdocs-material = "^9.5.0"
 mkdocstrings = {extras = ["python"], version = "0.26.1"}
 mkdocs = "^1.6.0"
 griffe = ">=0.44,<1.0" 
+pytest-xdist = "^3.8.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

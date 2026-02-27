@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 import warnings
 from pathlib import Path
@@ -41,6 +42,15 @@ NETRON_BASE_URL = "https://netron.app/?url=https://huggingface.co/enpasos/jax2on
 
 
 # --- Running Tests ---
+def run_generate_tests() -> None:
+    """Runs the test-generation script and fails fast on errors."""
+    logging.info("🧪 Generating tests...")
+    subprocess.run(
+        [sys.executable, str(BASE_DIR / "generate_tests.py")],
+        check=True,
+    )
+
+
 def run_pytest() -> dict[tuple[str, str, str], str]:
     """Runs pytest and captures test results."""
     logging.info("🛠 Running tests...")
@@ -260,6 +270,7 @@ def replace_markers(
 # --- Main Execution ---
 if __name__ == "__main__":
     start_time = time.time()
+    run_generate_tests()
     test_results = run_pytest()
     grouped_metadata = get_plugin_grouping()
     update_coverage_tables(grouped_metadata, test_results)

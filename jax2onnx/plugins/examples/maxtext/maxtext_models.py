@@ -13,7 +13,7 @@ import shutil
 import sys
 import types
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 
 import jax
 import jax.numpy as jnp
@@ -139,6 +139,76 @@ if MAXTEXT_PKG_PATH is not None:
     MAXTEXT_CONFIG_DIR: Path | None = MAXTEXT_PKG_PATH / "configs"
 
 MODELS_DIR: Path | None = MAXTEXT_CONFIG_DIR / "models" if MAXTEXT_CONFIG_DIR else None
+
+
+def _module_origin_is_within(module: types.ModuleType, root: Path) -> bool:
+    root_resolved = root.resolve()
+    file_name = getattr(module, "__file__", None)
+    if isinstance(file_name, str):
+        try:
+            Path(file_name).resolve().relative_to(root_resolved)
+            return True
+        except Exception:
+            pass
+
+    module_paths = getattr(module, "__path__", None)
+    if module_paths is None:
+        return False
+
+    for raw_path in module_paths:
+        try:
+            Path(raw_path).resolve().relative_to(root_resolved)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _prefer_explicit_maxtext_src_on_syspath() -> None:
+    """Ensure explicit MaxText source checkout wins over installed packages."""
+    if MAXTEXT_SRC_PATH is None:
+        return
+
+    src_root = str(MAXTEXT_SRC_PATH)
+    if src_root in sys.path:
+        sys.path.remove(src_root)
+    sys.path.insert(0, src_root)
+
+    # If the user explicitly selected a source checkout, drop stale imports
+    # coming from a different MaxText/maxtext installation.
+    if not MAXTEXT_SRC_ENV:
+        return
+
+    for module_name in tuple(sys.modules):
+        if module_name not in {"MaxText", "maxtext"} and not (
+            module_name.startswith("MaxText.") or module_name.startswith("maxtext.")
+        ):
+            continue
+        module_obj = sys.modules.get(module_name)
+        if not isinstance(module_obj, types.ModuleType):
+            continue
+        if not _module_origin_is_within(module_obj, MAXTEXT_SRC_PATH):
+            del sys.modules[module_name]
+
+
+def _import_first_available(
+    candidates: Iterable[tuple[str, str | None]],
+) -> object:
+    """Import the first working module/attribute from ordered candidates."""
+    last_exc: Exception | None = None
+    for module_name, attr_name in candidates:
+        try:
+            module = importlib.import_module(module_name)
+            if attr_name is None:
+                return module
+            return getattr(module, attr_name)
+        except Exception as exc:  # pragma: no cover - environment dependent
+            last_exc = exc
+            continue
+    if last_exc is not None:
+        raise last_exc
+    raise ImportError("No import candidates were provided.")
+
 
 MODEL_OVERRIDES: dict[str, object] = {
     "override_model_config": True,
@@ -1057,8 +1127,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         tokamax_splash_pkg.splash_attention_kernel = tokamax_splash_kernel
         tokamax_splash_pkg.splash_attention_mask = tokamax_splash_mask
 
-    if MAXTEXT_SRC_PATH is not None and str(MAXTEXT_SRC_PATH) not in sys.path:
-        sys.path.append(str(MAXTEXT_SRC_PATH))
+    _prefer_explicit_maxtext_src_on_syspath()
     try:
         _ensure_google_cloud_storage_stub()
         _ensure_tensorflow_stub()
@@ -1073,9 +1142,38 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
         _ensure_qwix_stub()
         _ensure_aqt_stub()
         _ensure_tokamax_stub()
-        from MaxText import pyconfig as _pyconfig
-        from MaxText import model_creation_utils as _model_creation_utils
-        from MaxText.common_types import MODEL_MODE_TRAIN as _MODEL_MODE_TRAIN
+        _pyconfig: types.ModuleType = cast(
+            types.ModuleType,
+            _import_first_available(
+                (
+                    ("MaxText", "pyconfig"),
+                    ("MaxText.pyconfig", None),
+                    ("maxtext.configs", "pyconfig"),
+                    ("maxtext.configs.pyconfig", None),
+                )
+            ),
+        )
+        _model_creation_utils: types.ModuleType = cast(
+            types.ModuleType,
+            _import_first_available(
+                (
+                    ("MaxText", "model_creation_utils"),
+                    ("MaxText.model_creation_utils", None),
+                    ("maxtext.utils", "model_creation_utils"),
+                    ("maxtext.utils.model_creation_utils", None),
+                )
+            ),
+        )
+        _MODEL_MODE_TRAIN: str = cast(
+            str,
+            _import_first_available(
+                (
+                    ("MaxText.common_types", "MODEL_MODE_TRAIN"),
+                    ("maxtext.common.common_types", "MODEL_MODE_TRAIN"),
+                    ("maxtext.common_types", "MODEL_MODE_TRAIN"),
+                )
+            ),
+        )
 
         _embeddings: types.ModuleType | None = None
         try:
@@ -1469,6 +1567,8 @@ def _register_examples(configs: Iterable[Path]) -> None:
         "gpt-oss",
         "llama4",
         "quant",
+        # deepseek-custom enables Engram and requires external HF credentials.
+        "deepseek-custom",
     ]
 
     for config_path in configs:

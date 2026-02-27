@@ -37,26 +37,45 @@ poetry install --with maxtext
 
 *   **`JAX2ONNX_MAXTEXT_SRC`** (Optional): Path to a local clone of the MaxText repository. If not set, the system attempts to resolve it from an installed `MaxText` package.
 *   **`JAX2ONNX_MAXTEXT_MODELS`** (Optional): A comma-separated list of model config names to test (e.g., `llama2-7b.yml`). If unset, it defaults to a standard set of representative models.
+*   **`JAX2ONNX_MAXTEXT_REF`** (Optional): Git branch/tag/commit used by `run_all_checks.sh`. Defaults to commit `17d805e3488104b5de96bd19be09491ff73c57c1` (`17d805e`).
 
 If auto-discovery finds an incompatible `MaxText` package, `jax2onnx` now skips `examples.maxtext` registration (instead of generating placeholder failing tests).  
 Set `JAX2ONNX_MAXTEXT_SRC` to a known compatible checkout to force and validate MaxText integration.
 
 ## Testing
 
-To run all the latest MaxText examples (use `poetry run` to stay in the project venv):
+To run the pinned MaxText examples (use `poetry run` to stay in the project venv):
 
 ```bash
 cd tmp
 git clone https://github.com/AI-Hypercomputer/maxtext.git
-cd ..
+cd maxtext
+git checkout 17d805e
+cd ../..
 export JAX2ONNX_MAXTEXT_SRC=tmp/maxtext
 export JAX2ONNX_MAXTEXT_MODELS=all  # or "gemma-2b,llama2-7b"
+export JAX2ONNX_MAXTEXT_REF=17d805e3488104b5de96bd19be09491ff73c57c1
 poetry install --with maxtext
 poetry run python scripts/generate_tests.py
 poetry run pytest -q tests/examples/test_maxtext.py
 ```
 
 ONNX outputs land in `docs/onnx/examples/maxtext`.
+
+You can also include the same MaxText SotA checks in the standard repository
+runner:
+
+```bash
+JAX2ONNX_RUN_MAXTEXT=1 ./scripts/run_all_checks.sh
+```
+
+By default, `run_all_checks.sh` does not run MaxText checks. With
+`JAX2ONNX_RUN_MAXTEXT=1`, it prepares `JAX2ONNX_MAXTEXT_SRC` (default:
+`tmp/maxtext`) and `JAX2ONNX_MAXTEXT_REF` (default:
+`17d805e3488104b5de96bd19be09491ff73c57c1`), installs `--with maxtext`, regenerates tests, runs
+`tests/examples/test_maxtext.py`, then executes the full pytest suite.
+On Python 3.11, the script automatically skips the MaxText block and continues
+with the regular checks.
 
 This will:
 1.  Dynamically discover MaxText configs.

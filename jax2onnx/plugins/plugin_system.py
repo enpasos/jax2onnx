@@ -256,6 +256,21 @@ class _ConstructAndCall:
         self._instance = instance
 
     def with_dtype(self, dtype: Any) -> "_ConstructAndCall":
+        return _ConstructAndCall(
+            self._ctor,
+            self._args,
+            self._kwargs,
+            dtype,
+            instance=None,  # Defer instantiation until explicit `.instantiate()` call
+        )
+
+    def instantiate(self) -> Any:
+        dtype = self._dtype
+        if dtype is None:
+            import jax.numpy as jnp  # Local import to avoid mandatory dependency on module import
+
+            dtype = jnp.float32
+
         resolved_args = [_materialize(arg, dtype) for arg in self._args]
         resolved_kwargs = {k: _materialize(v, dtype) for k, v in self._kwargs.items()}
         instance = self._ctor(*resolved_args, **resolved_kwargs)
@@ -263,32 +278,15 @@ class _ConstructAndCall:
             raise TypeError(
                 "construct_and_call expected constructor to return a callable object"
             )
-        return _ConstructAndCall(
-            self._ctor,
-            self._args,
-            self._kwargs,
-            dtype,
-            instance=instance,
-        )
+        return instance
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         instance = self._instance
         if instance is None:
-            dtype = self._dtype
-            if dtype is None:
-                import jax.numpy as jnp  # Local import to avoid mandatory dependency on module import
-
-                dtype = jnp.float32
-
-            resolved_args = [_materialize(arg, dtype) for arg in self._args]
-            resolved_kwargs = {
-                k: _materialize(v, dtype) for k, v in self._kwargs.items()
-            }
-            instance = self._ctor(*resolved_args, **resolved_kwargs)
-            if not callable(instance):
-                raise TypeError(
-                    "construct_and_call expected constructor to return a callable object"
-                )
+            raise RuntimeError(
+                "Deferred _ConstructAndCall was called without being instantiated first. "
+                "Call `.instantiate()` to resolve the underlying test callable before tracing/executing."
+            )
         return instance(*args, **kwargs)
 
 
