@@ -511,7 +511,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
         LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
         prim = LinearPlugin._PRIM
 
-        def patched(self, x):
+        def patched(self, x, *, out_sharding=None):
+            del out_sharding
             dn = (((x.ndim - 1,), (0,)), ((), ()))
             kernel = self.kernel.value
             use_bias = self.bias is not None
