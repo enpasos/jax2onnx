@@ -42,7 +42,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
         {
             "testcase": "sqrt_reduce_sum_square_axis1",
             "callable": lambda x: jax.lax.sqrt(
-                jax.numpy.sum(jax.numpy.square(x), axis=1)
+                jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(1,))
             ),
             "input_shapes": [(2, 3)],
             "post_check_onnx_graph": EG(

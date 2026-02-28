@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
     testcases=[
         {
             "testcase": "reduce_or_all_false",
-            "callable": lambda x: jnp.any(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_or(x, axes=tuple(range(x.ndim))),
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.bool_],
             "post_check_onnx_graph": EG(
@@ -40,7 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
         },
         {
             "testcase": "reduce_or_one_true",
-            "callable": lambda x: jnp.any(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_or(x, axes=tuple(range(x.ndim))),
             "input_values": [
                 jnp.array([[False, False], [True, False]], dtype=jnp.bool_)
             ],
@@ -51,7 +51,11 @@ if TYPE_CHECKING:  # pragma: no cover
         },
         {
             "testcase": "reduce_or_keepdims",
-            "callable": lambda x: jnp.any(x, axis=(1,), keepdims=True),
+            "callable": lambda x: jax.lax.broadcast_in_dim(
+                jax.lax.reduce_or(x, axes=(1,)),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
             "post_check_onnx_graph": EG(

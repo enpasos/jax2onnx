@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
-import jax.numpy as jnp
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
@@ -43,7 +42,7 @@ def _check_reduce_max_axes_input(model) -> bool:
     testcases=[
         {
             "testcase": "reduce_max",
-            "callable": lambda x: jnp.max(x, axis=(0,)),
+            "callable": lambda x: jax.lax.reduce_max(x, axes=(0,)),
             "input_shapes": [(3, 3)],
             "post_check_onnx_graph": EG(
                 [
@@ -57,7 +56,7 @@ def _check_reduce_max_axes_input(model) -> bool:
         },
         {
             "testcase": "reduce_max_allaxes",
-            "callable": lambda x: jnp.max(x),
+            "callable": lambda x: jax.lax.reduce_max(x, axes=tuple(range(x.ndim))),
             "input_shapes": [(2, 3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceMax"],
@@ -66,13 +65,17 @@ def _check_reduce_max_axes_input(model) -> bool:
         },
         {
             "testcase": "reduce_max_axes_input",
-            "callable": lambda x: jnp.max(x, axis=(1,)),
+            "callable": lambda x: jax.lax.reduce_max(x, axes=(1,)),
             "input_shapes": [(2, 3)],
             "post_check_onnx_graph": _check_reduce_max_axes_input,
         },
         {
             "testcase": "reduce_max_keepdims",
-            "callable": lambda x: jnp.max(x, axis=(1,), keepdims=True),
+            "callable": lambda x: jax.lax.broadcast_in_dim(
+                jax.lax.reduce_max(x, axes=(1,)),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceMax:3 -> Reshape:3x1 -> Expand:3x1"],

@@ -45,7 +45,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
         },
         {
             "testcase": "log_of_reduce_sum_axis1",
-            "callable": lambda x: jax.numpy.log(jax.numpy.sum(x, axis=1)),
+            "callable": lambda x: jax.lax.log(jax.lax.reduce_sum(x, axes=(1,))),
             "input_shapes": [(2, 3)],
             "post_check_onnx_graph": EG(
                 [
@@ -59,8 +59,8 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
         },
         {
             "testcase": "log_of_reduce_sum_exp_axis1",
-            "callable": lambda x: jax.numpy.log(
-                jax.numpy.sum(jax.numpy.exp(x), axis=1)
+            "callable": lambda x: jax.lax.log(
+                jax.lax.reduce_sum(jax.lax.exp(x), axes=(1,))
             ),
             "input_shapes": [(2, 3)],
             "post_check_onnx_graph": EG(

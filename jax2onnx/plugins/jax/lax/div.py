@@ -310,7 +310,11 @@ def _match_lpnormalization_pattern(
         {
             "testcase": "div_lpnorm_l2_axis1",
             "callable": lambda x: x
-            / jax.numpy.sqrt(jax.numpy.sum(jax.numpy.square(x), axis=1, keepdims=True)),
+            / jax.lax.broadcast_in_dim(
+                jax.lax.sqrt(jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(1,))),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_values": [
                 np.asarray(
                     [[1.0, -2.0, 3.0], [4.0, 5.0, -6.0]],
@@ -326,7 +330,11 @@ def _match_lpnormalization_pattern(
         {
             "testcase": "div_lpnorm_l1_axis1",
             "callable": lambda x: x
-            / jax.numpy.sum(jax.numpy.abs(x), axis=1, keepdims=True),
+            / jax.lax.broadcast_in_dim(
+                jax.lax.reduce_sum(jax.lax.abs(x), axes=(1,)),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_values": [
                 np.asarray(
                     [[1.0, -2.0, 3.0], [4.0, 5.0, -6.0]],
@@ -342,7 +350,11 @@ def _match_lpnormalization_pattern(
         {
             "testcase": "div_lpnorm_l2_axis2",
             "callable": lambda x: x
-            / jax.numpy.sqrt(jax.numpy.sum(jax.numpy.square(x), axis=2, keepdims=True)),
+            / jax.lax.broadcast_in_dim(
+                jax.lax.sqrt(jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(2,))),
+                shape=(x.shape[0], x.shape[1], 1),
+                broadcast_dimensions=(0, 1),
+            ),
             "input_shapes": [(2, 3, 4)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
@@ -353,7 +365,13 @@ def _match_lpnormalization_pattern(
         {
             "testcase": "div_sqrt_of_norm_no_lpnorm_fusion",
             "callable": lambda x: x
-            / jax.numpy.sqrt(jax.numpy.linalg.norm(x, ord=2, axis=1, keepdims=True)),
+            / jax.lax.broadcast_in_dim(
+                jax.lax.sqrt(
+                    jax.lax.sqrt(jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(1,)))
+                ),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_shapes": [(2, 3)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
