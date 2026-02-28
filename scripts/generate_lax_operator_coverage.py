@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "jax2onnx" / "plugins"
 DEFAULT_OUTPUT = REPO_ROOT / "work_notes_coverage3.md"
+DEFAULT_MKDOCS_OUTPUT = REPO_ROOT / "docs" / "user_guide" / "jax_lax_coverage.md"
 DEFAULT_DOC_URL = "https://docs.jax.dev/en/latest/jax.lax.html"
 
 AUTOSUMMARY_RE = re.compile(r"_autosummary/jax\.lax\.([A-Za-z0-9_.]+)\.html")
@@ -267,7 +268,7 @@ def build_rows(
     return rows
 
 
-def render_markdown(rows: list[CoverageRow], *, doc_url: str) -> str:
+def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str:
     total = len(rows)
     covered_direct = sum(1 for r in rows if r.status == "covered")
     covered_indirect = sum(1 for r in rows if r.status == "covered_indirect")
@@ -284,7 +285,7 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str) -> str:
     ]
 
     lines: list[str] = []
-    lines.append("# Work Notes: JAX LAX Coverage Checklist (v3)")
+    lines.append(f"# {title}")
     lines.append("")
     lines.append("## Scope")
     lines.append(
@@ -475,14 +476,28 @@ def main() -> None:
     )
     parser.add_argument("--doc-url", default=DEFAULT_DOC_URL)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--mkdocs-output", type=Path, default=DEFAULT_MKDOCS_OUTPUT)
     args = parser.parse_args()
 
     ops = fetch_doc_ops(args.doc_url)
     doc_usage, prim_usage = collect_plugin_signals(PLUGIN_ROOT)
     rows = build_rows(ops, doc_usage=doc_usage, prim_usage=prim_usage)
-    content = render_markdown(rows, doc_url=args.doc_url)
-    args.output.write_text(content + "\n", encoding="utf-8")
+    work_notes_content = render_markdown(
+        rows,
+        doc_url=args.doc_url,
+        title="Work Notes: JAX LAX Coverage Checklist (v3)",
+    )
+    args.output.write_text(work_notes_content + "\n", encoding="utf-8")
     print(f"Wrote {len(rows)} rows to {args.output}")
+
+    mkdocs_content = render_markdown(
+        rows,
+        doc_url=args.doc_url,
+        title="JAX LAX Coverage Checklist",
+    )
+    if args.mkdocs_output != args.output:
+        args.mkdocs_output.write_text(mkdocs_content + "\n", encoding="utf-8")
+        print(f"Wrote {len(rows)} rows to {args.mkdocs_output}")
 
 
 if __name__ == "__main__":

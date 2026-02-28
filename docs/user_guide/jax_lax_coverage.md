@@ -1,4 +1,4 @@
-# Work Notes: JAX LAX Coverage Checklist (v3)
+# JAX LAX Coverage Checklist
 
 ## Scope
 - Source list: all operators linked on the official `jax.lax` docs page: `https://docs.jax.dev/en/latest/jax.lax.html`
