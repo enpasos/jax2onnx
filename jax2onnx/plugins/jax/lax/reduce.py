@@ -20,6 +20,21 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
+def _canonical_reducer_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+
+    base = name.split(".")[-1]
+    alias_map = {
+        "maximum": "max",
+        "minimum": "min",
+        "logical_and": "and",
+        "logical_or": "or",
+        "logical_xor": "xor",
+    }
+    return alias_map.get(base, base)
+
+
 def _extract_reducer_primitive_name(params: dict[str, Any]) -> str | None:
     jaxpr_obj = params.get("jaxpr") or params.get("computation")
     jaxpr = getattr(jaxpr_obj, "jaxpr", jaxpr_obj)
@@ -32,7 +47,7 @@ def _extract_reducer_primitive_name(params: dict[str, Any]) -> str | None:
     if len(inner_outvars) != 1 or inner_outvars[0] != outvars[0]:
         return None
     primitive = getattr(inner, "primitive", None)
-    return getattr(primitive, "name", None)
+    return _canonical_reducer_name(getattr(primitive, "name", None))
 
 
 def _extract_scalar_literal(var: Any) -> np.ndarray | None:

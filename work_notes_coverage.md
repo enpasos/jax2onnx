@@ -70,8 +70,16 @@ Quick wins were treated as:
 Latest generated matrix (`docs/user_guide/onnx_operator_coverage.md`) shows:
 
 - Operators in official index: `200`
-- Operators referenced in plugins: `155`
-- Coverage: `77.5%`
+- Operators referenced in plugins: `156`
+- Coverage: `78.0%`
+- Extra plugin names not present in ONNX official index: `6`
+  - `Cholesky`, `Complex`, `Eig`, `Eigh`, `QR`, `SVD`
+
+Delta vs prior snapshot in this note:
+
+- `+1` covered official operator (`ReverseSequence`)
+- `0` operators lost coverage
+- `ReverseSequence` is currently metadata-only (no direct `builder.ReverseSequence(...)` usage), so this is a bookkeeping/metadata gain, not a new lowering path.
 
 ## Implemented Quick Wins (0.12.1)
 
@@ -178,6 +186,7 @@ Top low-hanging follow-ups from the uncovered table:
 
 - Additional shape/opset stress tests for newly covered ops (`Mean`, `Multinomial`, `Upsample`)
 - Review uncovered legacy/control-flow ops (`Scan`) and explicitly classify as roadmap vs non-goal.
+- Clean up metadata-only/operator-alias entries introduced by composite metadata wrappers (e.g. `ReverseSequence`, `Cholesky`, `Eig`, `Eigh`, `QR`, `SVD`) so coverage metrics remain strict.
 
 ## Follow-Up Plan
 

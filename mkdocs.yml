@@ -65,6 +65,7 @@ nav:
       - JAX LAX Coverage: user_guide/jax_lax_coverage.md
       - JAX NumPy Coverage: user_guide/jax_numpy_coverage.md
       - Flax API Coverage: user_guide/flax_api_coverage.md
+      - Equinox NN Coverage: user_guide/equinox_nn_coverage.md
       - Examples: user_guide/examples.md
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
