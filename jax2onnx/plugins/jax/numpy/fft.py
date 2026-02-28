@@ -139,3 +139,32 @@ class JnpIFFTMetadata(_JnpFFTMetadata):
 )
 class JnpRFFTMetadata(_JnpFFTMetadata):
     pass
+
+
+@register_primitive(
+    jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.irfft",
+    jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.irfft.html",
+    onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
+    since="0.12.1",
+    context="primitives.jnp",
+    component="fft_irfft",
+    testcases=[
+        {
+            "testcase": "jnp_irfft_complex64",
+            "callable": lambda x: jnp.fft.irfft(x),
+            "input_values": [
+                np.array([1.0 + 0.0j, 2.0 - 0.5j, 3.0 + 0.0j], dtype=np.complex64)
+            ],
+            "expected_output_dtypes": [np.float32],
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "DFT", "counts": {"DFT": 1}},
+                ],
+                no_unused_inputs=True,
+            ),
+            "run_only_f32_variant": True,
+        },
+    ],
+)
+class JnpIRFFTMetadata(_JnpFFTMetadata):
+    pass
