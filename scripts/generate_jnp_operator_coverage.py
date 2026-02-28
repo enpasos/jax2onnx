@@ -330,12 +330,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     non_functional = sum(1 for r in rows if r.status == "non_functional")
     missing = sum(1 for r in rows if r.status == "missing")
 
-    quick_win = [
-        r.name
-        for r in rows
-        if r.status == "missing" and r.name.split(".")[-1] in QUICK_WIN_CANDIDATES
-    ]
-
     lines: list[str] = []
     lines.append(f"# {title}")
     lines.append("")
@@ -348,12 +342,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         "- Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`."
     )
     lines.append("")
-    lines.append("Regenerate with:")
-    lines.append("")
-    lines.append("```bash")
-    lines.append("poetry run python scripts/generate_jnp_operator_coverage.py")
-    lines.append("```")
-    lines.append("")
     lines.append("## Snapshot")
     lines.append(f"- Total docs entries: `{total}`")
     lines.append(f"- Covered (direct plugin): `{covered}`")
@@ -361,15 +349,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     lines.append(f"- Composite/helper entries: `{composite}`")
     lines.append(f"- Non-functional entries (dtype/type/constants): `{non_functional}`")
     lines.append(f"- Missing dedicated plugin coverage: `{missing}`")
-    lines.append("")
-    lines.append("## Priority Gap Queue")
-    if quick_win:
-        for name in quick_win:
-            lines.append(f"- [ ] `{name}`")
-    else:
-        lines.append(
-            "- No quick-win candidates currently marked missing by this heuristic."
-        )
     lines.append("")
     lines.append("## Full Checklist")
     lines.append(
@@ -382,17 +361,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         lines.append(
             f"| [{row.checkbox}] | `{row.name}` | `{row.status}` | `{row.modules}` | {row.note} |"
         )
-    lines.append("")
-    lines.append("## Next Steps")
-    lines.append(
-        "1. Implement missing quick-win `jax.numpy` plugins from the queue above."
-    )
-    lines.append(
-        "2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`)."
-    )
-    lines.append(
-        "3. Re-run this script after each batch to keep coverage docs in sync."
-    )
     lines.append("")
     return "\n".join(lines)
 

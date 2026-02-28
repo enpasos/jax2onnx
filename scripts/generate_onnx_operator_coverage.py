@@ -242,8 +242,8 @@ def build_main_table(
     lowering_usage: dict[str, set[str]],
 ) -> tuple[str, int]:
     header = (
-        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Suggested Next Step |\n"
-        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|:--------------------|"
+        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
+        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|"
     )
 
     rows: list[str] = []
@@ -262,8 +262,7 @@ def build_main_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(all_modules)} | "
-            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} | "
-            f"{_recommend_for_official_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
+            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} |"
         )
 
     table = f"{header}\n" + "\n".join(rows)
@@ -293,13 +292,12 @@ def build_extra_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(metadata_modules | lowering_modules)} | "
-            f"{_format_extra_jax_candidates(op)} | "
-            f"{_recommend_for_extra_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
+            f"{_format_extra_jax_candidates(op)} |"
         )
 
     header = (
-        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Suggested Next Step |\n"
-        "|:----------------------|:---------|:---------|:---------------|:------------------|:--------------------|"
+        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
+        "|:----------------------|:---------|:---------|:---------------|:------------------|"
     )
     table = f"{header}\n" + "\n".join(rows)
     wrapped = (
@@ -379,7 +377,6 @@ def main() -> None:
             f"- Operators referenced in plugins: `{used_count}`",
             f"- Coverage: `{used_count / len(official_ops):.1%}`",
             "- `Potential JAX Ops` lists candidate JAX entry points for each operator.",
-            "- `Suggested Next Step` is heuristic and should be refined with roadmap priorities.",
         ]
     )
     if extra_count:

@@ -114,7 +114,7 @@ def _max_pool_forward(
             "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
         }
     ],
-    since="0.12.3",
+    since="0.12.2",
     context="primitives.eqx",
     component="max_pool",
     testcases=[

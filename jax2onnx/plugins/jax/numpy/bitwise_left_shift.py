@@ -38,7 +38,7 @@ _BITWISE_LEFT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.bitwise_left_shi
             "doc": "https://onnx.ai/onnx/operators/onnx__BitShift.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="bitwise_left_shift",
     testcases=[

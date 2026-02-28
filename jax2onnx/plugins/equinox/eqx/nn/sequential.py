@@ -106,7 +106,7 @@ def _resolve_layer_ops(layers: Any) -> tuple[str, ...] | None:
         },
         {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"},
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="sequential",
     testcases=[

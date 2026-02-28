@@ -134,7 +134,7 @@ def _resolve_pool_op(operation: Any, init: Any) -> str | None:
             "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
         }
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="pool",
     testcases=[

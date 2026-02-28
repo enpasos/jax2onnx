@@ -68,7 +68,7 @@ def _moveaxis_permutation(
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         }
     ],
-    since="0.12.6",
+    since="0.12.2",
     context="primitives.jnp",
     component="moveaxis",
     testcases=[

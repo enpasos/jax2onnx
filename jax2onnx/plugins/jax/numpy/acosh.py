@@ -38,7 +38,7 @@ _ACOSH_PRIM: Final = make_jnp_primitive("jax.numpy.acosh")
             "doc": "https://onnx.ai/onnx/operators/onnx__Acosh.html",
         }
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="acosh",
     testcases=[

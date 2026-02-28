@@ -62,7 +62,7 @@ def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
             "doc": "https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html",
         }
     ],
-    since="0.12.4",
+    since="0.12.2",
     context="primitives.jnp",
     component="ones",
     testcases=[

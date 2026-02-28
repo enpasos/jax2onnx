@@ -59,7 +59,7 @@ def _dot_shape(
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         }
     ],
-    since="0.12.4",
+    since="0.12.2",
     context="primitives.jnp",
     component="dot",
     testcases=[

@@ -83,7 +83,7 @@ def _cast_to_dtype(
             "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="floor_divide",
     testcases=[

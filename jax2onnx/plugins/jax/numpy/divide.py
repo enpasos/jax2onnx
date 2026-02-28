@@ -76,7 +76,7 @@ def _cast_to_dtype(
     onnx=[
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="divide",
     testcases=[

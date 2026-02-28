@@ -4,12 +4,6 @@
 - Source list: code-annotated API entries linked from Flax API index: `https://flax.readthedocs.io/en/latest/api_reference/index.html`
 - Coverage signal: `jax_doc`, `jaxpr_primitive`, and `component` metadata in `jax2onnx/plugins/**/*.py`.
 
-Regenerate with:
-
-```bash
-poetry run python scripts/generate_flax_api_coverage.py
-```
-
 ## Snapshot
 - Total API entries discovered: `258`
 - In-scope neural entries (`flax.linen/*`, `flax.nnx/nn/*`): `75`
@@ -18,9 +12,6 @@ poetry run python scripts/generate_flax_api_coverage.py
 - Composite/helper entries: `23`
 - Out-of-scope entries: `183`
 - Missing dedicated Flax coverage: `0`
-
-## Priority Gap Queue
-- No in-scope missing entries currently detected by this heuristic.
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
@@ -285,9 +276,4 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.training.train_state.TrainState` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.training.train_state.TrainState.apply_gradients` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.training.train_state.TrainState.create` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
-
-## Next Steps
-1. Prioritize missing in-scope Flax NN entries from the gap queue.
-2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`).
-3. Re-run this script after each plugin batch to keep coverage docs in sync.
 

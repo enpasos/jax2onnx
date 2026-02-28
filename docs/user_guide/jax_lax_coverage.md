@@ -4,50 +4,6 @@
 - Source list: all operators linked on the official `jax.lax` docs page: `https://docs.jax.dev/en/latest/jax.lax.html`
 - Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`.
 
-## This Pass
-- [x] Added `jax.lax.approx_top_k` plugin (`jax2onnx/plugins/jax/lax/approx_top_k.py`).
-- [x] Added `jax.lax.cbrt` plugin (`jax2onnx/plugins/jax/lax/cbrt.py`).
-- [x] Added `jax.lax.clz` plugin (`jax2onnx/plugins/jax/lax/clz.py`).
-- [x] Added `jax.lax.bessel_i0e` plugin (`jax2onnx/plugins/jax/lax/bessel_i0e.py`).
-- [x] Added `jax.lax.bessel_i1e` plugin (`jax2onnx/plugins/jax/lax/bessel_i1e.py`).
-- [x] Added `jax.lax.betainc` plugin (`jax2onnx/plugins/jax/lax/betainc.py`).
-- [x] Added `jax.lax.custom_linear_solve` plugin (`jax2onnx/plugins/jax/lax/custom_linear_solve.py`).
-- [x] Added `jax.lax.cumlogsumexp` plugin (`jax2onnx/plugins/jax/lax/cumlogsumexp.py`).
-- [x] Added `jax.lax.cummax` plugin (`jax2onnx/plugins/jax/lax/cummax.py`).
-- [x] Added `jax.lax.cummin` plugin (`jax2onnx/plugins/jax/lax/cummin.py`).
-- [x] Added `jax.lax.erf_inv` plugin (`jax2onnx/plugins/jax/lax/erf_inv.py`).
-- [x] Added `jax.lax.digamma` plugin (`jax2onnx/plugins/jax/lax/digamma.py`).
-- [x] Added `jax.lax.lgamma` plugin (`jax2onnx/plugins/jax/lax/lgamma.py`).
-- [x] Added `jax.lax.nextafter` plugin (`jax2onnx/plugins/jax/lax/nextafter.py`).
-- [x] Added `jax.lax.igamma` plugin (`jax2onnx/plugins/jax/lax/igamma.py`).
-- [x] Added `jax.lax.igammac` plugin (`jax2onnx/plugins/jax/lax/igamma.py`).
-- [x] Added `jax.lax.igamma_grad_a` plugin (`jax2onnx/plugins/jax/lax/igamma.py`).
-- [x] Added `jax.lax.linalg.lu_pivots_to_permutation` plugin (`jax2onnx/plugins/jax/lax/lu_pivots_to_permutation.py`).
-- [x] Added `jax.lax.linalg.tridiagonal_solve` plugin (`jax2onnx/plugins/jax/lax/tridiagonal_solve.py`).
-- [x] Added `jax.lax.linalg.tridiagonal` plugin (`jax2onnx/plugins/jax/lax/tridiagonal.py`).
-- [x] Added `jax.lax.linalg.symmetric_product` plugin (`jax2onnx/plugins/jax/lax/symmetric_product.py`).
-- [x] Added `jax.lax.linalg.cholesky` plugin (`jax2onnx/plugins/jax/lax/cholesky.py`).
-- [x] Added `jax.lax.linalg.cholesky_update` plugin (`jax2onnx/plugins/jax/lax/cholesky_update.py`).
-- [x] Added `jax.lax.linalg.eig` plugin (`jax2onnx/plugins/jax/lax/eig.py`).
-- [x] Added `jax.lax.linalg.eigh` plugin (`jax2onnx/plugins/jax/lax/eigh.py`).
-- [x] Added `jax.lax.linalg.householder_product` plugin (`jax2onnx/plugins/jax/lax/householder_product.py`).
-- [x] Added `jax.lax.linalg.hessenberg` plugin (`jax2onnx/plugins/jax/lax/hessenberg.py`).
-- [x] Added `jax.lax.linalg.lu` plugin (`jax2onnx/plugins/jax/lax/lu.py`).
-- [x] Added `jax.lax.linalg.qr` plugin (`jax2onnx/plugins/jax/lax/qr.py`).
-- [x] Added `jax.lax.linalg.schur` plugin (`jax2onnx/plugins/jax/lax/schur.py`).
-- [x] Added `jax.lax.linalg.svd` plugin (`jax2onnx/plugins/jax/lax/svd.py`).
-- [x] Added `jax.lax.optimization_barrier` plugin (`jax2onnx/plugins/jax/lax/optimization_barrier.py`).
-- [x] Added `jax.lax.reduce_window` plugin (`jax2onnx/plugins/jax/lax/reduce_window.py`).
-- [x] Added `jax.lax.population_count` plugin (`jax2onnx/plugins/jax/lax/population_count.py`).
-- [x] Added `jax.lax.polygamma` plugin (`jax2onnx/plugins/jax/lax/polygamma.py`).
-- [x] Added `jax.lax.reduce` plugin (`jax2onnx/plugins/jax/lax/reduce.py`).
-- [x] Added `jax.lax.reduce_precision` plugin (`jax2onnx/plugins/jax/lax/reduce_precision.py`).
-- [x] Added `jax.lax.rng_bit_generator` plugin (`jax2onnx/plugins/jax/lax/rng_bit_generator.py`).
-- [x] Added `jax.lax.rng_uniform` plugin (`jax2onnx/plugins/jax/lax/rng_uniform.py`).
-- [x] Added `jax.lax.scatter_sub` plugin (`jax2onnx/plugins/jax/lax/scatter_sub.py`).
-- [x] Added `jax.lax.shift_right_arithmetic` plugin (`jax2onnx/plugins/jax/lax/shift_right_arithmetic.py`).
-- [x] Added `jax.lax.zeta` plugin (`jax2onnx/plugins/jax/lax/zeta.py`).
-
 ## Snapshot
 - Total docs operators: `201`
 - Covered (direct plugin): `137`
@@ -56,9 +12,6 @@
 - Out of scope (distributed/token/host): `17`
 - Missing primitive plugins: `0`
 - Missing `lax.linalg` plugins: `0`
-
-## Priority Gap Queue
-- No quick-win candidates currently marked missing by this heuristic.
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `missing_linalg`.
@@ -266,9 +219,4 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `
 | [x] | `while_loop` | `covered_indirect` | `jax/lax/while_loop` | Covered via `while` primitive. |
 | [x] | `with_sharding_constraint` | `covered_indirect` | `jax/lax/sharding_constraint` | Covered via `sharding_constraint` primitive. |
 | [x] | `zeta` | `covered` | `jax/lax/zeta` | Direct plugin coverage. |
-
-## Next Steps
-1. Implement remaining quick-win primitive gaps from the queue above.
-2. For each new plugin, add metadata testcases and regenerate tests (`scripts/generate_tests.py`).
-3. Re-run this script after each batch to keep this checklist current.
 

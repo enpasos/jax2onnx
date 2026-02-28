@@ -28,7 +28,7 @@ _EQX_WEIGHT_NORM_CONV2D: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="weight_norm",
     testcases=[

@@ -36,7 +36,7 @@ _EXPM1_PRIM: Final = make_jnp_primitive("jax.numpy.expm1")
         {"component": "Exp", "doc": "https://onnx.ai/onnx/operators/onnx__Exp.html"},
         {"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"},
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="expm1",
     testcases=[

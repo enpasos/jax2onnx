@@ -35,7 +35,7 @@ _EQX_PRELU_CHANNELWISE: Final[eqx.nn.PReLU] = eqx.nn.PReLU(
     onnx=[
         {"component": "PRelu", "doc": "https://onnx.ai/onnx/operators/onnx__PRelu.html"}
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="prelu",
     testcases=[

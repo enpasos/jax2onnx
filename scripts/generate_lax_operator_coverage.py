@@ -277,13 +277,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     missing = sum(1 for r in rows if r.status == "missing")
     missing_linalg = sum(1 for r in rows if r.status == "missing_linalg")
 
-    quick_win = [
-        r.name
-        for r in rows
-        if r.status in {"missing", "missing_linalg"}
-        and r.name.split(".")[-1] in QUICK_WIN_CANDIDATES
-    ]
-
     lines: list[str] = []
     lines.append(f"# {title}")
     lines.append("")
@@ -296,134 +289,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         "- Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`."
     )
     lines.append("")
-    lines.append("## This Pass")
-    lines.append(
-        "- [x] Added `jax.lax.approx_top_k` plugin (`jax2onnx/plugins/jax/lax/approx_top_k.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.cbrt` plugin (`jax2onnx/plugins/jax/lax/cbrt.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.clz` plugin (`jax2onnx/plugins/jax/lax/clz.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.bessel_i0e` plugin (`jax2onnx/plugins/jax/lax/bessel_i0e.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.bessel_i1e` plugin (`jax2onnx/plugins/jax/lax/bessel_i1e.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.betainc` plugin (`jax2onnx/plugins/jax/lax/betainc.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.custom_linear_solve` plugin (`jax2onnx/plugins/jax/lax/custom_linear_solve.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.cumlogsumexp` plugin (`jax2onnx/plugins/jax/lax/cumlogsumexp.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.cummax` plugin (`jax2onnx/plugins/jax/lax/cummax.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.cummin` plugin (`jax2onnx/plugins/jax/lax/cummin.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.erf_inv` plugin (`jax2onnx/plugins/jax/lax/erf_inv.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.digamma` plugin (`jax2onnx/plugins/jax/lax/digamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.lgamma` plugin (`jax2onnx/plugins/jax/lax/lgamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.nextafter` plugin (`jax2onnx/plugins/jax/lax/nextafter.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.igamma` plugin (`jax2onnx/plugins/jax/lax/igamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.igammac` plugin (`jax2onnx/plugins/jax/lax/igamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.igamma_grad_a` plugin (`jax2onnx/plugins/jax/lax/igamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.lu_pivots_to_permutation` plugin (`jax2onnx/plugins/jax/lax/lu_pivots_to_permutation.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.tridiagonal_solve` plugin (`jax2onnx/plugins/jax/lax/tridiagonal_solve.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.tridiagonal` plugin (`jax2onnx/plugins/jax/lax/tridiagonal.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.symmetric_product` plugin (`jax2onnx/plugins/jax/lax/symmetric_product.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.cholesky` plugin (`jax2onnx/plugins/jax/lax/cholesky.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.cholesky_update` plugin (`jax2onnx/plugins/jax/lax/cholesky_update.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.eig` plugin (`jax2onnx/plugins/jax/lax/eig.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.eigh` plugin (`jax2onnx/plugins/jax/lax/eigh.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.householder_product` plugin (`jax2onnx/plugins/jax/lax/householder_product.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.hessenberg` plugin (`jax2onnx/plugins/jax/lax/hessenberg.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.lu` plugin (`jax2onnx/plugins/jax/lax/lu.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.qr` plugin (`jax2onnx/plugins/jax/lax/qr.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.schur` plugin (`jax2onnx/plugins/jax/lax/schur.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.linalg.svd` plugin (`jax2onnx/plugins/jax/lax/svd.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.optimization_barrier` plugin (`jax2onnx/plugins/jax/lax/optimization_barrier.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.reduce_window` plugin (`jax2onnx/plugins/jax/lax/reduce_window.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.population_count` plugin (`jax2onnx/plugins/jax/lax/population_count.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.polygamma` plugin (`jax2onnx/plugins/jax/lax/polygamma.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.reduce` plugin (`jax2onnx/plugins/jax/lax/reduce.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.reduce_precision` plugin (`jax2onnx/plugins/jax/lax/reduce_precision.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.rng_bit_generator` plugin (`jax2onnx/plugins/jax/lax/rng_bit_generator.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.rng_uniform` plugin (`jax2onnx/plugins/jax/lax/rng_uniform.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.scatter_sub` plugin (`jax2onnx/plugins/jax/lax/scatter_sub.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.shift_right_arithmetic` plugin (`jax2onnx/plugins/jax/lax/shift_right_arithmetic.py`)."
-    )
-    lines.append(
-        "- [x] Added `jax.lax.zeta` plugin (`jax2onnx/plugins/jax/lax/zeta.py`)."
-    )
-    lines.append("")
     lines.append("## Snapshot")
     lines.append(f"- Total docs operators: `{total}`")
     lines.append(f"- Covered (direct plugin): `{covered_direct}`")
@@ -432,15 +297,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     lines.append(f"- Out of scope (distributed/token/host): `{out_of_scope}`")
     lines.append(f"- Missing primitive plugins: `{missing}`")
     lines.append(f"- Missing `lax.linalg` plugins: `{missing_linalg}`")
-    lines.append("")
-    lines.append("## Priority Gap Queue")
-    if quick_win:
-        for name in quick_win:
-            lines.append(f"- [ ] `{name}`")
-    else:
-        lines.append(
-            "- No quick-win candidates currently marked missing by this heuristic."
-        )
     lines.append("")
     lines.append("## Full Checklist")
     lines.append(
@@ -455,17 +311,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         lines.append(
             f"| [{row.checkbox}] | `{row.name}` | `{row.status}` | `{row.modules}` | {row.note} |"
         )
-    lines.append("")
-    lines.append("## Next Steps")
-    lines.append(
-        "1. Implement remaining quick-win primitive gaps from the queue above."
-    )
-    lines.append(
-        "2. For each new plugin, add metadata testcases and regenerate tests (`scripts/generate_tests.py`)."
-    )
-    lines.append(
-        "3. Re-run this script after each batch to keep this checklist current."
-    )
     lines.append("")
     return "\n".join(lines)
 

@@ -57,7 +57,7 @@ def _abstract_eval_via_orig_binary(
             "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="atan2",
     testcases=[

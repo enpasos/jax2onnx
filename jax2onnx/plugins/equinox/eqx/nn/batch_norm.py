@@ -27,7 +27,7 @@ _EQX_BATCH_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_BATCH_NORM)
             "doc": "https://onnx.ai/onnx/operators/onnx__BatchNormalization.html",
         }
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="batch_norm",
     testcases=[

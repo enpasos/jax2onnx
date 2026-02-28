@@ -4,12 +4,6 @@
 - Source list: all `equinox.nn.*` API anchors discovered from: `https://docs.kidger.site/equinox/api/nn/`
 - Coverage signal: `jax_doc`, `jaxpr_primitive`, and `component` metadata in `jax2onnx/plugins/**/*.py`.
 
-Regenerate with:
-
-```bash
-poetry run python scripts/generate_eqx_nn_coverage.py
-```
-
 ## Snapshot
 - Total Equinox nn API entries: `128`
 - Covered (direct Equinox plugin): `40`
@@ -17,9 +11,6 @@ poetry run python scripts/generate_eqx_nn_coverage.py
 - Composite/helper entries: `74`
 - Out-of-scope state/inference entries: `14`
 - Missing dedicated Equinox coverage: `0`
-
-## Priority Gap Queue
-- No missing entries detected by this heuristic.
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
@@ -154,9 +145,4 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `equinox.nn.WeightNorm.__init__` | `composite` | `-` | Class helper/dunder API; no standalone plugin expected. |
 | [x] | `equinox.nn.inference_mode` | `out_of_scope` | `-` | State/inference helper surface; no standalone converter plugin expected. |
 | [x] | `equinox.nn.make_with_state` | `out_of_scope` | `-` | State/inference helper surface; no standalone converter plugin expected. |
-
-## Next Steps
-1. Implement missing Equinox nn entries from the priority queue.
-2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`).
-3. Re-run this script after each batch to keep docs and work notes in sync.
 

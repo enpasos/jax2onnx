@@ -290,14 +290,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     out_of_scope = sum(1 for r in rows if r.status == "out_of_scope")
     missing = sum(1 for r in rows if r.status == "missing")
 
-    quick_win_rows = [
-        r
-        for r in rows
-        if r.status == "missing"
-        and _is_in_scope(r.entry)
-        and not _is_composite_helper(r.entry)
-    ]
-
     lines: list[str] = []
     lines.append(f"# {title}")
     lines.append("")
@@ -310,12 +302,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         "- Coverage signal: `jax_doc`, `jaxpr_primitive`, and `component` metadata in `jax2onnx/plugins/**/*.py`."
     )
     lines.append("")
-    lines.append("Regenerate with:")
-    lines.append("")
-    lines.append("```bash")
-    lines.append("poetry run python scripts/generate_flax_api_coverage.py")
-    lines.append("```")
-    lines.append("")
     lines.append("## Snapshot")
     lines.append(f"- Total API entries discovered: `{total}`")
     lines.append(
@@ -326,15 +312,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
     lines.append(f"- Composite/helper entries: `{composite}`")
     lines.append(f"- Out-of-scope entries: `{out_of_scope}`")
     lines.append(f"- Missing dedicated Flax coverage: `{missing}`")
-    lines.append("")
-    lines.append("## Priority Gap Queue")
-    if quick_win_rows:
-        for row in quick_win_rows[:20]:
-            lines.append(f"- [ ] `{row.entry.name}`")
-    else:
-        lines.append(
-            "- No in-scope missing entries currently detected by this heuristic."
-        )
     lines.append("")
     lines.append("## Full Checklist")
     lines.append(
@@ -348,15 +325,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
             f"| [{row.checkbox}] | `{row.entry.name}` | `{row.status}` | "
             f"`{row.modules}` | {row.note} |"
         )
-    lines.append("")
-    lines.append("## Next Steps")
-    lines.append("1. Prioritize missing in-scope Flax NN entries from the gap queue.")
-    lines.append(
-        "2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`)."
-    )
-    lines.append(
-        "3. Re-run this script after each plugin batch to keep coverage docs in sync."
-    )
     lines.append("")
     return "\n".join(lines)
 

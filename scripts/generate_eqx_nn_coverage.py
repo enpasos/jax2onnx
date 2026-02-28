@@ -317,12 +317,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_root: str, title: str) -> st
     out_of_scope = sum(1 for r in rows if r.status == "out_of_scope")
     missing = sum(1 for r in rows if r.status == "missing")
 
-    quick_win = [
-        r.entry.name
-        for r in rows
-        if r.status == "missing" and not _is_out_of_scope(r.entry)
-    ]
-
     lines: list[str] = []
     lines.append(f"# {title}")
     lines.append("")
@@ -334,12 +328,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_root: str, title: str) -> st
         "- Coverage signal: `jax_doc`, `jaxpr_primitive`, and `component` metadata in `jax2onnx/plugins/**/*.py`."
     )
     lines.append("")
-    lines.append("Regenerate with:")
-    lines.append("")
-    lines.append("```bash")
-    lines.append("poetry run python scripts/generate_eqx_nn_coverage.py")
-    lines.append("```")
-    lines.append("")
     lines.append("## Snapshot")
     lines.append(f"- Total Equinox nn API entries: `{total}`")
     lines.append(f"- Covered (direct Equinox plugin): `{covered}`")
@@ -347,13 +335,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_root: str, title: str) -> st
     lines.append(f"- Composite/helper entries: `{composite}`")
     lines.append(f"- Out-of-scope state/inference entries: `{out_of_scope}`")
     lines.append(f"- Missing dedicated Equinox coverage: `{missing}`")
-    lines.append("")
-    lines.append("## Priority Gap Queue")
-    if quick_win:
-        for name in quick_win[:20]:
-            lines.append(f"- [ ] `{name}`")
-    else:
-        lines.append("- No missing entries detected by this heuristic.")
     lines.append("")
     lines.append("## Full Checklist")
     lines.append(
@@ -369,15 +350,6 @@ def render_markdown(rows: list[CoverageRow], *, doc_root: str, title: str) -> st
             f"| [{row.checkbox}] | `{row.entry.name}` | `{row.status}` | "
             f"`{row.modules}` | {row.note} |"
         )
-    lines.append("")
-    lines.append("## Next Steps")
-    lines.append("1. Implement missing Equinox nn entries from the priority queue.")
-    lines.append(
-        "2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`)."
-    )
-    lines.append(
-        "3. Re-run this script after each batch to keep docs and work notes in sync."
-    )
     lines.append("")
     return "\n".join(lines)
 

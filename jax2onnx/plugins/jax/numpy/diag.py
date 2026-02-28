@@ -145,7 +145,7 @@ def lower_extract_diagonal_2d(
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="diag",
     testcases=[

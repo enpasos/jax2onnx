@@ -163,7 +163,7 @@ def lower_left_shift_core(
             "doc": "https://onnx.ai/onnx/operators/onnx__BitShift.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="left_shift",
     testcases=[

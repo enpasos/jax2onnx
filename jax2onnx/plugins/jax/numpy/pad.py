@@ -118,7 +118,7 @@ def _abstract_eval_via_orig_pad(
             "doc": "https://onnx.ai/onnx/operators/onnx__Pad.html",
         }
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="pad",
     testcases=[

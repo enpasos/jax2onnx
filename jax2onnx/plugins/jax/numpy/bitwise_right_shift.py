@@ -38,7 +38,7 @@ _BITWISE_RIGHT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.bitwise_right_s
             "doc": "https://onnx.ai/onnx/operators/onnx__BitShift.html",
         },
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="bitwise_right_shift",
     testcases=[

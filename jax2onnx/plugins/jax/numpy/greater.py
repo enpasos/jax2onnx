@@ -37,7 +37,7 @@ _GREATER_PRIM: Final = make_jnp_primitive("jax.numpy.greater")
             "doc": "https://onnx.ai/onnx/operators/onnx__Greater.html",
         }
     ],
-    since="0.12.7",
+    since="0.12.2",
     context="primitives.jnp",
     component="greater",
     testcases=[

@@ -114,7 +114,7 @@ def _avg_pool_forward(
             "doc": "https://onnx.ai/onnx/operators/onnx__AveragePool.html",
         }
     ],
-    since="0.12.3",
+    since="0.12.2",
     context="primitives.eqx",
     component="avg_pool",
     testcases=[

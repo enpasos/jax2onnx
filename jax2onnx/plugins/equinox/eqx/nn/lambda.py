@@ -43,7 +43,7 @@ _LAMBDA_ONNX_OPS: Final[dict[str, str]] = {
             "doc": "https://onnx.ai/onnx/operators/onnx__Sigmoid.html",
         },
     ],
-    since="0.12.3",
+    since="0.12.2",
     context="primitives.eqx",
     component="lambda",
     testcases=[

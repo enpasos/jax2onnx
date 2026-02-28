@@ -38,7 +38,7 @@ _EQX_LSTM_CELL: Final[eqx.nn.LSTMCell] = eqx.nn.LSTMCell(
     jaxpr_primitive="eqx.nn.gru_cell",
     jax_doc="https://docs.kidger.site/equinox/api/nn/rnn/#equinox.nn.GRUCell",
     onnx=_RECURRENT_ONNX,
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="gru_cell",
     testcases=[
@@ -73,7 +73,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
     jaxpr_primitive="eqx.nn.lstm_cell",
     jax_doc="https://docs.kidger.site/equinox/api/nn/rnn/#equinox.nn.LSTMCell",
     onnx=_RECURRENT_ONNX,
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="lstm_cell",
     testcases=[

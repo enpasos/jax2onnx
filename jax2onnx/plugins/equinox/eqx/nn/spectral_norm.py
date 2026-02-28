@@ -30,7 +30,7 @@ _EQX_SPECTRAL_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_SPECTRAL_NORM)
         },
         {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="spectral_norm",
     testcases=[

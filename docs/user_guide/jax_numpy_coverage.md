@@ -4,12 +4,6 @@
 - Source list: all autosummary entries linked on the official `jax.numpy` page: `https://docs.jax.dev/en/latest/jax.numpy.html`
 - Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`.
 
-Regenerate with:
-
-```bash
-poetry run python scripts/generate_jnp_operator_coverage.py
-```
-
 ## Snapshot
 - Total docs entries: `440`
 - Covered (direct plugin): `184`
@@ -17,9 +11,6 @@ poetry run python scripts/generate_jnp_operator_coverage.py
 - Composite/helper entries: `60`
 - Non-functional entries (dtype/type/constants): `34`
 - Missing dedicated plugin coverage: `154`
-
-## Priority Gap Queue
-- No quick-win candidates currently marked missing by this heuristic.
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -466,9 +457,4 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `where` | `covered` | `jax/numpy/where` | Direct plugin coverage via `jax_doc` metadata. |
 | [x] | `zeros` | `covered` | `jax/numpy/zeros` | Direct plugin coverage via `jax_doc` metadata. |
 | [ ] | `zeros_like` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-
-## Next Steps
-1. Implement missing quick-win `jax.numpy` plugins from the queue above.
-2. Add metadata testcases for each new plugin and regenerate tests (`scripts/generate_tests.py`).
-3. Re-run this script after each batch to keep coverage docs in sync.
 

@@ -38,7 +38,7 @@ _EQX_EMBED: Final[eqx.nn.Embedding] = eqx.nn.Embedding(weight=_EQX_EMBED_TABLE)
             "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
         }
     ],
-    since="0.12.3",
+    since="0.12.2",
     context="primitives.eqx",
     component="embedding",
     testcases=[

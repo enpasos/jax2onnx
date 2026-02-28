@@ -44,7 +44,7 @@ EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
             "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
         }
     ],
-    since="0.12.5",
+    since="0.12.2",
     context="primitives.eqx",
     component="group_norm",
     testcases=[

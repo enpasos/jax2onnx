@@ -31,7 +31,7 @@ _ARGMAX_PRIM: Final = make_jnp_primitive("jax.numpy.argmax")
             "doc": "https://onnx.ai/onnx/operators/onnx__ArgMax.html",
         }
     ],
-    since="0.12.4",
+    since="0.12.2",
     context="primitives.jnp",
     component="argmax",
     testcases=[

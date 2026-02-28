@@ -31,7 +31,7 @@ _ARGMIN_PRIM: Final = make_jnp_primitive("jax.numpy.argmin")
             "doc": "https://onnx.ai/onnx/operators/onnx__ArgMin.html",
         }
     ],
-    since="0.12.4",
+    since="0.12.2",
     context="primitives.jnp",
     component="argmin",
     testcases=[
