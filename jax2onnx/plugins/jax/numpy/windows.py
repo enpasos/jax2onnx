@@ -22,6 +22,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _HANNING_PRIM: Final = make_jnp_primitive("jax.numpy.hanning")
 _HAMMING_PRIM: Final = make_jnp_primitive("jax.numpy.hamming")
 _BLACKMAN_PRIM: Final = make_jnp_primitive("jax.numpy.blackman")
+_BARTLETT_PRIM: Final = make_jnp_primitive("jax.numpy.bartlett")
 
 
 def _window_size(n: Any) -> int:
@@ -293,6 +294,99 @@ class JnpBlackmanPlugin(_WindowBasePlugin):
     _ONNX_OP: ClassVar[str] = "BlackmanWindow"
 
 
+@register_primitive(
+    jaxpr_primitive=_BARTLETT_PRIM.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.bartlett.html",
+    onnx=[
+        {
+            "component": "Constant",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Constant.html",
+        }
+    ],
+    since="0.12.1",
+    context="primitives.jnp",
+    component="bartlett",
+    testcases=[
+        {
+            "testcase": "jnp_bartlett_basic",
+            "callable": lambda: jnp.bartlett(5),
+            "input_values": [],
+            "expected_output_shapes": [(5,)],
+            "post_check_onnx_graph": EG(
+                [],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jnp_bartlett_empty",
+            "callable": lambda: jnp.bartlett(0),
+            "input_values": [],
+            "expected_output_shapes": [(0,)],
+            "post_check_onnx_graph": EG(
+                [],
+                no_unused_inputs=True,
+            ),
+        },
+    ],
+)
+class JnpBartlettPlugin(PrimitiveLeafPlugin):
+    _PRIM: ClassVar = _BARTLETT_PRIM
+    _FUNC_NAME: ClassVar[str] = "bartlett"
+    _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+
+    @staticmethod
+    def abstract_eval(
+        *,
+        n: int,
+        dtype: np.dtype[Any] | type = np.float32,
+    ) -> core.ShapedArray:
+        n_i = _window_size(n)
+        return core.ShapedArray((n_i,), np.dtype(dtype))
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+        (out_var,) = eqn.outvars
+        params = dict(getattr(eqn, "params", {}) or {})
+        n_i = _window_size(params.get("n"))
+        dtype_param = np.dtype(params.get("dtype", np.float32))
+
+        orig = get_orig_impl(self._PRIM, self._FUNC_NAME)
+        const_vals = np.asarray(orig(n_i), dtype=dtype_param)
+        ctx.bind_const_for_var(out_var, const_vals)
+
+    @classmethod
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
+
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
+            if orig is None:
+                raise RuntimeError(f"Original jnp.{cls._FUNC_NAME} not found")
+            setattr(cls._PRIM, storage_slot, orig)
+
+            def _patched(m: Any) -> jax.Array:
+                try:
+                    n_i = _window_size(m)
+                    resolved_dtype = np.dtype(orig(1).dtype)
+                except Exception:
+                    return orig(m)
+                return cls._PRIM.bind(n=n_i, dtype=resolved_dtype)
+
+            return _patched
+
+        return [
+            AssignSpec(
+                "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
+            ),
+            MonkeyPatchSpec(
+                target="jax.numpy",
+                attr=cls._FUNC_NAME,
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+        ]
+
+
 @JnpHanningPlugin._PRIM.def_impl
 def _hanning_impl(
     *,
@@ -326,6 +420,18 @@ def _blackman_impl(
     )
 
 
+@JnpBartlettPlugin._PRIM.def_impl
+def _bartlett_impl(
+    *,
+    n: int,
+    dtype: np.dtype[Any] | type = np.float32,
+) -> jax.Array:
+    return _window_impl(
+        JnpBartlettPlugin._PRIM, JnpBartlettPlugin._FUNC_NAME, n=n, dtype=dtype
+    )
+
+
 JnpHanningPlugin._PRIM.def_abstract_eval(JnpHanningPlugin.abstract_eval)
 JnpHammingPlugin._PRIM.def_abstract_eval(JnpHammingPlugin.abstract_eval)
 JnpBlackmanPlugin._PRIM.def_abstract_eval(JnpBlackmanPlugin.abstract_eval)
+JnpBartlettPlugin._PRIM.def_abstract_eval(JnpBartlettPlugin.abstract_eval)
