@@ -1454,6 +1454,7 @@ def lower_scatter_common(
     eqn,
     *,
     reduction: str,
+    updates_override: ir.Value | None = None,
 ) -> None:
     """Shared lowering for scatter, scatter_add, scatter_min/max/mul."""
 
@@ -1472,9 +1473,12 @@ def lower_scatter_common(
     indices_val = ctx.get_value_for_var(
         indices_var, name_hint=ctx.fresh_name("scatter_indices")
     )
-    updates_val = ctx.get_value_for_var(
-        updates_var, name_hint=ctx.fresh_name("scatter_updates")
-    )
+    if updates_override is None:
+        updates_val = ctx.get_value_for_var(
+            updates_var, name_hint=ctx.fresh_name("scatter_updates")
+        )
+    else:
+        updates_val = updates_override
     out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("scatter_out"))
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))

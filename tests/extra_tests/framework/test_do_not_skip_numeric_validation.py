@@ -96,6 +96,14 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "dynamic_update_slice",
         "dus_tensorscatter_axis1_opset24",
     ),
+    # ONNX RandomUniform is intentionally stochastic and this lowering does not
+    # reproduce JAX key-based RNG bit-for-bit yet.
+    ("primitives.lax", "rng_uniform", "rng_uniform_f32"),
+    # Same rationale as rng_uniform: output bits are random by design.
+    ("primitives.lax", "rng_bit_generator", "rng_bit_generator_u32"),
+    # JAX currently cannot execute subset_by_index on CPU/GPU; keep structural
+    # coverage enabled while runtime parity path is unavailable.
+    ("primitives.lax", "eigh", "eigh_2x2_subset_top1"),
     (
         "examples.nnx_gpt_oss",
         "FlaxSDPA",
