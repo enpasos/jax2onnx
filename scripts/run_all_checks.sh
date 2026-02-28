@@ -11,6 +11,7 @@ cd "${REPO_ROOT}"
 step=1
 
 echo "[${step}] Running pre-commit on all files..."
+poetry run python scripts/ensure_path_markers.py --fix
 poetry run pre-commit run --all-files
 step=$((step + 1))
 

@@ -33,6 +33,10 @@ def _const_scalar(value) -> float | int | None:
     return arr.item()
 
 
+def _all_axes(x) -> tuple[int, ...]:
+    return tuple(range(x.ndim))
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.reduce_sum_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
@@ -56,7 +60,7 @@ def _const_scalar(value) -> float | int | None:
     testcases=[
         {
             "testcase": "reduce_sum",
-            "callable": lambda x: jnp.sum(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=_all_axes(x)),
             "input_shapes": [(3, 3)],
             "post_check_onnx_graph": EG(
                 ["ReduceSum"],
@@ -65,7 +69,7 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_allaxes",
-            "callable": lambda x: jnp.sum(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=_all_axes(x)),
             "input_shapes": [(2, 3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceSum"],
@@ -74,7 +78,10 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_dtype",
-            "callable": lambda x: jnp.sum(x, axis=None, dtype=jnp.float32),
+            "callable": lambda x: jax.lax.reduce_sum(
+                jax.lax.convert_element_type(x, jnp.float32),
+                axes=_all_axes(x),
+            ),
             "input_values": [np.arange(6, dtype=np.float32).reshape(2, 3)],
             "post_check_onnx_graph": EG(
                 ["ReduceSum"],
@@ -83,7 +90,10 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_dtype_f64",
-            "callable": lambda x: jnp.sum(x, axis=None, dtype=jnp.float64),
+            "callable": lambda x: jax.lax.reduce_sum(
+                jax.lax.convert_element_type(x, jnp.float64),
+                axes=_all_axes(x),
+            ),
             "input_values": [np.arange(6, dtype=np.float64).reshape(2, 3)],
             "post_check_onnx_graph": EG(
                 ["ReduceSum"],
@@ -92,7 +102,11 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_keepdims",
-            "callable": lambda x: jnp.sum(x, axis=(1,), keepdims=True),
+            "callable": lambda x: jax.lax.broadcast_in_dim(
+                jax.lax.reduce_sum(x, axes=(1,)),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceSum:3 -> Reshape:3x1 -> Expand:3x1"],
@@ -101,7 +115,7 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_of_abs_axis1",
-            "callable": lambda x: jnp.sum(jnp.abs(x), axis=1),
+            "callable": lambda x: jax.lax.reduce_sum(jax.lax.abs(x), axes=(1,)),
             "input_values": [np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]])],
             "post_check_onnx_graph": EG(
                 [
@@ -115,7 +129,7 @@ def _const_scalar(value) -> float | int | None:
         },
         {
             "testcase": "reduce_sum_of_square_axis1",
-            "callable": lambda x: jnp.sum(jnp.square(x), axis=1),
+            "callable": lambda x: jax.lax.reduce_sum(jax.lax.mul(x, x), axes=(1,)),
             "input_values": [np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]])],
             "post_check_onnx_graph": EG(
                 [

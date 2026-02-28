@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax
-import jax.numpy as jnp
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
@@ -30,7 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
     testcases=[
         {
             "testcase": "reduce_min",
-            "callable": lambda x: jnp.min(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_min(x, axes=tuple(range(x.ndim))),
             "input_shapes": [(3, 3)],
             "post_check_onnx_graph": EG(
                 ["ReduceMin"],
@@ -39,7 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
         },
         {
             "testcase": "reduce_min_allaxes",
-            "callable": lambda x: jnp.min(x, axis=None),
+            "callable": lambda x: jax.lax.reduce_min(x, axes=tuple(range(x.ndim))),
             "input_shapes": [(2, 3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceMin"],
@@ -48,7 +47,11 @@ if TYPE_CHECKING:  # pragma: no cover
         },
         {
             "testcase": "reduce_min_keepdims",
-            "callable": lambda x: jnp.min(x, axis=(1,), keepdims=True),
+            "callable": lambda x: jax.lax.broadcast_in_dim(
+                jax.lax.reduce_min(x, axes=(1,)),
+                shape=(x.shape[0], 1),
+                broadcast_dimensions=(0,),
+            ),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
                 ["ReduceMin:3 -> Reshape:3x1 -> Expand:3x1"],
