@@ -356,7 +356,6 @@ def _two_scans_diff_len_with_broadcast_f32():
                         "inputs": {
                             0: {"const": 3.0},
                             1: {"const_bool": True},
-                            2: {"const": 0.0},
                         },
                     }
                 ],
