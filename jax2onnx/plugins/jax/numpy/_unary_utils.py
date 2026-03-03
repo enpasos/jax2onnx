@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, TypeAlias
+
 import jax
 from jax import core
 from jax.extend.core import Primitive
@@ -22,7 +24,7 @@ def abstract_eval_via_orig_unary(
 ) -> core.ShapedArray:
     """Mirror JAX dtype/shape semantics by delegating to the original jnp impl."""
     shape = tuple(getattr(x, "shape", ()))
-    dtype = np.dtype(getattr(x, "dtype", np.float32))
+    dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     shape_dtype = jax.ShapeDtypeStruct(shape, dtype)
     orig = get_orig_impl(prim, func_name)
     out = jax.eval_shape(lambda v: orig(v), shape_dtype)
@@ -47,8 +49,12 @@ def lower_unary_elementwise_with_optional_cast(
     x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name(input_hint))
     out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
 
-    in_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
-    out_dtype = np.dtype(getattr(getattr(y_var, "aval", None), "dtype", in_dtype))
+    in_dtype: np.dtype[Any] = np.dtype(
+        getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+    )
+    out_dtype: np.dtype[Any] = np.dtype(
+        getattr(getattr(y_var, "aval", None), "dtype", in_dtype)
+    )
 
     op_input = x_val
     if identity_for_integral_input and (
@@ -106,8 +112,12 @@ def cast_input_to_output_dtype(
     output_hint: str,
 ) -> ir.Value:
     """Cast unary input to output dtype when JAX promotion changed the dtype."""
-    in_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
-    out_dtype = np.dtype(getattr(getattr(y_var, "aval", None), "dtype", in_dtype))
+    in_dtype: np.dtype[Any] = np.dtype(
+        getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+    )
+    out_dtype: np.dtype[Any] = np.dtype(
+        getattr(getattr(y_var, "aval", None), "dtype", in_dtype)
+    )
     if in_dtype == out_dtype:
         return x_val
 
@@ -126,7 +136,13 @@ def cast_input_to_output_dtype(
 def register_unary_elementwise_batch_rule(prim: Primitive) -> None:
     """Attach a default batching rule for single-input elementwise primitives."""
 
-    def _batch_rule(batched_args, batch_dims, **params):
+    BatchDim: TypeAlias = int | None
+
+    def _batch_rule(
+        batched_args: tuple[jax.Array, ...],
+        batch_dims: tuple[BatchDim, ...],
+        **params: object,
+    ) -> tuple[jax.Array, BatchDim]:
         (x,) = batched_args
         (bdim,) = batch_dims
         out = prim.bind(x, **params)

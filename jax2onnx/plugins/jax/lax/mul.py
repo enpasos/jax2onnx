@@ -1,5 +1,7 @@
 # jax2onnx/plugins/jax/lax/mul.py
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Optional, cast
 import jax
 import numpy as np
@@ -126,7 +128,7 @@ if TYPE_CHECKING:
     ],
 )
 class MulPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: "IRContext", eqn: jax.core.JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -142,7 +144,7 @@ class MulPlugin(PrimitiveLeafPlugin):
             ctx, a_val, b_val, out_spec, out_var
         )
 
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False

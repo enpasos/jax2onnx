@@ -11,7 +11,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 _SIGNED_TO_UNSIGNED: dict[ir.DataType, tuple[ir.DataType, np.dtype[Any], int]] = {
     ir.DataType.INT8: (ir.DataType.UINT8, np.dtype(np.uint8), 8),
@@ -93,7 +92,7 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
             return ir.DataType(int(dtype_enum))
 
         aval = getattr(lhs_var, "aval", None)
-        aval_dtype = np.dtype(getattr(aval, "dtype", np.int32))
+        aval_dtype: np.dtype[Any] = np.dtype(getattr(aval, "dtype", np.int32))
         if aval_dtype in _NP_SIGNED_TO_IR:
             return _NP_SIGNED_TO_IR[aval_dtype]
         if aval_dtype in _NP_UNSIGNED_TO_IR:
@@ -111,11 +110,11 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
         if getattr(ref, "shape", None) is not None:
             value.shape = ref.shape
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.int32))
+        prefer_dtype: np.dtype[Any] = np.dtype(getattr(lhs_var.aval, "dtype", np.int32))
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("sra_input"))
         rhs_val = ctx.get_value_for_var(

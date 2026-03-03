@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import Any, ClassVar, Final
 
 from jax import core
 import jax.numpy as jnp
@@ -100,10 +100,10 @@ class JnpEqualPlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("jnp_equal_out"),
         )
 
-        lhs_dtype = np.dtype(
+        lhs_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(lhs_var, "aval", None), "dtype", np.float32)
         )
-        rhs_dtype = np.dtype(
+        rhs_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(rhs_var, "aval", None), "dtype", np.float32)
         )
         target_dtype = np.promote_types(lhs_dtype, rhs_dtype)
@@ -147,7 +147,10 @@ class JnpEqualPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpEqualPlugin._PRIM.def_impl
@@ -156,7 +159,9 @@ def _equal_impl(x: object, y: object) -> object:
     return orig(x, y)
 
 
-def _equal_batch_rule(args, dims, **params):
+def _equal_batch_rule(
+    args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
+) -> Any:
     return broadcast_batcher_compat(JnpEqualPlugin._PRIM, args, dims, **params)
 
 

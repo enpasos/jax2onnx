@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, Optional
+from typing import Any, Callable, ClassVar, Final, Optional, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -22,6 +22,17 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 
 _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
+
+
+def _typed_jnp_cumsum(
+    x: ArrayLike,
+    *,
+    axis: int | None = None,
+    dtype: np.dtype[Any] | type | None = None,
+    reverse: bool = False,
+) -> jax.Array:
+    cumsum_fn = cast(Callable[..., jax.Array], jnp.cumsum)
+    return cumsum_fn(x, axis=axis, reverse=reverse, dtype=dtype)
 
 
 @register_primitive(
@@ -53,7 +64,7 @@ _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
         },
         {
             "testcase": "jnp_cumsum_reverse_dtype",
-            "callable": lambda x: jnp.cumsum(
+            "callable": lambda x: _typed_jnp_cumsum(
                 x, axis=-1, reverse=True, dtype=jnp.float64
             ),
             "input_shapes": [(1, 5)],
@@ -85,7 +96,7 @@ _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
         },
         {
             "testcase": "cumsum_axis2_reverse_i32",
-            "callable": lambda x: jnp.cumsum(x, axis=2, reverse=True),
+            "callable": lambda x: _typed_jnp_cumsum(x, axis=2, reverse=True),
             "input_shapes": [(2, 3, 4)],
             "input_dtypes": [np.int32],
             "post_check_onnx_graph": EG(
@@ -199,7 +210,7 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec]:
         return [
             AssignSpec(
                 "jax.numpy", f"{cls._FUNC_NAME}_p", cls._PRIM, delete_if_missing=True
@@ -264,7 +275,7 @@ def _cumsum_impl(
     return result
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _cumsum_batch_rule(
@@ -274,9 +285,9 @@ def _cumsum_batch_rule(
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
 
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = JnpCumSumPlugin._PRIM.bind(operand, **params)
-        return out, batching.not_mapped
+        return out, None
 
     batch_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, batch_size)
@@ -302,17 +313,17 @@ _ORIGINAL_JNP_CUMSUM: Final[Optional[Callable[..., Any]]] = getattr(jnp, "cumsum
 
 
 def _runtime_cumsum(
-    x,
-    *rest,
-    axis=None,
-    dtype=None,
-    reverse=False,
-    precision=None,
-    exclusive=False,
-    out=None,
-    method=None,
-    **kwargs,
-):
+    x: ArrayLike,
+    *rest: Any,
+    axis: int | None = None,
+    dtype: np.dtype[Any] | type | None = None,
+    reverse: bool = False,
+    precision: Any | None = None,
+    exclusive: bool = False,
+    out: Any | None = None,
+    method: Any | None = None,
+    **kwargs: Any,
+) -> jax.Array:
     if rest:
         raise TypeError("jnp.cumsum expects a single positional argument")
     if out is not None:
@@ -330,7 +341,7 @@ def _runtime_cumsum(
         and precision is None
         and _ORIGINAL_JNP_CUMSUM is not None
     ):
-        return _ORIGINAL_JNP_CUMSUM(x, axis=axis, dtype=dtype, out=out)
+        return cast(jax.Array, _ORIGINAL_JNP_CUMSUM(x, axis=axis, dtype=dtype, out=out))
 
     return JnpCumSumPlugin._PRIM.bind(
         x,

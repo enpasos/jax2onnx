@@ -1,17 +1,16 @@
 # jax2onnx/plugins/jax/lax/erf_inv.py
 
-from typing import Any
 
 import jax
 import numpy as np
 import onnx_ir as ir
+from typing import Any
+
 from jax import core
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import _np_dtype_for_enum
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -63,7 +62,7 @@ class ErfInvPlugin(PrimitiveLeafPlugin):
         if getattr(ref, "shape", None) is not None:
             value.shape = ref.shape
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

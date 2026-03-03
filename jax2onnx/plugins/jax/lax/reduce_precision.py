@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -15,7 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -90,7 +90,7 @@ def _native_format_bits(np_dtype: np.dtype) -> tuple[int, int] | None:
 class ReducePrecisionPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.reduce_precision`` with scalar quantization arithmetic."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = dict(getattr(eqn, "params", {}) or {})
@@ -143,7 +143,7 @@ class ReducePrecisionPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, result)
             return
 
-        def _const(value: float):
+        def _const(value: float) -> Any:
             return ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
 
         zero = _const(0.0)

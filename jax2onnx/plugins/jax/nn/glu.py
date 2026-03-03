@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax.extend.core import Primitive
@@ -22,6 +22,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _GLU_PRIM: Final[Primitive] = Primitive("jax.nn.glu")
 _GLU_PRIM.multiple_results = False
 _JAX_GLU_ORIG: Final = jax.nn.glu
+BatchDim: TypeAlias = int | None
 
 
 def _normalize_axis(axis: int, rank: int) -> int:
@@ -158,7 +159,7 @@ class GluPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -227,13 +228,13 @@ def _glu_impl(x: ArrayLike, *, axis: int = -1) -> ArrayLike:
 
 def _glu_batch_rule(
     batched_args: tuple[jax.Array, ...],
-    batch_dims: tuple[int | type(batching.not_mapped), ...],
+    batch_dims: tuple[BatchDim, ...],
     *,
     axis: int = -1,
-):
+) -> tuple[jax.Array, BatchDim]:
     (x,), (bdim,) = batched_args, batch_dims
-    if bdim is batching.not_mapped:
-        return GluPlugin._PRIM.bind(x, axis=axis), batching.not_mapped
+    if bdim is None:
+        return GluPlugin._PRIM.bind(x, axis=axis), None
 
     x_front = batching.bdim_at_front(x, bdim, x.shape[bdim])
     slice_rank = x_front.ndim - 1

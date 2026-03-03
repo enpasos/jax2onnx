@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -17,14 +17,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -47,7 +49,9 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str):
+def _cast_if_needed(
+    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
         value_type = getattr(value, "type", None)
@@ -66,7 +70,7 @@ def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str
     return casted
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
+def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
     out = ctx.builder.Reshape(
         value,
@@ -79,7 +83,7 @@ def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
     return out
 
 
-def _gather_col(ctx: "IRContext", mat, j: int, name: str):
+def _gather_col(ctx: "IRContext", mat: ir.Value, j: int, name: str) -> ir.Value:
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
     col = ctx.builder.Gather(
         mat,
@@ -92,7 +96,7 @@ def _gather_col(ctx: "IRContext", mat, j: int, name: str):
     return col
 
 
-def _gather_row(ctx: "IRContext", mat, i: int, name: str):
+def _gather_row(ctx: "IRContext", mat: ir.Value, i: int, name: str) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -105,7 +109,7 @@ def _gather_row(ctx: "IRContext", mat, i: int, name: str):
     return row
 
 
-def _sum_2d_to_scalar(ctx: "IRContext", value, name: str):
+def _sum_2d_to_scalar(ctx: "IRContext", value: ir.Value, name: str) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([0, 1], dtype=np.int64), f"{name}_axes")
     out = ctx.builder.ReduceSum(
         value,
@@ -226,7 +230,7 @@ def _sum_2d_to_scalar(ctx: "IRContext", value, name: str):
 class SvdPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.svd`` for static real ``1x1`` and values-only when ``min(m, n)==2``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         compute_uv = bool(params.get("compute_uv", True))
         subset_by_index = params.get("subset_by_index", None)
@@ -242,7 +246,9 @@ class SvdPlugin(PrimitiveLeafPlugin):
             )
 
         x = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("svd_in"))
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         if np.issubdtype(x_dtype, np.complexfloating):
             raise NotImplementedError("svd complex input is not supported yet")
         if not np.issubdtype(x_dtype, np.floating):

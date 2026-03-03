@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import Any, ClassVar, Final
 
 import jax
 from jax import core
@@ -123,7 +123,7 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
             output_hint="jnp_cos",
         )
 
-        out_dtype = np.dtype(
+        out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("jnp_cos_out")
@@ -159,7 +159,10 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpCosPlugin._PRIM.def_impl

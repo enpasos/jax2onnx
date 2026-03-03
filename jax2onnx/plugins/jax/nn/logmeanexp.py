@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax.extend.core import Primitive
@@ -22,6 +22,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _LOGMEANEXP_PRIM: Final[Primitive] = Primitive("jax.nn.logmeanexp")
 _LOGMEANEXP_PRIM.multiple_results = False
 _JAX_LOGMEANEXP_ORIG: Final = jax.nn.logmeanexp
+BatchDim: TypeAlias = int | None
 
 
 def _axis_arg(axes: tuple[int, ...] | None) -> int | tuple[int, ...] | None:
@@ -158,7 +159,9 @@ class LogMeanExpPlugin(PrimitiveLeafPlugin):
         out_shape = getattr(out_spec, "shape", None) or getattr(
             getattr(out_var, "aval", None), "shape", None
         )
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
 
         reduce_inputs = [x_val]
         if axes_norm is not None:
@@ -194,7 +197,7 @@ class LogMeanExpPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -209,7 +212,7 @@ class LogMeanExpPlugin(PrimitiveLeafPlugin):
 
             def _patched(
                 x: ArrayLike,
-                axis=None,
+                axis: int | tuple[int, ...] | list[int] | None = None,
                 where: ArrayLike | None = None,
                 keepdims: bool = False,
             ) -> ArrayLike:
@@ -280,15 +283,15 @@ def _logmeanexp_impl(
 
 def _logmeanexp_batch_rule(
     batched_args: tuple[jax.Array, ...],
-    batch_dims: tuple[int | type(batching.not_mapped), ...],
+    batch_dims: tuple[BatchDim, ...],
     *,
     axes: tuple[int, ...] | None,
     keepdims: bool,
-):
+) -> tuple[jax.Array, BatchDim]:
     (x,), (bdim,) = batched_args, batch_dims
-    if bdim is batching.not_mapped:
-        out = LogMeanExpPlugin._PRIM.bind(x, axes=axes, keepdims=keepdims)
-        return out, batching.not_mapped
+    if bdim is None:
+        out_unbatched = LogMeanExpPlugin._PRIM.bind(x, axes=axes, keepdims=keepdims)
+        return out_unbatched, None
 
     x_front = batching.bdim_at_front(x, bdim, x.shape[bdim])
     slice_rank = x_front.ndim - 1
@@ -296,6 +299,8 @@ def _logmeanexp_batch_rule(
         new_axes = tuple(range(1, x_front.ndim))
     else:
         axes_norm = _normalize_axes(axes, slice_rank)
+        if axes_norm is None:
+            raise RuntimeError("axes normalization unexpectedly returned None")
         new_axes = tuple(int(ax) + 1 for ax in axes_norm)
 
     out = LogMeanExpPlugin._PRIM.bind(x_front, axes=new_axes, keepdims=keepdims)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -43,10 +43,10 @@ def _canon_int(value: int | np.integer) -> np.integer:
     return np.int64(value) if use_int64 else np.int32(value)
 
 
-def model_fn(x):
+def model_fn(x: Any) -> Any:
     steps = 5
 
-    def body_func(index, args):
+    def body_func(index: Any, args: tuple[Any, Any]) -> tuple[Any, Any]:
         x_val, counter = args
         x_val = x_val + 0.1 * x_val**2
         counter = counter + 1
@@ -84,7 +84,7 @@ def _build_body_graph(
 
     # Bind the iteration index, casting to the requested dtype when needed.
     iter_var = jaxpr.invars[0]
-    iter_dtype = np.dtype(getattr(iter_var.aval, "dtype", np.int64))
+    iter_dtype: np.dtype[Any] = np.dtype(getattr(iter_var.aval, "dtype", np.int64))
     iter_enum = _dtype_to_ir(iter_dtype, builder.enable_double_precision)
     iter_value = iter_input
     if lower != 0:
@@ -290,11 +290,11 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
     _ORIG_FORI_LOOP: ClassVar[Any] = None
 
     @classmethod
-    def binding_specs(cls):
-        def _patch(orig):
+    def binding_specs(cls) -> list[Any]:
+        def _patch(orig: Any) -> Any:
             cls._ORIG_FORI_LOOP = orig
 
-            def _wrapped(lower, upper, body_fun, init_val):
+            def _wrapped(lower: Any, upper: Any, body_fun: Any, init_val: Any) -> Any:
                 return cls._fori_loop_binding(lower, upper, body_fun, init_val)
 
             return _wrapped
@@ -305,10 +305,10 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def abstract_eval(*in_avals, **__):
+    def abstract_eval(*in_avals: Any, **__: Any) -> tuple[Any, ...]:
         return tuple(in_avals)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         closed = params.get("body_jaxpr")
         trip_count = int(params.get("trip_count", 0))
@@ -362,20 +362,22 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(var, val)
 
     @classmethod
-    def _fori_loop_binding(cls, lower, upper, body_fun, init_val):
+    def _fori_loop_binding(
+        cls, lower: Any, upper: Any, body_fun: Any, init_val: Any
+    ) -> Any:
         leaves, treedef = tree_util.tree_flatten(init_val)
         leaves = [
             _canon_int(leaf) if isinstance(leaf, (int, np.integer)) else leaf
             for leaf in leaves
         ]
 
-        def body_flat(i, *state_leaves):
+        def body_flat(i: Any, *state_leaves: Any) -> list[Any]:
             state = tree_util.tree_unflatten(treedef, state_leaves)
             new_state = body_fun(i, state)
             new_leaves, new_def = tree_util.tree_flatten(new_state)
             if new_def != treedef:
                 raise TypeError("fori_loop body must preserve state structure")
-            return new_leaves
+            return cast(list[Any], new_leaves)
 
         body_closed = jax.make_jaxpr(body_flat)(0, *leaves)
         trip_count = int(np.asarray(upper).item()) - int(np.asarray(lower).item())

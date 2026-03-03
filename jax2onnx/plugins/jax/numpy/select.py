@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 import jax.extend.core as jax_core_ext
@@ -19,6 +19,7 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -32,7 +33,7 @@ def _broadcast_shape(*shapes: Sequence[int | object]) -> tuple[int | object, ...
 
 
 def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
-    return jnp.result_type(*dtypes)
+    return cast(np.dtype[Any], np.dtype(jnp.result_type(*dtypes)))
 
 
 @register_primitive(
@@ -143,7 +144,9 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
 
         result_shape = tuple(getattr(out_var.aval, "shape", ()))
-        result_dtype = getattr(out_var.aval, "dtype", np.float32)
+        result_dtype: np.dtype[Any] = np.dtype(
+            getattr(out_var.aval, "dtype", np.float32)
+        )
 
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -287,13 +290,15 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
 
 @JnpSelectPlugin._PRIM.def_impl
 def _select_impl(
-    condlist: Sequence[ArrayLike],
-    choicelist: Sequence[ArrayLike],
-    *,
-    default: ArrayLike | None = None,
+    *operands: ArrayLike | None,
+    num_conds: int,
+    num_choices: int,
 ) -> jax.Array:
+    condlist = operands[:num_conds]
+    choicelist = operands[num_conds : num_conds + num_choices]
+    default = operands[-1]
     orig = get_orig_impl(JnpSelectPlugin._PRIM, JnpSelectPlugin._FUNC_NAME)
-    return orig(condlist, choicelist, default=default)
+    return orig(list(condlist), list(choicelist), default=default)
 
 
 def _select_jvp_rule(
@@ -322,13 +327,17 @@ def _select_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[JnpSelectPlugin._PRIM] = _select_jvp_rule
+register_jvp_rule(JnpSelectPlugin._PRIM, _select_jvp_rule)
 
 
 JnpSelectPlugin._PRIM.def_abstract_eval(JnpSelectPlugin.abstract_eval)
 
 
-def _select_batch_rule(args, dims, **params):
+def _select_batch_rule(
+    args: tuple[Any, ...],
+    dims: tuple[Any, ...],
+    **params: Any,
+) -> Any:
     return broadcast_batcher_compat(JnpSelectPlugin._PRIM, args, dims, **params)
 
 

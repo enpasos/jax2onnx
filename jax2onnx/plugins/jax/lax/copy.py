@@ -65,10 +65,10 @@ class CopyPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(
         operand_aval: Any, **unused_kwargs: Any
-    ):  # pragma: no cover - JAX hook
+    ) -> Any:  # pragma: no cover - JAX hook
         return operand_aval
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         if len(eqn.invars) != 1 or len(eqn.outvars) != 1:
             raise ValueError("lax.copy_p expects exactly one input and one output")
 

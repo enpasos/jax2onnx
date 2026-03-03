@@ -1,7 +1,5 @@
 # jax2onnx/plugins/jax/lax/square.py
 
-from typing import Any
-
 from jax import core
 import jax
 
@@ -15,8 +13,6 @@ from jax2onnx.plugins._loop_extent_meta import (
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -44,7 +40,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class SquarePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -75,11 +71,10 @@ class SquarePlugin(PrimitiveLeafPlugin):
                 return True
             return candidate == target_axis0
 
-        override_candidates = [
-            int(candidate)
-            for candidate in (x_override, spec_override, ctx_override)
-            if _compatible_override(candidate)
-        ]
+        override_candidates: list[int] = []
+        for candidate in (x_override, spec_override, ctx_override):
+            if _compatible_override(candidate) and isinstance(candidate, int):
+                override_candidates.append(candidate)
         axis0_override = max(override_candidates, default=None)
         _axis0_debug(
             "square override resolution "

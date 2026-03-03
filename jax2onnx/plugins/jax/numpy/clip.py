@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, TypeAlias
 
 import jax
 import jax.extend.core as jax_core_ext
@@ -28,7 +28,7 @@ from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 ScalarBound = bool | int | float | np.generic
-JaxValue = jax_core_ext.Var | jax_core_ext.Literal
+JaxValue: TypeAlias = jax_core_ext.Var | jax_core_ext.Literal
 
 
 def _np_dtype(x: DTypeLike) -> np.dtype[Any]:
@@ -312,7 +312,7 @@ register_jvp_via_jax_jvp(JnpClipPlugin._PRIM, _clip_impl)
 JnpClipPlugin._PRIM.def_abstract_eval(JnpClipPlugin.abstract_eval)
 
 
-def _clip_batching_rule(args, dims):
+def _clip_batching_rule(args: tuple[Any, ...], dims: tuple[Any, ...]) -> Any:
     return broadcast_batcher_compat(JnpClipPlugin._PRIM, args, dims)
 
 

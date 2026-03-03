@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import onnx_ir as ir
@@ -56,7 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for typing only
 class DevicePutPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.device_put`` to an IR Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         in_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

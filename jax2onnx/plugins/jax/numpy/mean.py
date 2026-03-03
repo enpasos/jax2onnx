@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
-from typing import Any, Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence, TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -143,14 +143,12 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
                 "jnp.mean with 'where' mask is not supported in ONNX lowering"
             )
 
-        print(f"DEBUG: abstract_eval input x: {x}, shape: {x.shape}")
-
         ndim = len(x.shape)
         # JAX mean default dtype logic might differ slightly but usually follows input or float
         # match jnp behavior: integer inputs -> float
         if dtype is None:
             if jnp.issubdtype(x.dtype, np.integer) or jnp.issubdtype(x.dtype, np.bool_):
-                out_dtype = np.dtype(
+                out_dtype: np.dtype[Any] = np.dtype(
                     np.float32
                 )  # Default typically float32 or 64 depending on jax config
             else:
@@ -319,7 +317,7 @@ def _mean_impl(
 JnpMeanPlugin._PRIM.def_abstract_eval(JnpMeanPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _mean_batch_rule(
@@ -333,6 +331,17 @@ def _mean_batch_rule(
     where: bool = True,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
+    if bdim is None:
+        out = JnpMeanPlugin._PRIM.bind(
+            operand,
+            axes=axes,
+            dtype=dtype,
+            out=out,
+            keepdims=keepdims,
+            where=where,
+        )
+        return out, None
+
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)
 

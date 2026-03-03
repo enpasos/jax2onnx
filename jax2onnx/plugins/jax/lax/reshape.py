@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict, Final, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Final, Iterable, List, Optional, Union
 from functools import reduce
 import operator
 import os
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 
 # --- helper for tests: forbid constant-only Concat as Reshape shape input ---
-def _no_const_concat_shape(model) -> bool:
+def _no_const_concat_shape(model: Any) -> bool:
     """
     Return True iff every Reshape node's second input is either
     a direct initializer or, if produced by Concat, that Concat is NOT
@@ -86,8 +86,8 @@ EXPECT_SINGLE_RESHAPE_AND_NO_SHAPE_PLUMBING: Final = EG(
 EXPECT_NO_DYNAMIC_SHAPE_NODES: Final = EG([], must_absent=["Concat", "Gather", "Shape"])
 
 
-def _prod_dims(dims):
-    prod = 1
+def _prod_dims(dims: Iterable[Any]) -> Any:
+    prod: Any = 1
     for d in dims:
         if isinstance(d, (int, np.integer)):
             prod = prod * int(d)
@@ -96,7 +96,7 @@ def _prod_dims(dims):
     return prod
 
 
-def _reshape_flatten_leading(x):
+def _reshape_flatten_leading(x: Any) -> Any:
     try:
         flat = reduce(operator.mul, x.shape[1:], 1)
         return lax.reshape(x, new_sizes=(x.shape[0], flat))
@@ -104,7 +104,7 @@ def _reshape_flatten_leading(x):
         return jax.numpy.reshape(x, (x.shape[0], -1))
 
 
-def _reshape_flatten_trailing(x):
+def _reshape_flatten_trailing(x: Any) -> Any:
     try:
         lead = reduce(operator.mul, x.shape[:-1], 1)
         return lax.reshape(x, new_sizes=(lead, x.shape[-1]))
@@ -259,7 +259,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     """
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])
@@ -280,7 +280,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # Helpers to make INT64 constants
         def const_i64_vec(vals: np.ndarray) -> ir.Value:
-            arr = vals.astype(np.int64, copy=False)
+            arr: np.ndarray[Any, Any] = vals.astype(np.int64, copy=False)
             value = _const_i64(ctx, arr, ctx.fresh_name("shape_const"))
             # Ensure downstream ops see accurate metadata even when the builder
             # returns a bare initializer handle.
@@ -315,14 +315,17 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         # ---- small helpers for DimExpr handling --------------------------------
         def _dimexpr_const_value(dim: object) -> Optional[int]:
             """If a symbolic dim prints like an integer (e.g. '3' or '-1'), return that int."""
-            return dim_expr_constant_value(dim)
+            const_val = dim_expr_constant_value(dim)
+            if const_val is None:
+                return None
+            return int(const_val)
 
         def _same_symbol(dim_expr: object, axis_dim: object) -> bool:
             """Robust 'same symbol' test between a DimExpr and an input axis dim."""
             if isinstance(axis_dim, (int, np.integer)):
                 cv = _dimexpr_const_value(dim_expr)
                 return cv is not None and int(axis_dim) == cv
-            return symbolic_dim_eq(dim_expr, axis_dim)
+            return bool(symbolic_dim_eq(dim_expr, axis_dim))
 
         # Track whether we already inserted an inferred dim (-1)
         inserted_neg1 = any(

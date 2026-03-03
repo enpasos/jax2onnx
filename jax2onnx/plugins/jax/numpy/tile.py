@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import ClassVar, Final
+from typing import Any, ClassVar, Final, TypeAlias
 
 import jax
 from jax import core, lax
@@ -19,12 +19,18 @@ from jax2onnx.converter.typing_support import (
     SymbolicDimOrigin,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
+    register_primitive,
+)
 from jax2onnx.utils.shape_poly import is_dim_expr
 
 
@@ -32,14 +38,14 @@ _ORIG_TILE: Final = jnp.tile
 _TILE_PRIM: Final = make_jnp_primitive("jax.numpy.tile")
 
 
-def _tile_param(a):
+def _tile_param(a: jax.Array) -> jax.Array:
     """Legacy helper: tile a learnable parameter by the batch dimension."""
     b = a.shape[0]
     param = jnp.zeros((1, 1, 4), dtype=a.dtype)
     return jnp.tile(param, (b, 1, 1))
 
 
-def _tile_with_symbolic_repeats(a):
+def _tile_with_symbolic_repeats(a: jax.Array) -> jax.Array:
     """Repeat using the leading dimension for both dynamic/static variants."""
     b = a.shape[0]
     return jnp.tile(a, (b, 1, 1))
@@ -224,19 +230,26 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
     def abstract_eval(
         a: core.AbstractValue,
         *,
-        repeats: ArrayLike,
+        reps: ArrayLike | None = None,
+        repeats: ArrayLike | None = None,
         **_: object,
     ) -> core.ShapedArray:
+        repeats_spec = repeats if repeats is not None else reps
+        if repeats_spec is None:
+            raise ValueError("jnp.tile abstract_eval requires repeats/reps parameter")
         # Defer to the original implementation for robust symbolic-shape handling.
         spec = jax.ShapeDtypeStruct(a.shape, a.dtype)
-        out = jax.eval_shape(lambda arr: _ORIG_TILE(arr, repeats), spec)
+        out = jax.eval_shape(lambda arr: _ORIG_TILE(arr, repeats_spec), spec)
         return jax.core.ShapedArray(out.shape, out.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         input_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         repeats_var = eqn.invars[1] if len(eqn.invars) > 1 else None
-        static_repeats = getattr(eqn, "params", {}).get("repeats")
+        params = getattr(eqn, "params", {})
+        static_repeats = params.get("reps")
+        if static_repeats is None:
+            static_repeats = params.get("repeats")
 
         input_val = ctx.get_value_for_var(
             input_var, name_hint=ctx.fresh_name("tile_in")
@@ -244,7 +257,9 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tile_out"))
 
         input_shape = tuple(getattr(input_var.aval, "shape", ()))
-        input_dtype = np.dtype(getattr(input_var.aval, "dtype", np.float32))
+        input_dtype: np.dtype[Any] = np.dtype(
+            getattr(input_var.aval, "dtype", np.float32)
+        )
 
         repeats_val: ir.Value
         repeats_rank: int
@@ -252,7 +267,9 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             repeats_val = ctx.get_value_for_var(
                 repeats_var, name_hint=ctx.fresh_name("tile_repeats_dyn")
             )
-            repeats_dtype = np.dtype(getattr(repeats_var.aval, "dtype", np.int64))
+            repeats_dtype: np.dtype[Any] = np.dtype(
+                getattr(repeats_var.aval, "dtype", np.int64)
+            )
             if repeats_dtype != np.int64:
                 cast_val = ctx.builder.Cast(
                     repeats_val,
@@ -322,14 +339,14 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
                     reps = np.asarray(reps)
                 if isinstance(reps, np.ndarray):
                     if reps.ndim == 0:
-                        return cls._PRIM.bind(a, repeats=(int(reps),))
+                        return cls._PRIM.bind(a, reps=(int(reps),))
                     if reps.ndim == 1:
-                        return cls._PRIM.bind(a, repeats=tuple(int(x) for x in reps))
+                        return cls._PRIM.bind(a, reps=tuple(int(x) for x in reps))
                     raise ValueError("tile repeats array must be 0- or 1-D")
                 if isinstance(reps, (int, np.integer)):
-                    return cls._PRIM.bind(a, repeats=(int(reps),))
+                    return cls._PRIM.bind(a, reps=(int(reps),))
                 if isinstance(reps, (tuple, list)):
-                    return cls._PRIM.bind(a, repeats=tuple(reps))
+                    return cls._PRIM.bind(a, reps=tuple(reps))
                 return cls._PRIM.bind(a, reps)
 
             return _patched
@@ -364,7 +381,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
     def _build_static_repeats(
         self,
         ctx: LoweringContextProtocol,
-        repeats_param: Sequence[int | np.integer] | int | np.integer,
+        repeats_param: Sequence[object] | int | np.integer | str,
     ) -> tuple[ir.Value, int]:
         repeats_tuple = (
             (repeats_param,)
@@ -373,7 +390,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
         origin_getter = getattr(ctx, "get_symbolic_dim_origin", None)
 
-        def _origin(dim) -> SymbolicDimOrigin | None:
+        def _origin(dim: object) -> SymbolicDimOrigin | None:
             return SymbolicDimOrigin.resolve(origin_getter, dim)
 
         shape_cache: dict[ir.Value, ir.Value] = {}
@@ -419,8 +436,8 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         ctx: LoweringContextProtocol,
         input_val: ir.Value,
         repeats_val: ir.Value,
-        input_shape: tuple,
-        input_np_dtype: np.dtype,
+        input_shape: tuple[object, ...],
+        input_np_dtype: np.dtype[Any],
         repeats_rank: int,
     ) -> tuple[ir.Value, ir.Value]:
         aligned = repeats_val
@@ -485,35 +502,53 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         return input_val, aligned
 
 
+# Forwarded AD for jnp.tile can emit raw lax primitive "tile" equations.
+# Reuse this lowering for both names until a dedicated lax.tile plugin exists.
+PLUGIN_REGISTRY.setdefault(lax.tile_p.name, PLUGIN_REGISTRY[JnpTilePlugin._PRIM.name])
+
+
 @JnpTilePlugin._PRIM.def_impl
-def _tile_impl(a, *, repeats):
+def _tile_impl(
+    a: ArrayLike,
+    reps: ArrayLike | None = None,
+    *,
+    repeats: ArrayLike | None = None,
+) -> jax.Array:
+    repeats_spec = repeats if repeats is not None else reps
+    if repeats_spec is None:
+        raise ValueError("jnp.tile impl requires repeats/reps parameter")
     orig = get_orig_impl(JnpTilePlugin._PRIM, JnpTilePlugin._FUNC_NAME)
-    return orig(a, repeats)
+    return orig(a, repeats_spec)
 
 
 JnpTilePlugin._PRIM.def_abstract_eval(JnpTilePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _tile_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[BatchDim, ...],
     *,
-    repeats: ArrayLike,
+    reps: ArrayLike | None = None,
+    repeats: ArrayLike | None = None,
     **_: object,
 ) -> tuple[jax.Array, BatchDim]:
+    repeats_spec = repeats if repeats is not None else reps
+    if repeats_spec is None:
+        raise ValueError("vmap batching for tile requires repeats/reps parameter")
+
     if len(batched_args) != 1:
         raise NotImplementedError(
             "vmap batching for dynamic tile repeats is not supported"
         )
 
     (operand,), (bdim,) = batched_args, batch_dims
-    repeats_tuple = tuple(repeats)
+    repeats_tuple = tuple(repeats_spec)
 
     if bdim is batching.not_mapped:
-        out = JnpTilePlugin._PRIM.bind(operand, repeats=repeats_tuple)
+        out = JnpTilePlugin._PRIM.bind(operand, reps=repeats_tuple)
         return out, batching.not_mapped
 
     batch_size = operand.shape[bdim]
@@ -531,78 +566,15 @@ def _tile_batch_rule(
         padded = (1,) * (slice_rank - repeats_rank) + repeats_tuple
         repeats_full = (1,) + padded
 
-    out = JnpTilePlugin._PRIM.bind(operand, repeats=repeats_full)
+    out = JnpTilePlugin._PRIM.bind(operand, reps=repeats_full)
     return out, 0
 
 
 batching.primitive_batchers[JnpTilePlugin._PRIM] = _tile_batch_rule
 
 
-def _normalize_tile_repeats(
-    repeats: ArrayLike | None,
-) -> tuple[int | np.integer, ...] | None:
-    if repeats is None:
-        return None
-    if isinstance(repeats, (int, np.integer)):
-        return (int(repeats),)
-    if isinstance(repeats, np.ndarray):
-        if repeats.ndim == 0:
-            return (int(repeats),)
-        if repeats.ndim == 1:
-            return tuple(int(x) for x in repeats.tolist())
-        return None
-    if isinstance(repeats, jax.Array) and not isinstance(repeats, jax.core.Tracer):
-        arr = np.asarray(repeats)
-        if arr.ndim == 0:
-            return (int(arr),)
-        if arr.ndim == 1:
-            return tuple(int(x) for x in arr.tolist())
-        return None
-    if isinstance(repeats, (tuple, list)):
-        return tuple(int(x) if isinstance(x, (int, np.integer)) else x for x in repeats)
-    return None
-
-
-def _tile_fallback_jvp_impl(
-    a: ArrayLike,
-    reps: ArrayLike | None = None,
-    *,
-    repeats: ArrayLike | None = None,
-) -> jax.Array:
-    reps_spec = repeats if repeats is not None else reps
-    reps_tuple = _normalize_tile_repeats(reps_spec)
-
-    # Dynamic tracer repeats are not currently expected in plugin testcases.
-    # Fall back to the original implementation when shape-level decomposition
-    # cannot be formed from concrete repeats.
-    if reps_tuple is None:
-        if repeats is None:
-            raise NotImplementedError(
-                "jax.numpy.tile autodiff fallback currently requires static repeats"
-            )
-        return _tile_impl(a, repeats=repeats)
-
-    arr = jnp.asarray(a)
-    if arr.ndim < len(reps_tuple):
-        arr = lax.reshape(arr, (1,) * (len(reps_tuple) - arr.ndim) + arr.shape)
-    elif arr.ndim > len(reps_tuple):
-        reps_tuple = (1,) * (arr.ndim - len(reps_tuple)) + reps_tuple
-
-    padded_shape = arr.shape
-    interleaved_shape: list[int | np.integer | object] = []
-    expanded_shape: list[int | np.integer | object] = []
-    for dim, rep in zip(padded_shape, reps_tuple):
-        interleaved_shape.extend([dim, 1])
-        expanded_shape.extend([dim, rep])
-
-    arr = lax.reshape(arr, tuple(interleaved_shape))
-    arr = lax.broadcast_in_dim(
-        arr,
-        shape=tuple(expanded_shape),
-        broadcast_dimensions=tuple(range(len(interleaved_shape))),
-    )
-    out_shape = tuple(dim * rep for dim, rep in zip(padded_shape, reps_tuple))
-    return lax.reshape(arr, out_shape)
-
-
-register_fallback_jvp_rule(JnpTilePlugin._PRIM, _tile_fallback_jvp_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=lax.tile_p,
+    new_prim=JnpTilePlugin._PRIM,
+    forward_batching=False,
+)

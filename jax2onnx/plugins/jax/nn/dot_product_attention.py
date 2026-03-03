@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import (
+    Any,
     Callable,
     ClassVar,
     DefaultDict,
@@ -11,6 +12,7 @@ from typing import (
     Final,
     Optional,
     Tuple,
+    TypeAlias,
     Union,
     cast,
 )
@@ -43,7 +45,7 @@ _DPA_PRIM.multiple_results = False
 _ORIG_DOT_PRODUCT_ATTENTION: Final = jax_nn.dot_product_attention
 
 
-def _expect_dpa_mask_where_impl(model) -> bool:
+def _expect_dpa_mask_where_impl(model: Any) -> bool:
     graph = model.graph
     consumers: DefaultDict[str, list[ir.Node]] = defaultdict(list)
     producers: Dict[str, ir.Node] = {}
@@ -71,7 +73,7 @@ def _expect_dpa_mask_where_impl(model) -> bool:
     return False
 
 
-def _expect_dpa_mask_where(model) -> bool:
+def _expect_dpa_mask_where(model: Any) -> bool:
     return _expect_dpa_mask_where_impl(model)
 
 
@@ -85,11 +87,11 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     raise TypeError("Missing dtype on value; ensure inputs are typed.")
 
 
-def _numpy_dtype_from_aval(var) -> np.dtype:
+def _numpy_dtype_from_aval(var: object) -> np.dtype[Any]:
     aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
     if aval_dtype is None:
         return np.dtype(np.float32)
-    return np.dtype(aval_dtype)
+    return cast(np.dtype[Any], np.dtype(aval_dtype))
 
 
 DimLike = Union[int, str]
@@ -98,10 +100,12 @@ DimLike = Union[int, str]
 def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
         return int(dim), True
-    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+    is_constant = getattr(dim, "_is_constant", None)
+    to_constant = getattr(dim, "_to_constant", None)
+    if callable(is_constant) and callable(to_constant):
         try:
-            if dim._is_constant():  # type: ignore[attr-defined]
-                const = dim._to_constant()  # type: ignore[attr-defined]
+            if bool(is_constant()):
+                const = to_constant()
                 if isinstance(const, (int, np.integer)):
                     return int(const), True
         except Exception:
@@ -145,7 +149,7 @@ def _logical_and(
     rhs: ir.Value,
     *,
     base: str,
-    shape_hint,
+    shape_hint: Tuple[DimLike, ...],
 ) -> ir.Value:
     out = _builder_op(
         ctx,
@@ -189,10 +193,12 @@ def _builder_tensor_op(
 def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
-    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+    is_constant = getattr(dim, "_is_constant", None)
+    to_constant = getattr(dim, "_to_constant", None)
+    if callable(is_constant) and callable(to_constant):
         try:
-            if dim._is_constant():  # type: ignore[attr-defined]
-                const = dim._to_constant()  # type: ignore[attr-defined]
+            if bool(is_constant()):
+                const = to_constant()
                 if isinstance(const, (int, np.integer)):
                     return int(const)
         except Exception:
@@ -589,7 +595,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(q, k, v, *_, **__):
+    def abstract_eval(
+        q: jax.core.AbstractValue,
+        k: jax.core.AbstractValue,
+        v: jax.core.AbstractValue,
+        *_: object,
+        **__: object,
+    ) -> jax.core.ShapedArray:
+        del k, v
         return jax.core.ShapedArray(q.shape, q.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
@@ -872,7 +885,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             if mask_shape:
                 _stamp_type_and_shape(mask_val, mask_dims_sym)
-            mask_dtype = np.dtype(getattr(mask_var.aval, "dtype", np.bool_))
+            mask_dtype: np.dtype[Any] = np.dtype(
+                getattr(mask_var.aval, "dtype", np.bool_)
+            )
             if mask_dtype != np.bool_:
                 mask_bool = _builder_tensor_op(
                     ctx,
@@ -1044,7 +1059,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -1057,9 +1072,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             if orig_fn is None:
                 raise RuntimeError("Original jax.nn.dot_product_attention not found")
 
-            def _bind(q, k, v, *args, **kwargs):
-                bias_arg: Optional[jax.Array] = None
-                mask_arg: Optional[jax.Array] = None
+            def _bind(
+                q: jax.Array,
+                k: jax.Array,
+                v: jax.Array,
+                *args: object,
+                **kwargs: object,
+            ) -> jax.Array:
+                bias_arg: Optional[ArrayLike] = None
+                mask_arg: Optional[ArrayLike] = None
 
                 if args:
                     if len(args) >= 1:
@@ -1162,11 +1183,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
 
 @DotProductAttentionPlugin._PRIM.def_impl
-def _impl(*args, **kwargs) -> ArrayLike:
+def _impl(*args: Any, **kwargs: Any) -> ArrayLike:
     return _ORIG_DOT_PRODUCT_ATTENTION(*args, **kwargs)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _flatten_first_two_dims(x: jax.Array) -> jax.Array:
@@ -1188,7 +1209,7 @@ def _dpa_batch_rule(
 ) -> tuple[jax.Array, BatchDim]:
     axis_size: int | None = None
     for arg, bdim in zip(batched_args, batch_dims):
-        if bdim is batching.not_mapped:
+        if bdim is None:
             continue
         shape = getattr(arg, "shape", None)
         if shape is None or bdim >= len(shape):
@@ -1205,7 +1226,7 @@ def _dpa_batch_rule(
 
     if axis_size is None:
         out = DotProductAttentionPlugin._PRIM.bind(*batched_args, **params)
-        return out, batching.not_mapped
+        return out, None
 
     prepared_args = [
         batching.bdim_at_front(arg, bdim, axis_size)

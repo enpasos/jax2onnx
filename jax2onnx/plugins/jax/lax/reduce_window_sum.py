@@ -215,7 +215,7 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
     if hasattr(np, "bfloat16"):
         _FLOAT_LIKE_DTYPES.add(np.dtype(np.bfloat16))
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: jax.core.JaxprEqn) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})

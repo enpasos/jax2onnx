@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class RngUniformPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rng_uniform`` using ONNX ``RandomUniform`` + affine scaling."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lo_var, hi_var = eqn.invars
         out_var = eqn.outvars[0]
         params = dict(getattr(eqn, "params", {}) or {})
@@ -70,7 +70,7 @@ class RngUniformPlugin(PrimitiveLeafPlugin):
                 "rng_uniform requires static non-negative output shape"
             )
 
-        out_dtype = np.dtype(
+        out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
         out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)

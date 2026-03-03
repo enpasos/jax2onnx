@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 
@@ -63,5 +63,5 @@ if TYPE_CHECKING:  # pragma: no cover
 class ReduceMinPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_min`` via ONNX ReduceMin."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceMin", allow_dtype_param=False)

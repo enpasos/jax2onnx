@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, cast
 import numpy as np
 
 GirInstruction = dict[str, Any]
@@ -11,7 +11,9 @@ GirInstruction = dict[str, Any]
 def check_uniform_start_index(
     indices_var_value: np.ndarray, indices_var_idx: int
 ) -> bool:
-    values = np.reshape(indices_var_value[..., indices_var_idx], (-1,))
+    values: np.ndarray[Any, Any] = np.reshape(
+        indices_var_value[..., indices_var_idx], (-1,)
+    )
     return all(values == values[0])
 
 
@@ -96,15 +98,15 @@ def invert_transpose(indices: list[int]) -> list[int]:
 
 def get_gir_input_shape(gir_instr: GirInstruction) -> list[Any]:
     if "dims" not in gir_instr:
-        return gir_instr["input_shape"]
+        return cast(list[Any], gir_instr["input_shape"])
     else:
         return [dim["input_size"] for dim in gir_instr["dims"]]
 
 
 def get_gir_output_shape(gir_instr: GirInstruction) -> list[Any]:
-    index_to_shape_map = {}
+    index_to_shape_map: dict[int, Any] = {}
     if "dims" not in gir_instr:
-        return gir_instr["output_shape"]
+        return cast(list[Any], gir_instr["output_shape"])
     else:
         for dim in gir_instr["dims"]:
             for idx, size in zip(
@@ -116,7 +118,7 @@ def get_gir_output_shape(gir_instr: GirInstruction) -> list[Any]:
 
 def calculate_index_shape(gir_instr: GirInstruction) -> tuple[list[Any], list[int]]:
     assert gir_instr["op"] in ["general_gather", "ONNX_GatherND"]
-    index_shape = {}
+    index_to_shape: dict[int, Any] = {}
     index_index = []
     gather_shape = []
     num_gather_output_dim = 0
@@ -126,7 +128,7 @@ def calculate_index_shape(gir_instr: GirInstruction) -> tuple[list[Any], list[in
         if dim["mode"] == "batched":
             assert len(dim["target_dimensions_shape"]) == 1
             index_index.append(dim["indices_dim"])
-            index_shape[dim["indices_dim"]] = dim["target_dimensions_shape"][0]
+            index_to_shape[dim["indices_dim"]] = dim["target_dimensions_shape"][0]
         elif dim["mode"] == "gather":
             num_gather_output_dim = len(dim["target_dimensions"])
             gather_shape = dim["target_dimensions_shape"]
@@ -139,9 +141,9 @@ def calculate_index_shape(gir_instr: GirInstruction) -> tuple[list[Any], list[in
         while i in index_index:
             i += 1
         index_index.append(i)
-        index_shape[i] = gather_shape[j]
+        index_to_shape[i] = gather_shape[j]
 
-    index_shape = [index_shape[i] for i in range(len(index_shape))]
+    index_shape = [index_to_shape[i] for i in range(len(index_to_shape))]
     index_shape += [num_gatherlike_dims]
 
     return index_shape, index_index

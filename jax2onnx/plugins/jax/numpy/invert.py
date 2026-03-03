@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Final, cast
+from typing import Any, ClassVar, Final
 
 import jax
 from jax import core
@@ -117,10 +117,10 @@ class JnpInvertPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return cast(
-            list[AssignSpec | MonkeyPatchSpec],
-            jnp_binding_specs(cls._PRIM, cls._FUNC_NAME),
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
         )
+        return specs
 
 
 @JnpInvertPlugin._PRIM.def_impl

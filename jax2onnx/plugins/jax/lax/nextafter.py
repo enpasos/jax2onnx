@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -15,7 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -96,7 +96,7 @@ def _float_layout(np_dtype: np.dtype) -> tuple[int, int, int] | None:
 class NextAfterPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.nextafter`` using ULP arithmetic (no bitcasts required)."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -122,7 +122,7 @@ class NextAfterPlugin(PrimitiveLeafPlugin):
             )
         mantissa_bits, min_exp, max_exp = layout
 
-        def _const(value: float):
+        def _const(value: float) -> Any:
             return ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
 
         zero = _const(0.0)

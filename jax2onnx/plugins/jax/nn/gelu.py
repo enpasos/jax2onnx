@@ -14,12 +14,14 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 
 _GELU_PRIM: Final[Primitive] = Primitive("jax.nn.gelu")
 _GELU_PRIM.multiple_results = False
+_JAX_GELU_ORIG: Final = jax.nn.gelu
 
 
 @register_primitive(
@@ -121,7 +123,7 @@ class GeluPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -160,7 +162,7 @@ class GeluPlugin(PrimitiveLeafPlugin):
 
 @GeluPlugin._PRIM.def_impl
 def _gelu_impl(x: ArrayLike, approximate: bool = True) -> ArrayLike:
-    return jax.nn.gelu(x, approximate=approximate)
+    return _JAX_GELU_ORIG(x, approximate=approximate)
 
 
 def _gelu_batch_rule(
@@ -230,4 +232,4 @@ def _gelu_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[GeluPlugin._PRIM] = _gelu_jvp_rule
+register_jvp_rule(GeluPlugin._PRIM, _gelu_jvp_rule)

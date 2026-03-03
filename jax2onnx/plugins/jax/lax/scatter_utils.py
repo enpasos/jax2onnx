@@ -18,6 +18,7 @@ from typing import Any, Dict, Sequence, Tuple
 
 import numpy as np
 import onnx_ir as ir
+from jax import core
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import (
@@ -1421,7 +1422,7 @@ def _is_promise_in_bounds_mode(mode: Any) -> bool:
         return False
     mode_name = getattr(mode, "name", None)
     if mode_name is not None:
-        return mode_name.upper() == "PROMISE_IN_BOUNDS"
+        return bool(mode_name.upper() == "PROMISE_IN_BOUNDS")
     return "PROMISE_IN_BOUNDS" in str(mode).upper()
 
 
@@ -1451,7 +1452,7 @@ def ensure_supported_mode(mode: Any) -> None:
 
 def lower_scatter_common(
     ctx: Any,
-    eqn,
+    eqn: core.JaxprEqn,
     *,
     reduction: str,
     updates_override: ir.Value | None = None,

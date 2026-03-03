@@ -34,6 +34,7 @@ from jax2onnx.plugins.plugin_system import (
     apply_monkey_patches,
     import_all_plugins,
 )
+from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
@@ -307,9 +308,14 @@ def _activate_plugin_worlds() -> Iterator[None]:
         # Legacy patches first
         stack.enter_context(apply_monkey_patches())
         # New-style leaf bindings
+        leaf_prims: list[jcore_ext.Primitive] = []
         for plugin_instance in PLUGIN_REGISTRY.values():
             if isinstance(plugin_instance, PrimitiveLeafPlugin):
                 stack.enter_context(plugin_instance.__class__.plugin_binding())
+                prim = getattr(plugin_instance.__class__, "_PRIM", None)
+                if isinstance(prim, jcore_ext.Primitive):
+                    leaf_prims.append(prim)
+        backfill_missing_transpose_rules(leaf_prims)
         yield
 
 

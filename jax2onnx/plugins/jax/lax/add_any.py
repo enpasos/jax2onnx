@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import jax
 import numpy as np
@@ -48,11 +48,11 @@ from jax2onnx.plugins.plugin_system import register_primitive
 class AddAnyPlugin(AddPlugin):
     """Alias for JAX's internal ``add_any`` primitive."""
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: jax.core.JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
-        prefer_dt = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        prefer_dt: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
         a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("add_any_lhs"))
         b_val = ctx.get_value_for_var(
             y_var,

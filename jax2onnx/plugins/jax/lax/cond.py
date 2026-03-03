@@ -195,7 +195,7 @@ def _extract_branches(
 class CondPlugin(PrimitiveLeafPlugin):
     """IR-first lowering for ``lax.cond`` to ONNX ``If``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         cond_var, *operand_vars = eqn.invars
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -293,7 +293,7 @@ class CondPlugin(PrimitiveLeafPlugin):
     def _build_branch_graph(
         self,
         ctx: "IRContext",
-        branch_jaxpr,
+        branch_jaxpr: Any,
         consts: Iterable[Any],
         operand_vals: list[ir.Value],
         *,

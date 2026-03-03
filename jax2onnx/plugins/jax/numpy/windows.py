@@ -6,6 +6,7 @@ from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax import core
+from jax.extend.core import Primitive
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -33,7 +34,7 @@ def _window_size(n: Any) -> int:
 
 
 def _window_impl(
-    prim,
+    prim: Primitive,
     func_name: str,
     *,
     n: int,
@@ -153,7 +154,7 @@ class _WindowBasePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True

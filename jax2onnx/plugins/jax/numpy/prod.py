@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
-from typing import Any, Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence, TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -16,6 +16,7 @@ from jax.interpreters import ad, batching
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     make_jnp_primitive,
@@ -293,7 +294,7 @@ def _prod_impl(
 JnpProdPlugin._PRIM.def_abstract_eval(JnpProdPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _prod_batch_rule(
@@ -306,6 +307,16 @@ def _prod_batch_rule(
     keepdims: bool = False,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
+    if bdim is None:
+        out = JnpProdPlugin._PRIM.bind(
+            operand,
+            axes=axes,
+            axes_is_tuple=axes_is_tuple,
+            dtype=dtype,
+            keepdims=keepdims,
+        )
+        return out, None
+
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)
 
@@ -426,4 +437,4 @@ def _prod_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[JnpProdPlugin._PRIM] = _prod_jvp_rule
+register_jvp_rule(JnpProdPlugin._PRIM, _prod_jvp_rule)

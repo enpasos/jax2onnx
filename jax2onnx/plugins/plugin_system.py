@@ -39,6 +39,7 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
+from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.typing_support import (
     PrimitiveLowering,
@@ -416,14 +417,19 @@ def _activate_full_plugin_worlds_for_body():
         # Function plugins' monkey patches
         stack.enter_context(apply_monkey_patches())
         # Leaf plugins' binding_specs (e.g., nnx/jnp/lax rewrites)
+        leaf_prims: list[Primitive] = []
         for plugin in PLUGIN_REGISTRY.values():
             cls = plugin.__class__
             try:
                 if issubclass(cls, PrimitiveLeafPlugin):
                     stack.enter_context(cls.plugin_binding())
+                    prim = getattr(cls, "_PRIM", None)
+                    if isinstance(prim, Primitive):
+                        leaf_prims.append(prim)
             except Exception:
                 # Best-effort; a non-leaf or misconfigured plugin should not crash nested tracing
                 logger.debug("Skipping leaf binding for %r", cls, exc_info=True)
+        backfill_missing_transpose_rules(leaf_prims)
         yield
 
 

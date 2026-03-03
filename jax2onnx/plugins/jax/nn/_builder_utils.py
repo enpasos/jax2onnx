@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import Any, Mapping
 
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext  # type: ignore[name-defined]
 
 
 def lower_unary_elementwise(
-    ctx: "IRContext",
-    eqn,
+    ctx: LoweringContextProtocol,
+    eqn: Any,
     *,
     op_name: str,
     input_hint: str,
@@ -58,7 +56,9 @@ def lower_unary_elementwise(
 def register_unary_elementwise_batch_rule(prim: Primitive) -> None:
     """Attach a default batching rule for single-input elementwise primitives."""
 
-    def _batch_rule(batched_args, batch_dims, **params):
+    def _batch_rule(
+        batched_args: tuple[Any, ...], batch_dims: tuple[Any, ...], **params: Any
+    ) -> tuple[Any, Any]:
         (x,) = batched_args
         (bd,) = batch_dims
         out = prim.bind(x, **params)

@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
 import os
-from typing import TYPE_CHECKING, Any, Final, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Final, Optional, Set, cast
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -46,17 +46,19 @@ _IR_TO_NP_DTYPE: Final[dict[ir.DataType, np.dtype[Any]]] = {
 }
 
 
-def _dynamic_or_constant(specs, *, symbols=None):
+def _dynamic_or_constant(
+    specs: Any, *, symbols: Any | None = None
+) -> Callable[[Any], bool]:
     dynamic_checker = EG(specs, symbols=symbols, no_unused_inputs=True)
     constant_checker = EG([])
 
-    def _check(model):
-        return dynamic_checker(model) or constant_checker(model)
+    def _check(model: Any) -> bool:
+        return bool(dynamic_checker(model) or constant_checker(model))
 
     return _check
 
 
-def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
+def _np_dtype_from_ir(enum: Any) -> Optional[np.dtype[Any]]:
     if isinstance(enum, ir.DataType):
         return _IR_TO_NP_DTYPE.get(enum)
     if isinstance(enum, (int, np.integer)):
@@ -67,7 +69,7 @@ def _np_dtype_from_ir(enum) -> Optional[np.dtype]:
     return None
 
 
-def _value_to_numpy(val: ir.Value | None):
+def _value_to_numpy(val: ir.Value | None) -> np.ndarray[Any, Any] | None:
     if val is None:
         return None
     for attr in ("const_value", "_const_value", "value", "data", "numpy"):
@@ -75,16 +77,16 @@ def _value_to_numpy(val: ir.Value | None):
         if payload is None:
             continue
         try:
-            return np.asarray(payload)
+            return cast(np.ndarray[Any, Any], np.asarray(payload))
         except Exception:
             try:
-                return np.asarray(payload())
+                return cast(np.ndarray[Any, Any], np.asarray(payload()))
             except Exception:
                 continue
     return None
 
 
-def _static_shape_tuple(shape_tuple):
+def _static_shape_tuple(shape_tuple: Any) -> tuple[int, ...] | None:
     dims = []
     for dim in shape_tuple:
         if isinstance(dim, (int, np.integer)):
@@ -94,7 +96,12 @@ def _static_shape_tuple(shape_tuple):
     return tuple(dims)
 
 
-def _node_constant_array(ctx, node, target_value, seen: Set[object]):
+def _node_constant_array(
+    ctx: Any,
+    node: Any,
+    target_value: Any,
+    seen: Set[object],
+) -> np.ndarray[Any, Any] | None:
     op_type = getattr(node, "op_type", "")
     inputs = _iro_node_inputs(node)
     if op_type == "Cast" and inputs:
@@ -104,14 +111,14 @@ def _node_constant_array(ctx, node, target_value, seen: Set[object]):
         target_enum = getattr(getattr(target_value, "type", None), "dtype", None)
         dtype = _np_dtype_from_ir(target_enum)
         if dtype is not None:
-            return np.asarray(arr, dtype=dtype)
+            return cast(np.ndarray[Any, Any], np.asarray(arr, dtype=dtype))
         return arr
     if op_type == "CastLike" and len(inputs) >= 2:
         arr = _materialize_constant_array(ctx, inputs[0], seen)
         like_arr = _materialize_constant_array(ctx, inputs[1], seen)
         if arr is None or like_arr is None:
             return None
-        return np.asarray(arr, dtype=like_arr.dtype)
+        return cast(np.ndarray[Any, Any], np.asarray(arr, dtype=like_arr.dtype))
     if op_type == "Reshape" and len(inputs) >= 2:
         data_arr = _materialize_constant_array(ctx, inputs[0], seen)
         shape_arr = _materialize_constant_array(ctx, inputs[1], seen)
@@ -122,13 +129,17 @@ def _node_constant_array(ctx, node, target_value, seen: Set[object]):
         except Exception:
             return None
         try:
-            return np.reshape(data_arr, target_shape)
+            return cast(np.ndarray[Any, Any], np.reshape(data_arr, target_shape))
         except Exception:
             return None
     return None
 
 
-def _materialize_constant_array(ctx, value, seen: Optional[Set[object]] = None):
+def _materialize_constant_array(
+    ctx: Any,
+    value: Any,
+    seen: Optional[Set[object]] = None,
+) -> np.ndarray[Any, Any] | None:
     arr = _value_to_numpy(value)
     if arr is not None:
         return arr
@@ -177,7 +188,14 @@ def _materialize_constant_array(ctx, value, seen: Optional[Set[object]] = None):
     return None
 
 
-def _maybe_inline_constant_broadcast(ctx, out_var, x_val, shape, bdims, op_shape):
+def _maybe_inline_constant_broadcast(
+    ctx: Any,
+    out_var: Any,
+    x_val: ir.Value,
+    shape: tuple[Any, ...],
+    bdims: tuple[int, ...],
+    op_shape: tuple[Any, ...],
+) -> bool:
     const_arr = ctx.try_evaluate_const(x_val)
     if const_arr is None:
         const_arr = _materialize_constant_array(ctx, x_val)
@@ -329,7 +347,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
     where reshape_shape inserts 1s in the non-mapped result axes.
     """
 
-    def lower(self, ctx: LoweringContextProtocol, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -393,6 +411,18 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 return cand_int == int(out_axis0_static)
             return True
 
+        def _positive_int(candidate: Any) -> int | None:
+            if not isinstance(candidate, (int, np.integer)):
+                return None
+            candidate_int = int(candidate)
+            return candidate_int if candidate_int > 0 else None
+
+        def _compatible_override_int(candidate: Any) -> int | None:
+            candidate_int = _positive_int(candidate)
+            if candidate_int is None:
+                return None
+            return candidate_int if _override_compatible(candidate_int) else None
+
         rrank = len(shape)
         reshape_dims: list[object] = [1] * rrank
         for i, r_axis in enumerate(bdims):
@@ -415,29 +445,31 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
-        override_candidates = [
+        override_candidates: list[int] = []
+        for candidate in (
             get_axis0_override(x_val),
             get_axis0_override(out_spec),
-        ]
+        ):
+            candidate_int = _compatible_override_int(candidate)
+            if candidate_int is not None:
+                override_candidates.append(candidate_int)
         if axis0_in_bdims:
-            loop_override = getattr(ctx, "_static_loop_extent_axis0", None)
-            if _override_compatible(loop_override):
-                override_candidates.append(int(loop_override))
-        override_candidates = [
-            val for val in override_candidates if _override_compatible(val)
-        ]
+            loop_override_int = _compatible_override_int(
+                getattr(ctx, "_static_loop_extent_axis0", None)
+            )
+            if loop_override_int is not None:
+                override_candidates.append(loop_override_int)
         meta_override_axis0 = next(
-            (
-                int(val)
-                for val in override_candidates
-                if isinstance(val, (int, np.integer)) and int(val) > 0
-            ),
+            (val for val in override_candidates if val > 0),
             None,
         )
         if meta_override_axis0 is None:
-            fallback_ctx = getattr(ctx, "_static_loop_extent_axis0", None)
-            if axis0_in_bdims and _override_compatible(fallback_ctx):
-                meta_override_axis0 = int(fallback_ctx)
+            if axis0_in_bdims:
+                fallback_ctx_int = _compatible_override_int(
+                    getattr(ctx, "_static_loop_extent_axis0", None)
+                )
+                if fallback_ctx_int is not None:
+                    meta_override_axis0 = fallback_ctx_int
         if (
             isinstance(meta_override_axis0, (int, np.integer))
             and meta_override_axis0 > 0
@@ -673,19 +705,15 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             carry_singleton_axis0 = reshape_axis0_static == 1
             reshape_override = next(
                 (
-                    int(val)
+                    val
                     for val in (
-                        get_axis0_override(x_val),
-                        get_axis0_override(reshaped_val),
-                        meta_override_axis0,
+                        _positive_int(get_axis0_override(x_val)),
+                        _positive_int(get_axis0_override(reshaped_val)),
+                        _positive_int(meta_override_axis0),
                     )
+                    if val is not None
                     if (
-                        _override_compatible(val)
-                        or (
-                            carry_singleton_axis0
-                            and isinstance(val, (int, np.integer))
-                            and int(val) > 1
-                        )
+                        _override_compatible(val) or (carry_singleton_axis0 and val > 1)
                     )
                 ),
                 None,
@@ -705,12 +733,14 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         if meta_override_axis0 is None:
             fallback_override = next(
                 (
-                    int(val)
+                    val
                     for val in (
-                        get_axis0_override(out_spec),
-                        getattr(ctx, "_static_loop_extent_axis0", None),
+                        _compatible_override_int(get_axis0_override(out_spec)),
+                        _compatible_override_int(
+                            getattr(ctx, "_static_loop_extent_axis0", None)
+                        ),
                     )
-                    if _override_compatible(val)
+                    if val is not None
                 ),
                 None,
             )

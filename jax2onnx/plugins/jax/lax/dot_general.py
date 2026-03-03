@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 import string
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import jax
 import numpy as np
@@ -189,7 +189,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class DotGeneralPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.dot_general`` via MatMul/Gemm fast-path or Einsum fallback."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -267,21 +267,21 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
     def _maybe_lower_complex(
         self,
         ctx: "IRContext",
-        lhs_var,
-        rhs_var,
-        out_var,
-        lhs_val,
-        rhs_val,
-        out_spec,
-        lhs_shape,
-        rhs_shape,
-        out_shape,
-        lhs_contract,
-        rhs_contract,
-        lhs_batch,
-        rhs_batch,
+        lhs_var: Any,
+        rhs_var: Any,
+        out_var: Any,
+        lhs_val: ir.Value,
+        rhs_val: ir.Value,
+        out_spec: ir.Value,
+        lhs_shape: tuple[Any, ...],
+        rhs_shape: tuple[Any, ...],
+        out_shape: tuple[Any, ...],
+        lhs_contract: tuple[int, ...],
+        rhs_contract: tuple[int, ...],
+        lhs_batch: tuple[int, ...],
+        rhs_batch: tuple[int, ...],
     ) -> bool:
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: Any) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False
@@ -449,19 +449,19 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
     def _try_lower_matmul(
         self,
         ctx: "IRContext",
-        lhs_var,
-        rhs_var,
-        out_var,
-        lhs_val,
-        rhs_val,
-        out_spec,
-        lhs_shape,
-        rhs_shape,
-        out_shape,
-        lhs_contract,
-        rhs_contract,
-        lhs_batch,
-        rhs_batch,
+        lhs_var: Any,
+        rhs_var: Any,
+        out_var: Any,
+        lhs_val: ir.Value,
+        rhs_val: ir.Value,
+        out_spec: ir.Value,
+        lhs_shape: tuple[Any, ...],
+        rhs_shape: tuple[Any, ...],
+        out_shape: tuple[Any, ...],
+        lhs_contract: tuple[int, ...],
+        rhs_contract: tuple[int, ...],
+        lhs_batch: tuple[int, ...],
+        rhs_batch: tuple[int, ...],
     ) -> bool:
         if lhs_batch or rhs_batch:
             if tuple(lhs_batch) != tuple(rhs_batch):
@@ -493,8 +493,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             rhs_perm = list(rhs_batch) + [rhs_contract_axis] + rhs_free_axes
 
             def _transpose_if_needed(
-                value, perm, original_shape, name_hint: str
-            ) -> tuple[ir.Value, tuple[int, ...]]:
+                value: ir.Value,
+                perm: list[int],
+                original_shape: tuple[Any, ...],
+                name_hint: str,
+            ) -> tuple[ir.Value, tuple[Any, ...]]:
                 if perm == list(range(len(original_shape))):
                     return value, original_shape
                 permuted = ctx.builder.Transpose(
@@ -523,7 +526,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 rhs_prepped,
                 _outputs=[desired_name],
             )
-            out_dtype = np.dtype(
+            out_dtype: np.dtype[Any] = np.dtype(
                 getattr(
                     out_var.aval,
                     "dtype",
@@ -597,19 +600,19 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
     def _lower_via_einsum(
         self,
         ctx: "IRContext",
-        lhs_var,
-        rhs_var,
-        out_var,
-        lhs_val,
-        rhs_val,
-        out_spec,
-        lhs_shape,
-        rhs_shape,
-        out_shape,
-        lhs_contract,
-        rhs_contract,
-        lhs_batch,
-        rhs_batch,
+        lhs_var: Any,
+        rhs_var: Any,
+        out_var: Any,
+        lhs_val: ir.Value,
+        rhs_val: ir.Value,
+        out_spec: ir.Value,
+        lhs_shape: tuple[Any, ...],
+        rhs_shape: tuple[Any, ...],
+        out_shape: tuple[Any, ...],
+        lhs_contract: tuple[int, ...],
+        rhs_contract: tuple[int, ...],
+        lhs_batch: tuple[int, ...],
+        rhs_batch: tuple[int, ...],
     ) -> None:
         lhs_shape = tuple(lhs_shape)
         rhs_shape = tuple(rhs_shape)
@@ -782,8 +785,8 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             string.ascii_lowercase[::-1] + string.ascii_uppercase[::-1]
         )
 
-        lhs_lbl = [None] * lhs_rank  # type: ignore[list-item]
-        rhs_lbl = [None] * rhs_rank  # type: ignore[list-item]
+        lhs_lbl: list[str | None] = [None] * lhs_rank
+        rhs_lbl: list[str | None] = [None] * rhs_rank
 
         batch_pairs = list(zip(lhs_batch, rhs_batch))
         contract_pairs = list(zip(lhs_contract, rhs_contract))
@@ -812,7 +815,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                 if rhs_lbl[j] is None:
                     rhs_lbl[j] = next(main_gen)
 
-        rhs_out_order = []
+        rhs_out_order: list[str | None] = []
         for axis in lhs_batch:
             rhs_out_order.append(lhs_lbl[axis])
         for axis in lhs_free:
@@ -834,9 +837,9 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         if any(label is None for label in rhs_lbl):
             raise RuntimeError(f"Unlabeled RHS axes: {rhs_lbl}")
 
-        lhs_labels = "".join(lhs_lbl)
-        rhs_labels = "".join(rhs_lbl)
-        out_labels = "".join(rhs_out_order)
+        lhs_labels = "".join(cast(list[str], lhs_lbl))
+        rhs_labels = "".join(cast(list[str], rhs_lbl))
+        out_labels = "".join(cast(list[str], rhs_out_order))
         return lhs_labels, rhs_labels, out_labels
 
     def _pad_operand_front(
@@ -891,7 +894,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         return unsqueezed, tuple(new_shape)
 
     @staticmethod
-    def _label_stream(alphabet: str):
+    def _label_stream(alphabet: str) -> Iterator[str]:
         length = 1
         while True:
             for combo in itertools.product(alphabet, repeat=length):

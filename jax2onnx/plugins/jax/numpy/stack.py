@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import ClassVar, Final
+from typing import ClassVar, Final, TypeAlias
 
 import jax
 from jax import tree_util
@@ -26,7 +26,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 @register_primitive(

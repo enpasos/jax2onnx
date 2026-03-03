@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 import jax
 import jax.numpy as jnp
@@ -140,7 +140,7 @@ def _flatten(seq: Iterable[int]) -> list[int]:
 class PadPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.pad`` (constant mode, zero interior padding) to ONNX ``Pad``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         if len(eqn.invars) < 2:
             raise ValueError("lax.pad expects data and constant value inputs")
 
@@ -159,7 +159,7 @@ class PadPlugin(PrimitiveLeafPlugin):
             )
 
         data_val = ctx.get_value_for_var(data_var, name_hint=ctx.fresh_name("pad_data"))
-        prefer_dt = np.dtype(getattr(data_var.aval, "dtype", np.float32))
+        prefer_dt: np.dtype[Any] = np.dtype(getattr(data_var.aval, "dtype", np.float32))
         pad_raw = ctx.get_value_for_var(
             const_var, name_hint=ctx.fresh_name("pad_cval"), prefer_np_dtype=prefer_dt
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import jax
 import numpy as np
@@ -125,18 +125,20 @@ def _cast_value(
     ],
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", 0))
 
-        in_vars: Iterable = eqn.invars
+        in_vars: list[Any] = list(eqn.invars)
         out_var = eqn.outvars[0]
 
         shapes = [tuple(getattr(v.aval, "shape", ())) for v in in_vars]
-        dtypes = [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
-        target_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
-        if not target_dtype:
-            target_dtype = _promote_dtype(dtypes)
+        dtypes: list[np.dtype[Any]] = [
+            np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars
+        ]
+        target_dtype: np.dtype[Any] = np.dtype(
+            getattr(out_var.aval, "dtype", np.float32)
+        )
 
         rank = len(shapes[0]) if shapes else 0
         norm_axis = _normalize_axis(axis, rank)
@@ -176,13 +178,11 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
                 and int(out_shape[0]) >= 0
                 else None
             )
-            candidate_overrides = [
-                int(val)
-                for val in (
-                    get_axis0_override(inp) for inp in inputs  # type: ignore[arg-type]
-                )
-                if isinstance(val, (int, np.integer)) and int(val) > 1
-            ]
+            candidate_overrides: list[int] = []
+            for inp in inputs:
+                val = get_axis0_override(inp)
+                if isinstance(val, (int, np.integer)) and int(val) > 1:
+                    candidate_overrides.append(int(val))
             override = max(candidate_overrides, default=None)
             if override is None and isinstance(out_axis0, int) and out_axis0 > 1:
                 override = out_axis0

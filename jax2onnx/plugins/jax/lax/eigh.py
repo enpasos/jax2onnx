@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -17,14 +17,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -47,7 +49,9 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str):
+def _cast_if_needed(
+    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
         value_type = getattr(value, "type", None)
@@ -66,7 +70,7 @@ def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str
     return casted
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
+def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
     out = ctx.builder.Reshape(
         value,
@@ -79,7 +83,9 @@ def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
     return out
 
 
-def _reshape_to_2d(ctx: "IRContext", value, shape: tuple[int, int], name_hint: str):
+def _reshape_to_2d(
+    ctx: "IRContext", value: ir.Value, shape: tuple[int, int], name_hint: str
+) -> ir.Value:
     target_shape = _const_i64(
         ctx,
         np.asarray([shape[0], shape[1]], dtype=np.int64),
@@ -96,7 +102,14 @@ def _reshape_to_2d(ctx: "IRContext", value, shape: tuple[int, int], name_hint: s
     return out
 
 
-def _slice_1d(ctx: "IRContext", value, *, start: int, end: int, name_hint: str):
+def _slice_1d(
+    ctx: "IRContext",
+    value: ir.Value,
+    *,
+    start: int,
+    end: int,
+    name_hint: str,
+) -> ir.Value:
     starts = _const_i64(
         ctx,
         np.asarray([start], dtype=np.int64),
@@ -123,13 +136,13 @@ def _slice_1d(ctx: "IRContext", value, *, start: int, end: int, name_hint: str):
 
 def _slice_2d_cols(
     ctx: "IRContext",
-    value,
+    value: ir.Value,
     *,
     rows: int,
     col_start: int,
     col_end: int,
     name_hint: str,
-):
+) -> ir.Value:
     starts = _const_i64(
         ctx,
         np.asarray([0, col_start], dtype=np.int64),
@@ -270,7 +283,7 @@ def _slice_2d_cols(
 class EighPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.eigh`` for static square ``1x1`` and real symmetric ``2x2``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         lower = bool(params.get("lower", True))
         sort_eigenvalues = bool(params.get("sort_eigenvalues", True))
@@ -329,20 +342,20 @@ class EighPlugin(PrimitiveLeafPlugin):
                     f"({subset_start}, {subset_end})"
                 )
 
-        x_input_dtype = np.dtype(
+        x_input_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(x_var, "aval", None), "dtype", np.float32)
         )
         if np.issubdtype(x_input_dtype, np.complexfloating):
             raise NotImplementedError("eigh complex input is not supported yet")
 
-        val_dtype = np.dtype(
+        val_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(val_var, "aval", None), "dtype", np.float32)
         )
         val_dtype_enum = _dtype_to_ir(val_dtype, ctx.builder.enable_double_precision)
         if val_dtype_enum is None:
             raise TypeError(f"Unsupported eigh eigenvalue dtype '{val_dtype}'")
 
-        vec_dtype = np.dtype(
+        vec_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(vec_var, "aval", None), "dtype", np.float32)
         )
         vec_dtype_enum = _dtype_to_ir(vec_dtype, ctx.builder.enable_double_precision)
@@ -480,7 +493,9 @@ class EighPlugin(PrimitiveLeafPlugin):
         )
         cond_a_le_d.type = ir.TensorType(ir.DataType.BOOL)
 
-        def _normalized_vector(lam, prefix: str):
+        def _normalized_vector(
+            lam: ir.Value, prefix: str
+        ) -> tuple[ir.Value, ir.Value, ir.Value]:
             vx = b
             vy = ctx.builder.Sub(lam, a, _outputs=[ctx.fresh_name(f"{prefix}_vy")])
             vy.type = ir.TensorType(val_dtype_enum)

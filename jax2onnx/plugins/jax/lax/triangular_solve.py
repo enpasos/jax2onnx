@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -137,7 +137,7 @@ def _unsqueeze(
     ],
 )
 class TriangularSolvePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (a_var, b_var) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})

@@ -96,7 +96,8 @@ def _call_plugin_lower(
     try:
         sig = inspect.signature(lower_fn)
         if "params" in sig.parameters:
-            return lower_fn(ctx, eqn, getattr(eqn, "params", None))
+            lower_fn(ctx, eqn, getattr(eqn, "params", None))
+            return None
     except (ValueError, TypeError):
         pass
     lower_fn(ctx, eqn)
@@ -216,10 +217,9 @@ def _extract_shape_dims(value: ir.Value | None) -> tuple[Any, ...] | None:
     dims = getattr(shape_obj, "dims", None)
     if dims is not None:
         return tuple(dims)
-    try:
-        return tuple(shape_obj)  # type: ignore[arg-type]
-    except Exception:
-        return None
+    if isinstance(shape_obj, Iterable):
+        return tuple(shape_obj)
+    return None
 
 
 def create_loop_header_inputs(

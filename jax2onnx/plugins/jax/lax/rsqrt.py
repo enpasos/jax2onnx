@@ -4,18 +4,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import _np_dtype_for_enum
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -42,7 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 )
 class RsqrtPlugin(PrimitiveLeafPlugin):
     def lower(
-        self, ctx: "IRContext", eqn
+        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
     ) -> None:  # pragma: no cover - exercised via tests
         builder = ctx.builder
 

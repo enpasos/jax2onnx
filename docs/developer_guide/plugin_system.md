@@ -100,6 +100,18 @@ class AbsPlugin(PrimitiveLeafPlugin):
 
 The `testcases` list in the decorator allows you to define inline tests. These are automatically picked up by the test runner to verify your plugin against the actual JAX behavior and check the generated ONNX graph structure.
 
+### Autodiff Registration
+
+- Register JVP and transpose rules via helpers in `jax2onnx/plugins/jax/_autodiff_utils.py` instead of writing directly to JAX AD registries.
+- Use:
+  - `register_jvp_via_jax_jvp(...)` for generic JVP registration via `jax.jvp`.
+  - `register_fallback_jvp_rule(...)` for simple fallback JVPs.
+  - `register_jvp_rule(...)` for explicit/custom JVP functions.
+  - `register_original_rule_forwarding(...)` for explicit allowlisted forwarding from original JAX primitives.
+- Conversion-time backfill can add missing transpose fallbacks for allowlisted primitives. Operational controls:
+  - `JAX2ONNX_DISABLE_AD_BACKFILL=1` disables backfill.
+  - `JAX2ONNX_AD_DEBUG=1` enables debug logging for AD helper/backfill decisions.
+
 ## Higher-Level Functions
 
 For higher-level functions (like `jax.nn.softmax`), `jax2onnx` supports function plugins via `@onnx_function` or `FunctionPlugin`. These allow you to map a Python function directly to an ONNX `FunctionProto`, encapsulating complex logic as a reusable component.

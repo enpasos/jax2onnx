@@ -13,6 +13,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
@@ -21,6 +22,7 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
 
 _CELU_PRIM: Final[Primitive] = Primitive("jax.nn.celu")
 _CELU_PRIM.multiple_results = False
+_JAX_CELU_ORIG: Final = jax.nn.celu
 
 
 @register_primitive(
@@ -126,7 +128,7 @@ class CeluPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -165,7 +167,7 @@ class CeluPlugin(PrimitiveLeafPlugin):
 
 @CeluPlugin._PRIM.def_impl
 def _celu_impl(x: ArrayLike, alpha: float = 1.0) -> ArrayLike:
-    return jax.nn.celu(x, alpha=alpha)
+    return _JAX_CELU_ORIG(x, alpha=alpha)
 
 
 register_unary_elementwise_batch_rule(CeluPlugin._PRIM)
@@ -174,7 +176,8 @@ register_unary_elementwise_batch_rule(CeluPlugin._PRIM)
 def _celu_jvp_rule(
     primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
 ) -> tuple[ArrayLike, ArrayLike]:
-    alpha = float(params.get("alpha", 1.0))
+    alpha_param = params.get("alpha", 1.0)
+    alpha = float(alpha_param) if isinstance(alpha_param, (int, float)) else 1.0
 
     (x,) = primals
     (x_dot,) = tangents
@@ -194,4 +197,4 @@ def _celu_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[CeluPlugin._PRIM] = _celu_jvp_rule
+register_jvp_rule(CeluPlugin._PRIM, _celu_jvp_rule)

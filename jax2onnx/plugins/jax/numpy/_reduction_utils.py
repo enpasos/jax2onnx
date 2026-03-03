@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Sequence
+from typing import Any, TypeAlias
 
 import jax
 from jax import core
@@ -48,7 +49,7 @@ def abstract_eval_via_orig_reduction(
 ) -> core.ShapedArray:
     """Mirror JAX reduction semantics by delegating to original jnp callable."""
     shape = tuple(getattr(x, "shape", ()))
-    in_dtype = np.dtype(getattr(x, "dtype", np.float32))
+    in_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     shape_dtype = jax.ShapeDtypeStruct(shape, in_dtype)
     axis_arg = axis_arg_from_params(axes, axes_is_tuple)
 
@@ -73,16 +74,26 @@ def register_reduction_batch_rule(prim: Primitive, lax_prim: Primitive) -> None:
     """Attach a reduction batcher for primitives with ``axes`` params."""
 
     del lax_prim  # Signature kept for call-site stability.
+    BatchDim: TypeAlias = int | None
 
     def _batch_rule(
         batched_args: tuple[jax.Array, ...],
-        batch_dims: tuple[int | type(batching.not_mapped), ...],
+        batch_dims: tuple[BatchDim, ...],
         *,
         axes: tuple[int, ...] | None = None,
         axes_is_tuple: bool = False,
         **params: object,
-    ) -> tuple[jax.Array, int]:
+    ) -> tuple[jax.Array, BatchDim]:
         (operand,), (bdim,) = batched_args, batch_dims
+        if bdim is None:
+            out = prim.bind(
+                operand,
+                axes=axes,
+                axes_is_tuple=axes_is_tuple,
+                **params,
+            )
+            return out, None
+
         axis_size = operand.shape[bdim]
         operand = batching.bdim_at_front(operand, bdim, axis_size)
 

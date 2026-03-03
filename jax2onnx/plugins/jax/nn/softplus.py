@@ -13,6 +13,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
@@ -22,6 +23,7 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
 
 _SOFTPLUS_PRIM: Final[Primitive] = Primitive("jax.nn.softplus")
 _SOFTPLUS_PRIM.multiple_results = False
+_JAX_SOFTPLUS_ORIG: Final = jax.nn.softplus
 
 
 @register_primitive(
@@ -97,7 +99,7 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -136,7 +138,7 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
 
 @SoftplusPlugin._PRIM.def_impl
 def _softplus_impl(x: ArrayLike) -> ArrayLike:
-    return jax.nn.softplus(x)
+    return _JAX_SOFTPLUS_ORIG(x)
 
 
 register_unary_elementwise_batch_rule(SoftplusPlugin._PRIM)
@@ -158,4 +160,4 @@ def _softplus_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[SoftplusPlugin._PRIM] = _softplus_jvp_rule
+register_jvp_rule(SoftplusPlugin._PRIM, _softplus_jvp_rule)

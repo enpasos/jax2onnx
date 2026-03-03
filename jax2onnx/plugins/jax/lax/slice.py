@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/slice.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import jax
@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     ],
 )
 class SlicePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -98,7 +98,7 @@ class SlicePlugin(PrimitiveLeafPlugin):
 
         starts_val = _const_i64(ctx, starts, "slice_starts")
 
-        def _coerce_limit(val):
+        def _coerce_limit(val: object) -> int:
             if isinstance(val, (int, np.integer)):
                 return int(val)
             return np.iinfo(np.int64).max
@@ -181,11 +181,12 @@ class SlicePlugin(PrimitiveLeafPlugin):
             f"x={getattr(x_val, 'name', None)} "
             f"spec={getattr(out_val, 'name', None)}"
         )
-        override_candidates = [
-            int(candidate)
-            for candidate in override_sources
-            if _compatible_override(candidate)
-        ]
+        override_candidates: list[int] = []
+        for candidate in override_sources:
+            if _compatible_override(candidate) and isinstance(
+                candidate, (int, np.integer)
+            ):
+                override_candidates.append(int(candidate))
         _axis0_debug(
             "slice override candidates "
             f"value={getattr(out_tensor, 'name', None)} "

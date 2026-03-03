@@ -1,5 +1,7 @@
 # jax2onnx/plugins/jax/lax/sub.py
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Optional, cast
 
 import onnx_ir as ir
@@ -124,7 +126,7 @@ def _lower_complex_sub(
     ],
 )
 class SubPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: "IRContext", eqn: jax.core.JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -142,7 +144,7 @@ class SubPlugin(PrimitiveLeafPlugin):
         output_name = out_spec.name or ctx.fresh_name("sub_out")
         out_spec.name = output_name
 
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False

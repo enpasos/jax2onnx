@@ -13,6 +13,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
@@ -22,6 +23,7 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
 
 _LEAKY_RELU_PRIM: Final[Primitive] = Primitive("jax.nn.leaky_relu")
 _LEAKY_RELU_PRIM.multiple_results = False
+_JAX_LEAKY_RELU_ORIG: Final = jax.nn.leaky_relu
 
 
 @register_primitive(
@@ -114,7 +116,7 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -153,7 +155,7 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
 
 @LeakyReluPlugin._PRIM.def_impl
 def _leaky_relu_impl(x: ArrayLike, negative_slope: float = 0.01) -> ArrayLike:
-    return jax.nn.leaky_relu(x, negative_slope=negative_slope)
+    return _JAX_LEAKY_RELU_ORIG(x, negative_slope=negative_slope)
 
 
 register_unary_elementwise_batch_rule(LeakyReluPlugin._PRIM)
@@ -162,7 +164,10 @@ register_unary_elementwise_batch_rule(LeakyReluPlugin._PRIM)
 def _leaky_relu_jvp_rule(
     primals: tuple[ArrayLike, ...], tangents: tuple[ArrayLike, ...], **params: object
 ) -> tuple[ArrayLike, ArrayLike]:
-    negative_slope = float(params.get("negative_slope", 0.01))
+    slope_param = params.get("negative_slope", 0.01)
+    negative_slope = (
+        float(slope_param) if isinstance(slope_param, (int, float)) else 0.01
+    )
 
     (x,) = primals
     (x_dot,) = tangents
@@ -182,4 +187,4 @@ def _leaky_relu_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[LeakyReluPlugin._PRIM] = _leaky_relu_jvp_rule
+register_jvp_rule(LeakyReluPlugin._PRIM, _leaky_relu_jvp_rule)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import onnx_ir as ir
@@ -70,7 +70,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[object | None] = None
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         if len(eqn.invars) < 3:
             raise ValueError("ragged_dot_general expects lhs, rhs, group_sizes inputs")
         lhs_var, rhs_var, group_sizes_var = eqn.invars[:3]
@@ -115,7 +115,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
         )
 
         lhs_shape = tuple(getattr(lhs_var.aval, "shape", ()))
-        rhs_shape = list(getattr(rhs_var.aval, "shape", ()))
+        rhs_shape_list = list(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
         if rhs_group:
@@ -126,15 +126,15 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
             removed_count = 0
             for axis in sorted(rhs_group):
                 adj_axis = axis - removed_count
-                rhs_val, rhs_shape = _gather_group_zero(
+                rhs_val, rhs_shape_list = _gather_group_zero(
                     ctx,
                     rhs_val,
                     adj_axis,
                     "ragged_rhs_group",
-                    rhs_shape,
+                    rhs_shape_list,
                 )
                 removed_count += 1
-        rhs_shape = tuple(rhs_shape)
+        rhs_shape = tuple(rhs_shape_list)
 
         dot_plugin = DotGeneralPlugin()
         if dot_plugin._maybe_lower_complex(

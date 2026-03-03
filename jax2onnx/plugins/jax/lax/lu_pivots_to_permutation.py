@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -17,7 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -26,12 +26,12 @@ def _stamp_like(value, ref) -> None:
 
 def _lower_single_permutation(
     ctx: "IRContext",
-    pivots_1d,
+    pivots_1d: ir.Value,
     *,
     k: int,
     permutation_size: int,
     name_prefix: str,
-):
+) -> ir.Value:
     perm = _const_i64(
         ctx,
         np.arange(permutation_size, dtype=np.int64),
@@ -164,7 +164,7 @@ def _lower_single_permutation(
 class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.lu_pivots_to_permutation`` with sequential swaps."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (pivots_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -196,6 +196,7 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
             if getattr(pivots, "shape", None) is not None:
                 pivots_i64.shape = pivots.shape
 
+        out_i64_shape: tuple[int, ...]
         if len(pivots_shape) == 1:
             k_raw = pivots_shape[0]
             if not isinstance(k_raw, (int, np.integer)):
@@ -290,7 +291,9 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
                 perm.shape = ir.Shape((batch, permutation_size))
             out_i64_shape = (batch, permutation_size)
 
-        out_dtype = np.dtype(getattr(getattr(out_var, "aval", None), "dtype", np.int32))
+        out_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(out_var, "aval", None), "dtype", np.int32)
+        )
         out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
         if out_dtype_enum is None:
             raise TypeError(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -25,7 +25,7 @@ def _stamp_like(value, ref) -> None:
 
 def _slice_matrix(
     ctx: "IRContext",
-    mat,
+    mat: ir.Value,
     *,
     row_start: int,
     row_end: int,
@@ -33,7 +33,7 @@ def _slice_matrix(
     col_end: int,
     out_shape: tuple[int, int],
     name: str,
-):
+) -> ir.Value:
     starts = _const_i64(
         ctx,
         np.asarray([row_start, col_start], dtype=np.int64),
@@ -58,7 +58,9 @@ def _slice_matrix(
     return out
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -82,7 +84,14 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
+def _scatter_mat_elem(
+    ctx: "IRContext",
+    mat: ir.Value,
+    i: int,
+    j: int,
+    value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i, j]]], dtype=np.int64),
@@ -95,15 +104,15 @@ def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
 
 def _scatter_block(
     ctx: "IRContext",
-    base,
-    block,
+    base: ir.Value,
+    block: ir.Value,
     *,
     row_start: int,
     col_start: int,
     rows: int,
     cols: int,
     name: str,
-):
+) -> ir.Value:
     idx_data: list[list[int]] = []
     for r in range(rows):
         for c in range(cols):
@@ -127,7 +136,7 @@ def _scatter_block(
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
+def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.Gather(
         vec,
@@ -141,7 +150,9 @@ def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
     return out
 
 
-def _scatter_vec_elem(ctx: "IRContext", vec, i: int, value, name: str):
+def _scatter_vec_elem(
+    ctx: "IRContext", vec: ir.Value, i: int, value: ir.Value, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([[i]], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.ScatterND(vec, idx, value, _outputs=[ctx.fresh_name(name)])
     _stamp_like(out, vec)
@@ -209,7 +220,7 @@ def _scatter_vec_elem(ctx: "IRContext", vec, i: int, value, name: str):
 class HessenbergPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.hessenberg`` for static rank-2 square inputs."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (x_var,) = eqn.invars
         if len(eqn.outvars) != 2:
             raise NotImplementedError("hessenberg expects exactly 2 outputs")
@@ -243,7 +254,9 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
         if int(taus_shape[0]) != max(n - 1, 0):
             raise ValueError("hessenberg taus length mismatch")
 
-        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         a_cur = x
         taus_cur = ctx.bind_const_for_var(
             object(),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -23,7 +23,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _SHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.shape")
 
 
-def _shape_eval(x):
+def _shape_eval(x: jax.core.AbstractValue) -> Any:
     orig = getattr(_SHAPE_PRIM, "__orig_impl__shape", jnp.shape)
     result = jax.eval_shape(
         lambda arr: orig(arr), jax.ShapeDtypeStruct(x.shape, x.dtype)
@@ -102,7 +102,7 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
         except TypeError:
             np_dtype = np.dtype("int32")
 
-        dtype_map = {
+        dtype_map: dict[np.dtype[Any], ir.DataType] = {
             np.dtype("int64"): ir.DataType.INT64,
             np.dtype("int32"): ir.DataType.INT32,
             np.dtype("int16"): ir.DataType.INT16,
@@ -176,7 +176,7 @@ def _shape_impl(a: ArrayLike) -> ArrayLike:
 JnpShapePlugin._PRIM.def_abstract_eval(JnpShapePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _shape_batch_rule(
@@ -185,9 +185,9 @@ def _shape_batch_rule(
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
 
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = JnpShapePlugin._PRIM.bind(operand)
-        return out, batching.not_mapped
+        return out, None
 
     batch_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, batch_size)

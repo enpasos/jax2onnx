@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -16,14 +16,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat, i_idx, axis=0, _outputs=[ctx.fresh_name(f"{name}_row")]
@@ -38,7 +40,14 @@ def _gather_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _scatter_set(ctx: "IRContext", mat, i: int, j: int, value, name: str):
+def _scatter_set(
+    ctx: "IRContext",
+    mat: ir.Value,
+    i: int,
+    j: int,
+    value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i, j]]], dtype=np.int64),
@@ -51,12 +60,12 @@ def _scatter_set(ctx: "IRContext", mat, i: int, j: int, value, name: str):
 
 def _lower_single_cholesky(
     ctx: "IRContext",
-    x,
+    x: ir.Value,
     *,
     n: int,
-    np_dtype: np.dtype,
+    np_dtype: np.dtype[Any],
     name_prefix: str,
-):
+) -> ir.Value:
     l_mat = ctx.bind_const_for_var(object(), np.zeros((n, n), dtype=np_dtype))
     _stamp_like(l_mat, x)
 
@@ -175,7 +184,7 @@ def _lower_single_cholesky(
 class CholeskyPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.cholesky`` with static unrolled factorization."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -210,7 +219,9 @@ class CholeskyPlugin(PrimitiveLeafPlugin):
             raise ValueError("cholesky requires square matrices")
         n = n_rows
 
-        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         if n == 0 or (batch is not None and batch == 0):
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("cholesky")
             result = ctx.builder.Identity(x, _outputs=[desired_name])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 import numpy as np
 import copy
 from .gather_helpers import (
@@ -95,23 +95,27 @@ def lax_gather_to_gir(
 
         gir_entries.append(entry)
 
-    slice_dims = [
+    slice_dims: list[GirInstruction] = [
         dim
         for dim in gir_entries
         if dim["mode"] in ["passthrough", "range_slice", "dynamic_range_slice"]
     ]
-    gather_dims = [dim for dim in gir_entries if dim["mode"] in ["gather"]]
+    gather_dims: list[GirInstruction] = [
+        dim for dim in gir_entries if dim["mode"] in ["gather"]
+    ]
 
     assert len(slice_dims) == len(dn.offset_dims)
     used_dims = set()
 
-    output_dims_from_input_dims = [[] for _ in output_shape]
+    output_dims_from_input_dims: list[list[GirInstruction]] = [[] for _ in output_shape]
 
-    for i, dim in enumerate(slice_dims):
+    for i, slice_dim in enumerate(slice_dims):
         used_dims.add(dn.offset_dims[i])
-        output_dims_from_input_dims[dn.offset_dims[i]] = [dim]
+        output_dims_from_input_dims[dn.offset_dims[i]] = [slice_dim]
 
-    indices_dims_from_input_dims = [[] for _ in indices_var.aval.shape[:-1]]
+    indices_dims_from_input_dims: list[list[GirInstruction]] = [
+        [] for _ in indices_var.aval.shape[:-1]
+    ]
 
     for operand_dim_index, indices_dim_index in zip(
         dn.operand_batching_dims, dn.start_indices_batching_dims
@@ -129,14 +133,15 @@ def lax_gather_to_gir(
             dim_dims.extend(indices_dims_from_input_dims.pop(0))
 
     for i, dim_dims in enumerate(output_dims_from_input_dims):
-        for dim in dim_dims:
-            dim["target_dimensions"] = sorted(
-                set(dim.get("target_dimensions", []) + [i])
-            )
+        for dim_entry in dim_dims:
+            if isinstance(dim_entry, dict):
+                dim_entry["target_dimensions"] = sorted(
+                    set(dim_entry.get("target_dimensions", []) + [i])
+                )
 
-    for dim in gir_entries:
-        if "target_dimensions" not in dim:
-            dim["target_dimensions"] = []
+    for dim_entry in gir_entries:
+        if isinstance(dim_entry, dict) and "target_dimensions" not in dim_entry:
+            dim_entry["target_dimensions"] = []
 
     result_op = {
         "op": "general_gather",
@@ -318,7 +323,7 @@ def turn_dynamic_range_slice_to_gather(
 def normalize_gather_with_transpose(
     gir_instr_orig: GirInstruction,
 ) -> list[GirInstruction]:
-    gir_instr = copy.deepcopy(gir_instr_orig)
+    gir_instr = cast(GirInstruction, copy.deepcopy(gir_instr_orig))
     assert gir_instr["op"] == "general_gather"
 
     if all(dim["mode"] != "gather" for dim in gir_instr["dims"]):
@@ -326,18 +331,20 @@ def normalize_gather_with_transpose(
 
     orig_input_shape = get_gir_input_shape(gir_instr_orig)
 
-    new_entries = [dim for dim in gir_instr["dims"] if dim["mode"] == "batched"]
+    new_entries: list[GirInstruction] = [
+        dim for dim in gir_instr["dims"] if dim["mode"] == "batched"
+    ]
     new_entries += [dim for dim in gir_instr["dims"] if dim["mode"] == "gather"]
     new_entries += [
         dim for dim in gir_instr["dims"] if dim["mode"] not in ["gather", "batched"]
     ]
 
-    P1 = [dim["dim"] for dim in new_entries]
+    P1: list[int] = [int(dim["dim"]) for dim in new_entries]
 
     for i, dim in enumerate(new_entries):
         dim["dim"] = i
 
-    P2 = []
+    P2: list[int] = []
     gather_added = False
     for dim in new_entries:
         if dim["mode"] == "gather":
@@ -349,7 +356,7 @@ def normalize_gather_with_transpose(
         else:
             do_add = True
         if do_add:
-            P2 += dim["target_dimensions"]
+            P2 += list(dim["target_dimensions"])
 
     P2inv = invert_transpose(P2)
 
@@ -360,8 +367,12 @@ def normalize_gather_with_transpose(
 
     gather_new_output_shape = get_gir_output_shape(gir_instr)
 
-    input_transpose = transpose_to_gir(invert_transpose(P1), orig_input_shape)
-    output_transpose = transpose_to_gir(P2, gather_new_output_shape)
+    input_transpose: list[GirInstruction] = transpose_to_gir(
+        invert_transpose(P1), orig_input_shape
+    )
+    output_transpose: list[GirInstruction] = transpose_to_gir(
+        P2, gather_new_output_shape
+    )
 
     return input_transpose + [gir_instr] + output_transpose
 
@@ -369,7 +380,7 @@ def normalize_gather_with_transpose(
 def normalize_gather_index_tensor_with_transpose(
     gir_instr_orig: GirInstruction,
 ) -> list[GirInstruction]:
-    gir_instr = copy.deepcopy(gir_instr_orig)
+    gir_instr = cast(GirInstruction, copy.deepcopy(gir_instr_orig))
     assert gir_instr["op"] == "general_gather"
 
     index_shape, index_index = calculate_index_shape(gir_instr)
@@ -377,7 +388,7 @@ def normalize_gather_index_tensor_with_transpose(
     P = invert_transpose(index_index)
     P += [len(P)]
 
-    index_transpose = index_transpose_to_gir(P, index_shape)
+    index_transpose: list[GirInstruction] = index_transpose_to_gir(P, index_shape)
 
     i = 0
     for dim in gir_instr["dims"]:
@@ -385,7 +396,7 @@ def normalize_gather_index_tensor_with_transpose(
             dim["indices_dim"] = i
             i += 1
 
-    return index_transpose + [gir_instr]
+    return [*index_transpose, gir_instr]
 
 
 def reorder_gathered_indices(

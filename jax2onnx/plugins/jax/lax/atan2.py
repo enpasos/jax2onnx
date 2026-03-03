@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -88,7 +88,7 @@ def _cast_to(
     ],
 )
 class Atan2Plugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -96,7 +96,9 @@ class Atan2Plugin(PrimitiveLeafPlugin):
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("atan2_y"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("atan2_out"))
 
-        out_np_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
+        out_np_dtype: np.dtype[Any] = np.dtype(
+            getattr(out_var.aval, "dtype", np.float32)
+        )
         out_dtype = _dtype_to_ir(out_np_dtype, ctx.builder.enable_double_precision)
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -17,7 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _const_scalar(value) -> float | int | None:
+def _const_scalar(value: Any) -> float | int | None:
     const = getattr(value, "const_value", None)
     if const is None:
         return None
@@ -30,10 +30,15 @@ def _const_scalar(value) -> float | int | None:
             return None
     if arr.shape != ():
         return None
-    return arr.item()
+    scalar = arr.item()
+    if isinstance(scalar, (float, np.floating)):
+        return float(scalar)
+    if isinstance(scalar, (int, np.integer)):
+        return int(scalar)
+    return None
 
 
-def _all_axes(x) -> tuple[int, ...]:
+def _all_axes(x: Any) -> tuple[int, ...]:
     return tuple(range(x.ndim))
 
 
@@ -146,7 +151,7 @@ def _all_axes(x) -> tuple[int, ...]:
 class ReduceSumPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_sum`` via ONNX ReduceSum."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -169,14 +174,16 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
 
         producer_getter = getattr(operand_val, "producer", lambda: None)
         producer = producer_getter() if callable(producer_getter) else None
+        producer_op_type = str(getattr(producer, "op_type", ""))
+        producer_inputs = tuple(getattr(producer, "inputs", ()))
 
-        target_base = None
-        op_name = None
-        if getattr(producer, "op_type", "") == "Abs":
-            target_base = producer.inputs[0]
+        target_base: Any | None = None
+        op_name: str | None = None
+        if producer_op_type == "Abs" and producer_inputs:
+            target_base = producer_inputs[0]
             op_name = "ReduceL1"
-        elif getattr(producer, "op_type", "") == "Mul" and len(producer.inputs) >= 2:
-            lhs, rhs = producer.inputs[:2]
+        elif producer_op_type == "Mul" and len(producer_inputs) >= 2:
+            lhs, rhs = producer_inputs[:2]
             same_input = lhs is rhs or (
                 getattr(lhs, "name", None) is not None
                 and getattr(lhs, "name", None) == getattr(rhs, "name", None)
@@ -184,8 +191,8 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             if same_input:
                 target_base = lhs
                 op_name = "ReduceSumSquare"
-        elif getattr(producer, "op_type", "") == "Pow":
-            base, exponent = producer.inputs
+        elif producer_op_type == "Pow" and len(producer_inputs) >= 2:
+            base, exponent = producer_inputs[:2]
             exponent_scalar = _const_scalar(exponent)
             if exponent_scalar is not None and np.allclose(exponent_scalar, 2):
                 target_base = base
@@ -196,10 +203,10 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             return
 
         rank = len(tuple(getattr(operand_var.aval, "shape", ())))
-        axes_norm = None
+        axes_norm: list[int] | None = None
         if axes is not None:
             axes_norm = []
-            for ax in axes:
+            for ax in cast("tuple[Any, ...]", axes):
                 ax_i = int(ax)
                 if ax_i < 0:
                     ax_i += rank

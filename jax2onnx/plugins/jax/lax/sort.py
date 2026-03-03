@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover
     ],
 )
 class SortPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", -1))
         num_keys = int(params.get("num_keys", 1))

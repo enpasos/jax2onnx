@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -56,7 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class SplitPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.split`` to ONNX ``Split`` using IR-only ops."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         data_var = eqn.invars[0]
         out_vars = list(eqn.outvars)
 

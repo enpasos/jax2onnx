@@ -148,7 +148,7 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             raise TypeError("resize shape must be a sequence of integers") from exc
         dtype = getattr(image, "dtype", None)
         if dtype is None:
-            dtype = image.dtype  # type: ignore[attr-defined]
+            raise TypeError("resize abstract value is missing dtype")
         return core.ShapedArray(out_shape, dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
@@ -226,7 +226,7 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             ctx.fresh_name("resize_sizes"),
         )
 
-        resize_kwargs = {
+        resize_kwargs: dict[str, object] = {
             "mode": self._SUPPORTED_MODES[method],
             "coordinate_transformation_mode": "half_pixel",
         }
@@ -234,8 +234,6 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             resize_kwargs["nearest_mode"] = "round_prefer_floor"
         if method == "cubic":
             resize_kwargs["cubic_coeff_a"] = -0.5
-        if antialias:
-            resize_kwargs["antialias"] = 1
 
         resize_out = ctx.builder.Resize(
             image_val,

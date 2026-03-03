@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -45,14 +45,14 @@ if TYPE_CHECKING:  # pragma: no cover
 class RealPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.real`` to ONNX ops."""
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("real_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("real_out"))
 
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False

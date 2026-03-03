@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax import core
@@ -14,10 +14,8 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _TRUNCATED_NORMAL_PRIM: Final[Primitive] = Primitive(
@@ -26,7 +24,7 @@ _TRUNCATED_NORMAL_PRIM: Final[Primitive] = Primitive(
 _TRUNCATED_NORMAL_PRIM.multiple_results = False
 
 
-def _initializer_callable(key):
+def _initializer_callable(key: Any) -> Any:
     init = jax.nn.initializers.truncated_normal(stddev=1.0, dtype=jnp.float32)
     return init(key, (4, 5), jnp.float32)
 
@@ -111,7 +109,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         safe_shape = tuple(_safe_dim(dim) for dim in shape)
         return core.ShapedArray(safe_shape, dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = eqn.params or {}
         shape_param = tuple(params.get("shape", ()))
@@ -121,14 +119,14 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         shape = tuple(getattr(aval, "shape", shape_param))
         dtype = getattr(aval, "dtype", dtype_param or np.float32)
 
-        np_dtype = np.dtype(dtype)
+        np_dtype: np.dtype[Any] = np.dtype(dtype)
         zeros = np.zeros(shape, dtype=np_dtype)
         out_val = ctx.bind_const_for_var(out_var, zeros)
         _stamp_type_and_shape(out_val, shape)
         _ensure_value_metadata(ctx, out_val)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -145,8 +143,8 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
             raise TypeError(f"Dimension {dim!r} is not statically known") from exc
 
     @classmethod
-    def _make_random_patch(cls, _orig):
-        def _patched(key, lower, upper, *pos, **kwargs):
+    def _make_random_patch(cls, _orig: Any) -> Callable[..., Any]:
+        def _patched(key: Any, lower: Any, upper: Any, *pos: Any, **kwargs: Any) -> Any:
             shape = kwargs.pop("shape", None)
             dtype = kwargs.pop("dtype", None)
             if pos:
@@ -168,13 +166,19 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         return _patched
 
     @classmethod
-    def _make_initializer_patch(cls, orig):
+    def _make_initializer_patch(
+        cls, orig: Callable[..., Any] | None
+    ) -> Callable[..., Any]:
         if orig is None:  # pragma: no cover - safety guard
-            return lambda *args, **kwargs: cls._make_random_patch(None)(*args, **kwargs)
+
+            def _fallback(*args: Any, **kwargs: Any) -> Any:
+                return cls._make_random_patch(None)(*args, **kwargs)
+
+            return _fallback
 
         patched_random = cls._make_random_patch(None)
 
-        def _patched(*args, **kwargs):
+        def _patched(*args: Any, **kwargs: Any) -> Any:
             if (
                 args
                 and hasattr(args[0], "shape")
@@ -182,7 +186,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
             ):
                 return patched_random(*args, **kwargs)
 
-            def _wrapped(key, shape, dtype=None):
+            def _wrapped(key: Any, shape: Any, dtype: Any = None) -> Any:
                 dtype_local = dtype or kwargs.get("dtype") or jnp.float_
                 lower = kwargs.get("lower", -2.0)
                 upper = kwargs.get("upper", 2.0)
@@ -202,7 +206,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         return _patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="jax.random",

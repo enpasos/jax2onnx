@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -73,7 +73,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ApproxTopKPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.approx_top_k`` to ONNX ``TopK``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (arr_var,) = eqn.invars
         values_var, indices_var = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -125,7 +125,7 @@ class ApproxTopKPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(values, result_shape_t)
         _ensure_value_metadata(ctx, values)
 
-        target_idx_dtype = np.dtype(
+        target_idx_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(indices_var, "aval", None), "dtype", np.int32)
         )
         idx_dtype_enum = _dtype_to_ir(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Final, Iterable, Tuple, cast
 
 import jax
 import jax.numpy as jnp
@@ -30,7 +30,7 @@ def _init_remat2_primitive() -> Any | None:
         return existing
     base_core: Any | None = None
     try:  # pragma: no cover
-        from jax.extend import core as jax_core_ext  # type: ignore
+        from jax.extend import core as jax_core_ext
 
         base_core = jax_core_ext
     except ImportError:  # pragma: no cover
@@ -44,7 +44,7 @@ def _init_remat2_primitive() -> Any | None:
         return None
     remat2 = base_core.Primitive("remat2")
     remat2.multiple_results = True
-    lax.remat2_p = remat2  # type: ignore[attr-defined]
+    setattr(lax, "remat2_p", remat2)
     return remat2
 
 
@@ -52,20 +52,20 @@ _REMAT2_PRIM: Final[Any | None] = _init_remat2_primitive()
 
 
 def _remat2_scalar_sin_chain(x: jax.Array) -> jax.Array:
-    def body(v):
+    def body(v: jax.Array) -> jax.Array:
         first = jnp.sin(v)
         return jnp.sin(first)
 
-    return jax.checkpoint(body)(x)
+    return cast(jax.Array, jax.checkpoint(body)(x))
 
 
 def _remat2_tuple_passthrough(
     a: jax.Array, b: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
-    def body(x, y):
+    def body(x: jax.Array, y: jax.Array) -> tuple[jax.Array, jax.Array]:
         return x + jnp.cos(x), y
 
-    return jax.checkpoint(body)(a, b)
+    return cast(tuple[jax.Array, jax.Array], jax.checkpoint(body)(a, b))
 
 
 @register_primitive(
@@ -106,7 +106,7 @@ def _remat2_tuple_passthrough(
 class Remat2Plugin(PrimitiveLeafPlugin):
     """Inline the inner jaxpr of ``lax.remat2`` into the surrounding context."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         jaxpr_like = eqn.params.get("jaxpr")
         if jaxpr_like is None:
             raise ValueError("remat2 lowering requires 'jaxpr' in params")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -159,7 +159,9 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("softmax")
 
         x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
 
         mask_dtype = getattr(getattr(mask_val, "type", None), "dtype", None)
         mask_shape = tuple(getattr(getattr(where_var, "aval", None), "shape", ()))
@@ -232,7 +234,7 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -245,7 +247,9 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
             if orig is None:
                 raise RuntimeError("Original jax.nn.softmax not found")
 
-            def _patched(x, axis: int = -1, where=None):
+            def _patched(
+                x: ArrayLike, axis: int = -1, where: ArrayLike | None = None
+            ) -> ArrayLike:
                 if where is None:
                     return cls._PRIM.bind(x, axis=axis, has_where=False)
                 where_arr = jnp.asarray(where)
@@ -326,7 +330,7 @@ def _softmax_batch_rule(
     else:
         axis_body = canon_axis - 1
 
-    in_axes = (0 if x_bdim is not None else None,)
+    in_axes: tuple[int | None, ...] = (0 if x_bdim is not None else None,)
     if has_where:
         in_axes = in_axes + (0 if where_bdim is not None else None,)
 

@@ -73,7 +73,7 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
 class RandomBitsPlugin(PrimitiveLeafPlugin):
     """Lower ``random_bits`` via RandomUniformLike + scaling + cast."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})

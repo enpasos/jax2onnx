@@ -11,8 +11,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
-
 
 @register_primitive(
     jaxpr_primitive=jax.lax.cosh_p.name,
@@ -46,7 +44,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class CoshPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -58,7 +56,7 @@ class CoshPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("cosh_out")
 
-        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
         if x_dtype == np.float32:
             result = ctx.builder.Cosh(x_val, _outputs=[desired_name])
             if getattr(out_spec, "type", None) is not None:

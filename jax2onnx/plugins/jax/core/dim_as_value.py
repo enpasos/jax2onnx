@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+from jax import core
 import numpy as np
 import onnx_ir as ir
 
@@ -16,12 +20,12 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
 
-def _dynamic_or_constant(specs):
+def _dynamic_or_constant(specs: list[Any]) -> Callable[[Any], bool]:
     dynamic_checker = EG(specs, no_unused_inputs=True)
     constant_checker = EG([])
 
-    def _check(model):
-        return dynamic_checker(model) or constant_checker(model)
+    def _check(model: Any) -> bool:
+        return bool(dynamic_checker(model) or constant_checker(model))
 
     return _check
 
@@ -93,7 +97,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
     ],
 )
 class DimAsValuePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("dim_as_value_out")

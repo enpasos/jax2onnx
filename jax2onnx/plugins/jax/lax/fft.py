@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, Sequence
+from typing import TYPE_CHECKING, Any, Final, Sequence
 
 import numpy as np
 from jax import lax
@@ -78,26 +78,12 @@ def _normalize_fft_kind(fft_type: object) -> str | None:
             return upper
     if isinstance(fft_type, (int, np.integer)):
         value = int(fft_type)
-        fft_val = (
-            int(_LAX_FFT_KIND_FFT.value)
-            if hasattr(_LAX_FFT_KIND_FFT, "value")
-            else int(_LAX_FFT_KIND_FFT)
-        )
-        ifft_val = (
-            int(_LAX_FFT_KIND_IFFT.value)
-            if hasattr(_LAX_FFT_KIND_IFFT, "value")
-            else int(_LAX_FFT_KIND_IFFT)
-        )
-        rfft_val = (
-            int(_LAX_FFT_KIND_RFFT.value)
-            if hasattr(_LAX_FFT_KIND_RFFT, "value")
-            else int(_LAX_FFT_KIND_RFFT)
-        )
-        irfft_val = (
-            int(_LAX_FFT_KIND_IRFFT.value)
-            if hasattr(_LAX_FFT_KIND_IRFFT, "value")
-            else int(_LAX_FFT_KIND_IRFFT)
-        )
+        fft_val = _enum_to_int(_LAX_FFT_KIND_FFT)
+        ifft_val = _enum_to_int(_LAX_FFT_KIND_IFFT)
+        rfft_val = _enum_to_int(_LAX_FFT_KIND_RFFT)
+        irfft_val = _enum_to_int(_LAX_FFT_KIND_IRFFT)
+        if fft_val is None or ifft_val is None or rfft_val is None or irfft_val is None:
+            return None
         if value == fft_val:
             return "FFT"
         if value == ifft_val:
@@ -126,7 +112,20 @@ def _is_static_int(dim: object) -> bool:
 
 
 def _maybe_int(dim: object) -> int | None:
-    return int(dim) if _is_static_int(dim) else None
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    return None
+
+
+def _enum_to_int(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    raw_value = getattr(value, "value", None)
+    if isinstance(raw_value, (int, np.integer)):
+        return int(raw_value)
+    return None
 
 
 def _reshape_tensor(
@@ -474,7 +473,7 @@ def _gather_channel(
 class FFTPlugin(PrimitiveLeafPlugin):
     """Lower `lax.fft` primitives to ONNX DFT."""
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (x_var,) = eqn.invars
         out_var = eqn.outvars[0]
         fft_type = eqn.params.get("fft_type")
@@ -626,7 +625,7 @@ class FFTPlugin(PrimitiveLeafPlugin):
         )
         if fft_lengths:
             dft_inputs.append(
-                _make_scalar_i64(ctx, signal_length, name_hint="rfft_length")
+                _make_scalar_i64(ctx, int(fft_lengths[0]), name_hint="rfft_length")
             )
         dft_inputs.append(_make_scalar_i64(ctx, axis_index, name_hint="rfft_axis"))
 
@@ -709,7 +708,7 @@ class FFTPlugin(PrimitiveLeafPlugin):
                 interior_end = onesided_len
             mirror_count = max(0, interior_end - interior_start)
             if mirror_count > 0:
-                mirror_indices = np.arange(
+                mirror_indices: np.ndarray[Any, Any] = np.arange(
                     interior_end - 1, interior_start - 1, -1, dtype=np.int64
                 )
                 mirror_init = ctx.builder.add_initializer_from_array(

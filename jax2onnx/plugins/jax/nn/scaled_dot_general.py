@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax.extend.core import Primitive
@@ -23,13 +23,15 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _SDG_PRIM: Final[Primitive] = Primitive("jax.nn.scaled_dot_general")
 _SDG_PRIM.multiple_results = False
 _JAX_SDG_ORIG: Final = jax.nn.scaled_dot_general
+DotDimensionNumbers: TypeAlias = tuple[
+    tuple[tuple[int, ...], tuple[int, ...]],
+    tuple[tuple[int, ...], tuple[int, ...]],
+]
 
 
 def _normalize_dimension_numbers(
-    dimension_numbers,
-) -> tuple[
-    tuple[tuple[int, ...], tuple[int, ...]], tuple[tuple[int, ...], tuple[int, ...]]
-]:
+    dimension_numbers: Any,
+) -> DotDimensionNumbers:
     (contract, batch) = dimension_numbers
     (lhs_contract, rhs_contract) = contract
     (lhs_batch, rhs_batch) = batch
@@ -103,8 +105,8 @@ class ScaledDotGeneralPlugin(PrimitiveLeafPlugin):
         lhs: jax.core.AbstractValue,
         rhs: jax.core.AbstractValue,
         *,
-        dimension_numbers,
-        preferred_element_type,
+        dimension_numbers: DotDimensionNumbers,
+        preferred_element_type: np.dtype[Any] | type[Any],
     ) -> jax.core.ShapedArray:
         lhs_spec = jax.ShapeDtypeStruct(lhs.shape, lhs.dtype)
         rhs_spec = jax.ShapeDtypeStruct(rhs.shape, rhs.dtype)
@@ -136,7 +138,7 @@ class ScaledDotGeneralPlugin(PrimitiveLeafPlugin):
         DotGeneralPlugin().lower(ctx, proxy_eqn)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -150,13 +152,13 @@ class ScaledDotGeneralPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jax.nn.scaled_dot_general not found")
 
             def _patched(
-                lhs,
-                rhs,
-                dimension_numbers,
-                preferred_element_type=np.float32,
-                configs=None,
-                implementation=None,
-            ):
+                lhs: ArrayLike,
+                rhs: ArrayLike,
+                dimension_numbers: DotDimensionNumbers,
+                preferred_element_type: np.dtype[Any] | type[Any] = np.float32,
+                configs: Any | None = None,
+                implementation: Any | None = None,
+            ) -> ArrayLike:
                 if configs is not None or implementation is not None:
                     return orig(
                         lhs,
@@ -225,8 +227,8 @@ def _scaled_dot_general_impl(
     lhs: ArrayLike,
     rhs: ArrayLike,
     *,
-    dimension_numbers,
-    preferred_element_type,
+    dimension_numbers: DotDimensionNumbers,
+    preferred_element_type: np.dtype[Any] | type[Any],
 ) -> ArrayLike:
     return _JAX_SDG_ORIG(
         lhs,

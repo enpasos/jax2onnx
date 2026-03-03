@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -160,7 +160,7 @@ def _const_scalar_i64(value: ir.Value) -> int | None:
 class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.dynamic_update_slice`` via ScatterND."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         ref_var = eqn.invars[0]
         upd_var = eqn.invars[1]
         start_vars = list(eqn.invars[2:])
@@ -296,7 +296,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                     start_ge0 = _binary_scalar(
                         ctx, "Max", start_norm, zero_i64, "dus_tensorscatter_start_ge0"
                     )
-                    start_clamped = _binary_scalar(
+                    start_clamped_scalar = _binary_scalar(
                         ctx,
                         "Min",
                         start_ge0,
@@ -325,7 +325,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         "dus_tensorscatter_unsq_axes",
                     )
                     start_vec = ctx.builder.Unsqueeze(
-                        start_clamped,
+                        start_clamped_scalar,
                         unsq_axes,
                         _outputs=[ctx.fresh_name("dus_tensorscatter_start_vec")],
                     )
