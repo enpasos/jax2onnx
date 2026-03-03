@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, ClassVar, Final, cast
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 from jax import core
@@ -15,7 +15,9 @@ from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -177,18 +179,27 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
 
         if not arrays:
             raise ValueError("need at least one array to concatenate")
-        return arrays, axis, dtype
+        if not isinstance(axis, (int, np.integer)):
+            raise TypeError("concatenate axis must be an integer")
+        axis_int = int(axis)
+        return arrays, axis_int, cast(DTypeLike | None, dtype)
 
     @staticmethod
     def abstract_eval(
         *arrays: core.AbstractValue,
-        axis: int = 0,
-        dtype: DTypeLike | None = None,
+        dimension: int = 0,
+        axis: int | None = None,
     ) -> core.ShapedArray:
         if not arrays:
             raise ValueError("concatenate requires at least one operand")
+        if axis is not None:
+            if axis != dimension:
+                raise ValueError(
+                    "Conflicting concatenate params: both 'axis' and 'dimension'"
+                )
+            dimension = axis
         rank = len(arrays[0].shape)
-        norm_axis = _normalize_axis(axis, rank)
+        norm_axis = _normalize_axis(dimension, rank)
 
         axis_sizes = []
         other_dims = arrays[0].shape
@@ -207,10 +218,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
             out_shape[norm_axis] = int(sum(int(sz) for sz in axis_sizes))
         else:
             out_shape[norm_axis] = axis_sizes[0]
-        if dtype is not None:
-            out_dtype = np.dtype(dtype)
-        else:
-            out_dtype = _promote_dtype([np.dtype(a.dtype) for a in arrays])
+        out_dtype = _promote_dtype([np.dtype(a.dtype) for a in arrays])
         return jax.core.ShapedArray(tuple(out_shape), out_dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
@@ -218,19 +226,14 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         in_vars = list(eqn.invars)
         params = getattr(eqn, "params", {})
 
-        axis = params.get("axis", 0)
-        dtype_param = params.get("dtype", None)
+        dimension = params.get("dimension", params.get("axis", 0))
 
         first_shape = tuple(getattr(in_vars[0].aval, "shape", ()))
         rank = len(first_shape)
-        norm_axis = _normalize_axis(axis, rank)
+        norm_axis = _normalize_axis(dimension, rank)
 
-        target_dtype = (
-            np.dtype(dtype_param)
-            if dtype_param is not None
-            else _promote_dtype(
-                [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
-            )
+        target_dtype = _promote_dtype(
+            [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
         )
         target_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
 
@@ -285,7 +288,15 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
             def _patched(*args: object, **kwargs: object) -> jax.Array:
                 arrays, axis, dtype = cls._canonicalize_call(*args, **kwargs)
                 axis_int = int(axis)
-                return cls._PRIM.bind(*arrays, axis=axis_int, dtype=dtype)
+                arrays_for_bind = arrays
+                if dtype is not None:
+                    target_dtype = np.dtype(dtype)
+                    arrays_for_bind = tuple(
+                        jnp.asarray(arr, dtype=target_dtype) for arr in arrays
+                    )
+                rank = jnp.asarray(arrays_for_bind[0]).ndim
+                norm_axis = _normalize_axis(axis_int, rank)
+                return cls._PRIM.bind(*arrays_for_bind, dimension=norm_axis)
 
             return _patched
 
@@ -310,23 +321,33 @@ def _concatenate_impl(*args: object, **kwargs: object) -> jax.Array:
         )
     except RuntimeError:
         orig = _ORIGINAL_JNP_CONCATENATE
+    if "dimension" in kwargs and "axis" not in kwargs:
+        kwargs = dict(kwargs)
+        kwargs["axis"] = kwargs.pop("dimension")
+    kwargs.pop("dtype", None)
     return orig(*args, **kwargs)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _concatenate_batch_rule(
     batched_args: tuple[object, ...],
     batch_dims: tuple[BatchDim, ...],
     *,
-    axis: int = 0,
-    dtype: DTypeLike | None = None,
+    dimension: int = 0,
+    axis: int | None = None,
 ) -> tuple[jax.Array, BatchDim]:
-    axis_int = int(axis)
-    axis_size: int | None = None
+    if axis is not None:
+        if axis != dimension:
+            raise ValueError(
+                "Conflicting concatenate params: both 'axis' and 'dimension'"
+            )
+        dimension = axis
+    axis_int = int(dimension)
+    axis_size: object | None = None
     for arg, bdim in zip(batched_args, batch_dims):
-        if bdim is batching.not_mapped:
+        if bdim is None:
             continue
         shape = getattr(arg, "shape", None)
         if shape is None or bdim >= len(shape):
@@ -335,7 +356,7 @@ def _concatenate_batch_rule(
         break
 
     if axis_size is None:
-        out = JnpConcatenatePlugin._PRIM.bind(*batched_args, axis=axis_int, dtype=dtype)
+        out = JnpConcatenatePlugin._PRIM.bind(*batched_args, dimension=axis_int)
         return out, batching.not_mapped
 
     prepared_args = [
@@ -351,9 +372,7 @@ def _concatenate_batch_rule(
         orig = _ORIGINAL_JNP_CONCATENATE
 
     def _call_single(*slices: object) -> jax.Array:
-        if dtype is None:
-            return orig(slices, axis=axis_int)
-        return orig(slices, axis=axis_int, dtype=dtype)
+        return orig(slices, axis=axis_int)
 
     result = jax.vmap(_call_single)(*prepared_args)
     return result, 0
@@ -362,20 +381,8 @@ def _concatenate_batch_rule(
 batching.primitive_batchers[JnpConcatenatePlugin._PRIM] = _concatenate_batch_rule
 
 
-def _concatenate_fallback_jvp_impl(
-    *arrays: object, axis: int = 0, dtype: DTypeLike | None = None
-) -> jax.Array:
-    axis_int = int(axis)
-    arrays_tuple = tuple(arrays)
-    try:
-        orig = get_orig_impl(
-            JnpConcatenatePlugin._PRIM, JnpConcatenatePlugin._FUNC_NAME
-        )
-    except RuntimeError:
-        orig = _ORIGINAL_JNP_CONCATENATE
-    if dtype is None:
-        return orig(arrays_tuple, axis=axis_int)
-    return orig(arrays_tuple, axis=axis_int, dtype=dtype)
-
-
-register_fallback_jvp_rule(JnpConcatenatePlugin._PRIM, _concatenate_fallback_jvp_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.concatenate_p,
+    new_prim=JnpConcatenatePlugin._PRIM,
+    forward_batching=False,
+)

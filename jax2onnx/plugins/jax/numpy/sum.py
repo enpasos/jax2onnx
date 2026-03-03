@@ -151,17 +151,17 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
 
             producer_getter = getattr(operand_val, "producer", lambda: None)
             producer = producer_getter() if callable(producer_getter) else None
+            producer_op = getattr(producer, "op_type", "")
+            producer_inputs = tuple(getattr(producer, "inputs", ()))
 
             target_base = None
             op_name = None
-            if getattr(producer, "op_type", "") == "Abs":
-                if producer.inputs:
-                    target_base = producer.inputs[0]
+            if producer_op == "Abs":
+                if producer_inputs:
+                    target_base = producer_inputs[0]
                     op_name = "ReduceL1"
-            elif (
-                getattr(producer, "op_type", "") == "Mul" and len(producer.inputs) >= 2
-            ):
-                lhs, rhs = producer.inputs[:2]
+            elif producer_op == "Mul" and len(producer_inputs) >= 2:
+                lhs, rhs = producer_inputs[:2]
                 same_input = lhs is rhs or (
                     getattr(lhs, "name", None) is not None
                     and getattr(lhs, "name", None) == getattr(rhs, "name", None)
@@ -169,10 +169,8 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
                 if same_input:
                     target_base = lhs
                     op_name = "ReduceSumSquare"
-            elif (
-                getattr(producer, "op_type", "") == "Pow" and len(producer.inputs) >= 2
-            ):
-                base, exponent = producer.inputs[:2]
+            elif producer_op == "Pow" and len(producer_inputs) >= 2:
+                base, exponent = producer_inputs[:2]
                 exponent_scalar = _const_scalar(exponent)
                 if exponent_scalar is not None and np.allclose(exponent_scalar, 2):
                     target_base = base
@@ -324,7 +322,14 @@ def _const_scalar(value: Any) -> float | int | None:
             return None
     if arr.shape != ():
         return None
-    return arr.item()
+    scalar = arr.item()
+    if isinstance(scalar, (bool, np.bool_)):
+        return int(scalar)
+    if isinstance(scalar, (int, np.integer)):
+        return int(scalar)
+    if isinstance(scalar, (float, np.floating)):
+        return float(scalar)
+    return None
 
 
 def _normalize_axes_for_rank(
@@ -337,14 +342,14 @@ def _normalize_axes_for_rank(
 
 def _sum_transpose_rule(
     ct: jax.Array | ad.Zero,
-    x,
+    x: Any,
     *,
     axes: tuple[int, ...] | None = None,
     axes_is_tuple: bool = False,
     dtype: np.dtype[Any] | type | None = None,
     keepdims: bool = False,
     promote_integers: bool = True,
-):
+) -> tuple[jax.Array | ad.Zero | None,]:
     del axes_is_tuple, dtype, promote_integers
     if not isinstance(x, ad.UndefinedPrimal):
         return (None,)

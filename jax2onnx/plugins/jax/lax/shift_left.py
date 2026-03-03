@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 
 import jax
 import numpy as np
@@ -11,8 +10,6 @@ from jax import core
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -61,7 +58,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
 class ShiftLeftPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.shift_left`` to ONNX ``BitShift(direction='LEFT')``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

@@ -13,6 +13,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
@@ -21,6 +22,7 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
 
 _SOFTSIGN_PRIM: Final[Primitive] = Primitive("jax.nn.soft_sign")
 _SOFTSIGN_PRIM.multiple_results = False
+_JAX_SOFT_SIGN_ORIG: Final = jax.nn.soft_sign
 
 
 @register_primitive(
@@ -112,7 +114,7 @@ class SoftsignPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -151,7 +153,7 @@ class SoftsignPlugin(PrimitiveLeafPlugin):
 
 @SoftsignPlugin._PRIM.def_impl
 def _softsign_impl(x: ArrayLike) -> ArrayLike:
-    return jax.nn.soft_sign(x)
+    return _JAX_SOFT_SIGN_ORIG(x)
 
 
 register_unary_elementwise_batch_rule(SoftsignPlugin._PRIM)
@@ -174,4 +176,4 @@ def _softsign_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[SoftsignPlugin._PRIM] = _softsign_jvp_rule
+register_jvp_rule(SoftsignPlugin._PRIM, _softsign_jvp_rule)

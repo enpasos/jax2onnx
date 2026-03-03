@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     cast_real_tensor,
     pack_real_imag_pair,
@@ -15,9 +14,6 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -70,7 +66,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ComplexPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.complex`` to ONNX ops, returning a packed [..., 2] tensor."""
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (real_var, imag_var) = eqn.invars
         (out_var,) = eqn.outvars
 

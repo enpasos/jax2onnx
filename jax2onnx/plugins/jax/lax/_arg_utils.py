@@ -50,7 +50,9 @@ def lower_arg_reduction(
         name_hint=ctx.fresh_name(f"{name_prefix}_in"),
     )
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
-    operand_dtype = np.dtype(getattr(operand_var.aval, "dtype", np.float32))
+    operand_dtype: np.dtype[Any] = np.dtype(
+        getattr(operand_var.aval, "dtype", np.float32)
+    )
     rank = len(operand_shape)
     if rank > 0 and axis < 0:
         axis = axis % rank

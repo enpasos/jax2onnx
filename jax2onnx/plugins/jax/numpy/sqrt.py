@@ -139,7 +139,12 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
         if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
-                keepdims_attr = input_producer.attributes.get("keepdims")
+                input_attributes = getattr(input_producer, "attributes", {})
+                keepdims_attr = (
+                    input_attributes.get("keepdims")
+                    if hasattr(input_attributes, "get")
+                    else None
+                )
                 keepdims = int(
                     getattr(keepdims_attr, "value", keepdims_attr)
                     if keepdims_attr is not None
@@ -166,7 +171,10 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpSqrtPlugin._PRIM.def_impl

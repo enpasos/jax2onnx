@@ -12,7 +12,6 @@ from jax import core
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 _DTYPE_INFO: dict[
     np.dtype[Any], tuple[ir.DataType, ir.DataType, np.dtype[Any], int]
@@ -97,11 +96,13 @@ _DTYPE_INFO: dict[
 class PopulationCountPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.population_count`` via per-bit popcount accumulation."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         in_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        in_dtype = np.dtype(getattr(getattr(in_var, "aval", None), "dtype", np.int32))
+        in_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(in_var, "aval", None), "dtype", np.int32)
+        )
         if in_dtype not in _DTYPE_INFO:
             raise NotImplementedError(
                 f"population_count unsupported dtype '{in_dtype}'"

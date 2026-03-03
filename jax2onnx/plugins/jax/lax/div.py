@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/div.py
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import onnx_ir as ir
 import jax
@@ -152,7 +152,7 @@ def _same_value(lhs: ir.Value, rhs: ir.Value) -> bool:
 def _producer(value: ir.Value) -> object | None:
     getter = getattr(value, "producer", None)
     if callable(getter):
-        return getter()
+        return cast(object, getter())
     return None
 
 
@@ -401,7 +401,7 @@ def _match_lpnormalization_pattern(
 class DivPlugin(PrimitiveLeafPlugin):
     """IR-first lowering of ``lax.div`` to ONNX ``Div``."""
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -421,7 +421,7 @@ class DivPlugin(PrimitiveLeafPlugin):
         output_name = out_spec.name or ctx.fresh_name("div_out")
         out_spec.name = output_name
 
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False
@@ -483,10 +483,11 @@ class DivPlugin(PrimitiveLeafPlugin):
             except TypeError:
                 out_is_f64 = False
 
-        lhs_producer = None
+        lhs_producer: object | None = None
         producer = getattr(lhs_val, "producer", None)
         if callable(producer):
             lhs_producer = producer()
+        lhs_inputs = tuple(getattr(lhs_producer, "inputs", ()))
         rhs_scalar = _const_scalar_as_float(rhs_val)
         lpnorm_match = _match_lpnormalization_pattern(lhs_val, rhs_val)
         if lpnorm_match is not None:
@@ -515,9 +516,9 @@ class DivPlugin(PrimitiveLeafPlugin):
             and rhs_scalar is not None
             and np.isclose(rhs_scalar, 2.0)
             and getattr(lhs_producer, "op_type", "") == "Add"
-            and len(getattr(lhs_producer, "inputs", ())) == 2
+            and len(lhs_inputs) == 2
         ):
-            add_lhs, add_rhs = lhs_producer.inputs
+            add_lhs, add_rhs = lhs_inputs
             result = cast(
                 ir.Value,
                 ctx.builder.Mean(add_lhs, add_rhs, _outputs=[output_name]),

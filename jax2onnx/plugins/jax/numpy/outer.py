@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import ClassVar, Final, TypeAlias
 
 import jax
 from jax import core
@@ -118,7 +118,10 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpOuterPlugin._PRIM.def_impl
@@ -133,7 +136,7 @@ register_jvp_via_jax_jvp(JnpOuterPlugin._PRIM, _outer_impl)
 JnpOuterPlugin._PRIM.def_abstract_eval(JnpOuterPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _outer_batch_rule(
@@ -142,26 +145,24 @@ def _outer_batch_rule(
 ) -> tuple[jax.Array, BatchDim]:
     a, b = batched_args
     a_bdim, b_bdim = batch_dims
-    mapped = [
-        (arg, bd)
-        for arg, bd in zip(batched_args, batch_dims)
-        if bd is not batching.not_mapped
+    mapped: list[tuple[jax.Array, int]] = [
+        (arg, bd) for arg, bd in zip(batched_args, batch_dims) if bd is not None
     ]
     if not mapped:
         out = JnpOuterPlugin._PRIM.bind(a, b)
-        return out, batching.not_mapped
+        return out, None
 
     sample_arg, sample_bd = mapped[0]
     batch_size = sample_arg.shape[sample_bd]
 
-    if a_bdim is not batching.not_mapped:
+    if a_bdim is not None:
         a = batching.bdim_at_front(a, a_bdim, batch_size)
-    if b_bdim is not batching.not_mapped:
+    if b_bdim is not None:
         b = batching.bdim_at_front(b, b_bdim, batch_size)
 
     in_axes = (
-        0 if a_bdim is not batching.not_mapped else None,
-        0 if b_bdim is not batching.not_mapped else None,
+        0 if a_bdim is not None else None,
+        0 if b_bdim is not None else None,
     )
     orig = get_orig_impl(JnpOuterPlugin._PRIM, JnpOuterPlugin._FUNC_NAME)
 

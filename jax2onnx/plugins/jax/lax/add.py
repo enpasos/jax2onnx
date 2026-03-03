@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/add.py
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import onnx_ir as ir
 import jax
@@ -65,7 +65,7 @@ def _lower_complex_add(
     return result, target_dtype
 
 
-def lower_add(ctx, eqn) -> None:
+def lower_add(ctx: "IRContext", eqn: Any) -> None:
     """Shared lowering routine for lax/jnp Add plugins."""
 
     x_var, y_var = eqn.invars
@@ -84,7 +84,7 @@ def lower_add(ctx, eqn) -> None:
     output_name = out_spec.name or ctx.fresh_name("add_out")
     out_spec.name = output_name
 
-    def _is_complex_var(var) -> bool:
+    def _is_complex_var(var: object) -> bool:
         aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
         if aval_dtype is None:
             return False
@@ -200,5 +200,5 @@ def lower_add(ctx, eqn) -> None:
     ],
 )
 class AddPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_add(ctx, eqn)

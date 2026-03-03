@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import ClassVar, Final
+from typing import Any, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -18,6 +18,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -44,7 +45,7 @@ class _ArangeTakeModule(nnx.Module):
             jax.random.normal(rngs.params(), (num_embeddings, features), dtype=dtype)
         )
 
-    def __call__(self, x: jax.Array):
+    def __call__(self, x: jax.Array) -> jax.Array:
         seq_len = x.shape[1]
         indices = jnp.arange(seq_len)
         return jnp.take(self.embedding.value, indices, axis=0)
@@ -184,7 +185,9 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
             name_hint=ctx.fresh_name("take_indices"),
             prefer_np_dtype=np.int64,
         )
-        indices_dtype = np.dtype(getattr(indices_var.aval, "dtype", np.int64))
+        indices_dtype: np.dtype[Any] = np.dtype(
+            getattr(indices_var.aval, "dtype", np.int64)
+        )
         if not np.issubdtype(indices_dtype, np.integer):
             raise TypeError("jnp.take indices must be integer typed")
 
@@ -283,13 +286,13 @@ def _take_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[JnpTakePlugin._PRIM] = _take_jvp_rule
+register_jvp_rule(JnpTakePlugin._PRIM, _take_jvp_rule)
 
 
 JnpTakePlugin._PRIM.def_abstract_eval(JnpTakePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _take_batch_rule(

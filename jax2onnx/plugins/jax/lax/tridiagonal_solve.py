@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -16,14 +16,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
+def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.Gather(
         vec,
@@ -38,7 +38,9 @@ def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
     return out
 
 
-def _gather_row(ctx: "IRContext", mat, i: int, row_width: int, name: str):
+def _gather_row(
+    ctx: "IRContext", mat: ir.Value, i: int, row_width: int, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.Gather(
         mat,
@@ -105,7 +107,7 @@ def _gather_row(ctx: "IRContext", mat, i: int, row_width: int, name: str):
 class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.tridiagonal_solve`` with a static Thomas algorithm."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         dl_var, d_var, du_var, b_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -160,8 +162,8 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
             return
 
         # Forward sweep.
-        c_prime: list = []
-        d_prime: list = []
+        c_prime: list[ir.Value] = []
+        d_prime: list[ir.Value] = []
 
         d0 = _gather_vec_elem(ctx, d, 0, "tridiag_d0")
         du0 = _gather_vec_elem(ctx, du, 0, "tridiag_du0")
@@ -227,7 +229,7 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
             d_prime.append(d_i_rhs)
 
         # Back substitution.
-        x_rows: list = [d_prime[-1]]
+        x_rows: list[ir.Value] = [d_prime[-1]]
         for i in range(n - 2, -1, -1):
             c_mul_next = ctx.builder.Mul(
                 c_prime[i],

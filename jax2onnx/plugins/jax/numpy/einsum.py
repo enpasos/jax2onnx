@@ -35,9 +35,9 @@ def _einsum_shape(
     return result.shape, result.dtype
 
 
-def _normalize_equation(equation: str) -> str:
+def _normalize_equation(equation: object) -> str:
     if not isinstance(equation, str):
-        return equation
+        return str(equation)
     return "".join(equation.split())
 
 
@@ -260,7 +260,9 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
             if er < max_ellipsis_rank:
                 pad = max_ellipsis_rank - er
                 if pad > 0:
-                    axes = np.arange(pad, dtype=np.int64)
+                    axes: np.ndarray[Any, np.dtype[np.int64]] = np.arange(
+                        pad, dtype=np.int64
+                    )
                     axes_const = _const_i64(
                         ctx, axes, ctx.fresh_name("einsum_pad_axes")
                     )
@@ -313,7 +315,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         allowed_kwargs = {
@@ -475,7 +477,7 @@ def _einsum_batch_rule(
         else:
             broadcasted_args.append(arg)
 
-    def _einsum_no_batch(*xs):
+    def _einsum_no_batch(*xs: jax.Array) -> jax.Array:
         return orig(equation, *xs, **kwargs)
 
     result = jax.vmap(_einsum_no_batch)(*broadcasted_args)

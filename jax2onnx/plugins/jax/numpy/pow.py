@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from collections.abc import Sequence
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
+from jax import core
+from jax.extend.core import Primitive
 import jax.numpy as jnp
 import numpy as np
 from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax.pow import lower_pow
@@ -23,14 +27,24 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _broadcast_shape(x_shape, y_shape):
+def _broadcast_shape(
+    x_shape: Sequence[int | object],
+    y_shape: Sequence[int | object],
+) -> tuple[int | object, ...]:
+    x_seq = tuple(x_shape)
+    y_seq = tuple(y_shape)
     try:
-        return tuple(np.broadcast_shapes(tuple(x_shape), tuple(y_shape)))  # type: ignore[arg-type]
+        return tuple(
+            np.broadcast_shapes(
+                cast(tuple[int, ...], x_seq),
+                cast(tuple[int, ...], y_seq),
+            )
+        )
     except ValueError:
-        max_rank = max(len(x_shape), len(y_shape))
-        x = (1,) * (max_rank - len(x_shape)) + tuple(x_shape)
-        y = (1,) * (max_rank - len(y_shape)) + tuple(y_shape)
-        dims = []
+        max_rank = max(len(x_seq), len(y_seq))
+        x = (1,) * (max_rank - len(x_seq)) + x_seq
+        y = (1,) * (max_rank - len(y_seq)) + y_seq
+        dims: list[int | object] = []
         for xs, ys in zip(x, y):
             if xs == ys:
                 dims.append(xs)
@@ -45,7 +59,7 @@ def _broadcast_shape(x_shape, y_shape):
                     f"Shapes {x_shape} and {y_shape} are not broadcastable."
                 )
         # Remove any leading broadcast dims we artificially introduced when both were 1.
-        while dims and dims[0] == 1 and max(len(x_shape), len(y_shape)) > 0:
+        while dims and dims[0] == 1 and max(len(x_seq), len(y_seq)) > 0:
             dims = dims[1:]
         return tuple(dims) if dims else (1,)
 
@@ -54,16 +68,19 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str]
 
     @staticmethod
-    def abstract_eval(x: jax.core.AbstractValue, y: jax.core.AbstractValue):
+    def abstract_eval(x: core.AbstractValue, y: core.AbstractValue) -> core.ShapedArray:
         shape = _broadcast_shape(x.shape, y.shape)
-        return jax.core.ShapedArray(shape, x.dtype)
+        return core.ShapedArray(shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         lower_pow(ctx, eqn)
 
     @classmethod
-    def binding_specs(cls):
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
@@ -196,8 +213,8 @@ def _pow_impl(x: ArrayLike, y: ArrayLike) -> ArrayLike:
 register_jvp_via_jax_jvp(JnpPowPlugin._PRIM, _pow_impl)
 
 
-def _make_pow_batch_rule(prim):
-    def _batch_rule(args, dims, **params):
+def _make_pow_batch_rule(prim: Primitive) -> Callable[..., Any]:
+    def _batch_rule(args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any) -> Any:
         return broadcast_batcher_compat(prim, args, dims, **params)
 
     return _batch_rule

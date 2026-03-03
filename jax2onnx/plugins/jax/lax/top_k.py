@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -43,7 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover
     ],
 )
 class TopKPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (arr_var,) = eqn.invars
         values_var, indices_var = eqn.outvars
 
@@ -80,10 +80,10 @@ class TopKPlugin(PrimitiveLeafPlugin):
             values.type = ir.TensorType(arr_dtype)
         indices.type = ir.TensorType(ir.DataType.INT64)
 
-        result_shape = list(arr_shape)
+        result_shape_list = list(arr_shape)
         if arr_shape:
-            result_shape[axis] = k
-        result_shape = tuple(result_shape)
+            result_shape_list[axis] = k
+        result_shape = tuple(result_shape_list)
 
         _stamp_type_and_shape(values, result_shape)
         _stamp_type_and_shape(indices, result_shape)

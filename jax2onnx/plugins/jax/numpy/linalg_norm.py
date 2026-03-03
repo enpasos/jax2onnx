@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax import core
@@ -261,7 +261,7 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
 
             def _patched(
                 x: ArrayLike,
-                ord: int | float | None = None,
+                ord: int | float | str | None = None,
                 axis: int | _Seq[int] | None = None,
                 keepdims: bool = False,
             ) -> jax.Array:
@@ -299,8 +299,6 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
                             return orig(x, ord=ord, axis=axis, keepdims=keepdims)
                     else:
                         return orig(x, ord=ord, axis=axis, keepdims=keepdims)
-                else:
-                    return orig(x, ord=ord, axis=axis, keepdims=keepdims)
 
                 if axes != tuple(range(1, rank - 1)):
                     return orig(x, ord=ord, axis=axis, keepdims=keepdims)
@@ -339,7 +337,7 @@ def _norm_impl(
     return orig(jnp.asarray(x), ord=ord_arg, axis=axis_arg, keepdims=keepdims)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _norm_batch_rule(
@@ -351,14 +349,14 @@ def _norm_batch_rule(
     keepdims: bool,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = JnpLinalgNormPlugin._PRIM.bind(
             operand,
             axes=axes,
             ord_value=ord_value,
             keepdims=keepdims,
         )
-        return out, batching.not_mapped
+        return out, None
 
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)

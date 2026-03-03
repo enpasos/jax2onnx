@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -28,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ShardingConstraintPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.sharding_constraint`` to an ONNX Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

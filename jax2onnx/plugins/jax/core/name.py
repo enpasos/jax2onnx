@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from jax import core
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -28,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class NamePlugin(PrimitiveLeafPlugin):
     """Lower the ad_checkpoint name primitive to an ONNX Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

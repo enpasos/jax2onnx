@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -112,5 +112,5 @@ if TYPE_CHECKING:  # pragma: no cover
 class ReduceXorPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.reduce_xor`` using parity sum modulo 2."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_boolean_reduction(ctx, eqn, mode="reduce_xor")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 import onnx_ir as ir
@@ -40,7 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ConvertElementTypePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.convert_element_type`` to a single ONNX Cast."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

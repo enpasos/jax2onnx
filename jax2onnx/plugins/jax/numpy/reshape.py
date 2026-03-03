@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,7 +16,9 @@ from jax import core
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -28,12 +30,37 @@ from jax2onnx.utils.shape_poly import (
 
 
 _RESHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.reshape")
+BatchDim: TypeAlias = int | None
 
 
-def _iter_newshape(newshape: Sequence[int | object] | int | object) -> Iterable:
+def _iter_newshape(newshape: Sequence[int | object] | int | object) -> Iterable[object]:
     if isinstance(newshape, Sequence):
         return newshape
     return (newshape,)
+
+
+def _canonicalize_reshape_params(
+    *,
+    new_sizes: Sequence[int | object] | int | object | None = None,
+    dimensions: Sequence[int] | None = None,
+    sharding: Any | None = None,
+    newshape: Sequence[int | object] | int | object | None = None,
+    order: str | None = "C",
+) -> tuple[tuple[int | object, ...], tuple[int, ...] | None, Any | None]:
+    if order not in (None, "C"):
+        raise NotImplementedError("Only C-order reshape is supported")
+    if new_sizes is None:
+        if newshape is None:
+            raise KeyError("reshape parameters missing 'new_sizes'/'newshape'")
+        new_sizes = newshape
+    elif newshape is not None and tuple(_iter_newshape(new_sizes)) != tuple(
+        _iter_newshape(newshape)
+    ):
+        raise ValueError(
+            "Conflicting reshape params: both 'new_sizes' and 'newshape' provided"
+        )
+    dims = None if dimensions is None else tuple(int(d) for d in dimensions)
+    return tuple(_iter_newshape(new_sizes)), dims, sharding
 
 
 def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None:
@@ -43,7 +70,7 @@ def _find_axis_for_dim(dim: object, input_shape: Sequence[object]) -> int | None
         if symbolic_dim_eq(dim, src):
             return idx
         if hasattr(dim, "_hashable_content") and hasattr(src, "_hashable_content"):
-            if dim._hashable_content() == src._hashable_content():  # type: ignore[attr-defined]
+            if dim._hashable_content() == src._hashable_content():
                 return idx
     return None
 
@@ -68,8 +95,10 @@ def _flatten_axis_for_static_target(
     ):
         return None
 
-    in_dims = [int(dim) for dim in input_shape]
-    out_left, out_right = (int(target_shape[0]), int(target_shape[1]))
+    int_input_shape = cast(Sequence[int | np.integer], input_shape)
+    int_target_shape = cast(Sequence[int | np.integer], target_shape)
+    in_dims = [int(dim) for dim in int_input_shape]
+    out_left, out_right = (int(int_target_shape[0]), int(int_target_shape[1]))
     for axis in range(len(in_dims) + 1):
         left = int(np.prod(in_dims[:axis], dtype=np.int64))
         right = int(np.prod(in_dims[axis:], dtype=np.int64))
@@ -290,27 +319,59 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
     def abstract_eval(
         x: core.AbstractValue,
         *,
-        newshape: Sequence[int | object] | int | object,
+        new_sizes: Sequence[int | object] | int | object | None = None,
+        dimensions: Sequence[int] | None = None,
+        sharding: Any | None = None,
+        newshape: Sequence[int | object] | int | object | None = None,
         order: str | None = "C",
     ) -> core.ShapedArray:
-        if order not in (None, "C"):
-            raise NotImplementedError("Only C-order reshape is supported")
+        new_sizes_tuple, dimensions_tuple, _ = _canonicalize_reshape_params(
+            new_sizes=new_sizes,
+            dimensions=dimensions,
+            sharding=sharding,
+            newshape=newshape,
+            order=order,
+        )
+
+        if dimensions_tuple is not None:
+            spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+            result = jax.eval_shape(
+                lambda arr: jax.lax.reshape(
+                    arr,
+                    new_sizes_tuple,
+                    dimensions=dimensions_tuple,
+                ),
+                spec,
+            )
+            return core.ShapedArray(result.shape, result.dtype)
+
         storage_slot = f"__orig_impl___{JnpReshapePlugin._FUNC_NAME}"
         orig = getattr(JnpReshapePlugin._PRIM, storage_slot, jnp.reshape)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
-        result = jax.eval_shape(lambda arr: orig(arr, newshape, order=order), spec)
+        order_arg = "C" if order is None else order
+        result = jax.eval_shape(
+            lambda arr: orig(arr, new_sizes_tuple, order=order_arg), spec
+        )
         return core.ShapedArray(result.shape, result.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
-        newshape_param = params.get("new_sizes", params.get("newshape"))
+        new_sizes_param = params.get("new_sizes")
+        dimensions_param = params.get("dimensions")
+        sharding_param = params.get("sharding")
+        newshape_param = params.get("newshape")
         order = params.get("order", "C")
-        if order not in (None, "C"):
+        newshape_elems, dimensions_tuple, _ = _canonicalize_reshape_params(
+            new_sizes=new_sizes_param,
+            dimensions=dimensions_param,
+            sharding=sharding_param,
+            newshape=newshape_param,
+            order=order,
+        )
+        if dimensions_tuple is not None:
             raise NotImplementedError(
-                "jnp.reshape order other than 'C' is not supported"
+                "reshape with non-None 'dimensions' is not supported in ONNX lowering"
             )
-        if newshape_param is None:
-            raise KeyError("reshape parameters missing 'newshape' or 'new_sizes'")
 
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
@@ -328,7 +389,6 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         input_shape = tuple(getattr(arr_var.aval, "shape", ()))
         target_shape = tuple(getattr(out_var.aval, "shape", ()))
 
-        newshape_elems = tuple(_iter_newshape(newshape_param))
         flatten_axis = _flatten_axis_for_static_target(
             input_shape, target_shape, newshape_elems
         )
@@ -505,7 +565,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, reshape_out)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl___{cls._FUNC_NAME}"
 
         def _make_value(
@@ -520,10 +580,16 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 newshape: Sequence[int | object] | int | object,
                 order: str | None = "C",
             ) -> jax.Array:
-                if order not in (None, "C"):
-                    raise NotImplementedError("Only C-order reshape is supported")
+                arr = jnp.asarray(a)
+                new_sizes, dimensions, sharding = _canonicalize_reshape_params(
+                    newshape=newshape,
+                    order=order,
+                )
                 return cls._PRIM.bind(
-                    a, newshape=tuple(_iter_newshape(newshape)), order=order
+                    arr,
+                    new_sizes=new_sizes,
+                    dimensions=dimensions,
+                    sharding=sharding,
                 )
 
             return _patched
@@ -544,38 +610,87 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 @JnpReshapePlugin._PRIM.def_impl
 def _reshape_impl(
     a: ArrayLike,
-    newshape: Sequence[int | object] | int | object,
+    *,
+    new_sizes: Sequence[int | object] | int | object | None = None,
+    dimensions: Sequence[int] | None = None,
+    sharding: Any | None = None,
+    newshape: Sequence[int | object] | int | object | None = None,
     order: str | None = "C",
 ) -> jax.Array:
+    new_sizes_tuple, dimensions_tuple, sharding = _canonicalize_reshape_params(
+        new_sizes=new_sizes,
+        dimensions=dimensions,
+        sharding=sharding,
+        newshape=newshape,
+        order=order,
+    )
+    arr = jnp.asarray(a)
+    if dimensions_tuple is not None:
+        return jax.lax.reshape(
+            arr,
+            new_sizes_tuple,
+            dimensions=dimensions_tuple,
+            out_sharding=sharding,
+        )
     orig = get_orig_impl(JnpReshapePlugin._PRIM, JnpReshapePlugin._FUNC_NAME)
-    return orig(a, newshape, order=order)
+    return orig(arr, new_sizes_tuple, order=order)
 
 
 def _reshape_batch(
     batched_args: tuple[jax.Array, ...],
-    batch_dims: tuple[int | type(batching.not_mapped), ...],
+    batch_dims: tuple[BatchDim, ...],
     *,
-    newshape: Sequence[int | object] | int | object,
+    new_sizes: Sequence[int | object] | int | object | None = None,
+    dimensions: Sequence[int] | None = None,
+    sharding: Any | None = None,
+    newshape: Sequence[int | object] | int | object | None = None,
     order: str | None = "C",
-) -> tuple[jax.Array, int | type(batching.not_mapped)]:
+) -> tuple[jax.Array, BatchDim]:
     (a,), (bdim,) = batched_args, batch_dims
 
+    new_sizes_tuple, dimensions_tuple, sharding = _canonicalize_reshape_params(
+        new_sizes=new_sizes,
+        dimensions=dimensions,
+        sharding=sharding,
+        newshape=newshape,
+        order=order,
+    )
+
     if bdim is batching.not_mapped:
-        return _reshape_impl(a, newshape, order=order), batching.not_mapped
+        return (
+            _reshape_impl(
+                a,
+                new_sizes=new_sizes_tuple,
+                dimensions=dimensions_tuple,
+                sharding=sharding,
+                order=order,
+            ),
+            batching.not_mapped,
+        )
 
     batch_size = a.shape[bdim]
     a = batching.bdim_at_front(a, bdim, batch_size)
 
-    orig = get_orig_impl(JnpReshapePlugin._PRIM, JnpReshapePlugin._FUNC_NAME)
-    bs = tuple(_iter_newshape(newshape))
-    res = orig(a, (a.shape[0],) + bs, order=order)
-    return res, 0
+    def _reshape_one(x: jax.Array) -> jax.Array:
+        return _reshape_impl(
+            x,
+            new_sizes=new_sizes_tuple,
+            dimensions=dimensions_tuple,
+            sharding=sharding,
+            order=order,
+        )
+
+    return jax.vmap(_reshape_one)(a), 0
 
 
 batching.primitive_batchers[JnpReshapePlugin._PRIM] = _reshape_batch
 
 
-register_fallback_jvp_rule(JnpReshapePlugin._PRIM, _reshape_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.reshape_p,
+    new_prim=JnpReshapePlugin._PRIM,
+    forward_batching=False,
+)
 
 
 JnpReshapePlugin._PRIM.def_abstract_eval(JnpReshapePlugin.abstract_eval)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Any, List
 
+from jax import core
 from jax import lax
 
 import onnx_ir as ir
@@ -96,7 +97,7 @@ from jax2onnx.plugins._ir_shapes import (
 class TransposePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.transpose → ONNX Transpose."""
 
-    def lower(self, ctx: Any, eqn):
+    def lower(self, ctx: Any, eqn: core.JaxprEqn) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -14,14 +14,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _zeta_positive(ctx: "IRContext", s, q, np_dtype, name_prefix: str):
+def _zeta_positive(
+    ctx: "IRContext", s: Any, q: Any, np_dtype: np.dtype[Any], name_prefix: str
+) -> Any:
     # Hurwitz zeta via truncated series + Euler-Maclaurin tail.
     n_terms = 8
     one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
@@ -298,14 +300,16 @@ def _zeta_positive(ctx: "IRContext", s, q, np_dtype, name_prefix: str):
 class ZetaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.zeta`` with an Euler-Maclaurin approximation."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         s_var, q_var = eqn.invars
         out_var = eqn.outvars[0]
 
         s = ctx.get_value_for_var(s_var, name_hint=ctx.fresh_name("zeta_s"))
         q = ctx.get_value_for_var(q_var, name_hint=ctx.fresh_name("zeta_q"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("zeta_out"))
-        np_dtype = np.dtype(getattr(getattr(s_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(s_var, "aval", None), "dtype", np.float32)
+        )
 
         approx = _zeta_positive(ctx, s, q, np_dtype, "zeta")
 

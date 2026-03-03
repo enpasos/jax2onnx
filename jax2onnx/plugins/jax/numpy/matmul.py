@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.extend.core as jax_core_ext
@@ -37,14 +37,14 @@ _MATMUL_PRIM: Final = make_jnp_primitive("jax.numpy.matmul")
 
 
 def _matmul_shape(
-    a_shape,
-    b_shape,
-    a_dtype,
+    a_shape: tuple[Any, ...],
+    b_shape: tuple[Any, ...],
+    a_dtype: np.dtype[Any] | type[Any],
     *,
-    precision=None,
-    preferred_element_type=None,
-    out_sharding=None,
-):
+    precision: Any | None = None,
+    preferred_element_type: Any | None = None,
+    out_sharding: Any | None = None,
+) -> tuple[tuple[Any, ...], np.dtype[Any]]:
     spec_a = jax.ShapeDtypeStruct(a_shape, a_dtype)
     # Assume dtype broadcast already handled; use same dtype for b
     spec_b = jax.ShapeDtypeStruct(b_shape, a_dtype)
@@ -60,7 +60,7 @@ def _matmul_shape(
         spec_a,
         spec_b,
     )
-    return result.shape, result.dtype
+    return tuple(result.shape), np.dtype(result.dtype)
 
 
 @register_primitive(
@@ -183,9 +183,9 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         a: core.AbstractValue,
         b: core.AbstractValue,
         *,
-        precision=None,
-        preferred_element_type=None,
-        out_sharding=None,
+        precision: Any | None = None,
+        preferred_element_type: Any | None = None,
+        out_sharding: Any | None = None,
     ) -> core.ShapedArray:
         shape, dtype = _matmul_shape(
             a.shape,
@@ -257,7 +257,7 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         out_spec: ir.Value,
         out_shape: tuple[int, ...],
     ) -> bool:
-        def _is_complex(var) -> bool:
+        def _is_complex(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False
@@ -378,9 +378,9 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
                 a: ArrayLike,
                 b: ArrayLike,
                 *,
-                precision=None,
-                preferred_element_type=None,
-                out_sharding=None,
+                precision: Any | None = None,
+                preferred_element_type: Any | None = None,
+                out_sharding: Any | None = None,
             ) -> ArrayLike:
                 params = {}
                 if precision is not None:
@@ -416,9 +416,9 @@ def _matmul_impl(
     a: ArrayLike,
     b: ArrayLike,
     *,
-    precision=None,
-    preferred_element_type=None,
-    out_sharding=None,
+    precision: Any | None = None,
+    preferred_element_type: Any | None = None,
+    out_sharding: Any | None = None,
 ) -> ArrayLike:
     orig = get_orig_impl(JnpMatmulPlugin._PRIM, JnpMatmulPlugin._FUNC_NAME)
     return orig(
@@ -436,7 +436,9 @@ register_jvp_via_jax_jvp(JnpMatmulPlugin._PRIM, _matmul_impl)
 JnpMatmulPlugin._PRIM.def_abstract_eval(JnpMatmulPlugin.abstract_eval)
 
 
-def _matmul_batch_rule(args, dims, **params):
+def _matmul_batch_rule(
+    args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
+) -> Any:
     return broadcast_batcher_compat(JnpMatmulPlugin._PRIM, args, dims, **params)
 
 

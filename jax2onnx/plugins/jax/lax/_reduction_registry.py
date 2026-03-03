@@ -66,13 +66,13 @@ REDUCTION_TESTS: Dict[str, List[ReductionTestSpec]] = {
         ReductionTestSpec(
             "reduce_prod_dtype",
             axis=None,
-            dtype=np.float32,
+            dtype=np.dtype(np.float32),
             values=np.ones((2, 3), dtype=np.float32),
         ),
         ReductionTestSpec(
             "reduce_prod_dtype_f64",
             axis=None,
-            dtype=np.float64,
+            dtype=np.dtype(np.float64),
             values=np.ones((2, 3), dtype=np.float64),
         ),
         ReductionTestSpec("reduce_prod_keepdims", axis=(1,), keepdims=True),
@@ -83,13 +83,13 @@ REDUCTION_TESTS: Dict[str, List[ReductionTestSpec]] = {
         ReductionTestSpec(
             "reduce_sum_dtype",
             axis=None,
-            dtype=np.float32,
+            dtype=np.dtype(np.float32),
             values=np.arange(6, dtype=np.float32).reshape(2, 3),
         ),
         ReductionTestSpec(
             "reduce_sum_dtype_f64",
             axis=None,
-            dtype=np.float64,
+            dtype=np.dtype(np.float64),
             values=np.arange(6, dtype=np.float64).reshape(2, 3),
         ),
         ReductionTestSpec("reduce_sum_keepdims", axis=(1,), keepdims=True),

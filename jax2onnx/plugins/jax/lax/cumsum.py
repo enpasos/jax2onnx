@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _cumsum_last_axis_reverse(x):
+def _cumsum_last_axis_reverse(x: Any) -> Any:
     return jax.lax.cumsum(x, axis=x.ndim - 1, reverse=True)
 
 
@@ -70,7 +70,7 @@ def _cumsum_last_axis_reverse(x):
 class CumSumPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.cumsum`` via ONNX ``CumSum``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

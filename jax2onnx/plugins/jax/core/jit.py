@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 
 import jax
 
 from jax._src import core as jcore
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -40,10 +41,10 @@ from jax2onnx.plugins.plugin_system import (
 class JitPlugin(PrimitiveLeafPlugin):
     """Inline the body of ``jit`` primitives into the active IR context."""
 
-    _PRIM: ClassVar = None
+    _PRIM: ClassVar[Any | None] = None
 
     @staticmethod
-    def _freshen_closed_jaxpr(closed):
+    def _freshen_closed_jaxpr(closed: Any) -> jcore.ClosedJaxpr:
         """Clone a ClosedJaxpr with fresh Vars so multiple jit bodies don't alias."""
 
         inner_jaxpr = getattr(closed, "jaxpr", closed)
@@ -51,7 +52,7 @@ class JitPlugin(PrimitiveLeafPlugin):
 
         var_map: dict[jcore.Var, jcore.Var] = {}
 
-        def _fresh_var(v):
+        def _fresh_var(v: Any) -> Any:
             if not isinstance(v, jcore.Var):
                 return v
             if v in var_map:
@@ -63,7 +64,7 @@ class JitPlugin(PrimitiveLeafPlugin):
             )
             return var_map[v]
 
-        def _map_vars(seq):
+        def _map_vars(seq: Any) -> list[Any]:
             return [_fresh_var(v) for v in seq]
 
         constvars = _map_vars(inner_jaxpr.constvars)
@@ -87,7 +88,7 @@ class JitPlugin(PrimitiveLeafPlugin):
         )
         return jcore.ClosedJaxpr(cloned, consts)
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jcore.JaxprEqn) -> None:
         closed: SimpleNamespace | jcore.ClosedJaxpr | None = eqn.params.get(
             "call_jaxpr"
         )

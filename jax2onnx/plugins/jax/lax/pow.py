@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -17,7 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
+def lower_pow(ctx: "IRContext", eqn: Any) -> None:
     base_var, exponent_var = eqn.invars
     out_var = eqn.outvars[0]
 
@@ -25,7 +25,7 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
     exp_val = ctx.get_value_for_var(exponent_var, name_hint=ctx.fresh_name("pow_exp"))
     out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("pow_out"))
 
-    target_dtype = np.dtype(getattr(base_var.aval, "dtype", np.float32))
+    target_dtype: np.dtype[Any] = np.dtype(getattr(base_var.aval, "dtype", np.float32))
     exp_dtype = np.dtype(getattr(exponent_var.aval, "dtype", target_dtype))
 
     if exp_dtype != target_dtype:
@@ -101,5 +101,5 @@ def lower_pow(ctx: "IRContext", eqn) -> None:  # type: ignore[name-defined]
 class PowPlugin(PrimitiveLeafPlugin):
     """Lower elementwise ``lax.pow`` to ONNX ``Pow`` with dtype harmonisation."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_pow(ctx, eqn)

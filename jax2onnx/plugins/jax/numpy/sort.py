@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax import core
@@ -208,7 +208,7 @@ def _sort_impl(
 JnpSortPlugin._PRIM.def_abstract_eval(JnpSortPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _sort_batch_rule(
@@ -220,6 +220,10 @@ def _sort_batch_rule(
     order: Any | None = None,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
+    if bdim is None:
+        out = JnpSortPlugin._PRIM.bind(operand, axis=axis, kind=kind, order=order)
+        return out, None
+
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)
 

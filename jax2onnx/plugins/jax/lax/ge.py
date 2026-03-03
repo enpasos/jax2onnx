@@ -11,8 +11,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
-
 
 @register_primitive(
     jaxpr_primitive=jax.lax.ge_p.name,
@@ -39,12 +37,14 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class GePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("ge_lhs"))
-        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        prefer_dtype: np.dtype[Any] = np.dtype(
+            getattr(lhs_var.aval, "dtype", np.float32)
+        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("ge_rhs"),

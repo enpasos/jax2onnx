@@ -1,7 +1,5 @@
 # jax2onnx/plugins/jax/lax/log.py
 
-from typing import Any
-
 from jax import core
 import jax
 
@@ -9,8 +7,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -76,7 +72,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class LogPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -92,7 +88,12 @@ class LogPlugin(PrimitiveLeafPlugin):
         reduce_node = reduce_getter() if callable(reduce_getter) else None
         if getattr(reduce_node, "op_type", "") == "ReduceSum":
             reduce_inputs = list(getattr(reduce_node, "inputs", ()))
-            keepdims_attr = reduce_node.attributes.get("keepdims")
+            reduce_attrs = getattr(reduce_node, "attributes", None)
+            keepdims_attr = None
+            if reduce_attrs is not None:
+                get_attr = getattr(reduce_attrs, "get", None)
+                if callable(get_attr):
+                    keepdims_attr = get_attr("keepdims")
             keepdims = int(
                 getattr(keepdims_attr, "value", keepdims_attr)
                 if keepdims_attr is not None
@@ -105,8 +106,9 @@ class LogPlugin(PrimitiveLeafPlugin):
 
                 exp_getter = getattr(reduce_data, "producer", lambda: None)
                 exp_node = exp_getter() if callable(exp_getter) else None
-                if getattr(exp_node, "op_type", "") == "Exp" and exp_node.inputs:
-                    alias_inputs = [exp_node.inputs[0], *reduce_axes]
+                exp_inputs = list(getattr(exp_node, "inputs", ()))
+                if getattr(exp_node, "op_type", "") == "Exp" and exp_inputs:
+                    alias_inputs = [exp_inputs[0], *reduce_axes]
                     result = ctx.builder.ReduceLogSumExp(
                         *alias_inputs,
                         keepdims=keepdims,

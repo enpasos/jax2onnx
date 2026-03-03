@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import jax
 import numpy as np
@@ -98,7 +98,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class RemPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rem`` (truncated remainder) using Mod or Div/Mul/Sub."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -113,7 +113,7 @@ class RemPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rem_out"))
 
         aval = getattr(x_var, "aval", None)
-        dtype = np.dtype(getattr(aval, "dtype", np.float32))
+        dtype: np.dtype[Any] = np.dtype(getattr(aval, "dtype", np.float32))
         out_shape = tuple(getattr(aval, "shape", ()))
 
         x_dtype_enum = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)

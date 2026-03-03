@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -59,7 +59,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitcast_convert_type`` via ONNX BitCast."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         target_dtype = _dtype_to_ir(

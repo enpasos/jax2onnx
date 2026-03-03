@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.fft import FFTPlugin as _LaxFFTPlugin
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -22,7 +23,7 @@ class _JnpFFTMetadata(PrimitiveLeafPlugin):
     """Metadata-only wrapper that reuses lax.fft lowering for jnp.fft calls."""
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         # jnp.fft already lowers through lax.fft, so no monkey patches required.
         return []
 

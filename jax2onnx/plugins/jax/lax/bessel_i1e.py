@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -14,7 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -51,7 +51,7 @@ def _stamp_like(value, ref) -> None:
 class BesselI1ePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bessel_i1e`` with classic Cephes-style piecewise approximations."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -59,7 +59,9 @@ class BesselI1ePlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("bessel_i1e_out")
         )
-        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
 
         ax = ctx.builder.Abs(x, _outputs=[ctx.fresh_name("bessel_i1e_abs")])
         _stamp_like(ax, x)

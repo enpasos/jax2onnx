@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -22,7 +22,7 @@ _LOG_SOFTMAX_PRIM.multiple_results = False
 _JAX_LOG_SOFTMAX_ORIG: Final = jax.nn.log_softmax
 
 
-def _axis_attr_equals(model, expected: int) -> bool:
+def _axis_attr_equals(model: Any, expected: int) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "LogSoftmax"),
         None,
@@ -129,7 +129,7 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -142,7 +142,11 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
             if orig is None:
                 raise RuntimeError("Original jax.nn.log_softmax not found")
 
-            def _patched(x, axis=-1, where=None):
+            def _patched(
+                x: ArrayLike,
+                axis: int | tuple[int, ...] | list[int] = -1,
+                where: ArrayLike | None = None,
+            ) -> ArrayLike:
                 if where is not None:
                     return orig(x, axis=axis, where=where)
                 if isinstance(axis, (tuple, list)):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
@@ -82,7 +82,9 @@ class HardTanhPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("hard_tanh_out")
 
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         minus_one_const = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("hard_tanh_min"),
             array=np.asarray(-1, dtype=x_dtype),
@@ -117,7 +119,7 @@ class HardTanhPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True

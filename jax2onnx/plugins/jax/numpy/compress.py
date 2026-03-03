@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final, cast
+from typing import Callable, ClassVar, Final
 
 import jax
 from jax import core
@@ -146,7 +146,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -160,6 +160,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.compress not found")
+            orig_impl = orig
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(
@@ -173,7 +174,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
             ) -> jax.Array:
                 # Only intercept the subset that maps directly to ONNX Compress.
                 if out is not None or size is not None or axis is None:
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,
@@ -182,7 +183,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                         fill_value=fill_value,
                     )
                 if isinstance(fill_value, core.Tracer):
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,
@@ -193,7 +194,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                 try:
                     fill_arr = np.asarray(fill_value)
                 except Exception:
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,
@@ -202,7 +203,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                         fill_value=fill_value,
                     )
                 if not (fill_arr.shape == () and fill_arr.item() == 0):
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,
@@ -211,7 +212,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                         fill_value=fill_value,
                     )
                 if isinstance(condition, core.Tracer):
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,
@@ -223,7 +224,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                     cond_arr = np.asarray(condition, dtype=np.bool_).reshape(-1)
                     axis_int = int(axis)
                 except Exception:
-                    return cast(Callable[..., jax.Array], orig)(
+                    return orig_impl(
                         condition,
                         a,
                         axis=axis,

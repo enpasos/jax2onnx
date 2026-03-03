@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, Sequence, cast
+from typing import TYPE_CHECKING, Any, Final, Sequence, cast
 
 import jax
 import numpy as np
@@ -47,11 +47,20 @@ _OUTPUT_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
 }
 
 
-def _layout_from_spec(spec, mapping) -> str:
-    key = spec
+def _layout_from_spec(
+    spec: object, mapping: dict[tuple[int, ...] | str, str]
+) -> str | None:
+    key: tuple[int, ...] | str | object = spec
     if isinstance(spec, str):
         key = spec.upper()
-    return mapping.get(key)
+    elif isinstance(spec, Sequence):
+        try:
+            key = tuple(int(v) for v in spec)
+        except (TypeError, ValueError):
+            key = spec
+    if isinstance(key, tuple | str):
+        return mapping.get(key)
+    return None
 
 
 def _perm(src_layout: str, dst_layout: str) -> list[int]:
@@ -325,7 +334,7 @@ def _flip_spatial_dims(
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.conv_general_dilated`` to ONNX ``Conv`` (2D, NHWC/NCHW)."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars[:2]
         out_var = eqn.outvars[0]
 
@@ -398,7 +407,10 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             # JAX conv_general_dilated padding for transpose conv is "input padding" (on dilated input),
             # while ONNX ConvTranspose pads are "output padding" (reducing output size).
             # Formula: pad_onnx = kernel_effective - 1 - pad_jax
-            pads_jax = conv_kwargs["pads"]
+            pads_jax_raw = conv_kwargs["pads"]
+            if not isinstance(pads_jax_raw, Sequence):
+                raise TypeError("conv transpose pads must be a sequence")
+            pads_jax = [int(p) for p in pads_jax_raw]
             num_spatial = len(pads_jax) // 2
             pads_jax_starts = pads_jax[:num_spatial]
             pads_jax_ends = pads_jax[num_spatial:]
@@ -416,7 +428,10 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             ]
             kernel_spatial = [rhs_shape[i] for i in spatial_dims_indices]
 
-            dilations = conv_kwargs.get("dilations", [1] * num_spatial)
+            dilations_raw = conv_kwargs.get("dilations", [1] * num_spatial)
+            if not isinstance(dilations_raw, Sequence):
+                raise TypeError("conv transpose dilations must be a sequence")
+            dilations = [int(d) for d in dilations_raw]
             kernel_effective = [
                 (k - 1) * d + 1 for k, d in zip(kernel_spatial, dilations)
             ]
@@ -560,11 +575,11 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
     def _maybe_lower_complex(
         self,
         ctx: "IRContext",
-        lhs_var,
-        rhs_var,
+        lhs_var: Any,
+        rhs_var: Any,
         lhs_val: ir.Value,
         rhs_val: ir.Value,
-        out_var,
+        out_var: Any,
         out_spec: ir.Value,
         lhs_shape: tuple[int, ...],
         rhs_shape: tuple[int, ...],
@@ -576,7 +591,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         op_type: str,
         target_kernel_layout: str,
     ) -> bool:
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: Any) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False

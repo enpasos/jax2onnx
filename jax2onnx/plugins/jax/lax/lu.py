@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -17,14 +17,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -48,7 +50,14 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
+def _scatter_mat_elem(
+    ctx: "IRContext",
+    mat: ir.Value,
+    i: int,
+    j: int,
+    value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i, j]]], dtype=np.int64),
@@ -59,7 +68,13 @@ def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
     return out
 
 
-def _scatter_row_static(ctx: "IRContext", mat, row_idx: int, row_value, name: str):
+def _scatter_row_static(
+    ctx: "IRContext",
+    mat: ir.Value,
+    row_idx: int,
+    row_value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[row_idx]], dtype=np.int64),
@@ -70,7 +85,13 @@ def _scatter_row_static(ctx: "IRContext", mat, row_idx: int, row_value, name: st
     return out
 
 
-def _scatter_row_dynamic(ctx: "IRContext", mat, row_idx, row_value, name: str):
+def _scatter_row_dynamic(
+    ctx: "IRContext",
+    mat: ir.Value,
+    row_idx: ir.Value,
+    row_value: ir.Value,
+    name: str,
+) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name}_axes")
     idx = ctx.builder.Unsqueeze(row_idx, axes, _outputs=[ctx.fresh_name(f"{name}_idx")])
     idx.type = ir.TensorType(ir.DataType.INT64)
@@ -82,12 +103,12 @@ def _scatter_row_dynamic(ctx: "IRContext", mat, row_idx, row_value, name: str):
 
 def _cast_int_vector_to_out_dtype(
     ctx: "IRContext",
-    vec_i64,
+    vec_i64: ir.Value,
     *,
-    out_dtype: np.dtype,
+    out_dtype: np.dtype[Any],
     out_name: str,
     out_shape: tuple[int, ...],
-):
+) -> ir.Value:
     out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
     if out_dtype_enum is None:
         raise TypeError(f"Unsupported integer output dtype '{out_dtype}'")
@@ -177,7 +198,7 @@ def _cast_int_vector_to_out_dtype(
 class LuPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.lu`` with static unrolled partial pivoting."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         (x_var,) = eqn.invars
         lu_var, pivots_var, perm_var = eqn.outvars
 
@@ -435,7 +456,7 @@ class LuPlugin(PrimitiveLeafPlugin):
         if getattr(lu_spec, "shape", None) is not None:
             lu_out.shape = lu_spec.shape
 
-        pivots_dtype = np.dtype(
+        pivots_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(pivots_var, "aval", None), "dtype", np.int32)
         )
         pivots_name = getattr(pivots_spec, "name", None) or ctx.fresh_name("lu_pivots")
@@ -453,7 +474,7 @@ class LuPlugin(PrimitiveLeafPlugin):
         if getattr(pivots_spec, "shape", None) is not None:
             pivots_out.shape = pivots_spec.shape
 
-        perm_dtype = np.dtype(
+        perm_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(perm_var, "aval", None), "dtype", np.int32)
         )
         perm_name = getattr(perm_spec, "name", None) or ctx.fresh_name("lu_perm")

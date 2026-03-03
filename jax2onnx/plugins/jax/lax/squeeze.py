@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/squeeze.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, List
 
 import numpy as np
 import jax.numpy as jnp
@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
+def _const_i64(ctx: "IRContext", values: Any, name_hint: str) -> ir.Value:
     """Emit an INT64 constant via the builder to centralize initializer policy."""
     arr = np.asarray(values, dtype=np.int64)
     if arr.ndim == 0:
@@ -37,10 +37,13 @@ def _const_i64(ctx: "IRContext", values, name_hint: str) -> ir.Value:
     return ctx.builder.const_i64(name, arr.tolist())
 
 
-def _dim_const_value(dim) -> int | None:
+def _dim_const_value(dim: object) -> int | None:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
-    return dim_expr_constant_value(dim)
+    maybe_const = dim_expr_constant_value(dim)
+    if maybe_const is None:
+        return None
+    return int(maybe_const)
 
 
 @register_primitive(
@@ -146,7 +149,7 @@ def _dim_const_value(dim) -> int | None:
 class SqueezePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.squeeze → ONNX Squeeze."""
 
-    def lower(self, ctx: "IRContext", eqn):
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 
@@ -219,11 +222,12 @@ class SqueezePlugin(PrimitiveLeafPlugin):
             f"x={getattr(x_val, 'name', None)} "
             f"spec={getattr(out_spec, 'name', None)}"
         )
-        override_candidates = [
-            int(candidate)
-            for candidate in override_sources
-            if _compatible_override(candidate)
-        ]
+        override_candidates: list[int] = []
+        for candidate in override_sources:
+            if _compatible_override(candidate) and isinstance(
+                candidate, (int, np.integer)
+            ):
+                override_candidates.append(int(candidate))
         _axis0_debug(
             "squeeze override candidates "
             f"value={getattr(result, 'name', None)} "

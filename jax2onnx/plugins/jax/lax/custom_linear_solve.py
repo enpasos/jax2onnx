@@ -24,9 +24,20 @@ def _flatten_length_info(obj: Any) -> tuple[int, int, int, int]:
         return (0, 0, 0, 0)
     names = ("matvec", "vecmat", "solve", "transpose_solve")
     if all(hasattr(obj, n) for n in names):
-        return tuple(int(getattr(obj, n)) for n in names)
+        return (
+            int(getattr(obj, "matvec")),
+            int(getattr(obj, "vecmat")),
+            int(getattr(obj, "solve")),
+            int(getattr(obj, "transpose_solve")),
+        )
     if isinstance(obj, (tuple, list)) and len(obj) == 4:
-        return tuple(int(v) for v in obj)
+        matvec, vecmat, solve, transpose = obj
+        return (
+            int(matvec),
+            int(vecmat),
+            int(solve),
+            int(transpose),
+        )
     raise TypeError(f"Unsupported const_lengths payload: {obj!r}")
 
 
@@ -75,7 +86,7 @@ def _slice_vars(seq: Iterable[Any], start: int, length: int) -> list[Any]:
 class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
     """Inline the `solve` branch of ``lax.custom_linear_solve`` for inference graphs."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         const_lengths = _flatten_length_info(params.get("const_lengths"))
         matvec_nconsts, vecmat_nconsts, solve_nconsts, transpose_nconsts = const_lengths

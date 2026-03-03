@@ -212,10 +212,10 @@ class JnpBitwiseOrPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return cast(
-            list[AssignSpec | MonkeyPatchSpec],
-            jnp_binding_specs(cls._PRIM, cls._FUNC_NAME),
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
         )
+        return specs
 
 
 @JnpBitwiseOrPlugin._PRIM.def_impl

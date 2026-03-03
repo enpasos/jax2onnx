@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
@@ -32,7 +32,7 @@ def _scaled_matmul_reference(
     lhs_scales: ArrayLike,
     rhs_scales: ArrayLike,
     *,
-    preferred_element_type=np.float32,
+    preferred_element_type: np.dtype[Any] | type[Any] = np.float32,
 ) -> ArrayLike:
     a = jnp.asarray(lhs)
     b = jnp.asarray(rhs)
@@ -147,7 +147,7 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
         lhs_scales: jax.core.AbstractValue,
         rhs_scales: jax.core.AbstractValue,
         *,
-        preferred_element_type,
+        preferred_element_type: np.dtype[Any] | type[Any],
     ) -> jax.core.ShapedArray:
         lhs_spec = jax.ShapeDtypeStruct(lhs.shape, lhs.dtype)
         rhs_spec = jax.ShapeDtypeStruct(rhs.shape, rhs.dtype)
@@ -249,7 +249,9 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
             getattr(getattr(out_var, "aval", None), "shape", ())
         )
 
-        def _cast_to_target(val: ir.Value, name: str, shape) -> ir.Value:
+        def _cast_to_target(
+            val: ir.Value, name: str, shape: tuple[int, int, int]
+        ) -> ir.Value:
             casted = ctx.builder.Cast(
                 val,
                 _outputs=[ctx.fresh_name(name)],
@@ -269,7 +271,10 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
         )
 
         def _repeat_last_axis(
-            scale_val: ir.Value, repeats: int, out_shape3, base: str
+            scale_val: ir.Value,
+            repeats: int,
+            out_shape3: tuple[int, int, int],
+            base: str,
         ) -> ir.Value:
             axes = _const_i64(ctx, np.asarray([3], dtype=np.int64), f"{base}_axes")
             unsqueezed = ctx.builder.Unsqueeze(
@@ -360,7 +365,7 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -378,7 +383,7 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
                 rhs: ArrayLike,
                 lhs_scales: ArrayLike,
                 rhs_scales: ArrayLike,
-                preferred_element_type=np.float32,
+                preferred_element_type: np.dtype[Any] | type[Any] = np.float32,
             ) -> ArrayLike:
                 lhs_arr = jnp.asarray(lhs)
                 rhs_arr = jnp.asarray(rhs)
@@ -479,7 +484,7 @@ def _scaled_matmul_impl(
     lhs_scales: ArrayLike,
     rhs_scales: ArrayLike,
     *,
-    preferred_element_type=np.float32,
+    preferred_element_type: np.dtype[Any] | type[Any] = np.float32,
 ) -> ArrayLike:
     return _scaled_matmul_reference(
         lhs,

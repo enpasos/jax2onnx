@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import Any, ClassVar
 
+from jax import core
 import numpy as np
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -13,25 +15,22 @@ from jax2onnx.plugins.plugin_system import (
     register_primitive,
 )
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 import jax
 
 try:  # JAX 0.4+ lives in jax.extend.core
-    from jax.extend.core import Primitive as JaxPrimitive  # type: ignore
+    from jax.extend.core import Primitive as JaxPrimitive
 except ImportError:  # pragma: no cover - fallback for older JAX
-    from jax.core import Primitive as JaxPrimitive  # type: ignore
+    from jax.core import Primitive as JaxPrimitive
 
 
 @jax.custom_jvp
-def _square(x):
+def _square(x: Any) -> Any:
     return x * x
 
 
 @_square.defjvp
-def _square_jvp(primals, tangents):
+def _square_jvp(primals: tuple[Any, ...], tangents: tuple[Any, ...]) -> tuple[Any, Any]:
     (x,), (t,) = primals, tangents
     return _square(x), 2 * x * t
 
@@ -60,7 +59,7 @@ class CustomJvpCallPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[JaxPrimitive | None] = None
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         closed = eqn.params.get("call_jaxpr")
         if closed is None:
             raise ValueError("custom_jvp_call missing call_jaxpr parameter")

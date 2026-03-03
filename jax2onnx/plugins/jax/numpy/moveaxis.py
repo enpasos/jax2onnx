@@ -15,7 +15,9 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -213,4 +215,8 @@ def _moveaxis_batch_rule(
 
 
 batching.primitive_batchers[JnpMoveaxisPlugin._PRIM] = _moveaxis_batch_rule
-register_fallback_jvp_rule(JnpMoveaxisPlugin._PRIM, _moveaxis_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.transpose_p,
+    new_prim=JnpMoveaxisPlugin._PRIM,
+    forward_batching=False,
+)

@@ -115,7 +115,9 @@ class OneHotPlugin(PrimitiveLeafPlugin):
             )
 
         indices_input = x_val
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.int64))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.int64)
+        )
         if x_dtype != np.dtype(np.int64):
             indices_input = ctx.builder.Cast(
                 x_val,
@@ -152,7 +154,7 @@ class OneHotPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True

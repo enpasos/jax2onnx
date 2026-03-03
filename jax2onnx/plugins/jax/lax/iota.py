@@ -71,7 +71,7 @@ _DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
 class IotaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.iota`` (and broadcasted variants) with pure IR ops."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(

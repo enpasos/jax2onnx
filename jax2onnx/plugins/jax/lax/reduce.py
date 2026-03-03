@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import numpy as np
@@ -54,12 +54,12 @@ def _extract_scalar_literal(var: Any) -> np.ndarray | None:
     if hasattr(var, "val"):
         arr = np.asarray(getattr(var, "val"))
         if arr.ndim == 0:
-            return arr
+            return cast(np.ndarray, arr)
     return None
 
 
 def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bool:
-    val = init_arr.item()
+    val: Any = init_arr.item()
     if reducer == "add":
         return bool(np.asarray(val == 0))
     if reducer == "mul":
@@ -150,7 +150,7 @@ def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bo
 class ReducePlugin(PrimitiveLeafPlugin):
     """Lower selected ``lax.reduce`` reducers to ONNX reductions."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         reducer = _extract_reducer_primitive_name(params)
         if reducer not in {"add", "mul", "max", "min", "and", "or", "xor"}:

@@ -1,7 +1,5 @@
 # jax2onnx/plugins/jax/lax/sqrt.py
 
-from typing import Any
-
 from jax import core
 import jax
 
@@ -9,8 +7,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(
@@ -58,7 +54,7 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class SqrtPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -77,7 +73,12 @@ class SqrtPlugin(PrimitiveLeafPlugin):
         if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
-                keepdims_attr = input_producer.attributes.get("keepdims")
+                input_attrs = getattr(input_producer, "attributes", None)
+                keepdims_attr = None
+                if input_attrs is not None:
+                    get_attr = getattr(input_attrs, "get", None)
+                    if callable(get_attr):
+                        keepdims_attr = get_attr("keepdims")
                 keepdims = int(
                     getattr(keepdims_attr, "value", keepdims_attr)
                     if keepdims_attr is not None

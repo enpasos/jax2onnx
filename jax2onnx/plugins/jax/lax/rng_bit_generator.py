@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -53,7 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class RngBitGeneratorPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rng_bit_generator`` with stateless ONNX random generation."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         key_var = eqn.invars[0]
         out_key_var, out_bits_var = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})

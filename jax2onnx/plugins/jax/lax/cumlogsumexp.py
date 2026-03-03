@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -65,7 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class CumLogSumExpPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.cumlogsumexp`` via ``Exp -> CumSum -> Log``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

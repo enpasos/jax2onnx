@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -10,8 +10,10 @@ import numpy as np
 import onnx_ir as ir
 from jax import core
 from jax.interpreters import batching
+from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -19,14 +21,11 @@ from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
 
 
-def _normalize_dtype(result_dtype: np.dtype, enable_double: bool) -> np.dtype:
+def _normalize_dtype(result_dtype: np.dtype[Any], enable_double: bool) -> np.dtype[Any]:
     if np.issubdtype(result_dtype, np.floating):
         return result_dtype
     return np.dtype(np.float64 if enable_double else np.float32)
@@ -35,19 +34,21 @@ def _normalize_dtype(result_dtype: np.dtype, enable_double: bool) -> np.dtype:
 def _infer_result_dtype(
     start_aval: core.AbstractValue,
     stop_aval: core.AbstractValue,
-    dtype_param,
+    dtype_param: np.dtype[Any] | type | None,
     enable_double: bool,
-) -> np.dtype:
+) -> np.dtype[Any]:
     if dtype_param is not None:
-        return np.dtype(dtype_param)
+        return cast(np.dtype[Any], np.dtype(dtype_param))
 
-    cand = []
+    cand: list[np.dtype[Any]] = []
     for aval in (start_aval, stop_aval):
         aval_dtype = getattr(aval, "dtype", None)
         if aval_dtype is not None:
             cand.append(np.dtype(aval_dtype))
     if cand:
-        result = np.result_type(*cand)
+        result = cand[0]
+        for dt in cand[1:]:
+            result = np.promote_types(result, dt)
     else:
         result = np.dtype(np.float64 if enable_double else np.float32)
 
@@ -57,7 +58,7 @@ def _infer_result_dtype(
 
 
 def _maybe_cast(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_enum: ir.DataType,
     name_hint: str,
@@ -270,15 +271,15 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        start,
-        stop,
+        start: core.AbstractValue,
+        stop: core.AbstractValue,
         *,
         num: int = 50,
         endpoint: bool = True,
         retstep: bool = False,
-        dtype=None,
+        dtype: np.dtype[Any] | type | None = None,
         axis: int = 0,
-    ):
+    ) -> core.ShapedArray:
         if retstep:
             raise NotImplementedError("jnp.linspace with retstep=True is not supported")
         if axis != 0:
@@ -290,7 +291,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         result_dtype = _infer_result_dtype(start, stop, dtype, enable_x64)
         return core.ShapedArray((num_int,), result_dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         num = int(params.get("num", 50))
         if num < 0:
@@ -312,7 +313,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             )
 
         out_var = eqn.outvars[0]
-        out_dtype = np.dtype(getattr(out_var.aval, "dtype", np.float32))
+        out_dtype: np.dtype[Any] = np.dtype(getattr(out_var.aval, "dtype", np.float32))
         target_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
 
         work_dtype = _normalize_dtype(out_dtype, ctx.builder.enable_double_precision)
@@ -438,24 +439,24 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(orig: Callable[..., Any] | None) -> Callable[..., Any]:
             if orig is None:
                 raise RuntimeError("Original jnp.linspace not found")
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(
-                start,
-                stop,
-                num=50,
+                start: ArrayLike,
+                stop: ArrayLike,
+                num: int = 50,
                 *,
-                endpoint=True,
-                retstep=False,
-                dtype=None,
-                axis=0,
-            ):
+                endpoint: bool = True,
+                retstep: bool = False,
+                dtype: np.dtype[Any] | type | None = None,
+                axis: int = 0,
+            ) -> Any:
                 if retstep:
                     return orig(
                         start,
@@ -519,8 +520,15 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
 
 @JnpLinspacePlugin._PRIM.def_impl
 def _linspace_impl(
-    start, stop, *_, num=50, endpoint=True, retstep=False, dtype=None, axis=0
-):
+    start: ArrayLike,
+    stop: ArrayLike,
+    *_: Any,
+    num: int = 50,
+    endpoint: bool = True,
+    retstep: bool = False,
+    dtype: np.dtype[Any] | type | None = None,
+    axis: int = 0,
+) -> Any:
     orig = get_orig_impl(JnpLinspacePlugin._PRIM, JnpLinspacePlugin._FUNC_NAME)
     return orig(
         start,
@@ -536,7 +544,7 @@ def _linspace_impl(
 JnpLinspacePlugin._PRIM.def_abstract_eval(JnpLinspacePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _linspace_batch_rule(
@@ -546,15 +554,13 @@ def _linspace_batch_rule(
     num: int = 50,
     endpoint: bool = True,
     retstep: bool = False,
-    dtype=None,
+    dtype: np.dtype[Any] | type | None = None,
     axis: int = 0,
 ) -> tuple[jax.Array, BatchDim]:
     start, stop = batched_args
     start_bdim, stop_bdim = batch_dims
-    mapped = [
-        (arg, bd)
-        for arg, bd in zip(batched_args, batch_dims)
-        if bd is not batching.not_mapped
+    mapped: list[tuple[jax.Array, int]] = [
+        (arg, bd) for arg, bd in zip(batched_args, batch_dims) if bd is not None
     ]
     if not mapped:
         out = JnpLinspacePlugin._PRIM.bind(
@@ -566,23 +572,23 @@ def _linspace_batch_rule(
             dtype=dtype,
             axis=axis,
         )
-        return out, batching.not_mapped
+        return out, None
 
     sample_arg, sample_bd = mapped[0]
     batch_size = sample_arg.shape[sample_bd]
 
-    if start_bdim is not batching.not_mapped:
+    if start_bdim is not None:
         start = batching.bdim_at_front(start, start_bdim, batch_size)
-    if stop_bdim is not batching.not_mapped:
+    if stop_bdim is not None:
         stop = batching.bdim_at_front(stop, stop_bdim, batch_size)
 
     in_axes = (
-        0 if start_bdim is not batching.not_mapped else None,
-        0 if stop_bdim is not batching.not_mapped else None,
+        0 if start_bdim is not None else None,
+        0 if stop_bdim is not None else None,
     )
     orig = get_orig_impl(JnpLinspacePlugin._PRIM, JnpLinspacePlugin._FUNC_NAME)
 
-    def _call_single(s, t):
+    def _call_single(s: jax.Array, t: jax.Array) -> Any:
         return orig(
             s,
             t,

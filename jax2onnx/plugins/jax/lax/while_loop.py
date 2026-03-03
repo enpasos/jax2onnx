@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -28,13 +28,15 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _unwrap_closed_jaxpr(jaxpr_like):
+def _unwrap_closed_jaxpr(jaxpr_like: Any) -> tuple[Any, tuple[Any, ...]]:
     if hasattr(jaxpr_like, "jaxpr") and hasattr(jaxpr_like, "consts"):
         return jaxpr_like.jaxpr, tuple(jaxpr_like.consts)
     return jaxpr_like, ()
 
 
-def _bind_closed_jaxpr_consts(ctx: "IRContext", jaxpr, consts: Iterable[object]):
+def _bind_closed_jaxpr_consts(
+    ctx: "IRContext", jaxpr: Any, consts: Iterable[object]
+) -> None:
     for var, const in zip(getattr(jaxpr, "constvars", ()), consts):
         ctx.bind_const_for_var(var, np.asarray(const))
 
@@ -42,11 +44,11 @@ def _bind_closed_jaxpr_consts(ctx: "IRContext", jaxpr, consts: Iterable[object])
 def _while_loop_multi_state(x: jax.Array) -> jax.Array:
     """Classic two-state loop that updates a tensor and a counter."""
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         _, count = state
         return count < 5
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         tensor, count = state
         return tensor + 0.1 * tensor**2, count + 1
 
@@ -58,112 +60,112 @@ def _while_loop_closure_fn(x: jax.Array) -> jax.Array:
 
     captured = x * 2.0
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         return state[0] < 5.0
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         value, counter = state
         return (value + captured, counter)
 
     return jax.lax.while_loop(cond_fn, body_fn, (0.0, 0))
 
 
-def _loop_single(x):
+def _loop_single(x: Any) -> Any:
     """Scalar accumulator loop used by while-loop metadata tests."""
 
     return jax.lax.while_loop(lambda v: v < 3, lambda v: v + 1, x)
 
 
-def _loop_two_state(x):
+def _loop_two_state(x: Any) -> Any:
     """Two-state loop where the second entry is passthrough."""
 
     init = (x, jnp.int32(0))
 
-    def body(state):
+    def body(state: tuple[Any, Any]) -> tuple[Any, Any]:
         return (state[0] + 1, state[1])
 
     return jax.lax.while_loop(lambda state: state[0] < 3, body, init)
 
 
-def _loop_with_tracer(x):
+def _loop_with_tracer(x: Any) -> Any:
     """Captured tracer is added every iteration to check alias handling."""
 
     captured = x * 10
 
-    def body(val):
+    def body(val: Any) -> Any:
         return val + captured
 
     return jax.lax.while_loop(lambda v: v < 30, body, x)
 
 
-def while_loop_with_scalar_state(x, counter):
+def while_loop_with_scalar_state(x: Any, counter: Any) -> Any:
     """Model loop carrying a tensor and scalar counter."""
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         _, i = state
         return i < 5
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         tensor, i = state
         return tensor * 2.0, i + 1
 
     return jax.lax.while_loop(cond_fn, body_fn, (x, counter))
 
 
-def loop_with_renamed_passthrough_state(x, counter):
+def loop_with_renamed_passthrough_state(x: Any, counter: Any) -> Any:
     """Loop that renames passthrough state to guard rewriting logic."""
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         return state[1] < 5
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         tensor, count = state
         return tensor, count + 1
 
     return jax.lax.while_loop(cond_fn, body_fn, (x, counter))
 
 
-def while_loop_mixed_rank_4d_and_scalar(tensor, counter):
+def while_loop_mixed_rank_4d_and_scalar(tensor: Any, counter: Any) -> Any:
     """Carries a 4D tensor and scalar; regresses mixed rank bugs."""
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         _, c = state
         return c < 5
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         feat, c = state
         return feat * 1.1, c + 1
 
     return jax.lax.while_loop(cond_fn, body_fn, (tensor, counter))
 
 
-def _repro_cnn_bug_fn(image, counter):
+def _repro_cnn_bug_fn(image: Any, counter: Any) -> Any:
     """CNN-style reproducer that previously broke scalar typing."""
 
-    def cond_fn(state):
+    def cond_fn(state: tuple[Any, Any]) -> Any:
         _, idx = state
         return idx < 5
 
-    def body_fn(state):
+    def body_fn(state: tuple[Any, Any]) -> tuple[Any, Any]:
         feat, idx = state
         return feat * 0.9 + 0.1, idx + 1
 
     return jax.lax.while_loop(cond_fn, body_fn, (image, counter))
 
 
-def _repro_nnx_scalar_and_captured_tensor_bug(tensor_4d, scalar_val):
+def _repro_nnx_scalar_and_captured_tensor_bug(tensor_4d: Any, scalar_val: Any) -> Any:
     """Captures a 4D tensor while only carrying a scalar in the loop."""
 
-    def cond_fn(val):
+    def cond_fn(val: Any) -> Any:
         return val < 5
 
-    def body_fn(val):
+    def body_fn(val: Any) -> Any:
         return val + jnp.mean(tensor_4d).astype(jnp.int32)
 
     return jax.lax.while_loop(cond_fn, body_fn, scalar_val)
 
 
-def _no_loop_output_reuse(model) -> bool:
+def _no_loop_output_reuse(model: Any) -> bool:
     graph = getattr(model, "graph", None)
     if graph is None:
         return True
@@ -171,7 +173,7 @@ def _no_loop_output_reuse(model) -> bool:
         if getattr(node, "op_type", "") != "Loop":
             continue
         inputs = set(getattr(node, "input", ()))
-        for out in getattr(node, "output", ()):  # type: ignore[arg-type]
+        for out in getattr(node, "output", ()):
             if out in inputs:
                 print(
                     f"Loop node '{getattr(node, 'name', '<unnamed>')}' reuses output {out} as input"
@@ -180,12 +182,16 @@ def _no_loop_output_reuse(model) -> bool:
     return True
 
 
-def _is_literal(var) -> bool:
+def _is_literal(var: Any) -> bool:
     return hasattr(var, "val")
 
 
 def _evaluate_closed_jaxpr(
-    ctx: "IRContext", closed_jaxpr, inputs: Sequence[ir.Value], *, prefix: str
+    ctx: "IRContext",
+    closed_jaxpr: Any,
+    inputs: Sequence[ir.Value],
+    *,
+    prefix: str,
 ) -> list[ir.Value]:
     jaxpr, consts = _unwrap_closed_jaxpr(closed_jaxpr)
     _bind_closed_jaxpr_consts(ctx, jaxpr, consts)
@@ -211,8 +217,8 @@ def _evaluate_closed_jaxpr(
 
 def _build_loop_body_graph(
     ctx: "IRContext",
-    cond_cj,
-    body_cj,
+    cond_cj: Any,
+    body_cj: Any,
     *,
     body_const_template: Sequence[ir.Value],
     state_template: Sequence[ir.Value],
@@ -392,11 +398,8 @@ def _build_loop_body_graph(
             "post_check_onnx_graph": EG(
                 [
                     {
-                        "path": "Slice:1 -> Squeeze -> Less -> Loop:1",
-                        "inputs": {
-                            0: {"const": 9.223372036854776e18},
-                            2: {"const": 0.0},
-                        },
+                        "path": "Squeeze -> Less -> Loop:1",
+                        "inputs": {0: {"const": 9.223372036854776e18}},
                     }
                 ],
                 no_unused_inputs=True,
@@ -735,7 +738,7 @@ def _build_loop_body_graph(
 class WhileLoopPlugin(PrimitiveLeafPlugin):
     """IR-first lowering for ``lax.while_loop`` via ONNX ``Loop``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         cond_cj = params.get("cond_jaxpr") or params.get("cond_fun")
         body_cj = params.get("body_jaxpr") or params.get("body_fun")

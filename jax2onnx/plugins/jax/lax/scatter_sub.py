@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -75,7 +75,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ScatterSubPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.scatter_sub`` via ``Neg`` + ``ScatterND(reduction='add')``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         updates_var = eqn.invars[2]
         updates_val = ctx.get_value_for_var(
             updates_var,

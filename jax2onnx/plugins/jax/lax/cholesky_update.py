@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -16,14 +16,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -56,7 +58,14 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
+def _scatter_mat_elem(
+    ctx: "IRContext",
+    mat: ir.Value,
+    i: int,
+    j: int,
+    value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i, j]]], dtype=np.int64),
@@ -67,7 +76,7 @@ def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
+def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.Gather(
         vec,
@@ -80,7 +89,9 @@ def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
     return out
 
 
-def _scatter_vec_elem(ctx: "IRContext", vec, i: int, value, name: str):
+def _scatter_vec_elem(
+    ctx: "IRContext", vec: ir.Value, i: int, value: ir.Value, name: str
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i]]], dtype=np.int64),
@@ -148,7 +159,7 @@ def _scatter_vec_elem(ctx: "IRContext", vec, i: int, value, name: str):
 class CholeskyUpdatePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.cholesky_update`` for static rank-2 upper factors."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         r_var, w_var = eqn.invars
         out_var = eqn.outvars[0]
 

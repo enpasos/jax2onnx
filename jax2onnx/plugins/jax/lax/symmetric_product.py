@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -14,7 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -83,7 +83,7 @@ def _stamp_like(value, ref) -> None:
 class SymmetricProductPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.symmetric_product`` as ``alpha*A*A^T + beta*C``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         a_var, c_var = eqn.invars
         out_var = eqn.outvars[0]
         params = dict(getattr(eqn, "params", {}) or {})

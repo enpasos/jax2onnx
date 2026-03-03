@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
+from jax import core
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax.interpreters import ad, batching
+from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _WHERE_PRIM: Final = make_jnp_primitive("jax.numpy.where")
@@ -41,7 +42,9 @@ _WHERE_B_DATA: Final[np.ndarray] = (
 )
 
 
-def _create_problematic_where_sequence(cond_input, data_input):
+def _create_problematic_where_sequence(
+    cond_input: ArrayLike, data_input: ArrayLike
+) -> jax.Array:
     true_val = jnp.array(1.0, dtype=data_input.dtype)
     false_val = jnp.array(0.0, dtype=data_input.dtype)
     where_output = jnp.where(cond_input, true_val, false_val)
@@ -266,14 +269,23 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(cond, x, y, **_):
-        if not all(isinstance(av, jax.core.ShapedArray) for av in (cond, x, y)):
+    def abstract_eval(
+        cond: object,
+        x: object,
+        y: object,
+        **_: object,
+    ) -> core.ShapedArray:
+        if not isinstance(cond, core.ShapedArray):
+            raise TypeError("jnp.where expects ShapedArray inputs")
+        if not isinstance(x, core.ShapedArray):
+            raise TypeError("jnp.where expects ShapedArray inputs")
+        if not isinstance(y, core.ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
         promoted = np.promote_types(x.dtype, y.dtype)
         out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
-        return jax.core.ShapedArray(out_shape, promoted)
+        return core.ShapedArray(out_shape, promoted)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         cond_var, x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -287,7 +299,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         if builder is None:
             raise AttributeError("IR build context missing builder for where lowering")
 
-        cond_dtype = np.dtype(getattr(cond_var.aval, "dtype", np.bool_))
+        cond_dtype: np.dtype[Any] = np.dtype(getattr(cond_var.aval, "dtype", np.bool_))
         if cond_dtype != np.bool_:
             cond_val = builder.Cast(
                 cond_val,
@@ -310,10 +322,10 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
 
             def _is_value_double(val: ir.Value) -> bool:
                 enum = getattr(getattr(val, "type", None), "dtype", None)
-                return enum == ir.DataType.DOUBLE
+                return bool(enum == ir.DataType.DOUBLE)
 
             if not _is_value_double(x_val) and not _is_value_double(y_val):
-                target_dtype = np.float32
+                target_dtype = np.dtype(np.float32)
         dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
 
         x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
@@ -336,7 +348,11 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _maybe_cast(
-        ctx: "IRContext", value: ir.Value, var, target_dtype: np.dtype, tag: str
+        ctx: LoweringContextProtocol,
+        value: ir.Value,
+        var: core.Var,
+        target_dtype: np.dtype[Any],
+        tag: str,
     ) -> ir.Value:
         current_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
         if current_dtype == target_dtype:
@@ -373,15 +389,21 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         return cast_val
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
-        def _make_value(orig):
+        def _make_value(
+            orig: Callable[..., jax.Array] | None,
+        ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.where not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(condition, x=None, y=None):
+            def _patched(
+                condition: ArrayLike,
+                x: ArrayLike | None = None,
+                y: ArrayLike | None = None,
+            ) -> jax.Array:
                 if x is None or y is None:
                     raise NotImplementedError(
                         "jnp.where with fewer than three arguments is not supported"
@@ -404,7 +426,11 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
 
 
 @JnpWherePlugin._PRIM.def_impl
-def _where_impl(condition, x=None, y=None):
+def _where_impl(
+    condition: ArrayLike,
+    x: ArrayLike | None = None,
+    y: ArrayLike | None = None,
+) -> jax.Array:
     if x is None or y is None:
         raise NotImplementedError(
             "jnp.where with fewer than three arguments is not supported"
@@ -433,13 +459,17 @@ def _where_jvp_rule(
     return primal_out, tangent_out
 
 
-ad.primitive_jvps[JnpWherePlugin._PRIM] = _where_jvp_rule
+register_jvp_rule(JnpWherePlugin._PRIM, _where_jvp_rule)
 
 
 JnpWherePlugin._PRIM.def_abstract_eval(JnpWherePlugin.abstract_eval)
 
 
-def _where_batch_rule(args, dims, **params):
+def _where_batch_rule(
+    args: tuple[Any, ...],
+    dims: tuple[Any, ...],
+    **params: Any,
+) -> Any:
     return broadcast_batcher_compat(JnpWherePlugin._PRIM, args, dims, **params)
 
 

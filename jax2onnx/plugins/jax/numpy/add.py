@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Final
+from typing import Any, ClassVar, Final
 
 from jax import core
 
@@ -13,7 +13,9 @@ from jax.interpreters import batching
 from jax2onnx.plugins.jax.lax.add import lower_add
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import (
@@ -99,7 +101,10 @@ class JnpAddPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpAddPlugin._PRIM.def_impl
@@ -108,10 +113,14 @@ def _add_impl(*args: object, **kwargs: object) -> object:
     return orig(*args, **kwargs)
 
 
-register_jvp_via_jax_jvp(JnpAddPlugin._PRIM, _add_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.add_p,
+    new_prim=JnpAddPlugin._PRIM,
+    forward_batching=False,
+)
 
 
-def _add_batch_rule(args, dims, **params):
+def _add_batch_rule(args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any) -> Any:
     return broadcast_batcher_compat(JnpAddPlugin._PRIM, args, dims, **params)
 
 

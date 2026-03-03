@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -21,14 +21,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _base_dtype_for_complex_out(var) -> ir.DataType:
-    out_dtype = np.dtype(getattr(getattr(var, "aval", None), "dtype", np.complex64))
+def _base_dtype_for_complex_out(var: Any) -> ir.DataType:
+    out_dtype: np.dtype[Any] = np.dtype(
+        getattr(getattr(var, "aval", None), "dtype", np.complex64)
+    )
     if out_dtype == np.dtype(np.complex128):
         return ir.DataType.DOUBLE
     return ir.DataType.FLOAT
 
 
-def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str):
+def _cast_if_needed(
+    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
         value_type = getattr(value, "type", None)
@@ -47,7 +51,9 @@ def _cast_if_needed(ctx: "IRContext", value, target: ir.DataType, name_hint: str
     return casted
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -71,7 +77,7 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
+def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
     out = ctx.builder.Reshape(
         value,
@@ -84,7 +90,14 @@ def _reshape_to_1d_len1(ctx: "IRContext", value, name_hint: str):
     return out
 
 
-def _complex_add(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str):
+def _complex_add(
+    ctx: "IRContext",
+    lhs: tuple[ir.Value, ir.Value],
+    rhs: tuple[ir.Value, ir.Value],
+    *,
+    dtype: ir.DataType,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
     out_r = ctx.builder.Add(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
@@ -94,7 +107,14 @@ def _complex_add(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str)
     return out_r, out_i
 
 
-def _complex_sub(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str):
+def _complex_sub(
+    ctx: "IRContext",
+    lhs: tuple[ir.Value, ir.Value],
+    rhs: tuple[ir.Value, ir.Value],
+    *,
+    dtype: ir.DataType,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
     out_r = ctx.builder.Sub(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
@@ -104,7 +124,14 @@ def _complex_sub(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str)
     return out_r, out_i
 
 
-def _complex_mul(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str):
+def _complex_mul(
+    ctx: "IRContext",
+    lhs: tuple[ir.Value, ir.Value],
+    rhs: tuple[ir.Value, ir.Value],
+    *,
+    dtype: ir.DataType,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
 
@@ -123,8 +150,13 @@ def _complex_mul(ctx: "IRContext", lhs, rhs, *, dtype: ir.DataType, prefix: str)
 
 
 def _complex_real_scale(
-    ctx: "IRContext", value, scalar, *, dtype: ir.DataType, prefix: str
-):
+    ctx: "IRContext",
+    value: tuple[ir.Value, ir.Value],
+    scalar: ir.Value,
+    *,
+    dtype: ir.DataType,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
     val_r, val_i = value
     out_r = ctx.builder.Mul(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
     out_i = ctx.builder.Mul(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
@@ -134,8 +166,13 @@ def _complex_real_scale(
 
 
 def _complex_div_real(
-    ctx: "IRContext", value, scalar, *, dtype: ir.DataType, prefix: str
-):
+    ctx: "IRContext",
+    value: tuple[ir.Value, ir.Value],
+    scalar: ir.Value,
+    *,
+    dtype: ir.DataType,
+    prefix: str,
+) -> tuple[ir.Value, ir.Value]:
     val_r, val_i = value
     out_r = ctx.builder.Div(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
     out_i = ctx.builder.Div(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
@@ -146,13 +183,13 @@ def _complex_div_real(
 
 def _complex_sqrt_principal(
     ctx: "IRContext",
-    value,
+    value: tuple[ir.Value, ir.Value],
     *,
     dtype: ir.DataType,
-    two,
-    zero,
+    two: ir.Value,
+    zero: ir.Value,
     prefix: str,
-):
+) -> tuple[ir.Value, ir.Value]:
     x, y = value
     x2 = ctx.builder.Mul(x, x, _outputs=[ctx.fresh_name(f"{prefix}_x2")])
     y2 = ctx.builder.Mul(y, y, _outputs=[ctx.fresh_name(f"{prefix}_y2")])
@@ -207,7 +244,14 @@ def _complex_sqrt_principal(
     return out_r, out_i
 
 
-def _concat_1d_pair(ctx: "IRContext", first, second, *, dtype: ir.DataType, name: str):
+def _concat_1d_pair(
+    ctx: "IRContext",
+    first: ir.Value,
+    second: ir.Value,
+    *,
+    dtype: ir.DataType,
+    name: str,
+) -> ir.Value:
     out = ctx.builder.Concat(
         first,
         second,
@@ -221,8 +265,8 @@ def _concat_1d_pair(ctx: "IRContext", first, second, *, dtype: ir.DataType, name
 
 def _bind_complex_output(
     ctx: "IRContext",
-    out_var,
-    value,
+    out_var: Any,
+    value: ir.Value,
     *,
     base_dtype: ir.DataType,
     name_hint: str,
@@ -247,7 +291,7 @@ def _unit_vector_packed_1x1(
     base_dtype: ir.DataType,
     output_name: str,
     name_hint: str,
-):
+) -> ir.Value:
     np_dtype = np.float64 if base_dtype == ir.DataType.DOUBLE else np.float32
     real = ctx.bind_const_for_var(object(), np.asarray([[1.0]], dtype=np_dtype))
     imag = ctx.bind_const_for_var(object(), np.asarray([[0.0]], dtype=np_dtype))
@@ -386,7 +430,7 @@ def _unit_vector_packed_1x1(
 class EigPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.eig`` for static square ``1x1`` matrices."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         compute_left = bool(params.get("compute_left_eigenvectors", True))
         compute_right = bool(params.get("compute_right_eigenvectors", True))
@@ -422,7 +466,7 @@ class EigPlugin(PrimitiveLeafPlugin):
         )
         eigvals_base = _base_dtype_for_complex_out(eigvals_var)
         eigvals_name = getattr(eigvals_spec, "name", None) or ctx.fresh_name("eig_vals")
-        x_input_dtype = np.dtype(
+        x_input_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(x_var, "aval", None), "dtype", np.float32)
         )
 

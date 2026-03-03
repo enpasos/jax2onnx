@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Final, Union
+from typing import TYPE_CHECKING, Any, Final, Union, cast
 
 import jax
 import jax.numpy as jnp
@@ -83,7 +83,7 @@ def _static_scatter_extent(jpr_like: Any) -> int | None:
     return None
 
 
-def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
+def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
     aval = getattr(var, "aval", None)
     if aval is None:
         return None
@@ -99,7 +99,7 @@ def _dtype_enum_for_var(var, enable_double: bool) -> ir.DataType | None:
     return _dtype_to_ir(np_dtype, enable_double)
 
 
-def _set_value_dtype_from_var(ctx, value: ir.Value, var) -> None:
+def _set_value_dtype_from_var(ctx: "IRContext", value: ir.Value, var: Any) -> None:
     aval = getattr(var, "aval", None)
     aval_dtype = getattr(aval, "dtype", None)
     if aval_dtype is None:
@@ -120,8 +120,14 @@ def _set_value_dtype_from_var(ctx, value: ir.Value, var) -> None:
 
 
 def _maybe_cast_value(
-    ctx, value: ir.Value, target_enum: ir.DataType, *, force: bool = False
+    ctx: "IRContext",
+    value: ir.Value,
+    target_enum: ir.DataType | None,
+    *,
+    force: bool = False,
 ) -> ir.Value:
+    if target_enum is None:
+        return value
     current_enum = getattr(getattr(value, "type", None), "dtype", None)
     if not force and (current_enum is None or current_enum == target_enum):
         return value
@@ -135,11 +141,11 @@ def _maybe_cast_value(
     return cast_val
 
 
-def _maybe_var_type(mod):
+def _maybe_var_type(mod: Any) -> type[Any] | None:
     if mod is None:
         return None
     try:
-        return getattr(mod, "Var")
+        return cast(type[Any], getattr(mod, "Var"))
     except AttributeError:
         return None
 
@@ -154,11 +160,11 @@ _JAX_VAR_TYPES: Final[tuple[type, ...]] = tuple(
 )
 
 
-def _maybe_dropvar_type(mod):
+def _maybe_dropvar_type(mod: Any) -> type[Any] | None:
     if mod is None:
         return None
     try:
-        return getattr(mod, "DropVar")
+        return cast(type[Any], getattr(mod, "DropVar"))
     except AttributeError:
         return None
 
@@ -173,11 +179,11 @@ _DROP_VAR_TYPES: Final[tuple[type, ...]] = tuple(
 )
 
 
-def _is_dropvar(obj) -> bool:
+def _is_dropvar(obj: Any) -> bool:
     return bool(_DROP_VAR_TYPES) and isinstance(obj, _DROP_VAR_TYPES)
 
 
-def _is_jax_var(obj) -> bool:
+def _is_jax_var(obj: Any) -> bool:
     return (
         bool(_JAX_VAR_TYPES)
         and isinstance(obj, _JAX_VAR_TYPES)
@@ -185,8 +191,8 @@ def _is_jax_var(obj) -> bool:
     )
 
 
-def scan_fn(x):
-    def body(carry, _):
+def scan_fn(x: Any) -> Any:
+    def body(carry: Any, _: Any) -> tuple[Any, Any]:
         carry = carry + 1
         return carry, carry
 
@@ -195,8 +201,8 @@ def scan_fn(x):
 
 
 def _scan_jit_no_xs() -> jax.Array:
-    def simulate():
-        def step_fn(carry, _):
+    def simulate() -> Any:
+        def step_fn(carry: Any, _: Any) -> tuple[Any, Any]:
             return carry + 1, carry * 2
 
         _, ys = lax.scan(step_fn, 0, xs=None, length=10)
@@ -205,10 +211,10 @@ def _scan_jit_no_xs() -> jax.Array:
     return jax.jit(simulate)()
 
 
-def _nested_scan_len_mismatch_f32():
+def _nested_scan_len_mismatch_f32() -> Any:
     xs_outer = jnp.arange(100, dtype=jnp.float32)
 
-    def inner(carry, x):
+    def inner(carry: Any, x: Any) -> tuple[Any, Any]:
         x = x.astype(carry.dtype)
         _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
         return carry + x, ys[-1]
@@ -217,10 +223,10 @@ def _nested_scan_len_mismatch_f32():
     return ys
 
 
-def _nested_scan_len_mismatch_f64():
+def _nested_scan_len_mismatch_f64() -> Any:
     xs_outer = jnp.arange(100, dtype=jnp.float64)
 
-    def inner(carry, x):
+    def inner(carry: Any, x: Any) -> tuple[Any, Any]:
         x = x.astype(carry.dtype)
         _, ys = lax.scan(lambda c, _: (c + x, c + x), carry, xs=None, length=5)
         return carry + x, ys[-1]
@@ -229,7 +235,7 @@ def _nested_scan_len_mismatch_f64():
     return ys
 
 
-def _two_scans_diff_len_f32():
+def _two_scans_diff_len_f32() -> tuple[Any, Any]:
     xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
     xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
     fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float32))
@@ -242,7 +248,7 @@ def _two_scans_diff_len_f32():
     return y1, y2
 
 
-def _two_scans_diff_len_f64():
+def _two_scans_diff_len_f64() -> tuple[Any, Any]:
     xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
     xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
     fill_small = jnp.asarray(np.full(xs_small.shape, 0.1, dtype=np.float64))
@@ -255,7 +261,7 @@ def _two_scans_diff_len_f64():
     return y1, y2
 
 
-def _two_scans_len_mismatch_broadcast_f32():
+def _two_scans_len_mismatch_broadcast_f32() -> tuple[Any, Any]:
     xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
     xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
     fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float32))
@@ -269,7 +275,7 @@ def _two_scans_len_mismatch_broadcast_f32():
     return y1, y2
 
 
-def _two_scans_len_mismatch_broadcast_f64():
+def _two_scans_len_mismatch_broadcast_f64() -> tuple[Any, Any]:
     xs_small = jnp.asarray(np.arange(5, dtype=np.float64))
     xs_big = jnp.asarray(np.arange(100, dtype=np.float64))
     fill = jnp.asarray(np.full(xs_big.shape, 0.1, dtype=np.float64))
@@ -283,7 +289,7 @@ def _two_scans_len_mismatch_broadcast_f64():
     return y1, y2
 
 
-def _two_scans_diff_len_with_broadcast_f32():
+def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
     xs_small = jnp.asarray(np.arange(5, dtype=np.float32))
     xs_big = jnp.asarray(np.arange(100, dtype=np.float32))
 
@@ -684,7 +690,7 @@ def _two_scans_diff_len_with_broadcast_f32():
     ],
 )
 class ScanPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: IRContext, eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = eqn.params
         closed_jaxpr = params["jaxpr"]
         num_carry = int(params.get("num_carry", 0))
@@ -770,7 +776,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     desired_shape = (first_dim_resolved,) + aval_shape[1:]
                 else:
                     desired_shape = aval_shape
-                desired_np_dtype = np.dtype(getattr(aval, "dtype", np.float32))
+                desired_np_dtype: np.dtype[Any] = np.dtype(
+                    getattr(aval, "dtype", np.float32)
+                )
                 if np.issubdtype(desired_np_dtype, np.integer):
                     target_enum = (
                         ir.DataType.INT64
@@ -794,12 +802,12 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
     def _lower_without_scan_inputs(
         self,
-        ctx: IRContext,  # type: ignore[name-defined]
-        eqn,
-        closed_jaxpr,
+        ctx: "IRContext",
+        eqn: Any,
+        closed_jaxpr: Any,
         num_carry: int,
         num_consts: int,
-        length,
+        length: Any,
     ) -> list[ir.Value]:
         if not isinstance(length, (int, np.integer)):
             raise NotImplementedError(
@@ -880,9 +888,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         if scatter_static_extent is not None:
             setattr(loop_ctx, "_force_loop_extent_axis0", True)
             setattr(loop_ctx, "_static_loop_extent_axis0", int(scatter_static_extent))
-            if not isinstance(extent_hints, dict):
-                extent_hints = {}
-                setattr(loop_ctx, "_loop_extent_hints", extent_hints)
             override_scalar = _scalar_i64(
                 loop_ctx,
                 int(scatter_static_extent),
@@ -1263,13 +1268,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
     def _lower_with_scan_inputs(
         self,
-        ctx: IRContext,  # type: ignore[name-defined]
-        eqn,
-        closed_jaxpr,
+        ctx: "IRContext",
+        eqn: Any,
+        closed_jaxpr: Any,
         num_carry: int,
         num_consts: int,
         num_scan: int,
-        length,
+        length: Any,
     ) -> list[ir.Value]:
         jaxpr = closed_jaxpr.jaxpr
 
@@ -1281,7 +1286,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         if length is None:
             first_seq_aval = getattr(seq_invars[0], "aval", None)
-            if first_seq_aval is None or not getattr(first_seq_aval, "shape", ()):  # type: ignore[arg-type]
+            if first_seq_aval is None or not getattr(first_seq_aval, "shape", ()):
                 trip_count_int = None
             else:
                 dim0 = first_seq_aval.shape[0]
@@ -1295,7 +1300,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         for seq_var in seq_invars:
             aval = getattr(seq_var, "aval", None)
-            if aval is None or not getattr(aval, "shape", ()):  # type: ignore[arg-type]
+            if aval is None or not getattr(aval, "shape", ()):
                 continue
             dim0 = aval.shape[0]
             if trip_count_int is not None and isinstance(dim0, (int, np.integer)):
@@ -1872,7 +1877,7 @@ _DYNAMIC_DIM_SENTINEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 
 
 def _restamp_axis0(
-    value: ir.Value, override: int | None, aval_shape: tuple | None
+    value: ir.Value, override: int | None, aval_shape: tuple[Any, ...] | None
 ) -> None:
     if not isinstance(override, (int, np.integer)) or int(override) <= 1:
         return

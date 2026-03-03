@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 from jax import lax
@@ -58,12 +58,12 @@ def _extract_scalar_literal(invar: Any) -> np.ndarray | None:
     if hasattr(invar, "val"):
         value = np.asarray(getattr(invar, "val"))
         if value.ndim == 0:
-            return value
+            return cast(np.ndarray, value)
     return None
 
 
 def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bool:
-    val = init_arr.item()
+    val: Any = init_arr.item()
     if reducer == "add":
         return bool(np.asarray(val == 0))
     if reducer == "max":
@@ -173,7 +173,7 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
     if hasattr(np, "bfloat16"):
         _MAXPOOL_DTYPES.add(np.dtype(np.bfloat16))
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         reducer_name = _extract_reducer_primitive_name(params.get("jaxpr"))
         if reducer_name not in {"add", "max", "min"}:

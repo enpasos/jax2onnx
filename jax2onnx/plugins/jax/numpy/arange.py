@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Sequence, cast
+from typing import Any, Callable, ClassVar, Final, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,23 +12,26 @@ from jax import core
 from jax.extend.core import Literal as JaxLiteral
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 _JNP_ARANGE_ORIG: Final = jnp.arange
 
-try:
-    _SYMBOLIC_DYNAMIC_DIM: Any | None = jax.export.symbolic_shape(_DYNAMIC_DIM_LABEL)[0]
-except Exception:  # pragma: no cover - best effort for older JAX builds
-    _SYMBOLIC_DYNAMIC_DIM: Any | None = None
+
+def _resolve_symbolic_dynamic_dim() -> Any | None:
+    try:
+        return jax.export.symbolic_shape(_DYNAMIC_DIM_LABEL)[0]
+    except Exception:  # pragma: no cover - best effort for older JAX builds
+        return None
+
+
+_SYMBOLIC_DYNAMIC_DIM: Any | None = _resolve_symbolic_dynamic_dim()
 
 
 class _DynamicDimSentinel:
@@ -107,7 +110,7 @@ class _DynamicDimSentinel:
             return self
         return NotImplemented
 
-    def dimension_as_value(self):  # pragma: no cover - compatibility helper
+    def dimension_as_value(self) -> Any:  # pragma: no cover - compatibility helper
         if _SYMBOLIC_DYNAMIC_DIM is not None:
             return _SYMBOLIC_DYNAMIC_DIM.dimension_as_value()
         return core.dim_constant(1)
@@ -129,7 +132,12 @@ def _as_scalar(aval: core.AbstractValue | JaxLiteral | None) -> float | int | No
     arr = np.asarray(val)
     if arr.shape:
         return None
-    return arr.item()
+    scalar = arr.item()
+    if isinstance(scalar, (bool, np.bool_, int, np.integer)):
+        return int(scalar)
+    if isinstance(scalar, (float, np.floating)):
+        return float(scalar)
+    return None
 
 
 def _static_scalar(value: object) -> float | int | None:
@@ -141,7 +149,12 @@ def _static_scalar(value: object) -> float | int | None:
         return None
     if arr.shape:
         return None
-    return arr.item()
+    scalar = arr.item()
+    if isinstance(scalar, (bool, np.bool_, int, np.integer)):
+        return int(scalar)
+    if isinstance(scalar, (float, np.floating)):
+        return float(scalar)
+    return None
 
 
 def _all_scalars(
@@ -218,7 +231,7 @@ def _resolve_result_dtype(
 
 
 def _maybe_cast_value(
-    ctx: IRContext,
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_enum: ir.DataType,
     name_hint: str,
@@ -622,14 +635,16 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         if scalars is None:
             scalars = _all_scalars(in_avals)
         if scalars is None:
-            shape = (DATA_DEPENDENT_DYNAMIC_DIM,)
+            shape: tuple[int | _DynamicDimSentinel, ...] = (DATA_DEPENDENT_DYNAMIC_DIM,)
         else:
             length = _determine_length(scalars)
-            shape = DATA_DEPENDENT_DYNAMIC_DIM if length is None else int(length)
-            shape = (shape,)
+            length_dim: int | _DynamicDimSentinel = (
+                DATA_DEPENDENT_DYNAMIC_DIM if length is None else int(length)
+            )
+            shape = (length_dim,)
         return jax.core.ShapedArray(shape, result_dtype)
 
-    def lower(self, ctx: "IRContext", eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         dtype_param = params.get("dtype")
         avals: list[core.AbstractValue | JaxLiteral | None] = []

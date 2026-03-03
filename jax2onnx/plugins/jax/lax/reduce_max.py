@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _check_reduce_max_axes_input(model) -> bool:
+def _check_reduce_max_axes_input(model: Any) -> bool:
     """Ensure ReduceMax uses the post-opset-18 signature (axes as input)."""
 
     for node in model.graph.node:
@@ -87,5 +87,5 @@ def _check_reduce_max_axes_input(model) -> bool:
 class ReduceMaxPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_max`` via ONNX ReduceMax."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceMax", allow_dtype_param=False)

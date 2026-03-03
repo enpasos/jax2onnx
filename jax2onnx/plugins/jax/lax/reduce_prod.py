@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -84,5 +84,5 @@ if TYPE_CHECKING:  # pragma: no cover
 class ReduceProdPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_prod`` via ONNX ReduceProd."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceProd", allow_dtype_param=True)

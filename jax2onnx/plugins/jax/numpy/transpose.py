@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -14,7 +14,9 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -158,9 +160,20 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue, axes: AxesArg = None) -> core.ShapedArray:
+    def abstract_eval(
+        x: core.AbstractValue,
+        *,
+        permutation: AxesArg = None,
+        axes: AxesArg = None,
+    ) -> core.ShapedArray:
         rank = len(x.shape)
-        axes_tuple = _normalize_axes(axes, rank)
+        if axes is not None and permutation is None:
+            permutation = axes
+        if axes is not None and permutation is not None and axes != permutation:
+            raise ValueError(
+                "Conflicting transpose params: both 'axes' and 'permutation' provided"
+            )
+        axes_tuple = _normalize_axes(permutation, rank)
         out_shape = tuple(x.shape[i] for i in axes_tuple)
         return core.ShapedArray(out_shape, x.dtype)
 
@@ -168,11 +181,22 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})
+        permutation_param = params.get("permutation")
         axes_param = params.get("axes")
+        if axes_param is not None and permutation_param is None:
+            permutation_param = axes_param
+        if (
+            axes_param is not None
+            and permutation_param is not None
+            and axes_param != permutation_param
+        ):
+            raise ValueError(
+                "Conflicting transpose params: both 'axes' and 'permutation' provided"
+            )
 
         arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
         rank = len(arr_shape)
-        axes_tuple = _normalize_axes(axes_param, rank)
+        axes_tuple = _normalize_axes(permutation_param, rank)
 
         arr_val = ctx.get_value_for_var(
             arr_var, name_hint=ctx.fresh_name("transpose_in")
@@ -220,7 +244,7 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
             def _patched(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
                 arr = jnp.asarray(a)
                 axes_tuple = _normalize_axes(axes, arr.ndim)
-                return cls._PRIM.bind(arr, axes=axes_tuple)
+                return cls._PRIM.bind(arr, permutation=axes_tuple)
 
             return _patched
 
@@ -238,37 +262,61 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
 
 
 @JnpTransposePlugin._PRIM.def_impl
-def _transpose_impl(a: ArrayLike, axes: AxesArg = None) -> jax.Array:
+def _transpose_impl(
+    a: ArrayLike,
+    *,
+    permutation: AxesArg = None,
+    axes: AxesArg = None,
+) -> jax.Array:
+    if axes is not None and permutation is None:
+        permutation = axes
+    if axes is not None and permutation is not None and axes != permutation:
+        raise ValueError(
+            "Conflicting transpose params: both 'axes' and 'permutation' provided"
+        )
     orig = get_orig_impl(JnpTransposePlugin._PRIM, JnpTransposePlugin._FUNC_NAME)
-    return orig(a, axes=axes)
+    return orig(a, axes=permutation)
 
 
 JnpTransposePlugin._PRIM.def_abstract_eval(JnpTransposePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _transpose_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[BatchDim, ...],
     *,
-    axes: Sequence[int],
+    permutation: Sequence[int] | None = None,
+    axes: Sequence[int] | None = None,
 ) -> tuple[jax.Array, BatchDim]:
     (a,), (bdim,) = batched_args, batch_dims
+    if axes is not None and permutation is None:
+        permutation = axes
+    if axes is not None and permutation is not None and axes != permutation:
+        raise ValueError(
+            "Conflicting transpose params: both 'axes' and 'permutation' provided"
+        )
+    if permutation is None:
+        raise ValueError("transpose batch rule requires 'permutation'")
 
     if bdim is batching.not_mapped:
-        out = JnpTransposePlugin._PRIM.bind(a, axes=axes)
+        out = JnpTransposePlugin._PRIM.bind(a, permutation=permutation)
         return out, batching.not_mapped
 
     batch_size = a.shape[bdim]
     a = batching.bdim_at_front(a, bdim, batch_size)
-    perm = (0,) + tuple(int(ax) + 1 for ax in axes)
-    out = JnpTransposePlugin._PRIM.bind(a, axes=perm)
+    perm = (0,) + tuple(int(ax) + 1 for ax in permutation)
+    out = JnpTransposePlugin._PRIM.bind(a, permutation=perm)
     return out, 0
 
 
 batching.primitive_batchers[JnpTransposePlugin._PRIM] = _transpose_batch_rule
 
 
-register_fallback_jvp_rule(JnpTransposePlugin._PRIM, _transpose_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.transpose_p,
+    new_prim=JnpTransposePlugin._PRIM,
+    forward_batching=False,
+)

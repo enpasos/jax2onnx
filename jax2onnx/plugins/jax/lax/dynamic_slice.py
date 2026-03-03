@@ -88,7 +88,7 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     ],
 )
 class DynamicSlicePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         operand_var = eqn.invars[0]
         start_vars = eqn.invars[1:]
         out_var = eqn.outvars[0]
@@ -273,11 +273,12 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
                 return True
             return axis0_extent > 1 and cand_int == axis0_extent
 
-        override_candidates = [
-            int(candidate)
-            for candidate in override_sources
-            if _compatible_override(candidate)
-        ]
+        override_candidates: list[int] = []
+        for candidate in override_sources:
+            if _compatible_override(candidate) and isinstance(
+                candidate, (int, np.integer)
+            ):
+                override_candidates.append(int(candidate))
         _axis0_debug(
             "dynamic_slice override candidates "
             f"value={getattr(result, 'name', None)} "

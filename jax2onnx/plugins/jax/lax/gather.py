@@ -71,7 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _is_integer_dtype(dtype) -> bool:
+def _is_integer_dtype(dtype: Any) -> bool:
     try:
         return np.issubdtype(np.dtype(dtype), np.integer)
     except TypeError:
@@ -242,7 +242,7 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
 class GatherPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.gather`` for the common index patterns exercised in tests."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         data_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
         mode = eqn.params.get("mode", lax.GatherScatterMode.PROMISE_IN_BOUNDS)
@@ -311,7 +311,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, current_data_var)
 
     def _emit_transpose_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, input_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], input_tensor: ir.Value
     ) -> ir.Value:
         result_val = ctx.builder.Transpose(
             input_tensor,
@@ -324,7 +324,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_transpose_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, index_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
     ) -> ir.Value:
         result_val = ctx.builder.Transpose(
             index_tensor,
@@ -337,7 +337,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_reshape_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, index_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
     ) -> ir.Value:
         new_shape = get_gir_output_shape(gir_instr)
         new_shape_val = _const_i64(
@@ -354,7 +354,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_lastdim_gather_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, index_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
     ) -> ir.Value:
         gather_indices_val = _const_i64(
             ctx,
@@ -373,7 +373,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_expand_range_gir_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, index_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
     ) -> ir.Value:
         new_dims = gir_instr.get("new_dims", [])
         if not new_dims:
@@ -553,7 +553,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             range_unsqueezed.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_metadata(ctx, range_unsqueezed)
 
-            one_hot = np.zeros(index_dim_value, dtype=np.int64)
+            one_hot: np.ndarray[Any, Any] = np.zeros(index_dim_value, dtype=np.int64)
             one_hot[coord_position] = 1
             one_hot_const = _const_i64(ctx, one_hot, f"index_expand_one_hot_{dim_idx}")
             one_hot_shape = [1] * len(target_no_index_descr) + [index_dim_value]
@@ -615,7 +615,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def _emit_gather_from_gir(
         self,
         ctx: "IRContext",
-        gir_instr: dict,
+        gir_instr: dict[str, Any],
         input_tensor: ir.Value,
         index_tensor: ir.Value,
     ) -> ir.Value:
@@ -667,7 +667,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
             return ctx.dim_expr_lowerer(values)
 
     def _emit_slice_from_gir(
-        self, ctx: "IRContext", gir_instr: dict, input_tensor: ir.Value
+        self, ctx: "IRContext", gir_instr: dict[str, Any], input_tensor: ir.Value
     ) -> ir.Value:
         axes = [dim["dim"] for dim in gir_instr["dims"] if dim["mode"] == "range_slice"]
         starts = [
@@ -696,7 +696,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def _emit_gather_nd_from_gir(
         self,
         ctx: "IRContext",
-        gir_instr: dict,
+        gir_instr: dict[str, Any],
         input_tensor: ir.Value,
         index_tensor: ir.Value,
     ) -> ir.Value:
@@ -733,7 +733,9 @@ class GatherPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, result_val)
         return result_val
 
-    def _emit_constant_index(self, ctx: "IRContext", gir_instr: dict) -> ir.Value:
+    def _emit_constant_index(
+        self, ctx: "IRContext", gir_instr: dict[str, Any]
+    ) -> ir.Value:
         index_val = _const_i64(
             ctx,
             np.asarray(gir_instr["value"], dtype=np.int64),
@@ -742,7 +744,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return index_val
 
 
-def _masked_gather_trig_local(data, indices):
+def _masked_gather_trig_local(data: Any, indices: Any) -> Any:
     data = jnp.asarray(data, dtype=jnp.float64)
     gathered = data[indices]
     result = gathered * jnp.array(2.0, dtype=jnp.float64)

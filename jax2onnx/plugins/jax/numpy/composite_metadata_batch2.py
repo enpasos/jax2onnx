@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Final
 
+from jax import core
 import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -18,10 +20,11 @@ class _JnpCompositeMetadataBatch2Plugin(PrimitiveLeafPlugin):
     """Metadata-only wrappers for jnp APIs that already lower compositionally."""
 
     @classmethod
-    def binding_specs(cls):
-        return []
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        specs: list[AssignSpec | MonkeyPatchSpec] = []
+        return specs
 
-    def lower(self, ctx: LoweringContextProtocol, eqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         del ctx, eqn
         raise NotImplementedError(
             "Metadata-only jnp composite plugin should not appear in jaxpr."

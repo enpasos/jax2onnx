@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Iterable, Tuple, cast
 
 import numpy as np
 import jax
@@ -37,11 +37,11 @@ def _shard_map_inline_add(x: np.ndarray) -> np.ndarray:
     mesh = _single_device_mesh()
 
     @jax.shard_map(mesh=mesh, in_specs=(P(),), out_specs=P())
-    def inner(val):
+    def inner(val: np.ndarray) -> np.ndarray:
         return val + 1
 
     with mesh:
-        return inner(x)
+        return cast(np.ndarray, inner(x))
 
 
 @register_primitive(
@@ -65,7 +65,7 @@ def _shard_map_inline_add(x: np.ndarray) -> np.ndarray:
 class ShardMapPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``shard_map`` call directly into the current IR context."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         inner_jaxpr, consts = _extract_inner_jaxpr(eqn.params)
 
         for var, const_val in zip(inner_jaxpr.constvars, consts):

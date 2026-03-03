@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence, Callable
+from typing import Any, Sequence, Callable, cast
 
 import numpy as np
 from jax import lax
@@ -13,12 +13,15 @@ def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
     try:  # Prefer the internal helper when available (moved in newer JAX versions).
         from jax._src import core as _core_src
 
-        return _core_src.definitely_equal_shape
+        return cast(Callable[[Any, Any], bool], _core_src.definitely_equal_shape)
     except Exception:  # pragma: no cover - fallback for older/older-stub JAX
         try:
             from jax import core as _core_public
 
-            return _core_public.definitely_equal_shape  # type: ignore[attr-defined]
+            return cast(
+                Callable[[Any, Any], bool],
+                getattr(_core_public, "definitely_equal_shape"),
+            )
         except Exception:  # pragma: no cover - minimal fallback
 
             def _fallback(s1: Any, s2: Any) -> bool:
@@ -48,7 +51,7 @@ def _handle_scalar_broadcasting(ndim: int, x: Any, dim: Any) -> Any:
 
 def broadcast_batcher_compat(
     prim: Any, args: Sequence[Any], dims: Sequence[Any], **params: Any
-):
+) -> Any:
     """Broadcasting batch rule that avoids relying on JAX's internal helper."""
     if len(args) <= 1:
         raise ValueError("broadcast_batcher_compat requires at least two arguments")

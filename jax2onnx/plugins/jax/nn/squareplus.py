@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
@@ -95,7 +95,9 @@ class SquareplusPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("squareplus_out")
 
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
         half_const = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("squareplus_half"),
             array=np.asarray(0.5, dtype=x_dtype),
@@ -156,7 +158,7 @@ class SquareplusPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -197,7 +199,9 @@ def _squareplus_impl(x: ArrayLike, b: ArrayLike) -> ArrayLike:
 register_jvp_via_jax_jvp(SquareplusPlugin._PRIM, _squareplus_impl)
 
 
-def _squareplus_batch_rule(batched_args, batch_dims, **params):
+def _squareplus_batch_rule(
+    batched_args: tuple[Any, ...], batch_dims: tuple[Any, ...], **params: Any
+) -> Any:
     return broadcast_batcher_compat(
         SquareplusPlugin._PRIM,
         batched_args,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax.extend.core import Primitive
@@ -90,7 +90,9 @@ class Log1mexpPlugin(PrimitiveLeafPlugin):
 
         out_type = getattr(out_spec, "type", None) or getattr(x_val, "type", None)
         out_shape = getattr(out_spec, "shape", None) or getattr(x_val, "shape", None)
-        x_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
 
         one_const = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("log1mexp_one"),
@@ -167,7 +169,7 @@ class Log1mexpPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True

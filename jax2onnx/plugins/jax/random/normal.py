@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
@@ -78,7 +78,7 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
         (out_var,) = eqn.outvars
 
         shape_param = tuple(int(dim) for dim in eqn.params.get("shape", ()))
-        out_dtype = np.dtype(
+        out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
         dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
@@ -127,7 +127,7 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True

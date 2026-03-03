@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -18,7 +18,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _cast_value(
-    ctx: "IRContext", value: ir.Value, target: ir.DataType, shape: tuple, name: str
+    ctx: "IRContext",
+    value: ir.Value,
+    target: ir.DataType,
+    shape: tuple[object, ...],
+    name: str,
 ) -> ir.Value:
     current = getattr(getattr(value, "type", None), "dtype", None)
     if current == target:
@@ -123,7 +127,7 @@ def _cast_value(
     ],
 )
 class ClampPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         min_var, x_var, max_var = eqn.invars
         out_var = eqn.outvars[0]
 

@@ -113,7 +113,12 @@ class JnpLogPlugin(PrimitiveLeafPlugin):
         reduce_node = reduce_getter() if callable(reduce_getter) else None
         if getattr(reduce_node, "op_type", "") == "ReduceSum":
             reduce_inputs = list(getattr(reduce_node, "inputs", ()))
-            keepdims_attr = reduce_node.attributes.get("keepdims")
+            reduce_attributes = getattr(reduce_node, "attributes", {})
+            keepdims_attr = (
+                reduce_attributes.get("keepdims")
+                if hasattr(reduce_attributes, "get")
+                else None
+            )
             keepdims = int(
                 getattr(keepdims_attr, "value", keepdims_attr)
                 if keepdims_attr is not None
@@ -126,8 +131,9 @@ class JnpLogPlugin(PrimitiveLeafPlugin):
 
                 exp_getter = getattr(reduce_data, "producer", lambda: None)
                 exp_node = exp_getter() if callable(exp_getter) else None
-                if getattr(exp_node, "op_type", "") == "Exp" and exp_node.inputs:
-                    alias_inputs = [exp_node.inputs[0], *reduce_axes]
+                exp_inputs = tuple(getattr(exp_node, "inputs", ()))
+                if getattr(exp_node, "op_type", "") == "Exp" and exp_inputs:
+                    alias_inputs = [exp_inputs[0], *reduce_axes]
                     result = ctx.builder.ReduceLogSumExp(
                         *alias_inputs,
                         keepdims=keepdims,
@@ -158,7 +164,10 @@ class JnpLogPlugin(PrimitiveLeafPlugin):
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
-        return jnp_binding_specs(cls._PRIM, cls._FUNC_NAME)
+        specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
+            cls._PRIM, cls._FUNC_NAME
+        )
+        return specs
 
 
 @JnpLogPlugin._PRIM.def_impl

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -299,5 +299,5 @@ if TYPE_CHECKING:  # pragma: no cover
 class ScatterAddPlugin(PrimitiveLeafPlugin):
     """IR-first lowering for ``lax.scatter_add`` (element-wise variant)."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lower_scatter_common(ctx, eqn, reduction="add")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 
@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class StopGradientPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.stop_gradient`` to an ONNX Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

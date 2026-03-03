@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -244,15 +244,15 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
 
 
 @JnpUnstackPlugin._PRIM.def_impl
-def _unstack_impl(x: ArrayLike, axis: int = 0):
+def _unstack_impl(x: ArrayLike, axis: int = 0) -> tuple[jax.Array, ...]:
     orig = get_orig_impl(JnpUnstackPlugin._PRIM, JnpUnstackPlugin._FUNC_NAME)
-    return orig(x, axis=axis)
+    return tuple(orig(x, axis=axis))
 
 
 JnpUnstackPlugin._PRIM.def_abstract_eval(JnpUnstackPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _unstack_batch_rule(
@@ -263,9 +263,9 @@ def _unstack_batch_rule(
 ) -> tuple[tuple[jax.Array, ...], tuple[BatchDim, ...]]:
     (operand,), (bdim,) = batched_args, batch_dims
 
-    if bdim is batching.not_mapped:
+    if bdim is None:
         outs = JnpUnstackPlugin._PRIM.bind(operand, axis=axis)
-        return outs, tuple(batching.not_mapped for _ in outs)
+        return outs, tuple(None for _ in outs)
 
     batch_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, batch_size)

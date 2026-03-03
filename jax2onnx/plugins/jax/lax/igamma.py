@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -15,7 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -24,13 +24,13 @@ def _stamp_like(value, ref) -> None:
 
 def _regularized_lower_gamma(
     ctx: "IRContext",
-    a,
-    x,
-    np_dtype,
+    a: Any,
+    x: Any,
+    np_dtype: np.dtype[Any],
     name_prefix: str,
     *,
     steps: int = 96,
-):
+) -> Any:
     """Approximate P(a, x) = igamma(a, x) for a>0, x>=0 via midpoint quadrature."""
     zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=np_dtype))
     one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
@@ -138,7 +138,9 @@ def _regularized_lower_gamma(
     return p
 
 
-def _valid_domain_mask(ctx: "IRContext", a, x, np_dtype, name_prefix: str):
+def _valid_domain_mask(
+    ctx: "IRContext", a: Any, x: Any, np_dtype: np.dtype[Any], name_prefix: str
+) -> Any:
     zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=np_dtype))
     a_gt_zero = ctx.builder.Greater(
         a,
@@ -205,7 +207,7 @@ def _valid_domain_mask(ctx: "IRContext", a, x, np_dtype, name_prefix: str):
 class IGammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igamma`` with midpoint quadrature for the lower gamma ratio."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -214,7 +216,9 @@ class IGammaPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("igamma_out")
         )
-        np_dtype = np.dtype(getattr(getattr(a_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(a_var, "aval", None), "dtype", np.float32)
+        )
 
         p = _regularized_lower_gamma(ctx, a, x, np_dtype, "igamma")
         valid = _valid_domain_mask(ctx, a, x, np_dtype, "igamma")
@@ -271,7 +275,7 @@ class IGammaPlugin(PrimitiveLeafPlugin):
 class IGammaCPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igammac`` as 1 - igamma(a, x) over the valid domain."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -280,7 +284,9 @@ class IGammaCPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("igammac_out")
         )
-        np_dtype = np.dtype(getattr(getattr(a_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(a_var, "aval", None), "dtype", np.float32)
+        )
 
         p = _regularized_lower_gamma(ctx, a, x, np_dtype, "igammac")
         one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
@@ -343,7 +349,7 @@ class IGammaCPlugin(PrimitiveLeafPlugin):
 class IGammaGradAPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igamma_grad_a`` with symmetric finite differences on a."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -352,7 +358,9 @@ class IGammaGradAPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("igammagrad_out")
         )
-        np_dtype = np.dtype(getattr(getattr(a_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(a_var, "aval", None), "dtype", np.float32)
+        )
 
         eps = ctx.bind_const_for_var(object(), np.asarray(1e-3, dtype=np_dtype))
         a_plus = ctx.builder.Add(a, eps, _outputs=[ctx.fresh_name("igammagrad_ap")])

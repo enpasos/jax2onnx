@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -14,14 +14,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _lanczos_lgamma_positive(ctx: "IRContext", x, np_dtype, name_prefix: str):
+def _lanczos_lgamma_positive(
+    ctx: "IRContext", x: Any, np_dtype: np.dtype[Any], name_prefix: str
+) -> Any:
     # Lanczos approximation, g=7, n=9 (Numerical Recipes coefficients).
     coeffs = [
         0.99999999999980993,
@@ -137,7 +139,7 @@ def _lanczos_lgamma_positive(ctx: "IRContext", x, np_dtype, name_prefix: str):
 class LGammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.lgamma`` via Lanczos + reflection formula."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -145,7 +147,9 @@ class LGammaPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("lgamma_out")
         )
-        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+        )
 
         half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=np_dtype))
         one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))

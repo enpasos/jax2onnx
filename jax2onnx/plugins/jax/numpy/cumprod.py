@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax import core
@@ -246,7 +246,7 @@ def _cumprod_impl(
     return orig(jnp.asarray(a), axis=axis, dtype=dtype)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _cumprod_batch_rule(
@@ -258,13 +258,13 @@ def _cumprod_batch_rule(
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
 
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = JnpCumProdPlugin._PRIM.bind(
             operand,
             axis=axis,
             dtype=dtype,
         )
-        return out, batching.not_mapped
+        return out, None
 
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)

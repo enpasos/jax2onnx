@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 from jax import core
 import jax
@@ -87,7 +87,7 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("conj_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("conj_out"))
 
-        def _is_complex_var(var) -> bool:
+        def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
             if aval_dtype is None:
                 return False
@@ -179,7 +179,9 @@ JnpConjPlugin._PRIM.def_abstract_eval(
 )
 
 
-def _conj_batch_rule(args, dims, **params):
+def _conj_batch_rule(
+    args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
+) -> tuple[Any, Any]:
     (x,), (bdim,) = args, dims
     out = JnpConjPlugin._PRIM.bind(x, **params)
     return out, bdim

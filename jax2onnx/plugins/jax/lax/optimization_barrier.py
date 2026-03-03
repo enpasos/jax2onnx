@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class OptimizationBarrierPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.optimization_barrier`` as one-to-one ``Identity`` nodes."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         if len(eqn.invars) != len(eqn.outvars):
             raise ValueError(
                 "optimization_barrier expects equal numbers of inputs and outputs"

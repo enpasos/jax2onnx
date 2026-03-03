@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import jax
 import numpy as np
@@ -133,7 +133,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class SelectPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.select`` to ONNX ``Where``."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         cond_var, x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

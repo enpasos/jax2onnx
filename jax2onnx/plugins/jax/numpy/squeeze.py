@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +15,9 @@ from jax.interpreters import batching
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -42,6 +44,34 @@ def _normalize_axes(axes: int | Sequence[int] | None, rank: int) -> tuple[int, .
         if ax_int not in normalized:
             normalized.append(ax_int)
     return tuple(normalized)
+
+
+def _resolve_dimensions(
+    *,
+    rank: int,
+    shape: Sequence[object],
+    dimensions: Sequence[int] | None = None,
+    axes: int | Sequence[int] | None = None,
+    axis: int | Sequence[int] | None = None,
+) -> tuple[int, ...]:
+    if dimensions is not None:
+        dims = _normalize_axes(tuple(dimensions), rank)
+    elif axes is not None:
+        dims = _normalize_axes(axes, rank)
+    elif axis is not None:
+        dims = _normalize_axes(axis, rank)
+    else:
+        dims = tuple(i for i, d in enumerate(shape) if isinstance(d, int) and d == 1)
+
+    if axes is not None and axis is not None:
+        if _normalize_axes(axes, rank) != _normalize_axes(axis, rank):
+            raise ValueError("Conflicting squeeze params: both 'axes' and 'axis'")
+    if dimensions is not None:
+        if axes is not None and dims != _normalize_axes(axes, rank):
+            raise ValueError("Conflicting squeeze params: both 'dimensions' and 'axes'")
+        if axis is not None and dims != _normalize_axes(axis, rank):
+            raise ValueError("Conflicting squeeze params: both 'dimensions' and 'axis'")
+    return dims
 
 
 @register_primitive(
@@ -173,17 +203,30 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue, *, axis: int | Sequence[int] | None = None
+        x: core.AbstractValue,
+        *,
+        dimensions: Sequence[int] | None = None,
+        axes: int | Sequence[int] | None = None,
+        axis: int | Sequence[int] | None = None,
     ) -> core.ShapedArray:
+        dims = _resolve_dimensions(
+            rank=len(x.shape),
+            shape=tuple(x.shape),
+            dimensions=dimensions,
+            axes=axes,
+            axis=axis,
+        )
         storage_slot = f"__orig_impl__{JnpSqueezePlugin._FUNC_NAME}"
         orig = getattr(JnpSqueezePlugin._PRIM, storage_slot, jnp.squeeze)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
-        result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
+        result = jax.eval_shape(lambda arr: orig(arr, axis=dims), spec)
         return core.ShapedArray(result.shape, result.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
-        axis_param = params.get("axes", params.get("axis"))
+        dimensions_param = params.get("dimensions")
+        axes_param = params.get("axes")
+        axis_param = params.get("axis")
 
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
@@ -191,12 +234,13 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
         arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
         rank = len(arr_shape)
 
-        axes = _normalize_axes(axis_param, rank)
-        if axis_param is None:
-            # Squeeze all singleton dims
-            axes = tuple(
-                i for i, d in enumerate(arr_shape) if isinstance(d, int) and d == 1
-            )
+        axes = _resolve_dimensions(
+            rank=rank,
+            shape=arr_shape,
+            dimensions=dimensions_param,
+            axes=axes_param,
+            axis=axis_param,
+        )
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("squeeze_in"))
         out_spec = ctx.get_value_for_var(
@@ -257,7 +301,12 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
                 a: ArrayLike, axis: int | Sequence[int] | None = None
             ) -> jax.Array:
                 arr = jnp.asarray(a)
-                return cls._PRIM.bind(arr, axis=axis)
+                dims = _resolve_dimensions(
+                    rank=arr.ndim,
+                    shape=tuple(arr.shape),
+                    axis=axis,
+                )
+                return cls._PRIM.bind(arr, dimensions=dims)
 
             return _patched
 
@@ -275,47 +324,75 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
 
 
 @JnpSqueezePlugin._PRIM.def_impl
-def _squeeze_impl(a: ArrayLike, axis: int | Sequence[int] | None = None) -> jax.Array:
+def _squeeze_impl(
+    a: ArrayLike,
+    *,
+    dimensions: Sequence[int] | None = None,
+    axes: int | Sequence[int] | None = None,
+    axis: int | Sequence[int] | None = None,
+) -> jax.Array:
     orig = get_orig_impl(JnpSqueezePlugin._PRIM, JnpSqueezePlugin._FUNC_NAME)
-    return orig(a, axis=axis)
+    arr = jnp.asarray(a)
+    dims = _resolve_dimensions(
+        rank=arr.ndim,
+        shape=tuple(arr.shape),
+        dimensions=dimensions,
+        axes=axes,
+        axis=axis,
+    )
+    return orig(arr, axis=dims)
 
 
 JnpSqueezePlugin._PRIM.def_abstract_eval(JnpSqueezePlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _squeeze_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[BatchDim, ...],
     *,
+    dimensions: Sequence[int] | None = None,
+    axes: int | Sequence[int] | None = None,
     axis: int | Sequence[int] | None = None,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
 
     if bdim is batching.not_mapped:
-        out = JnpSqueezePlugin._PRIM.bind(operand, axis=axis)
+        axis_dims = _resolve_dimensions(
+            rank=operand.ndim,
+            shape=tuple(operand.shape),
+            dimensions=dimensions,
+            axes=axes,
+            axis=axis,
+        )
+        out = JnpSqueezePlugin._PRIM.bind(operand, dimensions=axis_dims)
         return out, batching.not_mapped
 
     batch_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, batch_size)
 
     slice_rank = operand.ndim - 1
-    if axis is None:
-        slice_shape = operand.shape[1:]
-        axes_slice = tuple(
-            i for i, dim in enumerate(slice_shape) if isinstance(dim, int) and dim == 1
-        )
-    else:
-        axes_slice = _normalize_axes(axis, slice_rank)
+    slice_shape = tuple(operand.shape[1:])
+    axes_slice = _resolve_dimensions(
+        rank=slice_rank,
+        shape=slice_shape,
+        dimensions=dimensions,
+        axes=axes,
+        axis=axis,
+    )
 
     axes_full = tuple(int(ax) + 1 for ax in axes_slice)
-    out = JnpSqueezePlugin._PRIM.bind(operand, axis=axes_full)
+    out = JnpSqueezePlugin._PRIM.bind(operand, dimensions=axes_full)
     return out, 0
 
 
 batching.primitive_batchers[JnpSqueezePlugin._PRIM] = _squeeze_batch_rule
 
 
-register_fallback_jvp_rule(JnpSqueezePlugin._PRIM, _squeeze_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.squeeze_p,
+    new_prim=JnpSqueezePlugin._PRIM,
+    forward_batching=False,
+)

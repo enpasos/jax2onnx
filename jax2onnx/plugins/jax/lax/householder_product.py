@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
@@ -16,14 +16,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-def _stamp_like(value, ref) -> None:
+def _stamp_like(value: Any, ref: Any) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
         value.shape = ref.shape
 
 
-def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
+def _gather_mat_elem(
+    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
     row = ctx.builder.Gather(
         mat,
@@ -47,7 +49,14 @@ def _gather_mat_elem(ctx: "IRContext", mat, i: int, j: int, name: str):
     return elem
 
 
-def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
+def _scatter_mat_elem(
+    ctx: "IRContext",
+    mat: ir.Value,
+    i: int,
+    j: int,
+    value: ir.Value,
+    name: str,
+) -> ir.Value:
     idx = _const_i64(
         ctx,
         np.asarray([[[i, j]]], dtype=np.int64),
@@ -58,7 +67,7 @@ def _scatter_mat_elem(ctx: "IRContext", mat, i: int, j: int, value, name: str):
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
+def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
     out = ctx.builder.Gather(
         vec,
@@ -136,7 +145,7 @@ def _gather_vec_elem(ctx: "IRContext", vec, i: int, name: str):
 class HouseholderProductPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.householder_product`` for static rank-2 inputs."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         a_var, taus_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -176,7 +185,9 @@ class HouseholderProductPlugin(PrimitiveLeafPlugin):
         if k < 0 or k > min(m, n):
             raise ValueError("householder_product requires 0 <= len(taus) <= min(m, n)")
 
-        np_dtype = np.dtype(getattr(getattr(a_var, "aval", None), "dtype", np.float32))
+        np_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(a_var, "aval", None), "dtype", np.float32)
+        )
         q_cur = ctx.bind_const_for_var(object(), np.eye(m, n, dtype=np_dtype))
         _stamp_like(q_cur, a_val)
         q_cur.shape = ir.Shape((m, n))

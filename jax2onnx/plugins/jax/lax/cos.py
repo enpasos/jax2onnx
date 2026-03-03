@@ -12,8 +12,6 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
-
 
 @register_primitive(
     jaxpr_primitive=jax.lax.cos_p.name,
@@ -41,13 +39,13 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class CosPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("cos_in"))
 
-        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
         if x_dtype == np.float64:
             # ONNX runtime lacks a double kernel for Cos; use sin(x + pi/2) instead.
             pi_over_two = ctx.bind_const_for_var(

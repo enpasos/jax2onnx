@@ -11,8 +11,6 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-JaxprEqn = getattr(core, "JaxprEqn", Any)
-
 
 @register_primitive(
     jaxpr_primitive=jax.lax.sinh_p.name,
@@ -46,14 +44,14 @@ JaxprEqn = getattr(core, "JaxprEqn", Any)
     ],
 )
 class SinhPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sinh_in"))
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sinh_out"))
 
-        x_dtype = np.dtype(getattr(x_var.aval, "dtype", np.float32))
+        x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("sinh_out")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:

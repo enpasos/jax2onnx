@@ -14,7 +14,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple:
+def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple[object, ...]:
     dims = getattr(shape, "dims", None)
     if dims is None:
         try:
@@ -88,7 +88,7 @@ def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.V
 class RandomSeedPlugin(PrimitiveLeafPlugin):
     """Lower ``random_seed`` to a deterministic uint32 key pair [0, seed]."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         seed_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -137,7 +137,7 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
 class RandomUnwrapPlugin(PrimitiveLeafPlugin):
     """Forward the uint32 key produced by ``random_seed``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))
@@ -161,7 +161,7 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
 class RandomWrapPlugin(PrimitiveLeafPlugin):
     """No-op wrapper around PRNG keys."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         key_value = ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("prng"))

@@ -61,7 +61,7 @@ def _identity(
 class RandomFoldInPlugin(PrimitiveLeafPlugin):
     """Forward the incoming key; sufficient for deterministic inference paths."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

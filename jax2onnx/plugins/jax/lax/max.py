@@ -1,15 +1,14 @@
 # jax2onnx/plugins/jax/lax/max.py
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Any
 
 import jax
 import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    pass
 
 
 @register_primitive(
@@ -37,12 +36,14 @@ if TYPE_CHECKING:
     ],
 )
 class MaxPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: jax.core.JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
         lhs_val = ctx.get_value_for_var(lhs_var, name_hint=ctx.fresh_name("max_lhs"))
-        prefer_dtype = np.dtype(getattr(lhs_var.aval, "dtype", np.float32))
+        prefer_dtype: np.dtype[Any] = np.dtype(
+            getattr(lhs_var.aval, "dtype", np.float32)
+        )
         rhs_val = ctx.get_value_for_var(
             rhs_var,
             name_hint=ctx.fresh_name("max_rhs"),

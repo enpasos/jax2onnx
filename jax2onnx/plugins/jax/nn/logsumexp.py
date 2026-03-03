@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 from jax.extend.core import Primitive
@@ -21,6 +21,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _LOGSUMEXP_PRIM: Final[Primitive] = Primitive("jax.nn.logsumexp")
 _LOGSUMEXP_PRIM.multiple_results = False
 _JAX_LOGSUMEXP_ORIG: Final = jax.nn.logsumexp
+BatchDim: TypeAlias = int | None
 
 
 @register_primitive(
@@ -165,7 +166,7 @@ class LogSumExpPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -180,12 +181,12 @@ class LogSumExpPlugin(PrimitiveLeafPlugin):
 
             def _patched(
                 a: ArrayLike,
-                axis=None,
-                b=None,
+                axis: int | tuple[int, ...] | list[int] | None = None,
+                b: ArrayLike | None = None,
                 keepdims: bool = False,
                 return_sign: bool = False,
-                where=None,
-            ):
+                where: ArrayLike | None = None,
+            ) -> ArrayLike:
                 if b is not None or where is not None or bool(return_sign):
                     return orig(
                         a,
@@ -271,7 +272,7 @@ def _logsumexp_impl(
     *,
     axes: tuple[int, ...] | None,
     keepdims: bool,
-):
+) -> ArrayLike:
     axis_arg = LogSumExpPlugin._axis_arg(axes)
     return _JAX_LOGSUMEXP_ORIG(
         a,
@@ -283,9 +284,6 @@ def _logsumexp_impl(
     )
 
 
-BatchDim = int | type(batching.not_mapped)
-
-
 def _logsumexp_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[BatchDim, ...],
@@ -294,9 +292,9 @@ def _logsumexp_batch_rule(
     keepdims: bool,
 ) -> tuple[jax.Array, BatchDim]:
     (operand,), (bdim,) = batched_args, batch_dims
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = LogSumExpPlugin._PRIM.bind(operand, axes=axes, keepdims=keepdims)
-        return out, batching.not_mapped
+        return out, None
 
     axis_size = operand.shape[bdim]
     operand = batching.bdim_at_front(operand, bdim, axis_size)

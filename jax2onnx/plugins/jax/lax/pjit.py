@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Iterable, Tuple, cast
 
 from functools import partial
 import numpy as np
@@ -40,22 +40,22 @@ def _pjit_inline_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     mesh = _single_device_mesh()
 
     @partial(pjit.pjit, in_shardings=(P(), P()), out_shardings=P())
-    def inner(x, y):
-        return x * y
+    def inner(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        return cast(np.ndarray, x * y)
 
     with mesh:
-        return inner(a, b)
+        return cast(np.ndarray, inner(a, b))
 
 
 def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     mesh = _single_device_mesh()
 
     @partial(pjit.pjit, in_shardings=(P(), P()), out_shardings=(P(), P()))
-    def inner(x, y):
-        return x * y, x + y
+    def inner(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return (cast(np.ndarray, x * y), cast(np.ndarray, x + y))
 
     with mesh:
-        return inner(a, b)
+        return cast(tuple[np.ndarray, np.ndarray], inner(a, b))
 
 
 @register_primitive(
@@ -99,7 +99,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
 class PJITPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``pjit`` call directly into the current IR context."""
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[name-defined]
+    def lower(self, ctx: "IRContext", eqn: Any) -> None:
         inner_jaxpr, consts = _extract_closed_jaxpr(eqn.params)
 
         # Bind constants into the current context so inner equations can use them

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import ClassVar, Final
+from typing import ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,16 +16,18 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
+from jax2onnx.plugins.jax._autodiff_utils import (
+    register_allowlisted_original_rule_forwarding,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
+from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
 _SPLIT_PRIM: Final = make_jnp_primitive("jax.numpy.split")
 _SPLIT_PRIM.multiple_results = True
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _normalize_axis(axis: int | None, rank: int) -> int:
@@ -39,6 +41,20 @@ def _normalize_axis(axis: int | None, rank: int) -> int:
 
 def _to_int_sequence(values: Sequence[int | np.integer]) -> tuple[int, ...]:
     return tuple(int(v) for v in values)
+
+
+def _normalize_indices_or_sections(
+    indices_or_sections: int | Sequence[int | np.integer] | np.ndarray,
+) -> int | tuple[int, ...]:
+    if isinstance(indices_or_sections, int):
+        return int(indices_or_sections)
+    if isinstance(indices_or_sections, np.ndarray):
+        if indices_or_sections.ndim != 1:
+            raise TypeError("split indices must be 1-D")
+        return _to_int_sequence(indices_or_sections.tolist())
+    if isinstance(indices_or_sections, Sequence):
+        return _to_int_sequence(indices_or_sections)
+    raise TypeError("split indices_or_sections must be int or 1-D sequence")
 
 
 def _split_sizes(
@@ -61,6 +77,34 @@ def _split_sizes(
     if any(d <= 0 for d in diffs):
         raise ValueError("split sizes must be positive")
     return tuple(diffs)
+
+
+def _resolve_split_sizes(
+    *,
+    dim_size: int,
+    sizes: Sequence[int] | None = None,
+    indices_or_sections: int | Sequence[int | np.integer] | np.ndarray | None = None,
+) -> tuple[int, ...]:
+    if sizes is not None:
+        sizes_tuple = _to_int_sequence(sizes)
+        if any(sz <= 0 for sz in sizes_tuple):
+            raise ValueError("split sizes must be positive")
+        if sum(sizes_tuple) != int(dim_size):
+            raise ValueError(
+                f"split sizes {sizes_tuple} do not sum to axis size {dim_size}"
+            )
+        if indices_or_sections is not None:
+            normalized = _normalize_indices_or_sections(indices_or_sections)
+            expected = _split_sizes(int(dim_size), normalized)
+            if expected != sizes_tuple:
+                raise ValueError(
+                    "Conflicting split params: 'sizes' and 'indices_or_sections'"
+                )
+        return sizes_tuple
+    if indices_or_sections is None:
+        raise KeyError("split params missing 'sizes'/'indices_or_sections'")
+    normalized = _normalize_indices_or_sections(indices_or_sections)
+    return _split_sizes(int(dim_size), normalized)
 
 
 @register_primitive(
@@ -153,7 +197,10 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
     def abstract_eval(
         x: core.ShapedArray,
         *,
-        indices_or_sections: int | Sequence[int | np.integer],
+        sizes: Sequence[int] | None = None,
+        indices_or_sections: (
+            int | Sequence[int | np.integer] | np.ndarray | None
+        ) = None,
         axis: int = 0,
     ) -> tuple[core.ShapedArray, ...]:
         rank = len(x.shape)
@@ -161,14 +208,18 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
         dim = x.shape[axis_norm]
 
         if isinstance(dim, int):
-            sizes = _split_sizes(dim, indices_or_sections)
+            sizes_tuple = _resolve_split_sizes(
+                dim_size=dim,
+                sizes=sizes,
+                indices_or_sections=indices_or_sections,
+            )
         else:
             raise TypeError(
                 "jnp.split requires concrete size along split axis in IR path"
             )
 
         specs = []
-        for sz in sizes:
+        for sz in sizes_tuple:
             shape = list(x.shape)
             shape[axis_norm] = sz
             specs.append(core.ShapedArray(tuple(shape), x.dtype))
@@ -177,6 +228,7 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis", 0)
+        sizes_param = params.get("sizes")
         indices_param = params.get("indices_or_sections")
 
         (arr_var,) = eqn.invars
@@ -190,17 +242,11 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
                 "jnp.split requires concrete size along split axis for ONNX lowering"
             )
 
-        if isinstance(indices_param, int):
-            sizes = _split_sizes(dim, indices_param)
-        elif isinstance(indices_param, Sequence):
-            indices_seq = _to_int_sequence(indices_param)
-            sizes = _split_sizes(dim, indices_seq)
-        else:
-            indices_np = np.asarray(indices_param)
-            if indices_np.ndim != 1:
-                raise TypeError("split indices must be 1-D")
-            indices_seq = _to_int_sequence(indices_np.tolist())
-            sizes = _split_sizes(dim, indices_seq)
+        sizes = _resolve_split_sizes(
+            dim_size=dim,
+            sizes=sizes_param,
+            indices_or_sections=indices_param,
+        )
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("split_in"))
         split_val = _const_i64(
@@ -264,17 +310,22 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
             ) -> Sequence[jax.Array]:
                 arr = jnp.asarray(a)
                 axis_norm = _normalize_axis(axis, arr.ndim)
-                if isinstance(indices_or_sections, (list, tuple)):
-                    indices_param = tuple(indices_or_sections)
-                else:
-                    try:
-                        indices_param = tuple(indices_or_sections.tolist())
-                    except AttributeError:
-                        indices_param = indices_or_sections
-                return cls._PRIM.bind(
-                    arr,
-                    indices_or_sections=indices_param,
-                    axis=axis_norm,
+                dim = arr.shape[axis_norm]
+                if not isinstance(dim, int):
+                    raise TypeError(
+                        "jnp.split requires concrete size along split axis in IR path"
+                    )
+                sizes = _resolve_split_sizes(
+                    dim_size=dim,
+                    indices_or_sections=indices_or_sections,
+                )
+                return cast(
+                    Sequence[jax.Array],
+                    cls._PRIM.bind(
+                        arr,
+                        sizes=sizes,
+                        axis=axis_norm,
+                    ),
                 )
 
             return _patched
@@ -294,10 +345,23 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
 
 @JnpSplitPlugin._PRIM.def_impl
 def _split_impl(
-    a: ArrayLike, indices_or_sections: int | Sequence[int], axis: int = 0
+    a: ArrayLike,
+    *,
+    sizes: Sequence[int] | None = None,
+    indices_or_sections: int | Sequence[int] | np.ndarray | None = None,
+    axis: int = 0,
 ) -> Sequence[jax.Array]:
-    orig = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
-    return orig(a, indices_or_sections, axis=axis)
+    arr = jnp.asarray(a)
+    axis_norm = _normalize_axis(axis, arr.ndim)
+    dim = arr.shape[axis_norm]
+    if not isinstance(dim, int):
+        raise TypeError("jnp.split requires concrete size along split axis in IR path")
+    sizes_tuple = _resolve_split_sizes(
+        dim_size=dim,
+        sizes=sizes,
+        indices_or_sections=indices_or_sections,
+    )
+    return tuple(jax.lax.split(arr, sizes_tuple, axis=axis_norm))
 
 
 JnpSplitPlugin._PRIM.def_abstract_eval(JnpSplitPlugin.abstract_eval)
@@ -307,60 +371,59 @@ def _split_batch_rule(
     batched_args: tuple[jax.Array, ...],
     batch_dims: tuple[BatchDim, ...],
     *,
-    indices_or_sections: int | Sequence[int],
+    sizes: Sequence[int] | None = None,
+    indices_or_sections: int | Sequence[int] | np.ndarray | None = None,
     axis: int = 0,
 ) -> tuple[tuple[jax.Array, ...], tuple[BatchDim, ...]]:
     (arr,) = batched_args
     (arr_bdim,) = batch_dims
-    axis_int = int(axis)
+    axis_int = _normalize_axis(axis, arr.ndim)
+    dim = arr.shape[axis_int]
+    if not isinstance(dim, int):
+        raise TypeError("jnp.split requires concrete size along split axis in IR path")
+    sizes_tuple = _resolve_split_sizes(
+        dim_size=dim,
+        sizes=sizes,
+        indices_or_sections=indices_or_sections,
+    )
 
-    try:
-        orig = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
-    except RuntimeError:
-        orig = jnp.split
-
-    outputs = orig(arr, indices_or_sections, axis=axis_int)
-    if isinstance(outputs, list):
-        outputs = tuple(outputs)
-    if arr_bdim is batching.not_mapped:
-        return outputs, tuple(batching.not_mapped for _ in outputs)
+    outputs = tuple(jax.lax.split(arr, sizes_tuple, axis=axis_int))
+    if arr_bdim is None:
+        return outputs, tuple(None for _ in outputs)
+    arr_bdim_int = arr_bdim
 
     axis_size = None
     arr_shape = getattr(arr, "shape", None)
-    if arr_shape is not None and arr_bdim < len(arr_shape):
-        axis_size = arr_shape[arr_bdim]
+    if arr_shape is not None and arr_bdim_int < len(arr_shape):
+        axis_size = arr_shape[arr_bdim_int]
 
-    arr_front = batching.bdim_at_front(arr, arr_bdim, axis_size)
+    arr_front = batching.bdim_at_front(arr, arr_bdim_int, axis_size)
 
-    if arr_bdim == axis_int:
+    if arr_bdim_int == axis_int:
         inner_axis = axis_int
-    elif arr_bdim < axis_int:
+    elif arr_bdim_int < axis_int:
         inner_axis = axis_int - 1
     else:
         inner_axis = axis_int
 
-    try:
-        orig_impl = get_orig_impl(JnpSplitPlugin._PRIM, JnpSplitPlugin._FUNC_NAME)
-    except RuntimeError:
-        orig_impl = jnp.split
-
-    def _split_single(x):
-        parts = orig_impl(x, indices_or_sections, axis=inner_axis)
-        if isinstance(parts, list):
-            parts = tuple(parts)
-        return parts
+    def _split_single(x: jax.Array) -> tuple[jax.Array, ...]:
+        return tuple(jax.lax.split(x, sizes_tuple, axis=inner_axis))
 
     vmapped = jax.vmap(_split_single)(arr_front)
 
     results = []
     for part in vmapped:
-        if arr_bdim != 0:
-            part = jnp.moveaxis(part, 0, arr_bdim)
+        if arr_bdim_int != 0:
+            part = jnp.moveaxis(part, 0, arr_bdim_int)
         results.append(part)
-    return tuple(results), tuple(arr_bdim for _ in results)
+    return tuple(results), tuple(arr_bdim_int for _ in results)
 
 
 batching.primitive_batchers[JnpSplitPlugin._PRIM] = _split_batch_rule
 
 
-register_fallback_jvp_rule(JnpSplitPlugin._PRIM, _split_impl)
+register_allowlisted_original_rule_forwarding(
+    orig_prim=jax.lax.split_p,
+    new_prim=JnpSplitPlugin._PRIM,
+    forward_batching=False,
+)
