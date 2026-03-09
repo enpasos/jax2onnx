@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 import jax.numpy as jnp
 
+from jax2onnx.converter import conversion_api
 from jax2onnx.user_interface import to_onnx
 
 
@@ -118,3 +121,26 @@ def test_input_names_do_not_collide_with_input_params():
             input_params={"deterministic": True},
             input_names=["deterministic"],
         )
+
+
+def test_invalid_inputs_as_nchw_index_raises():
+    with pytest.raises(ValueError, match="inputs_as_nchw index 1 is out of range"):
+        to_onnx(_identity, inputs=[(1, 8, 8, 3)], inputs_as_nchw=[1])
+
+
+def test_invalid_outputs_as_nchw_index_raises():
+    with pytest.raises(ValueError, match="outputs_as_nchw index 1 is out of range"):
+        to_onnx(_identity, inputs=[(1, 8, 8, 3)], outputs_as_nchw=[1])
+
+
+def test_nonfatal_optimize_graph_failure_is_logged(monkeypatch, caplog):
+    def _boom(_model):
+        raise RuntimeError("optimizer boom")
+
+    monkeypatch.setattr(conversion_api, "optimize_graph", _boom)
+
+    with caplog.at_level(logging.WARNING, logger=conversion_api.__name__):
+        model = to_onnx(_identity, inputs=[(2,)], return_mode="ir")
+
+    assert model is not None
+    assert "optimize_graph skipped after RuntimeError: optimizer boom" in caplog.text

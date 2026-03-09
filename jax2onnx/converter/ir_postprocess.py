@@ -253,7 +253,7 @@ def postprocess_ir_model(model: ir.Model, *, promote_to_double: bool) -> None:
     _process_graph(
         model.graph,
         loosen=True,
-        promote=False,
+        promote=promote_to_double,
         force_rank_only=False,
     )
-    _process_functions(model, loosen=True, promote=False)
+    _process_functions(model, loosen=True, promote=promote_to_double)

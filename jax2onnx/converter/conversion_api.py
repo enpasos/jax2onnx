@@ -18,6 +18,7 @@ from typing import (
 )
 from contextlib import contextmanager, ExitStack
 import inspect as _ins
+import logging
 import os
 import jax
 import jax.numpy as jnp
@@ -56,6 +57,7 @@ ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
 InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 _ORT_SAFE_IR_VERSION: int = 10
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
@@ -173,6 +175,37 @@ def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
         return cast("np.dtype[Any]", np.dtype(dt))
     except TypeError:
         return None
+
+
+def _validate_layout_indices(
+    indices: Optional[Sequence[int]],
+    *,
+    kind: str,
+    upper_bound: int,
+) -> Tuple[int, ...]:
+    if indices is None:
+        return ()
+
+    normalized: List[int] = []
+    seen: set[int] = set()
+    for raw_idx in indices:
+        if isinstance(raw_idx, bool) or not isinstance(raw_idx, (int, np.integer)):
+            raise ValueError(f"{kind} entries must be integers; got {raw_idx!r}")
+        idx = int(raw_idx)
+        if idx < 0 or idx >= upper_bound:
+            raise ValueError(
+                f"{kind} index {idx} is out of range for {upper_bound} traced values"
+            )
+        if idx in seen:
+            raise ValueError(f"{kind} indices must be unique; duplicate {idx} found")
+        seen.add(idx)
+        normalized.append(idx)
+    return tuple(normalized)
+
+
+def _log_nonfatal_stage_failure(stage: str, exc: BaseException) -> None:
+    _LOGGER.warning("%s skipped after %s: %s", stage, type(exc).__name__, exc)
+    _LOGGER.debug("Nonfatal export failure in %s", stage, exc_info=exc)
 
 
 # ---------------------------
@@ -389,6 +422,16 @@ def to_onnx(
             raise ValueError(
                 f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
             )
+        validated_inputs_as_nchw = _validate_layout_indices(
+            inputs_as_nchw,
+            kind="inputs_as_nchw",
+            upper_bound=len(jpr.invars),
+        )
+        validated_outputs_as_nchw = _validate_layout_indices(
+            outputs_as_nchw,
+            kind="outputs_as_nchw",
+            upper_bound=len(jpr.outvars),
+        )
 
         # 3) IR context & inputs/consts
         ctx: IRContext = IRContext(
@@ -439,7 +482,7 @@ def to_onnx(
             ctx.bind_const_for_var(cv, np_c)
 
         # Inputs
-        nchw_inputs_indices = set(inputs_as_nchw or [])
+        nchw_inputs_indices = set(validated_inputs_as_nchw)
         for i, v in enumerate(jpr.invars):
             if i in nchw_inputs_indices:
                 # User says this specific input is NCHW in the external world.
@@ -601,11 +644,11 @@ def to_onnx(
         ctx._current_eqn = None
 
         # Outputs
-        if not outputs_as_nchw:
+        if not validated_outputs_as_nchw:
             ctx.add_outputs_from_vars(jpr.outvars)
         else:
             # Customized output handling
-            nchw_outputs_indices = set(outputs_as_nchw)
+            nchw_outputs_indices = set(validated_outputs_as_nchw)
             for i, out_var in enumerate(jpr.outvars):
                 val = ctx.get_value_for_var(out_var)
                 if i in nchw_outputs_indices:
@@ -738,12 +781,8 @@ def to_onnx(
         # ---- Single IR-wide optimization pass (centralized cleanups) ----
         try:
             optimize_graph(ir_model)
-        except Exception as _e:
-            import logging as _logging
-
-            _logging.getLogger("jax2onnx.converter.ir_optimizations").debug(
-                "optimize_graph skipped: %s", _e
-            )
+        except Exception as exc:
+            _log_nonfatal_stage_failure("optimize_graph", exc)
 
         # ---- Late attribute overrides (polish; not structural rewrites) ----
 
@@ -927,8 +966,9 @@ def to_onnx(
                 fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
                 _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
                 _fix_concat_axis_in_graph(graph_obj)
-            except Exception:
-                pass
+            except Exception as exc:
+                fn_name = getattr(fn, "name", "<unnamed function>")
+                _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
 
         # Avoid emitting placeholders for onnx_function hits across runs
         try:
@@ -942,7 +982,7 @@ def to_onnx(
 
         try:
             _finalize_model_value_shapes(ir_model, ctx)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
 
         return ir_model
