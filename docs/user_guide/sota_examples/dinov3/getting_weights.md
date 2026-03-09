@@ -12,7 +12,7 @@ available.
 
 ## Related Examples
 
-For a full list of DINOv3 components and their export status, see the `DINOv3VisionTransformer`, `FlaxDINOv3VisionTransformer` and related entries in the [Examples](../../examples.md) table.
+For a full list of DINOv3 components and their export status, see the `DINOv3VisionTransformer`, `FlaxDINOv3VisionTransformer` and related entries in the [Examples](../../examples.md) table. For parity checks, see [Comparing Meta PyTorch vs jax2onnx ONNX](compare_meta_vs_jax2onnx.md). For the sibling Flax/NNX example stack, see [Flax/NNX DINOv3 ONNX exports](nnx_exports.md).
 
 ## 1. Fetch Meta’s PyTorch checkpoint
 

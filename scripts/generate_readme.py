@@ -161,11 +161,25 @@ def merge_test_results(
             )  # Always set a result
             url = f"{NETRON_BASE_URL}{context.replace('.', '/')}/{tc_name}.onnx"
             tc["result"] = f"[`{tc_name}`]({url}) {result}"
+        grouped[(context, component)] = _dedupe_testcases(testcases)
 
     logging.info(
         f"📌 Merged {len(grouped)} grouped metadata entries with test results."
     )
     return grouped
+
+
+def _dedupe_testcases(testcases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the first occurrence of each testcase name for doc tables."""
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for testcase in testcases:
+        testcase_name = str(testcase.get("testcase", ""))
+        if testcase_name in seen:
+            continue
+        seen.add(testcase_name)
+        deduped.append(testcase)
+    return deduped
 
 
 # --- Coverage doc Update ---

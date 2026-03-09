@@ -35,10 +35,9 @@ keeps metadata/regressions visible earlier in CI.
 - Hardened typing around the plugin registry + Issue52 fixtures/sandboxes; the
   scatter/broadcast/loop-concat helpers exercise the new protocols.
 - Added `scripts/check_typing.sh` so CI runs `poetry run mypy --config-file
-  pyproject.toml` with the expanded target set; wired in `scripts/report_rng_traces.py`
-  so RNG helpers stay visible.
-- Simplified mypy config so `files` tracks converter/plugins/tests roots while strict
-  overrides gate the curated set; `scripts/check_typing.sh` remains fast.
+  pyproject.toml`; wired in `scripts/report_rng_traces.py` so RNG helpers stay visible.
+- Simplified mypy config so `files` currently tracks `jax2onnx/converter`, while
+  follow-up strict coverage continues through the curated helper/override work.
 - Extended strict coverage across high-traffic numpy/nn/random/attention plugins
   (reshape/tile/einsum/stack/split/take/transpose/squeeze/select/prod/outer/sort,
   activations, RNG primitives, attention shims, etc.) by annotating lowers, binding

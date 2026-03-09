@@ -306,8 +306,12 @@ def generate_test_params(entry: dict[str, Any]) -> list[dict[str, Any]]:
     final_params_list: List[Dict[str, Any]] = []
     for base_param_set in intermediate_params_list:
         force_enable_double = bool(base_param_set.get("enable_double_precision", False))
+        testcase_name = str(base_param_set.get("testcase", ""))
+        explicit_f64_name = testcase_name.endswith("_f64")
         run_only_f64_variant = (
-            base_param_set.get("run_only_f64_variant", False) or force_enable_double
+            base_param_set.get("run_only_f64_variant", False)
+            or force_enable_double
+            or explicit_f64_name
         )
         run_only_f32_variant = base_param_set.get("run_only_f32_variant", False)
         disable_float64_test_from_meta = base_param_set.get(

@@ -224,6 +224,6 @@ Keeping these conventions in one place ensures the "builder" layer stays predict
 
 ## Validation Routine
 1. `poetry run python scripts/check_ir_builder_usage.py --diff` (lints only staged files; drop `--diff` to scan the whole tree).
-2. `poetry run ruff check .` followed by `poetry run ruff format --check .` (or let the pre-commit hooks fix issues automatically).
+2. `poetry run ruff check .` followed by `poetry run black --check .` (or let the pre-commit hooks fix issues automatically).
 3. `poetry run pytest -q` plus any focused suites you touched (for example `tests/primitives/test_jnp.py::Test_linspace`).
 4. For builder-heavy refactors, run the structural policy tests directly: `poetry run pytest -q tests/extra_tests/framework/test_ir_builder_contracts.py`.

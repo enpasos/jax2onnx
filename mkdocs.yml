@@ -70,7 +70,10 @@ nav:
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
           - MaxText: user_guide/sota_examples/maxtext.md
-          - DINOv3: user_guide/sota_examples/dinov3/getting_weights.md
+          - DINOv3:
+              - Weights Workflow: user_guide/sota_examples/dinov3/getting_weights.md
+              - Compare Meta vs ONNX: user_guide/sota_examples/dinov3/compare_meta_vs_jax2onnx.md
+              - Flax/NNX Exports: user_guide/sota_examples/dinov3/nnx_exports.md
   - Developer Guide:
       - Architecture: developer_guide/architecture.md
       - Plugin System: developer_guide/plugin_system.md
