@@ -48,6 +48,9 @@ tensorflow-cpu = "^2.18.0"
 tensorboardX = "*"
 pydantic = "*"
 
+
+[tool.poetry.dependencies]
+onnx-ir = { path = "tmp/ir-py", develop = true }
 [tool.poetry]
 name = "jax2onnx"
 version = "0.12.3"
@@ -62,6 +65,7 @@ packages = [
 name = "jax-releases"
 url = "https://storage.googleapis.com/jax-releases/jax_releases.html"
 priority = "supplemental"
+
 
 
 
