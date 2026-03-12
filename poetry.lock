@@ -1620,7 +1620,7 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
-    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
     {version = ">=1.23.3", markers = "python_version >= \"3.11\""},
 ]
 
@@ -2177,13 +2177,15 @@ reference = ["Pillow"]
 
 [[package]]
 name = "onnx-ir"
-version = "0.2.1"
+version = "0.2.0"
 description = "Efficient in-memory representation for ONNX"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-files = []
-develop = true
+files = [
+    {file = "onnx_ir-0.2.0-py3-none-any.whl", hash = "sha256:eb14d1399c2442bd1ff702719e70074e9cedfa3af5729416a32752c9e0f82591"},
+    {file = "onnx_ir-0.2.0.tar.gz", hash = "sha256:8bad3906691987290789b26d05e0dbff467029a0b1e411e12e4cae02e43503e4"},
+]
 
 [package.dependencies]
 ml_dtypes = ">=0.5.0"
@@ -2191,10 +2193,6 @@ numpy = "*"
 onnx = ">=1.16"
 sympy = ">=1.13"
 typing_extensions = ">=4.10"
-
-[package.source]
-type = "directory"
-url = "tmp/ir-py"
 
 [[package]]
 name = "onnxruntime"
@@ -2383,7 +2381,7 @@ files = [
 [package.dependencies]
 typing-extensions = [
     {version = ">=4.12.0", markers = "python_version >= \"3.13\""},
-    {version = ">=4.6.0"},
+    {version = ">=4.6.0", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
@@ -4523,4 +4521,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "0b03b998b8ab9f23e04bd645680dc01601bbcefe7bc9039cf84a7b693c00c60f"
+content-hash = "ee5eb2eafaaa42a76f118e0920aeac96c2de4cdd688724e737ef1c15ad44d6a7"
