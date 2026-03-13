@@ -67,7 +67,6 @@ priority = "supplemental"
 
 
 
-
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
 pytest-json-report = "^1.5.0"

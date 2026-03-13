@@ -316,6 +316,7 @@ def _rename_values_atomically(
     # Fallback for released onnx_ir versions without convenience.rename_values().
     tmp_prefix = "__j2o_tmp_io_name_"
     used_names = set(occupied_names)
+    used_names.update(target_names)
     next_tmp_index = 0
     for value in values:
         tmp = f"{tmp_prefix}{next_tmp_index}"
