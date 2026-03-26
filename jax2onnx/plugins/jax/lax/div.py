@@ -321,6 +321,7 @@ def _match_lpnormalization_pattern(
                     dtype=np.float32,
                 )
             ],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["LpNormalization:2x3"],
@@ -341,6 +342,7 @@ def _match_lpnormalization_pattern(
                     dtype=np.float32,
                 )
             ],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["LpNormalization:2x3"],
@@ -356,6 +358,7 @@ def _match_lpnormalization_pattern(
                 broadcast_dimensions=(0, 1),
             ),
             "input_shapes": [(2, 3, 4)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["LpNormalization:2x3x4"],

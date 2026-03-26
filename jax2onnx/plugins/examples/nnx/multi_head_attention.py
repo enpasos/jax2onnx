@@ -39,6 +39,7 @@ register_example(
             ),
             "input_shapes": [("B", 4, 256)],
             "expected_output_shapes": [("B", 4, 256)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
@@ -70,6 +71,7 @@ register_example(
             ),
             "input_shapes": [("B", 4, 256)],
             "expected_output_shapes": [("B", 4, 256)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
@@ -98,6 +100,7 @@ register_example(
             ),
             "input_shapes": [("B", 5, 16)],
             "expected_output_shapes": [("B", 5, 16)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [
@@ -105,6 +108,47 @@ register_example(
                     "Transpose:Bx4x5x4 -> MatMul:Bx4x5x5 -> Mul:Bx4x5x5 -> "
                     "Softmax:Bx4x5x5 -> MatMul:Bx4x5x4 -> Transpose:Bx5x4x4 -> "
                     "Reshape:?x16 -> Gemm:?x16 -> Reshape:Bx5x16"
+                ],
+                search_functions=True,
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "multihead_attention_gqa_nnx",
+            "callable": construct_and_call(
+                nnx.MultiHeadAttention,
+                num_heads=8,
+                num_kv_heads=2,
+                in_features=256,
+                qkv_features=256,
+                out_features=256,
+                attention_fn=lambda *args, **kwargs: nnx.dot_product_attention(
+                    *args, **kwargs
+                ),
+                decode=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 4, 256)],
+            "expected_output_shapes": [("B", 4, 256)],
+            "opset_version": 21,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Tile -> Transpose -> MatMul",
+                        {
+                            "counts": {
+                                "Gemm": 4,
+                                "Tile": 2,
+                                "MatMul": 2,
+                                "Softmax": 1,
+                            }
+                        },
+                    ),
+                    "Mul -> Softmax -> MatMul",
                 ],
                 search_functions=True,
                 symbols={"B": None},

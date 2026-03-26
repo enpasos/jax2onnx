@@ -69,6 +69,19 @@ def _first_defined(*values: int | None) -> int | None:
     return None
 
 
+def _builder_opset(builder: object) -> int:
+    opset = getattr(builder, "opset", None)
+    if opset is None:
+        opset = getattr(builder, "opset_version", None)
+    if opset is None:
+        imports = getattr(builder, "opset_imports", None)
+        if isinstance(imports, dict):
+            opset = imports.get("", None)
+    if opset is None:
+        return 0
+    return int(opset)
+
+
 def _apply_process_heads_python(
     process_heads: ProcessHeadsFn,
     q_heads: jax.Array,
@@ -399,6 +412,10 @@ def _attention_core(
     jax_doc="https://docs.kidger.site/equinox/api/nn/attention/",
     onnx=[
         {
+            "component": "Attention",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Attention.html",
+        },
+        {
             "component": "MatMul",
             "doc": "https://onnx.ai/onnx/operators/onnx__MatMul.html",
         },
@@ -424,6 +441,7 @@ def _attention_core(
                 key=with_prng_key(0),
             ),
             "input_shapes": [(17, 32), (17, 32), (17, 32)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
@@ -435,11 +453,34 @@ def _attention_core(
             ),
         },
         {
+            "testcase": "eqx_multihead_attention_opset23",
+            "callable": construct_and_call(
+                eqx.nn.MultiheadAttention,
+                num_heads=4,
+                query_size=32,
+                key_size=32,
+                value_size=32,
+                output_size=32,
+                key=with_prng_key(0),
+            ),
+            "input_shapes": [(17, 32), (17, 32), (17, 32)],
+            "opset_version": 23,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {"path": "Gemm", "counts": {"Gemm": 4}},
+                    {"path": "Attention", "counts": {"Attention": 1}},
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "eqx_multihead_attention_core",
             "callable": construct_and_call(
                 _attention_core, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
@@ -454,11 +495,29 @@ def _attention_core(
             "run_only_dynamic": True,
         },
         {
+            "testcase": "eqx_multihead_attention_core_opset23",
+            "callable": construct_and_call(
+                _attention_core, dim=384, num_heads=6, key=with_prng_key(0)
+            ),
+            "input_shapes": [("B", 257, 384)],
+            "opset_version": 23,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {"path": "Gemm", "counts": {"Gemm": 4}},
+                    {"path": "Attention", "counts": {"Attention": 1}},
+                ],
+                no_unused_inputs=True,
+            ),
+            "run_only_dynamic": True,
+        },
+        {
             "testcase": "eqx_multihead_attention_core_static",
             "callable": construct_and_call(
                 _attention_core, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [(3, 257, 384)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 [
@@ -466,6 +525,22 @@ def _attention_core(
                     "Transpose:3x6x257x64 -> MatMul:3x6x257x257 -> Mul:3x6x257x257 -> "
                     "Softmax:3x6x257x257 -> MatMul:3x6x257x64 -> Transpose:3x257x6x64",
                     "Reshape:771x384 -> Gemm:771x384 -> Reshape:3x257x384",
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "eqx_multihead_attention_core_static_opset23",
+            "callable": construct_and_call(
+                _attention_core, dim=384, num_heads=6, key=with_prng_key(0)
+            ),
+            "input_shapes": [(3, 257, 384)],
+            "opset_version": 23,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    {"path": "Gemm", "counts": {"Gemm": 4}},
+                    {"path": "Attention", "counts": {"Attention": 1}},
                 ],
                 no_unused_inputs=True,
             ),
@@ -1118,133 +1193,209 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 prefix=ctx.fresh_name("mha_rotary_process"),
             )
 
-        q_trans = builder.Transpose(
-            q_heads,
-            perm=(0, 2, 1, 3),
-            _outputs=[ctx.fresh_name("mha_q_trans")],
-        )
         q_dtype = getattr(getattr(q_heads, "type", None), "dtype", None)
-        if q_dtype is not None:
-            q_trans.type = ir.TensorType(q_dtype)
+        v_dtype = getattr(getattr(v_heads, "type", None), "dtype", None)
         q_trans_meta = (
             _normalized_dim(q_batch_static),
             _normalized_dim(num_heads),
             _normalized_dim(q_seq_static),
             _normalized_dim(qk_size),
         )
-        _stamp_type_and_shape(q_trans, q_trans_meta)
-        _ensure_value_metadata(ctx, q_trans)
-
-        k_trans = builder.Transpose(
-            k_heads,
-            perm=(0, 2, 3, 1),
-            _outputs=[ctx.fresh_name("mha_k_trans")],
-        )
-        k_dtype = getattr(getattr(k_heads, "type", None), "dtype", None)
-        if k_dtype is not None:
-            k_trans.type = ir.TensorType(k_dtype)
         k_trans_meta = (
             _normalized_dim(_first_defined(k_batch_static, q_batch_static)),
             _normalized_dim(num_heads),
             _normalized_dim(qk_size),
             _normalized_dim(k_seq_static),
         )
-        _stamp_type_and_shape(k_trans, k_trans_meta)
-        _ensure_value_metadata(ctx, k_trans)
-
-        v_trans = builder.Transpose(
-            v_heads,
-            perm=(0, 2, 1, 3),
-            _outputs=[ctx.fresh_name("mha_v_trans")],
-        )
-        v_dtype = getattr(getattr(v_heads, "type", None), "dtype", None)
-        if v_dtype is not None:
-            v_trans.type = ir.TensorType(v_dtype)
         v_trans_meta = (
             _normalized_dim(_first_defined(v_batch_static, q_batch_static)),
             _normalized_dim(num_heads),
             _normalized_dim(v_seq_static),
             _normalized_dim(vo_size),
         )
-        _stamp_type_and_shape(v_trans, v_trans_meta)
-        _ensure_value_metadata(ctx, v_trans)
-
-        scores = builder.MatMul(
-            q_trans,
-            k_trans,
-            _outputs=[ctx.fresh_name("mha_scores")],
-        )
-        scores_dtype = q_dtype
-        if scores_dtype is not None:
-            scores.type = ir.TensorType(scores_dtype)
-        scores_meta = (
-            _normalized_dim(_first_defined(q_batch_static, k_batch_static)),
-            _normalized_dim(num_heads),
-            _normalized_dim(q_seq_static),
-            _normalized_dim(k_seq_static),
-        )
-        _stamp_type_and_shape(scores, scores_meta)
-        _ensure_value_metadata(ctx, scores)
-
-        scale_value = ctx.bind_const_for_var(
-            object(), np.asarray(1.0 / math.sqrt(float(qk_size)), dtype=np.float32)
-        )
-        scale_cast = cast_param_like(
-            ctx, scale_value, scores, name_hint="mha_scale_cast"
-        )
-        _stamp_type_and_shape(scale_cast, ())
-        _ensure_value_metadata(ctx, scale_cast)
-        scaled_scores = builder.Mul(
-            scores,
-            scale_cast,
-            _outputs=[ctx.fresh_name("mha_scaled_scores")],
-        )
-        if scores_dtype is not None:
-            scaled_scores.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(scaled_scores, scores_meta)
-        _ensure_value_metadata(ctx, scaled_scores)
-
-        attn = builder.Softmax(
-            scaled_scores,
-            axis=-1,
-            _outputs=[ctx.fresh_name("mha_attn")],
-        )
-        if scores_dtype is not None:
-            attn.type = ir.TensorType(scores_dtype)
-        _stamp_type_and_shape(attn, scores_meta)
-        _ensure_value_metadata(ctx, attn)
-
-        context = builder.MatMul(
-            attn,
-            v_trans,
-            _outputs=[ctx.fresh_name("mha_context")],
-        )
-        if scores_dtype is not None:
-            context.type = ir.TensorType(scores_dtype)
-        context_meta = (
-            _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
-            _normalized_dim(num_heads),
-            _normalized_dim(q_seq_static),
-            _normalized_dim(vo_size),
-        )
-        _stamp_type_and_shape(context, context_meta)
-        _ensure_value_metadata(ctx, context)
-
-        context_trans = builder.Transpose(
-            context,
-            perm=(0, 2, 1, 3),
-            _outputs=[ctx.fresh_name("mha_context_trans")],
-        )
-        if scores_dtype is not None:
-            context_trans.type = ir.TensorType(scores_dtype)
         context_trans_meta = (
             _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
             _normalized_dim(q_seq_static),
             _normalized_dim(num_heads),
             _normalized_dim(vo_size),
         )
-        _stamp_type_and_shape(context_trans, context_trans_meta)
-        _ensure_value_metadata(ctx, context_trans)
+        use_native_attention = _builder_opset(builder) >= 23 and hasattr(
+            builder, "Attention"
+        )
+
+        if use_native_attention:
+            q_attn = builder.Transpose(
+                q_heads,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_q_attn")],
+            )
+            if q_dtype is not None:
+                q_attn.type = ir.TensorType(q_dtype)
+            _stamp_type_and_shape(q_attn, q_trans_meta)
+            _ensure_value_metadata(ctx, q_attn)
+
+            k_attn = builder.Transpose(
+                k_heads,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_k_attn")],
+            )
+            k_dtype = getattr(getattr(k_heads, "type", None), "dtype", None)
+            if k_dtype is not None:
+                k_attn.type = ir.TensorType(k_dtype)
+            _stamp_type_and_shape(
+                k_attn,
+                (
+                    _normalized_dim(_first_defined(k_batch_static, q_batch_static)),
+                    _normalized_dim(num_heads),
+                    _normalized_dim(k_seq_static),
+                    _normalized_dim(qk_size),
+                ),
+            )
+            _ensure_value_metadata(ctx, k_attn)
+
+            v_attn = builder.Transpose(
+                v_heads,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_v_attn")],
+            )
+            if v_dtype is not None:
+                v_attn.type = ir.TensorType(v_dtype)
+            _stamp_type_and_shape(v_attn, v_trans_meta)
+            _ensure_value_metadata(ctx, v_attn)
+
+            context = builder.Attention(
+                q_attn,
+                k_attn,
+                v_attn,
+                _outputs=[ctx.fresh_name("mha_context")],
+            )
+            context_dtype = v_dtype or q_dtype
+            if context_dtype is not None:
+                context.type = ir.TensorType(context_dtype)
+            _stamp_type_and_shape(
+                context,
+                (
+                    _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
+                    _normalized_dim(num_heads),
+                    _normalized_dim(q_seq_static),
+                    _normalized_dim(vo_size),
+                ),
+            )
+            _ensure_value_metadata(ctx, context)
+
+            context_trans = builder.Transpose(
+                context,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_context_trans")],
+            )
+            if context_dtype is not None:
+                context_trans.type = ir.TensorType(context_dtype)
+            _stamp_type_and_shape(context_trans, context_trans_meta)
+            _ensure_value_metadata(ctx, context_trans)
+        else:
+            q_trans = builder.Transpose(
+                q_heads,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_q_trans")],
+            )
+            if q_dtype is not None:
+                q_trans.type = ir.TensorType(q_dtype)
+            _stamp_type_and_shape(q_trans, q_trans_meta)
+            _ensure_value_metadata(ctx, q_trans)
+
+            k_trans = builder.Transpose(
+                k_heads,
+                perm=(0, 2, 3, 1),
+                _outputs=[ctx.fresh_name("mha_k_trans")],
+            )
+            k_dtype = getattr(getattr(k_heads, "type", None), "dtype", None)
+            if k_dtype is not None:
+                k_trans.type = ir.TensorType(k_dtype)
+            _stamp_type_and_shape(k_trans, k_trans_meta)
+            _ensure_value_metadata(ctx, k_trans)
+
+            v_trans = builder.Transpose(
+                v_heads,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_v_trans")],
+            )
+            if v_dtype is not None:
+                v_trans.type = ir.TensorType(v_dtype)
+            _stamp_type_and_shape(v_trans, v_trans_meta)
+            _ensure_value_metadata(ctx, v_trans)
+
+            scores = builder.MatMul(
+                q_trans,
+                k_trans,
+                _outputs=[ctx.fresh_name("mha_scores")],
+            )
+            scores_dtype = q_dtype
+            if scores_dtype is not None:
+                scores.type = ir.TensorType(scores_dtype)
+            scores_meta = (
+                _normalized_dim(_first_defined(q_batch_static, k_batch_static)),
+                _normalized_dim(num_heads),
+                _normalized_dim(q_seq_static),
+                _normalized_dim(k_seq_static),
+            )
+            _stamp_type_and_shape(scores, scores_meta)
+            _ensure_value_metadata(ctx, scores)
+
+            scale_value = ctx.bind_const_for_var(
+                object(), np.asarray(1.0 / math.sqrt(float(qk_size)), dtype=np.float32)
+            )
+            scale_cast = cast_param_like(
+                ctx, scale_value, scores, name_hint="mha_scale_cast"
+            )
+            _stamp_type_and_shape(scale_cast, ())
+            _ensure_value_metadata(ctx, scale_cast)
+            scaled_scores = builder.Mul(
+                scores,
+                scale_cast,
+                _outputs=[ctx.fresh_name("mha_scaled_scores")],
+            )
+            if scores_dtype is not None:
+                scaled_scores.type = ir.TensorType(scores_dtype)
+            _stamp_type_and_shape(scaled_scores, scores_meta)
+            _ensure_value_metadata(ctx, scaled_scores)
+
+            attn = builder.Softmax(
+                scaled_scores,
+                axis=-1,
+                _outputs=[ctx.fresh_name("mha_attn")],
+            )
+            if scores_dtype is not None:
+                attn.type = ir.TensorType(scores_dtype)
+            _stamp_type_and_shape(attn, scores_meta)
+            _ensure_value_metadata(ctx, attn)
+
+            context = builder.MatMul(
+                attn,
+                v_trans,
+                _outputs=[ctx.fresh_name("mha_context")],
+            )
+            if scores_dtype is not None:
+                context.type = ir.TensorType(scores_dtype)
+            _stamp_type_and_shape(
+                context,
+                (
+                    _normalized_dim(_first_defined(q_batch_static, v_batch_static)),
+                    _normalized_dim(num_heads),
+                    _normalized_dim(q_seq_static),
+                    _normalized_dim(vo_size),
+                ),
+            )
+            _ensure_value_metadata(ctx, context)
+
+            context_trans = builder.Transpose(
+                context,
+                perm=(0, 2, 1, 3),
+                _outputs=[ctx.fresh_name("mha_context_trans")],
+            )
+            if scores_dtype is not None:
+                context_trans.type = ir.TensorType(scores_dtype)
+            _stamp_type_and_shape(context_trans, context_trans_meta)
+            _ensure_value_metadata(ctx, context_trans)
 
         if q_batch_static is not None and q_seq_static is not None:
             context_flat_vals = np.asarray(
@@ -1268,8 +1419,11 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             context_flat_shape,
             _outputs=[ctx.fresh_name("mha_context_flat")],
         )
-        if scores_dtype is not None:
-            context_flat.type = ir.TensorType(scores_dtype)
+        context_trans_dtype = getattr(
+            getattr(context_trans, "type", None), "dtype", None
+        )
+        if context_trans_dtype is not None:
+            context_flat.type = ir.TensorType(context_trans_dtype)
         flat_first = None
         if q_batch_static is not None and q_seq_static is not None:
             flat_first = _normalized_dim(q_batch_static * q_seq_static)

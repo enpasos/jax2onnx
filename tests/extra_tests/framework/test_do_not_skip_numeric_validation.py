@@ -109,8 +109,8 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "FlaxSDPA",
         "gpt_oss_sdpa_flax",
     ),
-    # ORT on the CI/default setup cannot execute ONNX CumProd at current
-    # default opsets yet; keep structural coverage while runtime support catches up.
+    # ORT on the CI/default setup cannot execute ONNX CumProd at the current
+    # default opset yet; keep structural coverage while runtime support catches up.
     ("primitives.lax", "cumprod", "cumprod_i32_axis2"),
     ("primitives.lax", "cumprod", "cumprod_f32_axism1_reverse"),
     ("primitives.jnp", "cumprod", "jnp_cumprod_axis1"),

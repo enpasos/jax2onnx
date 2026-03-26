@@ -43,6 +43,7 @@ _BERNOULLI_PRIM.multiple_results = False
             ),
             "input_values": [np.asarray(0.0, dtype=np.float32)],
             "expected_output_shapes": [(2, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Bernoulli:2x3"],
@@ -59,6 +60,7 @@ _BERNOULLI_PRIM.multiple_results = False
                 )
             ],
             "expected_output_shapes": [(2, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Bernoulli:2x3"],
