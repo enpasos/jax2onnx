@@ -834,7 +834,7 @@ def to_onnx(
                     for val in values:
                         if val is None:
                             continue
-                        if not hasattr(val, "shape"):
+                        if not isinstance(val, ir.Value):
                             continue
                         vid = id(val)
                         if vid in seen:

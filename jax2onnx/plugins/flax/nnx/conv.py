@@ -1428,7 +1428,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
             input_batch_shape = None
             if num_batch_dimensions != 1:
                 input_batch_shape = x.shape[:num_batch_dimensions]
-                x = jnp.reshape(x, (-1,) + x.shape[num_batch_dimensions:])
+                flat_batch = reduce(mul, input_batch_shape, 1)
+                x = lax.reshape(
+                    x,
+                    (flat_batch,) + x.shape[num_batch_dimensions:],
+                )
 
             strides = _maybe_broadcast_conv_param(
                 getattr(self, "strides", 1), len(kernel_size)
@@ -1505,7 +1509,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 feature_group_count=groups,
             )
             if input_batch_shape is not None:
-                y = jnp.reshape(y, input_batch_shape + y.shape[1:])
+                y = lax.reshape(y, input_batch_shape + y.shape[1:])
             return y
 
         # Mark the shim so a subsequent patch can recover the original.
