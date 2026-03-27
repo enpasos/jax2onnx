@@ -476,9 +476,12 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         {
             "testcase": "scan_captured_scalar_f64",
             "callable": (
-                lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
+                lambda dt=np.float64(0.1): (
                     jax.lax.scan(
-                        lambda carry, _: (carry + dt, carry + dt),
+                        lambda carry, _: (
+                            carry + jnp.asarray(dt, dtype=jnp.float64),
+                            carry + jnp.asarray(dt, dtype=jnp.float64),
+                        ),
                         jnp.asarray(0.0, dtype=jnp.float64),
                         xs=None,
                         length=3,
@@ -513,10 +516,13 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
             "callable": (
-                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): jax.lax.scan(
+                lambda xs_vec=np.arange(4, dtype=np.float64): jax.lax.scan(
                     lambda carry, xs: (carry + xs[0] + xs[1], carry),
                     0.0,
-                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
+                    xs=(
+                        jnp.asarray(xs_vec, dtype=jnp.float64),
+                        jnp.full(np.shape(xs_vec), 0.1, dtype=jnp.float64),
+                    ),
                 )[1]
             ),
             "input_shapes": [],
@@ -670,9 +676,12 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         {
             "testcase": "scan_captured_vector_with_xs_f64",
             "callable": (
-                lambda xs, dt=jnp.asarray([0.1, -0.2], dtype=jnp.float64): (
+                lambda xs, dt=np.asarray([0.1, -0.2], dtype=np.float64): (
                     jax.lax.scan(
-                        lambda carry, x: (carry + dt * x, carry + dt * x),
+                        lambda carry, x: (
+                            carry + jnp.asarray(dt, dtype=jnp.float64) * x,
+                            carry + jnp.asarray(dt, dtype=jnp.float64) * x,
+                        ),
                         jnp.zeros((2,), dtype=jnp.float64),
                         xs,
                     )[1]
