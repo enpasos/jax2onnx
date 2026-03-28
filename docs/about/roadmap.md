@@ -15,6 +15,7 @@
 * **Leverage native ONNX Attention for Equinox MHA:** Export `eqx.nn.MultiheadAttention` via ONNX `Attention` when targeting opset >= 23, while keeping the existing fallback path for older opsets.
 * **Add Flax NNX grouped-query attention support:** Export `nnx.dot_product_attention` and `nnx.MultiHeadAttention` when `num_heads != num_kv_heads`, using native ONNX `Attention` on opset >= 23 and a compatible grouped-K/V expansion fallback on older opsets.
 * **Add Exclusive Self Attention example coverage:** Export XSA-style attention blocks on top of the existing attention lowering, preserving native ONNX `Attention` on opset >= 23 and the standard fallback path on older opsets.
+* **Fix Flax NNX conv special padding export:** Align `nnx.Conv` with upstream Flax handling for `REFLECT`, `CIRCULAR`, and `CAUSAL` padding so these modes export correctly through `to_onnx`.
  
 ## Past Versions
 

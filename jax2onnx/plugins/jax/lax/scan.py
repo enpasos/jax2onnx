@@ -306,6 +306,34 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
     return y1, y2
 
 
+def _scan_captured_scalar_f64() -> Any:
+    dt = jnp.asarray(0.1, dtype=jnp.float64)
+    return jax.lax.scan(
+        lambda carry, _: (carry + dt, carry + dt),
+        jnp.asarray(0.0, dtype=jnp.float64),
+        xs=None,
+        length=3,
+    )[1]
+
+
+def _scan_rank0_sequence_vectorized_f64() -> Any:
+    xs_vec = jnp.arange(4, dtype=jnp.float64)
+    return jax.lax.scan(
+        lambda carry, xs: (carry + xs[0] + xs[1], carry),
+        0.0,
+        xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
+    )[1]
+
+
+def _scan_captured_vector_with_xs_f64(xs: Any) -> Any:
+    dt = jnp.asarray([0.1, -0.2], dtype=jnp.float64)
+    return jax.lax.scan(
+        lambda carry, x: (carry + dt * x, carry + dt * x),
+        jnp.zeros((2,), dtype=jnp.float64),
+        xs,
+    )[1]
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
@@ -475,16 +503,7 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         },
         {
             "testcase": "scan_captured_scalar_f64",
-            "callable": (
-                lambda dt=jnp.asarray(0.1, dtype=jnp.float64): (
-                    jax.lax.scan(
-                        lambda carry, _: (carry + dt, carry + dt),
-                        jnp.asarray(0.0, dtype=jnp.float64),
-                        xs=None,
-                        length=3,
-                    )[1]
-                )
-            ),
+            "callable": _scan_captured_scalar_f64,
             "input_shapes": [],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
@@ -512,13 +531,7 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         },
         {
             "testcase": "scan_rank0_sequence_vectorized_f64",
-            "callable": (
-                lambda xs_vec=jnp.arange(4, dtype=jnp.float64): jax.lax.scan(
-                    lambda carry, xs: (carry + xs[0] + xs[1], carry),
-                    0.0,
-                    xs=(xs_vec, jnp.full(xs_vec.shape, 0.1, dtype=jnp.float64)),
-                )[1]
-            ),
+            "callable": _scan_rank0_sequence_vectorized_f64,
             "input_shapes": [],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL",)],
             "expected_output_dtypes": [jnp.float64],
@@ -669,15 +682,7 @@ def _two_scans_diff_len_with_broadcast_f32() -> tuple[Any, Any]:
         },
         {
             "testcase": "scan_captured_vector_with_xs_f64",
-            "callable": (
-                lambda xs, dt=jnp.asarray([0.1, -0.2], dtype=jnp.float64): (
-                    jax.lax.scan(
-                        lambda carry, x: (carry + dt * x, carry + dt * x),
-                        jnp.zeros((2,), dtype=jnp.float64),
-                        xs,
-                    )[1]
-                )
-            ),
+            "callable": _scan_captured_vector_with_xs_f64,
             "input_shapes": [(5, 2)],
             "expected_output_shapes": [("JAX2ONNX_DYNAMIC_DIM_SENTINEL", 2)],
             "expected_output_dtypes": [jnp.float64],

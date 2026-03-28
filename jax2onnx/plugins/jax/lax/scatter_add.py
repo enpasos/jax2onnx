@@ -6,6 +6,7 @@ from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 # Ensure cond plugin metadata dependencies are registered.
 from jax2onnx.plugins.jax.lax import cond as _cond_plugin  # noqa: F401
@@ -124,9 +125,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+                np.zeros((5, 208, 1, 1), dtype=np.float64),
                 jnp.array([4], dtype=jnp.int32),
-                jnp.ones((5, 200, 1, 1), dtype=jnp.float64),
+                np.ones((5, 200, 1, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "expected_output_shapes": [(5, 208, 1, 1)],
@@ -149,9 +150,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.zeros((3, 150, 1, 1), dtype=jnp.float64),
+                np.zeros((3, 150, 1, 1), dtype=np.float64),
                 jnp.array([7], dtype=jnp.int32),
-                jnp.ones((3, 140, 1, 1), dtype=jnp.float64),
+                np.ones((3, 140, 1, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "expected_output_shapes": [(3, 150, 1, 1)],
@@ -174,9 +175,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+                np.zeros((8, 50, 1, 1), dtype=np.float64),
                 jnp.array([2], dtype=jnp.int32),
-                jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+                np.ones((8, 45, 1, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "expected_output_shapes": [(8, 50, 1, 1)],
@@ -199,9 +200,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.zeros((5, 208, 1, 1), dtype=jnp.float64),
+                np.zeros((5, 208, 1, 1), dtype=np.float64),
                 jnp.array([0], dtype=jnp.int32),
-                jnp.ones((5, 4, 1, 1), dtype=jnp.float64),
+                np.ones((5, 4, 1, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "expected_output_shapes": [(5, 208, 1, 1)],
@@ -232,9 +233,9 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_values": [
                 jnp.array(True),
-                jnp.zeros((8, 50, 1, 1), dtype=jnp.float64),
+                np.zeros((8, 50, 1, 1), dtype=np.float64),
                 jnp.array([2], dtype=jnp.int32),
-                jnp.ones((8, 45, 1, 1), dtype=jnp.float64),
+                np.ones((8, 45, 1, 1), dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
