@@ -42,10 +42,11 @@ jobs:
         poetry install --no-interaction
         poetry run pip install pytest-xdist
 
-    - name: Run full checks (with MaxText)
+    - name: Run full checks (with MaxText and MaxDiffusion)
       if: matrix.python-version == '3.12'
       env:
         JAX2ONNX_RUN_MAXTEXT: "1"
+        JAX2ONNX_RUN_MAXDIFFUSION: "1"
       run: ./scripts/run_all_checks.sh
 
     - name: Run full checks
@@ -54,4 +55,7 @@ jobs:
         JAX2ONNX_RUN_MAXTEXT: "0"
         JAX2ONNX_MAXTEXT_SRC: ""
         JAX2ONNX_MAXTEXT_MODELS: ""
+        JAX2ONNX_RUN_MAXDIFFUSION: "0"
+        JAX2ONNX_MAXDIFFUSION_SRC: ""
+        JAX2ONNX_MAXDIFFUSION_MODELS: ""
       run: ./scripts/run_all_checks.sh

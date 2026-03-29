@@ -87,6 +87,16 @@ def _canonical_method(method: str) -> str:
             "run_only_f32_variant": True,
         },
         {
+            "testcase": "resize_nearest_antialias_ignored",
+            "callable": lambda x: jimage.resize(
+                x, (2, 2, 3), method="nearest", antialias=True
+            ),
+            "input_shapes": [(1, 1, 3)],
+            "expected_output_shapes": [(2, 2, 3)],
+            "post_check_onnx_graph": EG(["Resize"], no_unused_inputs=True),
+            "run_only_f32_variant": True,
+        },
+        {
             "testcase": "resize_nearest_opset9_upsample",
             "callable": lambda x: jimage.resize(
                 x, (4, 4), method="nearest", antialias=False
@@ -163,6 +173,9 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
 
         if method not in self._SUPPORTED_MODES:
             raise NotImplementedError(f"resize method '{method}' is not supported")
+        if method == "nearest":
+            antialias = False
+            precision = None
         if antialias:
             raise NotImplementedError("resize with antialias=True is not supported yet")
         if precision not in (None, jax.lax.Precision.DEFAULT):
