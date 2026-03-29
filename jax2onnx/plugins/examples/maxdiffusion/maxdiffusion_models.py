@@ -143,6 +143,38 @@ def _ensure_extra_stubs() -> None:
         sys.modules["google.api_core"] = api_core
         sys.modules["google.api_core.exceptions"] = api_core_exc
 
+    _ensure_modeling_flax_pytorch_utils_stub()
+
+
+def _ensure_modeling_flax_pytorch_utils_stub() -> None:
+    """Avoid hard torch imports for Flax-only MaxDiffusion tracing.
+
+    Upstream ``modeling_flax_utils`` imports
+    ``maxdiffusion.models.modeling_flax_pytorch_utils`` unconditionally even
+    though our example path only instantiates random Flax weights and never
+    converts PyTorch checkpoints.
+    """
+    if importlib.util.find_spec("torch") is not None:
+        return
+
+    module_name = "maxdiffusion.models.modeling_flax_pytorch_utils"
+    if module_name in sys.modules:
+        return
+
+    stub: types.ModuleType = _mod(module_name)
+
+    def _torch_required(*args: object, **kwargs: object) -> Any:
+        raise ImportError(
+            "torch is required for MaxDiffusion PyTorch checkpoint conversion."
+        )
+
+    stub.convert_pytorch_state_dict_to_flax = _torch_required
+    stub.rename_key = _torch_required
+    stub.rename_key_and_reshape_tensor = _torch_required
+    stub.torch2jax = _torch_required
+    stub.validate_flax_state_dict = _torch_required
+    sys.modules[module_name] = stub
+
 
 def _ensure_fallback_stubs() -> None:
     """Minimal self-contained stubs when MaxText is not available."""
@@ -513,8 +545,9 @@ def iter_configs() -> list[Path]:
 def _patch_maxdiffusion_bugs() -> None:
     """Monkey-patch bugs in MaxDiffusion that break JAX tracer evaluation."""
     try:
-        from maxdiffusion.models import embeddings_flax
         import math
+
+        embeddings_flax = importlib.import_module("maxdiffusion.models.embeddings_flax")
 
         # Original uses `jnp.shape(timesteps)[0]` which evaluates to a JitTracer
         # instead of a static integer during maxdiffusion ONNX export.
@@ -572,9 +605,10 @@ if MAXDIFFUSION_PKG_PATH is not None and MAXDIFFUSION_PKG_PATH.exists():
     try:
         _ensure_stubs()
         _patch_maxdiffusion_bugs()
-        from maxdiffusion.models.unet_2d_condition_flax import (
-            FlaxUNet2DConditionModel as _UNet,
+        _unet_module: types.ModuleType = importlib.import_module(
+            "maxdiffusion.models.unet_2d_condition_flax"
         )
+        _UNet = _unet_module.FlaxUNet2DConditionModel
 
         FlaxUNet2DConditionModel: type | None = _UNet
         MAXDIFFUSION_AVAILABLE: bool = True
