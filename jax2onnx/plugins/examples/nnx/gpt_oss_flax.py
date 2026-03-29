@@ -1041,7 +1041,6 @@ register_example(
             ),
             "input_values": [_SDPA_Q, _SDPA_K, _SDPA_V, _SDPA_S],
             "run_only_f32_variant": True,
-            "skip_numeric_validation": True,
         }
     ],
 )
