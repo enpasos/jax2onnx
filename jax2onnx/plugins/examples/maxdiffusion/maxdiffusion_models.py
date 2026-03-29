@@ -143,7 +143,64 @@ def _ensure_extra_stubs() -> None:
         sys.modules["google.api_core"] = api_core
         sys.modules["google.api_core.exceptions"] = api_core_exc
 
+    _ensure_tokamax_compat_stub()
     _ensure_modeling_flax_pytorch_utils_stub()
+
+
+def _ensure_tokamax_compat_stub() -> None:
+    """Patch existing tokamax stubs so MaxDiffusion can import attention code.
+
+    The MaxText stub leaves out a few enum-like attributes that MaxDiffusion
+    references at import time, most notably ``QKVLayout.HEAD_DIM_MINOR``.
+    """
+    kernel_name: str = (
+        "tokamax._src.ops.experimental.tpu.splash_attention.splash_attention_kernel"
+    )
+    mask_name: str = (
+        "tokamax._src.ops.experimental.tpu.splash_attention.splash_attention_mask"
+    )
+
+    kernel_mod: types.ModuleType | None = sys.modules.get(kernel_name)
+    mask_mod: types.ModuleType | None = sys.modules.get(mask_name)
+    if kernel_mod is None or mask_mod is None:
+        return
+
+    def _missing_splash(*args: object, **kwargs: object) -> None:
+        raise ImportError("tokamax is required for splash attention.")
+
+    qkv_layout: Any = getattr(kernel_mod, "QKVLayout", None)
+    if qkv_layout is None or not hasattr(qkv_layout, "HEAD_DIM_MINOR"):
+
+        class _QKVLayout(dict):
+            HEAD_DIM_MINOR: str = "head_dim_minor"
+
+            def __getitem__(self, key: object) -> object:
+                return key
+
+        kernel_mod.QKVLayout = _QKVLayout()
+
+    if not hasattr(kernel_mod, "SplashConfig"):
+
+        class SplashConfig:
+            """Stub."""
+
+        kernel_mod.SplashConfig = SplashConfig
+
+    if not hasattr(kernel_mod, "make_splash_mha"):
+        kernel_mod.make_splash_mha = _missing_splash
+
+    if not hasattr(mask_mod, "FullMask"):
+
+        class FullMask:
+            """Stub."""
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+        mask_mod.FullMask = FullMask
+
+    if not hasattr(mask_mod, "make_causal_mask"):
+        mask_mod.make_causal_mask = _missing_splash
 
 
 def _ensure_modeling_flax_pytorch_utils_stub() -> None:
