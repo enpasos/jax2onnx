@@ -70,6 +70,7 @@ nav:
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
           - MaxText: user_guide/sota_examples/maxtext.md
+          - MaxDiffusion: user_guide/sota_examples/maxdiffusion.md
           - DINOv3:
               - Weights Workflow: user_guide/sota_examples/dinov3/getting_weights.md
               - Compare Meta vs ONNX: user_guide/sota_examples/dinov3/compare_meta_vs_jax2onnx.md

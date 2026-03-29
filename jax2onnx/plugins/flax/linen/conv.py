@@ -174,6 +174,8 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                 left_pad = kernel_dilation[0] * (kernel_size[0] - 1)
                 inputs = jnp.pad(inputs, [(0, 0), (left_pad, 0), (0, 0)])
                 padding_lax = "VALID"
+            elif isinstance(padding_lax, list):
+                padding_lax = tuple(tuple(int(v) for v in pair) for pair in padding_lax)
 
             scope = getattr(self, "scope", None)
             print(f"DEBUG: ConvPlugin patched called. self={self}")
