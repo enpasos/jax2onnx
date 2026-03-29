@@ -104,11 +104,6 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     # JAX currently cannot execute subset_by_index on CPU/GPU; keep structural
     # coverage enabled while runtime parity path is unavailable.
     ("primitives.lax", "eigh", "eigh_2x2_subset_top1"),
-    (
-        "examples.nnx_gpt_oss",
-        "FlaxSDPA",
-        "gpt_oss_sdpa_flax",
-    ),
     # ORT on the CI/default setup cannot execute ONNX CumProd at the current
     # default opset yet; keep structural coverage while runtime support catches up.
     ("primitives.lax", "cumprod", "cumprod_i32_axis2"),
