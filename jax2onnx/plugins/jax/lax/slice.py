@@ -16,6 +16,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.utils.shape_poly import dim_expr_constant_value
 
 if TYPE_CHECKING:
     pass
@@ -96,15 +97,29 @@ class SlicePlugin(PrimitiveLeafPlugin):
 
         axes = tuple(range(len(starts)))
 
-        starts_val = _const_i64(ctx, starts, "slice_starts")
+        def _normalize_index(value: object) -> object:
+            if isinstance(value, (int, np.integer)):
+                return int(value)
+            const_val = dim_expr_constant_value(value)
+            if const_val is not None:
+                return const_val
+            return value
 
-        def _coerce_limit(val: object) -> int:
-            if isinstance(val, (int, np.integer)):
-                return int(val)
-            return np.iinfo(np.int64).max
+        def _index_vector(values: tuple[object, ...], name: str) -> ir.Value:
+            normalized_values = [_normalize_index(value) for value in values]
+            if all(isinstance(value, int) for value in normalized_values):
+                return _const_i64(ctx, normalized_values, name)
+            dim_expr_lowerer = getattr(ctx, "dim_expr_lowerer", None)
+            if dim_expr_lowerer is None:
+                raise ValueError(
+                    f"slice lowering requires ctx.dim_expr_lowerer for symbolic {name}"
+                )
+            return dim_expr_lowerer(normalized_values)
 
-        normalized_limits = tuple(_coerce_limit(v) for v in limits)
-        limits_val = _const_i64(ctx, normalized_limits, "slice_limits")
+        starts_val = _index_vector(tuple(starts), "slice_starts")
+
+        normalized_limits = tuple(_normalize_index(v) for v in limits)
+        limits_val = _index_vector(normalized_limits, "slice_limits")
         axes_val = _const_i64(ctx, axes, "slice_axes")
 
         def _axis0_extent_from_slice_spec() -> int | None:
