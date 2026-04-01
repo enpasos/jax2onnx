@@ -9,6 +9,7 @@ from typing import Any, Dict, Sequence
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import SymbolicDimOrigin
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
@@ -231,6 +232,28 @@ def _lower_i64_vector(
                 ctx,
                 np.asarray([int(const_val)], dtype=np.int64),
                 f"{name_hint}_{idx}",
+            )
+        elif (
+            origin := SymbolicDimOrigin.resolve(
+                getattr(ctx, "get_symbolic_dim_origin", None), value
+            )
+        ) is not None:
+            shape_val = _shape_of(
+                ctx, origin.value, f"{name_hint}_{idx}_shape_of_origin"
+            )
+            axis_idx = _const_i64(
+                ctx,
+                np.asarray([int(origin.axis)], dtype=np.int64),
+                f"{name_hint}_{idx}_axis",
+            )
+            part = _builder_op(
+                ctx,
+                "Gather",
+                [shape_val, axis_idx],
+                name_hint=f"{name_hint}_{idx}_origin_dim",
+                dtype=ir.DataType.INT64,
+                shape=(1,),
+                attributes={"axis": 0},
             )
         elif is_dim_expr(value):
             part = dim_expr_lowerer([value])

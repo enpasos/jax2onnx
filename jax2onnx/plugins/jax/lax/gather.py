@@ -12,7 +12,12 @@ from jax import lax
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _shape_of
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _const_i64,
+    _lower_i64_vector,
+    _scalar_i64,
+    _shape_of,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 from .gather_helpers import get_gir_output_shape
@@ -340,9 +345,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
     ) -> ir.Value:
         new_shape = get_gir_output_shape(gir_instr)
-        new_shape_val = _const_i64(
-            ctx, np.asarray(new_shape, dtype=np.int64), "new_shape_for_gather_index"
-        )
+        new_shape_val = _lower_i64_vector(ctx, new_shape, "new_shape_for_gather_index")
         result_val = ctx.builder.Reshape(
             index_tensor,
             new_shape_val,
@@ -661,10 +664,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
     def _convert_symbolic_1d_int_vec(
         self, ctx: "IRContext", values: list[Any], name: str
     ) -> ir.Value:
-        if all(isinstance(x, int) for x in values):
-            return _const_i64(ctx, np.asarray(values, dtype=np.int64), name)
-        else:
-            return ctx.dim_expr_lowerer(values)
+        return _lower_i64_vector(ctx, values, name)
 
     def _emit_slice_from_gir(
         self, ctx: "IRContext", gir_instr: dict[str, Any], input_tensor: ir.Value
