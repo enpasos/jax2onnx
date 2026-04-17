@@ -98,8 +98,6 @@ class RevPlugin(PrimitiveLeafPlugin):
                 canonical_axes.append(canonical)
 
         one = _scalar_i64(ctx, 1, "rev_one")
-        neg_one = _scalar_i64(ctx, -1, "rev_neg_one")
-
         current_val = x_val
         final_name = getattr(out_spec, "name", None) or ctx.fresh_name("rev_out")
 
@@ -120,14 +118,23 @@ class RevPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, start_val)
 
             range_val = ctx.builder.Range(
-                start_val,
-                neg_one,
-                neg_one,
+                _scalar_i64(ctx, 0, "rev_range_start"),
+                dim_len,
+                one,
                 _outputs=[ctx.fresh_name("rev_range")],
             )
             range_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_val, (None,))
             _ensure_value_metadata(ctx, range_val)
+
+            reverse_indices = ctx.builder.Sub(
+                start_val,
+                range_val,
+                _outputs=[ctx.fresh_name("rev_indices")],
+            )
+            reverse_indices.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(reverse_indices, (None,))
+            _ensure_value_metadata(ctx, reverse_indices)
 
             gather_name = (
                 final_name
@@ -137,7 +144,7 @@ class RevPlugin(PrimitiveLeafPlugin):
 
             target_val = ctx.builder.Gather(
                 current_val,
-                range_val,
+                reverse_indices,
                 axis=axis,
                 _outputs=[gather_name],
             )

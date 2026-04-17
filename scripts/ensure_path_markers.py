@@ -25,11 +25,12 @@ IGNORED_TOP_LEVEL = {
     "venv",
 }
 
-# Subtrees (relative to repo root) that are regenerated and should be skipped.
+# Subtrees (relative to repo root) that are regenerated or external to the repo
+# and should never be rewritten by marker enforcement.
 IGNORED_PREFIXES = (
     ("tests", "examples"),
     ("tests", "primitives"),
-    ("tmp", "ir-py"),
+    ("tmp",),
 )
 
 

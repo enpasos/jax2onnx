@@ -241,9 +241,24 @@ def lower_rotary_application(
                 embedding_size=32,
             ),
             "input_shapes": [(41, 32)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": expect_graph(
                 ["Split", "Mul", "Mul", "Add"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "eqx_rotary_positional_embedding_opset23",
+            "callable": construct_and_call(
+                eqx.nn.RotaryPositionalEmbedding,
+                embedding_size=32,
+            ),
+            "input_shapes": [(41, 32)],
+            "opset_version": 23,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [{"path": "RotaryEmbedding", "counts": {"RotaryEmbedding": 1}}],
                 no_unused_inputs=True,
             ),
         },
@@ -254,6 +269,7 @@ def lower_rotary_application(
                 embedding_size=64,
             ),
             "input_shapes": [(257, 6, 64)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "rtol": 3e-5,
             "atol": 3e-5,

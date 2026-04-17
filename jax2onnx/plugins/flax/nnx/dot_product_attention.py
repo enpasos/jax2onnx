@@ -17,6 +17,12 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _const_i64,
+    _gather_int_scalar,
+    _shape_of,
+    _unsqueeze_scalar,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     _DynamicParamWrapper,
@@ -88,6 +94,127 @@ EXPECT_DPA_BASE: Final = EG(
 
 EXPECT_DPA_WITH_MASK: Final = EG([("Where", {"counts": {"Where": 1}})])
 EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
+EXPECT_DPA_GQA_FALLBACK: Final = EG(
+    [
+        (
+            "Tile -> Transpose -> MatMul",
+            {
+                "counts": {
+                    "Tile": 2,
+                    "MatMul": 2,
+                    "Mul": 1,
+                    "Softmax": 1,
+                    "Transpose": 4,
+                }
+            },
+        ),
+        "Mul -> Softmax -> MatMul",
+    ]
+)
+EXPECT_DPA_GQA_NATIVE: Final = EG(
+    [
+        (
+            "Attention",
+            {
+                "counts": {
+                    "Attention": 1,
+                },
+                "must_absent": ["MatMul", "Softmax", "Tile"],
+            },
+        )
+    ]
+)
+
+
+def _expand_grouped_kv_heads(
+    ctx: "IRContext",
+    source_val: ir.Value,
+    *,
+    q_num_heads: int,
+    kv_num_heads: int,
+    batch_dim: DimLike,
+    seq_dim: DimLike,
+    head_dim: DimLike,
+    prefix: str,
+) -> ir.Value:
+    if q_num_heads == kv_num_heads:
+        return source_val
+    if q_num_heads % kv_num_heads != 0:
+        raise ValueError(
+            "nnx.dot_product_attention requires q_num_heads to be divisible by kv_num_heads"
+        )
+
+    builder = getattr(ctx, "builder", None)
+    if builder is None:
+        raise AttributeError("IR build context missing builder for GQA expansion")
+
+    group_size = q_num_heads // kv_num_heads
+    source_dtype = _dtype_enum_from_value(source_val)
+
+    source_shape = _shape_of(ctx, source_val, f"{prefix}_shape")
+    batch_scalar = _gather_int_scalar(ctx, source_shape, 0, f"{prefix}_batch")
+    seq_scalar = _gather_int_scalar(ctx, source_shape, 1, f"{prefix}_seq")
+    head_scalar = _gather_int_scalar(ctx, source_shape, 3, f"{prefix}_head")
+
+    unsqueeze_axes = _const_i64(
+        ctx,
+        np.asarray([3], dtype=np.int64),
+        f"{prefix}_unsqueeze_axes",
+    )
+    unsqueezed = builder.Unsqueeze(
+        source_val,
+        unsqueeze_axes,
+        _outputs=[ctx.fresh_name(f"{prefix}_unsqueezed")],
+    )
+    unsqueezed.type = ir.TensorType(source_dtype)
+    _stamp_type_and_shape(unsqueezed, (batch_dim, seq_dim, kv_num_heads, 1, head_dim))
+    _ensure_value_metadata(ctx, unsqueezed)
+
+    tile_repeats = _const_i64(
+        ctx,
+        np.asarray([1, 1, 1, group_size, 1], dtype=np.int64),
+        f"{prefix}_tile_repeats",
+    )
+    tiled = builder.Tile(
+        unsqueezed,
+        tile_repeats,
+        _outputs=[ctx.fresh_name(f"{prefix}_tiled")],
+    )
+    tiled.type = ir.TensorType(source_dtype)
+    _stamp_type_and_shape(
+        tiled, (batch_dim, seq_dim, kv_num_heads, group_size, head_dim)
+    )
+    _ensure_value_metadata(ctx, tiled)
+
+    batch_vec = _unsqueeze_scalar(ctx, batch_scalar, 0, f"{prefix}_batch_vec")
+    seq_vec = _unsqueeze_scalar(ctx, seq_scalar, 0, f"{prefix}_seq_vec")
+    q_heads_vec = _const_i64(
+        ctx,
+        np.asarray([q_num_heads], dtype=np.int64),
+        f"{prefix}_q_heads_vec",
+    )
+    head_vec = _unsqueeze_scalar(ctx, head_scalar, 0, f"{prefix}_head_vec")
+    reshape_shape = builder.Concat(
+        batch_vec,
+        seq_vec,
+        q_heads_vec,
+        head_vec,
+        axis=0,
+        _outputs=[ctx.fresh_name(f"{prefix}_reshape_shape")],
+    )
+    reshape_shape.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(reshape_shape, (4,))
+    _ensure_value_metadata(ctx, reshape_shape)
+
+    expanded = builder.Reshape(
+        tiled,
+        reshape_shape,
+        _outputs=[ctx.fresh_name(f"{prefix}_expanded")],
+    )
+    expanded.type = ir.TensorType(source_dtype)
+    _stamp_type_and_shape(expanded, (batch_dim, seq_dim, q_num_heads, head_dim))
+    _ensure_value_metadata(ctx, expanded)
+    return expanded
 
 
 @register_primitive(
@@ -125,6 +252,7 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
             "testcase": "dpa_basic",
             "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "opset_version": 21,
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "post_check_onnx_graph": EXPECT_DPA_BASE,
@@ -136,6 +264,7 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
             ),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
             "input_dtypes": [np.float32, np.float32, np.float32, np.bool_],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_MASK(m),
@@ -146,6 +275,7 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
                 q, k, v, bias=bias
             ),
             "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16), (2, 4, 8, 8)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_BIAS(m),
@@ -161,6 +291,7 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
                 np.random.randn(1, 8, 4, 16).astype(np.float32),
                 np.tril(np.ones((1, 4, 8, 8), dtype=bool)),
             ],
+            "opset_version": 21,
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
@@ -190,12 +321,29 @@ EXPECT_DPA_WITH_BIAS: Final = EG([("Add", {"counts": {"Add": 1}})])
             ],
             "expected_output_shapes": [(2, 8, 4, 16)],
             "expected_output_dtypes": [np.float64],
+            "opset_version": 21,
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "run_only_f64_variant": True,
             "post_check_onnx_graph": lambda m: EXPECT_DPA_BASE(m)
             and EXPECT_DPA_WITH_MASK(m)
             and EXPECT_DPA_WITH_BIAS(m),
+        },
+        {
+            "testcase": "dpa_gqa_basic",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 2, 16), (2, 8, 2, 16)],
+            "opset_version": 21,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_DPA_GQA_FALLBACK,
+        },
+        {
+            "testcase": "dpa_gqa_basic_opset23",
+            "callable": lambda q, k, v: nnx.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 2, 16), (2, 8, 2, 16)],
+            "opset_version": 23,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_DPA_GQA_NATIVE,
         },
     ],
 )
@@ -241,23 +389,41 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         v_shape = tuple(getattr(getattr(v_var, "aval", None), "shape", ()))
         np_dtype = np.dtype(getattr(getattr(q_var, "aval", None), "dtype", np.float32))
 
-        batch_dim, q_len, num_heads, head_dim = q_shape
+        batch_dim, q_len, q_num_heads, head_dim = q_shape
         k_len = k_shape[1]
+        k_num_heads = k_shape[2]
+        v_num_heads = v_shape[2] if len(v_shape) >= 4 else k_num_heads
         v_head_dim = v_shape[3] if len(v_shape) >= 4 else head_dim
 
         batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
         q_len_v, _ = _coerce_dim(q_len, "query length")
-        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        q_num_heads_v, q_num_heads_static = _coerce_dim(q_num_heads, "q_num_heads")
+        k_num_heads_v, k_num_heads_static = _coerce_dim(k_num_heads, "kv_num_heads")
+        v_num_heads_v, v_num_heads_static = _coerce_dim(v_num_heads, "value_num_heads")
         head_dim_v, head_static = _coerce_dim(head_dim, "head")
         if not head_static:
             raise NotImplementedError(
                 "nnx.dot_product_attention requires static head dimension"
             )
+        if not (q_num_heads_static and k_num_heads_static and v_num_heads_static):
+            raise NotImplementedError(
+                "nnx.dot_product_attention requires static query/key/value head counts"
+            )
         k_len_v, _ = _coerce_dim(k_len, "key length")
         v_head_dim_v, _ = _coerce_dim(v_head_dim, "value head")
 
         head_dim_i = cast(int, head_dim_v)
-        num_heads_i: DimLike = num_heads_v
+        q_num_heads_i = cast(int, q_num_heads_v)
+        k_num_heads_i = cast(int, k_num_heads_v)
+        v_num_heads_i = cast(int, v_num_heads_v)
+        if k_num_heads_i != v_num_heads_i:
+            raise NotImplementedError(
+                "nnx.dot_product_attention requires matching key/value head counts"
+            )
+        if q_num_heads_i % k_num_heads_i != 0:
+            raise NotImplementedError(
+                "nnx.dot_product_attention requires q_num_heads to be divisible by kv_num_heads"
+            )
         batch_dim_i: DimLike = batch_dim_v
         q_len_i: DimLike = q_len_v
         k_len_i: DimLike = k_len_v
@@ -281,7 +447,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             q_attn.type = ir.TensorType(_dtype_enum_from_value(q_val))
             _stamp_type_and_shape(
-                q_attn, (batch_dim_i, num_heads_i, q_len_i, head_dim_i)
+                q_attn, (batch_dim_i, q_num_heads_i, q_len_i, head_dim_i)
             )
             _ensure_value_metadata(ctx, q_attn)
 
@@ -292,7 +458,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             k_attn.type = ir.TensorType(_dtype_enum_from_value(k_val))
             _stamp_type_and_shape(
-                k_attn, (batch_dim_i, num_heads_i, k_len_i, head_dim_i)
+                k_attn, (batch_dim_i, k_num_heads_i, k_len_i, head_dim_i)
             )
             _ensure_value_metadata(ctx, k_attn)
 
@@ -303,7 +469,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             v_attn.type = ir.TensorType(_dtype_enum_from_value(v_val))
             _stamp_type_and_shape(
-                v_attn, (batch_dim_i, num_heads_i, k_len_i, v_head_dim_i)
+                v_attn, (batch_dim_i, v_num_heads_i, k_len_i, v_head_dim_i)
             )
             _ensure_value_metadata(ctx, v_attn)
 
@@ -403,7 +569,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 )
             attn_out.type = ir.TensorType(_dtype_enum_from_value(v_attn))
             _stamp_type_and_shape(
-                attn_out, (batch_dim_i, num_heads_i, q_len_i, v_head_dim_i)
+                attn_out, (batch_dim_i, q_num_heads_i, q_len_i, v_head_dim_i)
             )
             _ensure_value_metadata(ctx, attn_out)
 
@@ -415,7 +581,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             result.type = ir.TensorType(_dtype_enum_from_value(v_val))
             _stamp_type_and_shape(
-                result, (batch_dim_i, q_len_i, num_heads_i, v_head_dim_i)
+                result, (batch_dim_i, q_len_i, q_num_heads_i, v_head_dim_i)
             )
             _ensure_value_metadata(ctx, result)
             ctx.bind_value_for_var(out_var, result)
@@ -427,16 +593,27 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             perm=[0, 2, 1, 3],
         )
         q_t.type = ir.TensorType(_dtype_enum_from_value(q_val))
-        _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_i))
+        _stamp_type_and_shape(q_t, (batch_dim_i, q_num_heads_i, q_len_i, head_dim_i))
         _ensure_value_metadata(ctx, q_t)
 
-        k_t = builder.Transpose(
+        k_expanded = _expand_grouped_kv_heads(
+            ctx,
             k_val,
+            q_num_heads=q_num_heads_i,
+            kv_num_heads=k_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=head_dim_i,
+            prefix="dpa_k_gqa",
+        )
+
+        k_t = builder.Transpose(
+            k_expanded,
             _outputs=[ctx.fresh_name("dpa_kT")],
             perm=[0, 2, 3, 1],
         )
-        k_t.type = ir.TensorType(_dtype_enum_from_value(k_val))
-        _stamp_type_and_shape(k_t, (batch_dim_i, num_heads_i, head_dim_i, k_len_i))
+        k_t.type = ir.TensorType(_dtype_enum_from_value(k_expanded))
+        _stamp_type_and_shape(k_t, (batch_dim_i, q_num_heads_i, head_dim_i, k_len_i))
         _ensure_value_metadata(ctx, k_t)
 
         logits = builder.MatMul(
@@ -445,7 +622,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("dpa_logits")],
         )
         logits.type = ir.TensorType(_dtype_enum_from_value(q_val))
-        _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _stamp_type_and_shape(logits, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i))
         _ensure_value_metadata(ctx, logits)
 
         scale = ctx.builder.add_initializer_from_scalar(
@@ -459,7 +636,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("dpa_scaled")],
         )
         scaled.type = ir.TensorType(_dtype_enum_from_value(logits))
-        _stamp_type_and_shape(scaled, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _stamp_type_and_shape(scaled, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i))
         _ensure_value_metadata(ctx, scaled)
 
         current_logits: ir.Value = scaled
@@ -479,7 +656,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("dpa_bias_add")],
             )
             biased.type = ir.TensorType(_dtype_enum_from_value(current_logits))
-            _stamp_type_and_shape(biased, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+            _stamp_type_and_shape(
+                biased, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i)
+            )
             _ensure_value_metadata(ctx, biased)
             current_logits = biased
 
@@ -522,7 +701,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             masked_logits.type = ir.TensorType(_dtype_enum_from_value(current_logits))
             _stamp_type_and_shape(
-                masked_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+                masked_logits, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i)
             )
             _ensure_value_metadata(ctx, masked_logits)
             current_logits = masked_logits
@@ -533,7 +712,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             axis=3,
         )
         weights.type = ir.TensorType(_dtype_enum_from_value(current_logits))
-        _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
+        _stamp_type_and_shape(weights, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i))
         _ensure_value_metadata(ctx, weights)
 
         if det_input is not None:
@@ -556,18 +735,29 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             dropped_weights.type = ir.TensorType(_dtype_enum_from_value(weights))
             _stamp_type_and_shape(
-                dropped_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+                dropped_weights, (batch_dim_i, q_num_heads_i, q_len_i, k_len_i)
             )
             _ensure_value_metadata(ctx, dropped_weights)
             weights = dropped_weights
 
-        v_t = builder.Transpose(
+        v_expanded = _expand_grouped_kv_heads(
+            ctx,
             v_val,
+            q_num_heads=q_num_heads_i,
+            kv_num_heads=v_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=v_head_dim_i,
+            prefix="dpa_v_gqa",
+        )
+
+        v_t = builder.Transpose(
+            v_expanded,
             _outputs=[ctx.fresh_name("dpa_vT")],
             perm=[0, 2, 1, 3],
         )
-        v_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
-        _stamp_type_and_shape(v_t, (batch_dim_i, num_heads_i, k_len_i, head_dim_i))
+        v_t.type = ir.TensorType(_dtype_enum_from_value(v_expanded))
+        _stamp_type_and_shape(v_t, (batch_dim_i, q_num_heads_i, k_len_i, v_head_dim_i))
         _ensure_value_metadata(ctx, v_t)
 
         out_t = builder.MatMul(
@@ -575,8 +765,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             v_t,
             _outputs=[ctx.fresh_name("dpa_outT")],
         )
-        out_t.type = ir.TensorType(_dtype_enum_from_value(v_val))
-        _stamp_type_and_shape(out_t, (batch_dim_i, num_heads_i, q_len_i, v_head_dim_i))
+        out_t.type = ir.TensorType(_dtype_enum_from_value(v_expanded))
+        _stamp_type_and_shape(
+            out_t, (batch_dim_i, q_num_heads_i, q_len_i, v_head_dim_i)
+        )
         _ensure_value_metadata(ctx, out_t)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("dpa_out")
@@ -586,7 +778,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             perm=[0, 2, 1, 3],
         )
         result.type = ir.TensorType(_dtype_enum_from_value(v_val))
-        _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, v_head_dim_i))
+        _stamp_type_and_shape(
+            result, (batch_dim_i, q_len_i, q_num_heads_i, v_head_dim_i)
+        )
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 

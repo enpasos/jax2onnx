@@ -53,6 +53,7 @@ _LINALG_NORM_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.norm")
             ),
             "input_shapes": [(2, 8, 8, 3)],
             "expected_output_shapes": [(2, 1, 1, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Transpose:2x3x8x8 -> GlobalLpPool:2x3x1x1 -> Transpose:2x1x1x3"],
@@ -64,6 +65,7 @@ _LINALG_NORM_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.norm")
             "callable": lambda x: jnp.linalg.norm(x, axis=(1, 2), keepdims=True),
             "input_shapes": [(2, 8, 8, 3)],
             "expected_output_shapes": [(2, 1, 1, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Transpose:2x3x8x8 -> GlobalLpPool:2x3x1x1 -> Transpose:2x1x1x3"],
@@ -75,6 +77,7 @@ _LINALG_NORM_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.norm")
             "callable": lambda x: jnp.linalg.norm(x, ord=1, axis=(1,), keepdims=True),
             "input_shapes": [(2, 8, 3)],
             "expected_output_shapes": [(2, 1, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Transpose:2x3x8 -> GlobalLpPool:2x3x1 -> Transpose:2x1x3"],
@@ -86,6 +89,7 @@ _LINALG_NORM_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.norm")
             "callable": lambda x: jnp.linalg.norm(x, ord=1, axis=(1,), keepdims=False),
             "input_shapes": [(2, 8, 3)],
             "expected_output_shapes": [(2, 3)],
+            "opset_version": 21,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 [

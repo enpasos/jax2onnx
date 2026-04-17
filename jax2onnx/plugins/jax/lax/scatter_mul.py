@@ -6,6 +6,7 @@ from typing import Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 # Ensure cond plugin is registered when scatter_mul metadata uses it.
 from jax2onnx.plugins.jax.lax import cond as _cond_plugin  # noqa: F401
@@ -104,9 +105,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.ones((5, 208, 1, 1), dtype=jnp.float64),
+                np.ones((5, 208, 1, 1), dtype=np.float64),
                 jnp.array([4], dtype=jnp.int32),
-                jnp.full((5, 200, 1, 1), 2.0, dtype=jnp.float64),
+                np.full((5, 200, 1, 1), 2.0, dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
@@ -127,9 +128,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.ones((3, 150, 1, 1), dtype=jnp.float64),
+                np.ones((3, 150, 1, 1), dtype=np.float64),
                 jnp.array([7], dtype=jnp.int32),
-                jnp.full((3, 140, 1, 1), 2.0, dtype=jnp.float64),
+                np.full((3, 140, 1, 1), 2.0, dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
@@ -150,9 +151,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.ones((8, 50, 1, 1), dtype=jnp.float64),
+                np.ones((8, 50, 1, 1), dtype=np.float64),
                 jnp.array([2], dtype=jnp.int32),
-                jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
+                np.full((8, 45, 1, 1), 2.0, dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
@@ -173,9 +174,9 @@ if TYPE_CHECKING:  # pragma: no cover
                 ),
             ),
             "input_values": [
-                jnp.ones((5, 208, 1, 1), dtype=jnp.float64),
+                np.ones((5, 208, 1, 1), dtype=np.float64),
                 jnp.array([0], dtype=jnp.int32),
-                jnp.full((5, 4, 1, 1), 2.0, dtype=jnp.float64),
+                np.full((5, 4, 1, 1), 2.0, dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
@@ -204,9 +205,9 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
             "input_values": [
                 jnp.array(True),
-                jnp.ones((8, 50, 1, 1), dtype=jnp.float64),
+                np.ones((8, 50, 1, 1), dtype=np.float64),
                 jnp.array([2], dtype=jnp.int32),
-                jnp.full((8, 45, 1, 1), 2.0, dtype=jnp.float64),
+                np.full((8, 45, 1, 1), 2.0, dtype=np.float64),
             ],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(

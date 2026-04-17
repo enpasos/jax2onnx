@@ -464,6 +464,7 @@ register_example(
                 AttentionCore, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
+            "opset_version": 21,
             "post_check_onnx_graph": EG(
                 [
                     {"path": "Gemm", "counts": {"Gemm": 4}},
@@ -540,6 +541,7 @@ register_example(
                 MultiHeadAttention, dim=384, num_heads=6, key=with_prng_key(0)
             ),
             "input_shapes": [("B", 257, 384)],
+            "opset_version": 21,
             "post_check_onnx_graph": EG(
                 [
                     {"path": "MatMul", "counts": {"MatMul": 2}},

@@ -763,7 +763,7 @@ def to_onnx(
 
             # Ensure model-level opset imports cover default "" and each function domain
             model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
-            model_imports.setdefault("", int(ctx.builder.opset) or 21)
+            model_imports.setdefault("", int(ctx.builder.opset) or 23)
             for fn_ir in ir_funcs:
                 dom = (fn_ir.domain or "").strip()
                 if dom and dom not in model_imports:
@@ -833,6 +833,8 @@ def to_onnx(
                 def _queue(values: Iterable[ir.Value]) -> None:
                     for val in values:
                         if val is None:
+                            continue
+                        if not isinstance(val, ir.Value):
                             continue
                         vid = id(val)
                         if vid in seen:

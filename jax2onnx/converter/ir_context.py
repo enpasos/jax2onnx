@@ -520,6 +520,28 @@ class IRContext:
             # Some JAX Literal objects are unhashable; skip caching in that case.
             pass
 
+        aval = _maybe_aval(var)
+        shp = _maybe_shape(aval)
+        if shp is None:
+            return
+
+        for axis, dim in enumerate(shp):
+            if isinstance(dim, (int, np.integer)):
+                continue
+            origin = SymbolicDimOrigin(value=value, axis=axis)
+            try:
+                self._sym_origin[dim] = origin
+            except TypeError:
+                pass
+            self._sym_origin_str[str(dim)] = origin
+
+            record_symbol_origin = getattr(self.builder, "record_symbol_origin", None)
+            if callable(record_symbol_origin):
+                try:
+                    record_symbol_origin(str(dim), value, axis)
+                except Exception:
+                    pass
+
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = _maybe_aval(var)
         if aval is None:

@@ -43,13 +43,23 @@ def _as_ir_dim_label(dim: object) -> Union[str, int, None]:
     if isinstance(dim, ir.SymbolicDim):
         value = dim.value
         if isinstance(value, str):
-            return value
+            return value if value not in {"", "?", "None"} else None
+        if value is None:
+            return None
         text = str(dim)
-        return text if text else None
+        return text if text and text not in {"?", "None"} else None
     if isinstance(dim, str):
-        return dim
+        return dim if dim not in {"", "?", "None"} else None
+    for attr in ("value", "param", "name", "symbol"):
+        attr_val = getattr(dim, attr, None)
+        if isinstance(attr_val, (int, np.integer)):
+            return int(attr_val)
+        if isinstance(attr_val, str):
+            return attr_val if attr_val not in {"", "?", "None"} else None
+        if attr_val is None:
+            continue
     text = str(dim)
-    return text if text else None
+    return text if text and text not in {"?", "None"} else None
 
 
 def _to_ir_dim_for_shape(dim: object) -> DimValue:
@@ -60,9 +70,13 @@ def _to_ir_dim_for_shape(dim: object) -> DimValue:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
     if isinstance(dim, str):
-        return ir.SymbolicDim(dim)
-    text = str(dim)
-    return ir.SymbolicDim(text) if text else None
+        return ir.SymbolicDim(dim) if dim not in {"", "?", "None"} else None
+    label = _as_ir_dim_label(dim)
+    if label is None:
+        return None
+    if isinstance(label, int):
+        return label
+    return ir.SymbolicDim(label)
 
 
 def _is_static_int(d: object) -> bool:

@@ -9,7 +9,9 @@ from typing import Any, Dict, Sequence
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import SymbolicDimOrigin
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
 
 def _const_i64(
@@ -187,6 +189,100 @@ def _builder_op(
         _stamp_type_and_shape(result, tuple(shape))
     _ensure_value_metadata(ctx, result)
     return result
+
+
+def _lower_i64_vector(
+    ctx: Any,
+    values: Sequence[Any],
+    name_hint: str,
+) -> ir.Value:
+    """Lower a 1-D INT64 vector, allowing symbolic JAX dimension expressions."""
+
+    items = tuple(values)
+    if not items:
+        return _const_i64(ctx, np.asarray([], dtype=np.int64), name_hint)
+
+    const_items: list[int] = []
+    all_const = True
+    for value in items:
+        const_val = dim_expr_constant_value(value)
+        if const_val is not None:
+            const_items.append(int(const_val))
+            continue
+        try:
+            const_items.append(int(value))
+        except Exception:
+            all_const = False
+            break
+
+    if all_const:
+        return _const_i64(ctx, np.asarray(const_items, dtype=np.int64), name_hint)
+
+    dim_expr_lowerer = getattr(ctx, "dim_expr_lowerer", None)
+    if dim_expr_lowerer is None:
+        raise ValueError(
+            f"{name_hint} contains symbolic dimensions, but ctx.dim_expr_lowerer is unavailable"
+        )
+
+    parts: list[ir.Value] = []
+    for idx, value in enumerate(items):
+        const_val = dim_expr_constant_value(value)
+        if const_val is not None:
+            part = _const_i64(
+                ctx,
+                np.asarray([int(const_val)], dtype=np.int64),
+                f"{name_hint}_{idx}",
+            )
+        elif (
+            origin := SymbolicDimOrigin.resolve(
+                getattr(ctx, "get_symbolic_dim_origin", None), value
+            )
+        ) is not None:
+            shape_val = _shape_of(
+                ctx, origin.value, f"{name_hint}_{idx}_shape_of_origin"
+            )
+            axis_idx = _const_i64(
+                ctx,
+                np.asarray([int(origin.axis)], dtype=np.int64),
+                f"{name_hint}_{idx}_axis",
+            )
+            part = _builder_op(
+                ctx,
+                "Gather",
+                [shape_val, axis_idx],
+                name_hint=f"{name_hint}_{idx}_origin_dim",
+                dtype=ir.DataType.INT64,
+                shape=(1,),
+                attributes={"axis": 0},
+            )
+        elif is_dim_expr(value):
+            part = dim_expr_lowerer([value])
+        else:
+            try:
+                scalar = int(value)
+            except Exception as exc:
+                raise TypeError(
+                    f"{name_hint}[{idx}]={value!r} is neither an integer nor a symbolic dimension expression"
+                ) from exc
+            part = _const_i64(
+                ctx,
+                np.asarray([scalar], dtype=np.int64),
+                f"{name_hint}_{idx}",
+            )
+        parts.append(part)
+
+    if len(parts) == 1:
+        return parts[0]
+
+    return _builder_op(
+        ctx,
+        "Concat",
+        parts,
+        name_hint=name_hint,
+        dtype=ir.DataType.INT64,
+        shape=(len(items),),
+        attributes={"axis": 0},
+    )
 
 
 def _shape_of(ctx: Any, value: ir.Value, name_hint: str) -> ir.Value:

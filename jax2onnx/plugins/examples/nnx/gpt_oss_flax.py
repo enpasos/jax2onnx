@@ -104,8 +104,8 @@ def _swiglu(
     alpha: float = 1.702,
     limit: float = 7.0,
 ) -> jax.Array:
-    gate = jnp.clip(x[..., ::2], a_min=None, a_max=limit)
-    linear = jnp.clip(x[..., 1::2], a_min=-limit, a_max=limit)
+    gate = jnp.clip(x[..., ::2], max=limit)
+    linear = jnp.clip(x[..., 1::2], min=-limit, max=limit)
     swish_gate = gate * jax.nn.sigmoid(alpha * gate)
     return swish_gate * (linear + 1.0)
 
@@ -1041,7 +1041,6 @@ register_example(
             ),
             "input_values": [_SDPA_Q, _SDPA_K, _SDPA_V, _SDPA_S],
             "run_only_f32_variant": True,
-            "skip_numeric_validation": True,
         }
     ],
 )

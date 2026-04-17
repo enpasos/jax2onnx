@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 RUN_MAXTEXT="${JAX2ONNX_RUN_MAXTEXT:-0}"
 RUN_MAXTEXT_ACTIVE=0
+RUN_MAXDIFFUSION="${JAX2ONNX_RUN_MAXDIFFUSION:-0}"
+RUN_MAXDIFFUSION_ACTIVE=0
 
 cd "${REPO_ROOT}"
 
@@ -24,6 +26,18 @@ if [[ "${RUN_MAXTEXT}" == "1" ]]; then
     unset JAX2ONNX_MAXTEXT_MODELS || true
   else
     RUN_MAXTEXT_ACTIVE=1
+  fi
+fi
+
+if [[ "${RUN_MAXDIFFUSION}" == "1" ]]; then
+  PYTHON_MM="$(poetry run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  PYTHON_MINOR="$(poetry run python -c 'import sys; print(sys.version_info.minor)')"
+  if (( PYTHON_MINOR < 12 )); then
+    echo "[${step}] Skipping MaxDiffusion SotA checks on Python ${PYTHON_MM} (requires >= 3.12)."
+    unset JAX2ONNX_MAXDIFFUSION_SRC || true
+    unset JAX2ONNX_MAXDIFFUSION_MODELS || true
+  else
+    RUN_MAXDIFFUSION_ACTIVE=1
   fi
 fi
 
@@ -60,6 +74,39 @@ if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   step=$((step + 1))
 fi
 
+if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
+  MAXDIFFUSION_SRC="${JAX2ONNX_MAXDIFFUSION_SRC:-${REPO_ROOT}/tmp/maxdiffusion}"
+  MAXDIFFUSION_MODELS="${JAX2ONNX_MAXDIFFUSION_MODELS:-all}"
+  MAXDIFFUSION_REF="${JAX2ONNX_MAXDIFFUSION_REF:-b4f95730bf4f00c4fd9e3dd2fdda1b50484afda2}"
+  export JAX2ONNX_MAXDIFFUSION_SRC="${MAXDIFFUSION_SRC}"
+  export JAX2ONNX_MAXDIFFUSION_MODELS="${MAXDIFFUSION_MODELS}"
+  export JAX2ONNX_MAXDIFFUSION_REF="${MAXDIFFUSION_REF}"
+
+  echo "[${step}] Preparing MaxDiffusion SotA checks..."
+  if [[ ! -d "${MAXDIFFUSION_SRC}" ]]; then
+    mkdir -p "$(dirname "${MAXDIFFUSION_SRC}")"
+    git clone --depth 1 https://github.com/google/maxdiffusion.git "${MAXDIFFUSION_SRC}"
+  else
+    echo "Using existing MaxDiffusion checkout at ${MAXDIFFUSION_SRC}. Target ref: ${MAXDIFFUSION_REF}."
+  fi
+  if [[ ! -d "${MAXDIFFUSION_SRC}/.git" ]]; then
+    echo "Error: ${MAXDIFFUSION_SRC} exists but is not a git checkout." >&2
+    exit 1
+  fi
+  if git -C "${MAXDIFFUSION_SRC}" fetch --depth 1 origin "${MAXDIFFUSION_REF}"; then
+    git -C "${MAXDIFFUSION_SRC}" checkout --detach FETCH_HEAD
+  else
+    echo "Direct fetch for '${MAXDIFFUSION_REF}' failed; retrying with full history..."
+    git -C "${MAXDIFFUSION_SRC}" fetch --tags origin
+    git -C "${MAXDIFFUSION_SRC}" fetch --unshallow origin || true
+    git -C "${MAXDIFFUSION_SRC}" checkout --detach "${MAXDIFFUSION_REF}"
+  fi
+  echo "MaxDiffusion checkout: $(git -C "${MAXDIFFUSION_SRC}" rev-parse --short HEAD)"
+
+  poetry install --with maxdiffusion
+  step=$((step + 1))
+fi
+
 echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
 step=$((step + 1))
@@ -67,6 +114,12 @@ step=$((step + 1))
 if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   echo "[${step}] Running MaxText SotA tests..."
   poetry run pytest -q tests/examples/test_maxtext.py
+  step=$((step + 1))
+fi
+
+if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
+  echo "[${step}] Running MaxDiffusion SotA tests..."
+  poetry run pytest -q tests/examples/test_maxdiffusion.py
   step=$((step + 1))
 fi
 

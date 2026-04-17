@@ -14,6 +14,7 @@ _EQX_BATCH_NORM: Final[eqx.nn.BatchNorm] = eqx.nn.BatchNorm(
     input_size=3,
     axis_name="batch",
     inference=True,
+    mode="ema",
 )
 _EQX_BATCH_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_BATCH_NORM)
 

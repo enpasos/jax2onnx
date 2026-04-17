@@ -87,11 +87,6 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
         "random_categorical_logits_symbolic_batch_opset23",
     ),
     (
-        "primitives.jax_image",
-        "resize",
-        "resize_linear_opset9_upsample",
-    ),
-    (
         "primitives.lax",
         "dynamic_update_slice",
         "dus_tensorscatter_axis1_opset24",
@@ -104,13 +99,8 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     # JAX currently cannot execute subset_by_index on CPU/GPU; keep structural
     # coverage enabled while runtime parity path is unavailable.
     ("primitives.lax", "eigh", "eigh_2x2_subset_top1"),
-    (
-        "examples.nnx_gpt_oss",
-        "FlaxSDPA",
-        "gpt_oss_sdpa_flax",
-    ),
-    # ORT on the CI/default setup cannot execute ONNX CumProd at current
-    # default opsets yet; keep structural coverage while runtime support catches up.
+    # ORT on the CI/default setup cannot execute ONNX CumProd at the current
+    # default opset yet; keep structural coverage while runtime support catches up.
     ("primitives.lax", "cumprod", "cumprod_i32_axis2"),
     ("primitives.lax", "cumprod", "cumprod_f32_axism1_reverse"),
     ("primitives.jnp", "cumprod", "jnp_cumprod_axis1"),

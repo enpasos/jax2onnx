@@ -1,7 +1,7 @@
 # file: pyproject.toml
 [project]
 name = "jax2onnx"
-version = "0.12.3"
+version = "0.12.5"
 description = "export JAX to ONNX"
 authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
@@ -48,9 +48,25 @@ tensorflow-cpu = "^2.18.0"
 tensorboardX = "*"
 pydantic = "*"
 
+[tool.poetry.group.maxdiffusion]
+optional = true
+
+[tool.poetry.group.maxdiffusion.dependencies]
+omegaconf = "*"
+transformers = "*"
+tensorflow-cpu = "^2.18.0"
+tensorboardX = "*"
+pydantic = "*"
+absl-py = "*"
+chex = "*"
+datasets = "*"
+ftfy = "*"
+parameterized = "*"
+Pillow = "*"
+
 [tool.poetry]
 name = "jax2onnx"
-version = "0.12.3"
+version = "0.12.5"
 description = "export JAX to ONNX"
 authors = ["enpasos <matthias.unverzagt@enpasos.ai>"]
 readme = "README.md"

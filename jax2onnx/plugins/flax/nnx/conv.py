@@ -21,6 +21,7 @@ import jax.numpy as jnp
 from jax import lax
 from jax.extend.core import Primitive
 from flax import nnx
+from flax.nnx.nn import linear as nnx_linear
 import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -92,6 +93,31 @@ EXPECT_FLATTEN_TCT: Final = EG(
         )
     ]
 )
+
+EXPECT_SPECIAL_PADDING_TCT: Final = EG(
+    [
+        (
+            "Transpose -> Conv -> Transpose",
+            {
+                "counts": {
+                    "Transpose": 2,
+                    "Conv": 1,
+                }
+            },
+        )
+    ],
+    no_unused_inputs=True,
+)
+
+_REFLECT_INPUT_2D: Final[np.ndarray] = np.linspace(
+    -1.0, 1.0, num=1 * 128 * 128 * 1, dtype=np.float32
+).reshape(1, 128, 128, 1)
+_CIRCULAR_INPUT_2D: Final[np.ndarray] = np.linspace(
+    -0.75, 0.75, num=1 * 18 * 20 * 4, dtype=np.float32
+).reshape(1, 18, 20, 4)
+_CAUSAL_INPUT_1D: Final[np.ndarray] = np.linspace(
+    -0.5, 0.5, num=1 * 32 * 8, dtype=np.float32
+).reshape(1, 32, 8)
 
 
 # ---------- helper: normalize value metadata so exported graphs show shapes ----------
@@ -177,6 +203,16 @@ def _calc_out_spatial(
 def _all_ones(seq: Sequence[int]) -> bool:
     """True if all elements are 1."""
     return all(int(v) == 1 for v in seq)
+
+
+def _maybe_broadcast_conv_param(
+    value: int | Sequence[int] | None, rank: int
+) -> tuple[int, ...]:
+    if value is None:
+        value = 1
+    if isinstance(value, int):
+        return (int(value),) * rank
+    return tuple(int(v) for v in value)
 
 
 def _same_upper_pads_static(
@@ -615,6 +651,40 @@ def _conv(
             "post_check_onnx_graph": EXPECT_TCT,
         },
         {
+            "testcase": "conv_2d_reflect_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                1,
+                1,
+                kernel_size=(3, 3),
+                padding="REFLECT",
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_values": [_REFLECT_INPUT_2D],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 128, 128, 1)],
+            "post_check_onnx_graph": EXPECT_SPECIAL_PADDING_TCT,
+        },
+        {
+            "testcase": "conv_2d_circular_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                4,
+                6,
+                kernel_size=(5, 3),
+                padding="CIRCULAR",
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_values": [_CIRCULAR_INPUT_2D],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 18, 20, 6)],
+            "post_check_onnx_graph": EXPECT_SPECIAL_PADDING_TCT,
+        },
+        {
             "testcase": "conv_different_kernel",
             "callable": construct_and_call(
                 nnx.Conv,
@@ -689,6 +759,23 @@ def _conv(
             "run_only_f32_variant": True,
             "expected_output_shapes": [(32, 16, 16, 8)],
             "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_1d_causal_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                8,
+                12,
+                kernel_size=(5,),
+                padding="CAUSAL",
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_values": [_CAUSAL_INPUT_1D],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 32, 12)],
+            "post_check_onnx_graph": EXPECT_SPECIAL_PADDING_TCT,
         },
         {
             "testcase": "conv_1d",
@@ -1301,9 +1388,9 @@ class ConvPlugin(PrimitiveLeafPlugin):
     """
     IR-only plugin for flax.nnx.Conv → ONNX Conv.
     Assumes NHWC input/output in user space; converts to NCHx… internally.
-    Supports 1D/2D/3D, SAME/VALID or explicit pads, strides/dilations, and groups.
-    Also supports "mixed-dimension" inputs (e.g., 1D conv on higher-rank NHWC)
-    by flattening non-participating spatial dims into batch and reshaping back.
+    Supports 1D/2D/3D, explicit pads, special padding shims used by flax.nnx.Conv,
+    strides/dilations, and groups. Mixed-dimension inputs are flattened to a single
+    leading batch like upstream flax.nnx.Conv and restored after the primitive call.
     """
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.conv")
@@ -1324,29 +1411,93 @@ class ConvPlugin(PrimitiveLeafPlugin):
         ConvPlugin._ORIGINAL_CALL = real_orig
         prim = ConvPlugin._PRIM
 
-        def patched(self, x):
-            # Pull config from the nnx.Conv instance
-            strides = getattr(self, "strides", 1)
-            padding = getattr(self, "padding", "VALID")
-            dilations = getattr(self, "kernel_dilation", 1)
-            groups = getattr(self, "feature_group_count", 1)
-            use_bias = bool(getattr(self, "use_bias", True))
-            kernel = self.kernel.value
-            # Keep arity stable, but avoid creating broadcast nodes when bias is disabled.
-            if use_bias:
-                if (
-                    getattr(self, "bias", None) is not None
-                    and getattr(self.bias, "value", None) is not None
-                ):
-                    bias = self.bias.value
-                else:
-                    # vector bias expected by use_bias=True path
-                    bias = jnp.zeros((kernel.shape[-1],), dtype=kernel.dtype)
+        def patched(self, x, out_sharding=None):
+            original_x = x
+            kernel_size = getattr(self, "kernel_size", ())
+            if isinstance(kernel_size, int):
+                kernel_size = (kernel_size,)
             else:
-                # scalar literal (no broadcast_in_dim in the JAXPR)
-                bias = jnp.asarray(0, dtype=kernel.dtype)
+                kernel_size = tuple(kernel_size)
+            if not kernel_size:
+                return real_orig(self, original_x, out_sharding=out_sharding)
 
-            return prim.bind(
+            num_batch_dimensions = x.ndim - (len(kernel_size) + 1)
+            if num_batch_dimensions < 0:
+                return real_orig(self, original_x, out_sharding=out_sharding)
+
+            input_batch_shape = None
+            if num_batch_dimensions != 1:
+                input_batch_shape = x.shape[:num_batch_dimensions]
+                flat_batch = reduce(mul, input_batch_shape, 1)
+                x = lax.reshape(
+                    x,
+                    (flat_batch,) + x.shape[num_batch_dimensions:],
+                )
+
+            strides = _maybe_broadcast_conv_param(
+                getattr(self, "strides", 1), len(kernel_size)
+            )
+            input_dilation = _maybe_broadcast_conv_param(
+                getattr(self, "input_dilation", 1), len(kernel_size)
+            )
+            if any(d != 1 for d in input_dilation):
+                return real_orig(self, original_x, out_sharding=out_sharding)
+
+            dilations = _maybe_broadcast_conv_param(
+                getattr(self, "kernel_dilation", 1), len(kernel_size)
+            )
+            padding = nnx_linear.canonicalize_padding(
+                getattr(self, "padding", "VALID"),
+                len(kernel_size),
+            )
+            if padding in ("CIRCULAR", "REFLECT"):
+                kernel_size_dilated = [
+                    (k - 1) * d + 1 for k, d in zip(kernel_size, dilations)
+                ]
+                pads = (
+                    [(0, 0)]
+                    + [((k - 1) // 2, k // 2) for k in kernel_size_dilated]
+                    + [(0, 0)]
+                )
+                padding_mode = {
+                    "CIRCULAR": "wrap",
+                    "REFLECT": "reflect",
+                }[padding]
+                x = jnp.pad(x, pads, mode=padding_mode)
+                padding = "VALID"
+            elif padding == "CAUSAL":
+                if len(kernel_size) != 1:
+                    raise ValueError(
+                        "Causal padding is only implemented for 1D convolutions."
+                    )
+                left_pad = dilations[0] * (kernel_size[0] - 1)
+                x = jnp.pad(x, [(0, 0), (left_pad, 0), (0, 0)])
+                padding = "VALID"
+
+            groups = int(getattr(self, "feature_group_count", 1))
+            use_bias = bool(getattr(self, "use_bias", True))
+            kernel = self.kernel[...]
+            if getattr(self, "mask", None) is not None:
+                if self.mask.shape != kernel.shape:
+                    raise ValueError(
+                        "Mask needs to have the same shape as weights. "
+                        f"Shapes are: {self.mask.shape}, {kernel.shape}"
+                    )
+                kernel = kernel * self.mask
+            bias = self.bias[...] if getattr(self, "bias", None) is not None else None
+
+            x, kernel, bias = self.promote_dtype(
+                (x, kernel, bias),
+                dtype=getattr(self, "dtype", None),
+            )
+
+            if use_bias:
+                if bias is None:
+                    bias = jnp.zeros((int(kernel.shape[-1]),), dtype=x.dtype)
+            else:
+                bias = jnp.asarray(0, dtype=x.dtype)
+
+            y = prim.bind(
                 x,
                 kernel,
                 bias,
@@ -1354,9 +1505,12 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 strides=strides,
                 padding=padding,
                 dilations=dilations,
-                dimension_numbers=getattr(self, "dimension_numbers", None),
-                feature_group_count=int(groups),
+                dimension_numbers=nnx_linear._conv_dimension_numbers(x.shape),
+                feature_group_count=groups,
             )
+            if input_batch_shape is not None:
+                y = lax.reshape(y, input_batch_shape + y.shape[1:])
+            return y
 
         # Mark the shim so a subsequent patch can recover the original.
         # mypy: 'patched' is typed as a plain Callable, so attribute writes need an Any cast

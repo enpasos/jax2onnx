@@ -15,7 +15,8 @@ from jax2onnx.plugins._loop_extent_meta import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _lower_i64_vector
+from jax2onnx.utils.shape_poly import dim_expr_constant_value
 
 if TYPE_CHECKING:
     pass
@@ -96,15 +97,8 @@ class SlicePlugin(PrimitiveLeafPlugin):
 
         axes = tuple(range(len(starts)))
 
-        starts_val = _const_i64(ctx, starts, "slice_starts")
-
-        def _coerce_limit(val: object) -> int:
-            if isinstance(val, (int, np.integer)):
-                return int(val)
-            return np.iinfo(np.int64).max
-
-        normalized_limits = tuple(_coerce_limit(v) for v in limits)
-        limits_val = _const_i64(ctx, normalized_limits, "slice_limits")
+        starts_val = _lower_i64_vector(ctx, starts, "slice_starts")
+        limits_val = _lower_i64_vector(ctx, limits, "slice_limits")
         axes_val = _const_i64(ctx, axes, "slice_axes")
 
         def _axis0_extent_from_slice_spec() -> int | None:
@@ -112,14 +106,11 @@ class SlicePlugin(PrimitiveLeafPlugin):
                 axis0_idx = axes.index(0)
             except ValueError:
                 return None
-            if axis0_idx >= len(starts) or axis0_idx >= len(normalized_limits):
+            if axis0_idx >= len(starts) or axis0_idx >= len(limits):
                 return None
-            try:
-                start0 = int(starts[axis0_idx])
-                limit0 = int(normalized_limits[axis0_idx])
-            except (TypeError, ValueError):
-                return None
-            if limit0 == np.iinfo(np.int64).max:
+            start0 = dim_expr_constant_value(starts[axis0_idx])
+            limit0 = dim_expr_constant_value(limits[axis0_idx])
+            if start0 is None or limit0 is None:
                 return None
             step0 = 1
             if strides and axis0_idx < len(strides):

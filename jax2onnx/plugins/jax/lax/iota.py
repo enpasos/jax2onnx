@@ -10,7 +10,11 @@ import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
+from jax2onnx.plugins.jax.lax._index_utils import (
+    _const_i64,
+    _lower_i64_vector,
+    _scalar_i64,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -87,14 +91,9 @@ class IotaPlugin(PrimitiveLeafPlugin):
 
         if not shape_param:
             # scalar iota is treated as vector of length size param (when provided as int)
-            shape_param = (int(params.get("size", 0)),)
+            shape_param = (params.get("size", 0),)
 
-        try:
-            shape = tuple(int(d) for d in shape_param)
-        except TypeError as exc:  # dynamic dims not yet supported in IR path
-            raise NotImplementedError(
-                "Dynamic shapes for lax.iota are not supported yet"
-            ) from exc
+        shape = tuple(shape_param)
 
         rank = len(shape)
         if dimension < 0 or dimension >= rank:
@@ -102,9 +101,22 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 f"iota dimension {dimension} out of range for shape {shape}"
             )
 
+        dim_extent = shape[dimension]
+        limit_vec = _lower_i64_vector(ctx, [dim_extent], "iota_limit_vec")
+        squeeze_axes = _const_i64(
+            ctx, np.asarray([0], dtype=np.int64), "iota_limit_squeeze_axes"
+        )
+        limit = builder.Squeeze(
+            limit_vec,
+            squeeze_axes,
+            _outputs=[ctx.fresh_name("iota_limit")],
+        )
+        limit.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(limit, ())
+        _ensure_value_metadata(ctx, limit)
+
         # Build the 1-D range along the chosen axis.
         start = _scalar_i64(ctx, 0, "iota_start")
-        limit = _scalar_i64(ctx, shape[dimension], "iota_limit")
         delta = _scalar_i64(ctx, 1, "iota_delta")
 
         range_out = builder.Range(
@@ -114,7 +126,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("iota_range")],
         )
         range_out.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(range_out, (shape[dimension],))
+        _stamp_type_and_shape(range_out, (dim_extent,))
         _ensure_value_metadata(ctx, range_out)
 
         current = range_out
@@ -127,7 +139,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             )
             if axes_tensor is not None:
                 unsq_shape = [1] * rank
-                unsq_shape[dimension] = shape[dimension]
+                unsq_shape[dimension] = dim_extent
                 current_unsq = builder.Unsqueeze(
                     current,
                     axes_tensor,
@@ -138,9 +150,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, current_unsq)
                 current = current_unsq
 
-            expand_shape = _const_i64(
-                ctx, np.asarray(shape, dtype=np.int64), "iota_expand_shape"
-            )
+            expand_shape = _lower_i64_vector(ctx, shape, "iota_expand_shape")
             expanded = builder.Expand(
                 current,
                 expand_shape,
