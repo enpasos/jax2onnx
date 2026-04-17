@@ -61,8 +61,8 @@ def _swiglu(x: jnp.ndarray, *, limit: float, alpha: float = 1.702) -> jnp.ndarra
     x_glu = jnp.take(x_reshaped, 0, axis=-1)
     x_linear = jnp.take(x_reshaped, 1, axis=-1)
 
-    x_glu = jnp.clip(x_glu, a_min=None, a_max=limit).astype(dtype)
-    x_linear = jnp.clip(x_linear, a_min=-limit, a_max=limit).astype(dtype)
+    x_glu = jnp.clip(x_glu, max=limit).astype(dtype)
+    x_linear = jnp.clip(x_linear, min=-limit, max=limit).astype(dtype)
     out_glu = x_glu * nn.sigmoid(alpha * x_glu).astype(dtype)
     # GPT-OSS adds a +1.0 bias to the linear term
     return (out_glu * (x_linear + jnp.asarray(1.0, dtype=dtype))).astype(dtype)

@@ -628,6 +628,8 @@ def _sanitize_params(params: Any) -> Any:
     else:
         return params
     sanitized.pop("copy_semantics", None)
+    sanitized.pop("linear", None)
+    sanitized.pop("_split_transpose", None)
     return sanitized
 
 

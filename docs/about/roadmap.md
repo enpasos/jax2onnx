@@ -7,8 +7,17 @@
 * Improve support for **physics-based simulations**.
  
 
+## Upcoming Version
+
+
+### **jax2onnx 0.13.0**
+
+* Restore JAX 0.10.0 compatibility by updating GPT-OSS examples to the new `jnp.clip(min=..., max=...)` API and tolerating legacy `scan` payload params removed upstream.
+
+
 
 ## Current Version
+ 
 
 ### **jax2onnx 0.12.5**
 
