@@ -104,8 +104,8 @@ def _swiglu(
     alpha: float = 1.702,
     limit: float = 7.0,
 ) -> jax.Array:
-    gate = jnp.clip(x[..., ::2], a_min=None, a_max=limit)
-    linear = jnp.clip(x[..., 1::2], a_min=-limit, a_max=limit)
+    gate = jnp.clip(x[..., ::2], max=limit)
+    linear = jnp.clip(x[..., 1::2], min=-limit, max=limit)
     swish_gate = gate * jax.nn.sigmoid(alpha * gate)
     return swish_gate * (linear + 1.0)
 
