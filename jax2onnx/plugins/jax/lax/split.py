@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     testcases=[
         {
             "testcase": "lax_split_equal_parts",
-            "callable": lambda x: jnp.split(x, 2, axis=1),
+            "callable": lambda x: jax.lax.split(x, (3, 3), axis=1),
             "input_shapes": [(4, 6)],
             "post_check_onnx_graph": EG(
                 ["Split:4x3"],
@@ -39,8 +39,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         },
         {
             "testcase": "lax_split_unequal_parts",
-            "callable": lambda x: jnp.split(x, [2, 5], axis=1),
+            "callable": lambda x: jax.lax.split(x, (2, 3, 4), axis=1),
             "input_shapes": [(4, 9)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "lax_split_single_output",
+            "callable": lambda x: jax.lax.split(x, (6,), axis=1),
+            "input_shapes": [(4, 6)],
             "post_check_onnx_graph": EG(
                 [
                     {
@@ -87,11 +101,13 @@ class SplitPlugin(PrimitiveLeafPlugin):
             getattr(val, "name", None) or ctx.fresh_name("split_out")
             for val in out_vals
         ]
-        split_results = ctx.builder.Split(
-            data_val,
-            splits_val,
-            _outputs=out_names,
-            axis=axis,
+        split_results = normalize_builder_outputs(
+            ctx.builder.Split(
+                data_val,
+                splits_val,
+                _outputs=out_names,
+                axis=axis,
+            )
         )
 
         data_dtype = getattr(getattr(data_val, "type", None), "dtype", None)
