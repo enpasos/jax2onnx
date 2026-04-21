@@ -26,6 +26,7 @@ from jax.interpreters import batching
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
+from jax2onnx.plugins._attention_utils import expand_grouped_kv_heads
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -231,6 +232,48 @@ def _builder_tensor_op(
     )
 
 
+def _unsqueeze_leading_batch(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    shape: Tuple[object, ...],
+    base: str,
+) -> ir.Value:
+    axes = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{base}_axes"),
+        array=np.asarray([0], dtype=np.int64),
+    )
+    return _builder_tensor_op(
+        ctx,
+        "Unsqueeze",
+        [value, axes],
+        base=base,
+        dtype_like=value,
+        shape=(1, *shape),
+    )
+
+
+def _squeeze_leading_batch(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    shape: Tuple[object, ...],
+    base: str,
+) -> ir.Value:
+    axes = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{base}_axes"),
+        array=np.asarray([0], dtype=np.int64),
+    )
+    return _builder_tensor_op(
+        ctx,
+        "Squeeze",
+        [value, axes],
+        base=base,
+        dtype_like=value,
+        shape=shape,
+    )
+
+
 def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
@@ -305,6 +348,21 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 [
                     "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
                     "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_tnh_unbatched",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(4, 2, 8), (5, 2, 8), (5, 2, 8)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Unsqueeze:1x4x2x8 -> Transpose:1x2x4x8 -> "
+                    "MatMul:1x2x4x5 -> Mul:1x2x4x5 -> Softmax:1x2x4x5 -> "
+                    "MatMul:1x2x4x8 -> Transpose:1x4x2x8 -> Squeeze:4x2x8"
                 ],
                 no_unused_inputs=True,
             ),
@@ -474,6 +532,31 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 [
                     "Transpose:2x4x8x16 -> MatMul:2x4x8x8 -> Mul:2x4x8x8 -> "
                     "Softmax:2x4x8x8 -> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_gqa_basic",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 2, 16), (2, 8, 2, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Tile -> Transpose -> MatMul",
+                        {
+                            "counts": {
+                                "Tile": 2,
+                                "MatMul": 2,
+                                "Mul": 1,
+                                "Softmax": 1,
+                                "Transpose": 4,
+                            }
+                        },
+                    ),
+                    "Mul -> Softmax -> MatMul",
                 ],
                 no_unused_inputs=True,
             ),
@@ -715,27 +798,71 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
+        v_shape = tuple(getattr(getattr(v_var, "aval", None), "shape", ()))
         np_dtype = _numpy_dtype_from_aval(q_var)
 
-        if len(q_shape) != 4 or len(k_shape) != 4:
+        ranks = (len(q_shape), len(k_shape), len(v_shape))
+        if len(set(ranks)) != 1 or ranks[0] not in (3, 4):
             raise NotImplementedError(
-                "jax.nn.dot_product_attention expects 4D query/key inputs"
+                "jax.nn.dot_product_attention expects matching 3D TNH or 4D "
+                "BTNH query/key/value inputs"
             )
+
+        unbatched_inputs = ranks[0] == 3
+        if unbatched_inputs:
+            q_val = _unsqueeze_leading_batch(
+                ctx, q_val, shape=q_shape, base="dpa_q_batched"
+            )
+            k_val = _unsqueeze_leading_batch(
+                ctx, k_val, shape=k_shape, base="dpa_k_batched"
+            )
+            v_val = _unsqueeze_leading_batch(
+                ctx, v_val, shape=v_shape, base="dpa_v_batched"
+            )
+            q_shape = (1, *q_shape)
+            k_shape = (1, *k_shape)
+            v_shape = (1, *v_shape)
 
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
+        key_num_heads = k_shape[2]
+        value_num_heads = v_shape[2]
 
         batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
-        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        num_heads_v, num_heads_static = _coerce_dim(num_heads, "num_heads")
+        key_num_heads_v, key_num_heads_static = _coerce_dim(
+            key_num_heads, "key_num_heads"
+        )
+        value_num_heads_v, value_num_heads_static = _coerce_dim(
+            value_num_heads, "value_num_heads"
+        )
         head_dim_v, head_static = _coerce_dim(head_dim, "head")
         if not head_static:
             raise NotImplementedError(
                 "jax.nn.dot_product_attention requires a static head dimension"
             )
+        if not (num_heads_static and key_num_heads_static and value_num_heads_static):
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires static query/key/value "
+                "head counts"
+            )
         q_len_v, _ = _coerce_dim(q_len, "query length")
         k_len_v, _ = _coerce_dim(k_len, "key length")
 
         head_dim_i = cast(int, head_dim_v)
+        num_heads_static_i = cast(int, num_heads_v)
+        key_num_heads_i = cast(int, key_num_heads_v)
+        value_num_heads_i = cast(int, value_num_heads_v)
+        if key_num_heads_i != value_num_heads_i:
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires matching key/value "
+                "head counts"
+            )
+        if num_heads_static_i % key_num_heads_i != 0:
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires q_num_heads to be "
+                "divisible by kv_num_heads"
+            )
         batch_dim_i: DimLike = _symbolic_or_dim("B", batch_dim_v)
         num_heads_i: DimLike = _symbolic_or_dim("N", num_heads_v)
         q_len_i: DimLike = _symbolic_or_dim("T", q_len_v)
@@ -753,12 +880,24 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym))
 
+        k_expanded = expand_grouped_kv_heads(
+            ctx,
+            k_val,
+            q_num_heads=num_heads_static_i,
+            kv_num_heads=key_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=head_dim_sym,
+            prefix="dpa_k_gqa",
+            op_name="jax.nn.dot_product_attention",
+        )
+
         k_t = _builder_tensor_op(
             ctx,
             "Transpose",
-            [k_val],
+            [k_expanded],
             base="dpa_kT",
-            dtype_like=k_val,
+            dtype_like=k_expanded,
             shape=(batch_dim, num_heads, head_dim, k_len),
             attributes={"perm": (0, 2, 3, 1)},
         )
@@ -1199,12 +1338,24 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
 
+        v_expanded = expand_grouped_kv_heads(
+            ctx,
+            v_val,
+            q_num_heads=num_heads_static_i,
+            kv_num_heads=value_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=head_dim_sym,
+            prefix="dpa_v_gqa",
+            op_name="jax.nn.dot_product_attention",
+        )
+
         v_t = _builder_tensor_op(
             ctx,
             "Transpose",
-            [v_val],
+            [v_expanded],
             base="dpa_vT",
-            dtype_like=v_val,
+            dtype_like=v_expanded,
             shape=(batch_dim, num_heads, k_len, head_dim),
             attributes={"perm": (0, 2, 1, 3)},
         )
@@ -1230,6 +1381,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             attributes={"perm": (0, 2, 1, 3)},
         )
         _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_sym))
+        if unbatched_inputs:
+            result = _squeeze_leading_batch(
+                ctx,
+                result,
+                shape=(q_len, num_heads, head_dim),
+                base="dpa_out_unbatched",
+            )
+            _stamp_type_and_shape(result, (q_len_i, num_heads_i, head_dim_sym))
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod

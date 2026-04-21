@@ -59,6 +59,40 @@ def test_jax_nn_dpa_plugin_world_accepts_scale_argument() -> None:
     np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
 
 
+def test_jax_nn_dpa_plugin_world_accepts_grouped_query_attention() -> None:
+    import jax.nn as jax_nn
+
+    import_all_plugins()
+
+    q = np.linspace(-1.0, 1.0, num=32, dtype=np.float32).reshape((1, 2, 4, 4))
+    k = np.linspace(-0.5, 0.5, num=24, dtype=np.float32).reshape((1, 3, 2, 4))
+    v = np.linspace(0.25, 1.25, num=24, dtype=np.float32).reshape((1, 3, 2, 4))
+
+    expected = np.asarray(jax_nn.dot_product_attention(q, k, v))
+
+    with _activate_plugin_worlds():
+        got = np.asarray(jax_nn.dot_product_attention(q, k, v))
+
+    np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_jax_nn_dpa_plugin_world_accepts_unbatched_tnh_inputs() -> None:
+    import jax.nn as jax_nn
+
+    import_all_plugins()
+
+    q = np.linspace(-1.0, 1.0, num=4 * 2 * 8, dtype=np.float32).reshape((4, 2, 8))
+    k = np.linspace(-0.5, 0.5, num=5 * 2 * 8, dtype=np.float32).reshape((5, 2, 8))
+    v = np.linspace(0.25, 1.25, num=5 * 2 * 8, dtype=np.float32).reshape((5, 2, 8))
+
+    expected = np.asarray(jax_nn.dot_product_attention(q, k, v))
+
+    with _activate_plugin_worlds():
+        got = np.asarray(jax_nn.dot_product_attention(q, k, v))
+
+    np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
+
+
 def test_jax_nn_dpa_plugin_world_accepts_local_window_size_argument() -> None:
     import jax.nn as jax_nn
 
