@@ -43,10 +43,6 @@ def _dynamic_or_constant(
     return _check
 
 
-def _np_dtype_from_ir(enum: Any) -> Optional[np.dtype[Any]]:
-    return ir_dtype_to_numpy(enum, default=None)
-
-
 def _value_to_numpy(val: object | None) -> np.ndarray[Any, Any] | None:
     if val is None:
         return None
@@ -86,7 +82,7 @@ def _node_constant_array(
         if arr is None:
             return None
         target_enum = getattr(getattr(target_value, "type", None), "dtype", None)
-        dtype = _np_dtype_from_ir(target_enum)
+        dtype = ir_dtype_to_numpy(target_enum, default=None)
         if dtype is not None:
             return cast(np.ndarray[Any, Any], np.asarray(arr, dtype=dtype))
         return arr

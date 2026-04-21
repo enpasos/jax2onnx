@@ -6,7 +6,7 @@ import numpy as np
 from jax import core
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._axis0_utils import _np_dtype_for_enum
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -55,7 +55,7 @@ class Expm1Plugin(PrimitiveLeafPlugin):
             exp_val.shape = x_val.shape
 
         dtype_enum = getattr(getattr(exp_val, "type", None), "dtype", None)
-        np_dtype = _np_dtype_for_enum(dtype_enum)
+        np_dtype = ir_dtype_to_numpy(dtype_enum, default=None)
         if np_dtype is None:
             aval = getattr(x_var, "aval", None)
             np_dtype = np.dtype(getattr(aval, "dtype", np.float32))

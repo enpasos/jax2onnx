@@ -66,10 +66,6 @@ def _aval_shape_tuple(var: Any) -> tuple[Any, ...]:
     return ()
 
 
-def _np_dtype_for_enum(enum: Any) -> np.dtype[Any] | None:
-    return ir_dtype_to_numpy(enum, default=None)
-
-
 def _static_dim_as_int(dim: Any) -> int | None:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
@@ -124,7 +120,7 @@ def _pad_axis0_to_extent(
         ref_type = reference.type if hasattr(reference, "type") else None
         if ref_type is not None and hasattr(ref_type, "dtype"):
             dtype_enum = ref_type.dtype
-    np_dtype = _np_dtype_for_enum(dtype_enum) or np.dtype(np.float32)
+    np_dtype = ir_dtype_to_numpy(dtype_enum, default=None) or np.dtype(np.float32)
 
     zero_scalar = np.zeros((), dtype=np_dtype)
     zero_init = ctx.builder.add_initializer_from_array(
