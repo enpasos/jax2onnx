@@ -1,32 +1,13 @@
 # jax2onnx/plugins/_utils.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Final, Sequence
+from typing import TYPE_CHECKING, Sequence
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
-
-
-_DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
-    (ir.DataType.DOUBLE, np.dtype(np.float64)),
-    (ir.DataType.FLOAT, np.dtype(np.float32)),
-    (ir.DataType.FLOAT16, np.dtype(np.float16)),
-    (ir.DataType.INT64, np.dtype(np.int64)),
-    (ir.DataType.INT32, np.dtype(np.int32)),
-    (ir.DataType.INT16, np.dtype(np.int16)),
-    (ir.DataType.INT8, np.dtype(np.int8)),
-    (ir.DataType.UINT64, np.dtype(np.uint64)),
-    (ir.DataType.UINT32, np.dtype(np.uint32)),
-    (ir.DataType.UINT16, np.dtype(np.uint16)),
-    (ir.DataType.UINT8, np.dtype(np.uint8)),
-    (ir.DataType.BOOL, np.dtype(np.bool_)),
-)
-
-
-_IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
 
 
 def cast_param_like(
@@ -48,7 +29,7 @@ def cast_param_like(
 
     if param.const_value is not None:
         np_arr = const_value_to_numpy(param)
-        target_np = _IR_TO_NP_DTYPE.get(l_dt)
+        target_np = ir_dtype_to_numpy(l_dt, default=None)
         if np_arr is not None and target_np is not None:
             if np_arr.dtype != target_np:
                 np_arr = np_arr.astype(target_np, copy=False)
@@ -90,8 +71,9 @@ def inline_reshape_initializer(
     np_arr = np.asarray(arr).reshape(new_shape)
     # Preserve dtype from the original value when available
     target_dtype = val.dtype
-    if target_dtype is not None and target_dtype in _IR_TO_NP_DTYPE:
-        np_arr = np_arr.astype(_IR_TO_NP_DTYPE[target_dtype], copy=False)
+    target_np_dtype = ir_dtype_to_numpy(target_dtype, default=None)
+    if target_np_dtype is not None:
+        np_arr = np_arr.astype(target_np_dtype, copy=False)
 
     return ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=np_arr

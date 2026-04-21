@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any
 from types import SimpleNamespace
 
 import os
@@ -10,6 +10,7 @@ import os
 import numpy as np
 
 import onnx_ir as ir
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
@@ -18,37 +19,6 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-
-_FLOAT16: Final[ir.DataType] = ir.DataType.FLOAT16
-_BFLOAT16: Final[ir.DataType] = ir.DataType.BFLOAT16
-_DOUBLE: Final[ir.DataType] = ir.DataType.DOUBLE
-_COMPLEX64: Final[ir.DataType] = ir.DataType.COMPLEX64
-_COMPLEX128: Final[ir.DataType] = ir.DataType.COMPLEX128
-_UINT8: Final[ir.DataType] = ir.DataType.UINT8
-_UINT16: Final[ir.DataType] = ir.DataType.UINT16
-_UINT32: Final[ir.DataType] = ir.DataType.UINT32
-_UINT64: Final[ir.DataType] = ir.DataType.UINT64
-_NP_BFLOAT16: Final[np.dtype[Any]] = np.dtype(
-    np.bfloat16 if hasattr(np, "bfloat16") else np.float16
-)
-
-_IR_TO_NP_DTYPE: dict[ir.DataType | None, np.dtype[Any]] = {
-    _FLOAT16: np.dtype(np.float16),
-    _BFLOAT16: np.dtype(_NP_BFLOAT16),
-    ir.DataType.FLOAT: np.dtype(np.float32),
-    _DOUBLE: np.dtype(np.float64),
-    _COMPLEX64: np.dtype(np.complex64),
-    _COMPLEX128: np.dtype(np.complex128),
-    ir.DataType.INT8: np.dtype(np.int8),
-    ir.DataType.INT16: np.dtype(np.int16),
-    ir.DataType.INT32: np.dtype(np.int32),
-    ir.DataType.INT64: np.dtype(np.int64),
-    _UINT8: np.dtype(np.uint8),
-    _UINT16: np.dtype(np.uint16),
-    _UINT32: np.dtype(np.uint32),
-    _UINT64: np.dtype(np.uint64),
-    ir.DataType.BOOL: np.dtype(np.bool_),
-}
 
 
 def _axis0_debug_enabled() -> bool:
@@ -97,16 +67,7 @@ def _aval_shape_tuple(var: Any) -> tuple[Any, ...]:
 
 
 def _np_dtype_for_enum(enum: Any) -> np.dtype[Any] | None:
-    if isinstance(enum, np.dtype):
-        return enum
-    if isinstance(enum, ir.DataType):
-        return _IR_TO_NP_DTYPE.get(enum)
-    if isinstance(enum, (int, np.integer)):
-        try:
-            return _IR_TO_NP_DTYPE.get(ir.DataType(int(enum)))
-        except Exception:
-            return None
-    return None
+    return ir_dtype_to_numpy(enum, default=None)
 
 
 def _static_dim_as_int(dim: Any) -> int | None:
