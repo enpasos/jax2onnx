@@ -409,7 +409,7 @@ class DivPlugin(PrimitiveLeafPlugin):
             ctx, lhs_val, rhs_val, out_spec, out_var
         )
         output_name = out_spec.name or ctx.fresh_name("div_out")
-        out_spec.name = output_name
+        ir.convenience.rename_values(out_spec, output_name)
 
         def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)
