@@ -17,6 +17,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -63,27 +64,27 @@ def _maybe_cast(
     target_enum: ir.DataType,
     name_hint: str,
 ) -> ir.Value:
-    const_arr = getattr(value, "const_value", None)
-    if const_arr is not None:
-        np_arr = np.asarray(const_arr)
-        enum_to_np = {
-            ir.DataType.FLOAT: np.float32,
-            ir.DataType.DOUBLE: np.float64,
-            ir.DataType.INT32: np.int32,
-            ir.DataType.INT64: np.int64,
-            ir.DataType.INT16: np.int16,
-            ir.DataType.INT8: np.int8,
-            ir.DataType.UINT8: np.uint8,
-            ir.DataType.BOOL: np.bool_,
-        }
-        target_dtype = enum_to_np.get(target_enum)
-        if target_dtype is not None and np_arr.dtype != target_dtype:
-            new_val = ctx.bind_const_for_var(
-                object(), np_arr.astype(target_dtype, copy=False)
-            )
-            _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
-            _ensure_value_metadata(ctx, new_val)
-            return new_val
+    if value.const_value is not None:
+        np_arr = const_value_to_numpy(value)
+        if np_arr is not None:
+            enum_to_np = {
+                ir.DataType.FLOAT: np.float32,
+                ir.DataType.DOUBLE: np.float64,
+                ir.DataType.INT32: np.int32,
+                ir.DataType.INT64: np.int64,
+                ir.DataType.INT16: np.int16,
+                ir.DataType.INT8: np.int8,
+                ir.DataType.UINT8: np.uint8,
+                ir.DataType.BOOL: np.bool_,
+            }
+            target_dtype = enum_to_np.get(target_enum)
+            if target_dtype is not None and np_arr.dtype != target_dtype:
+                new_val = ctx.bind_const_for_var(
+                    object(), np_arr.astype(target_dtype, copy=False)
+                )
+                _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
+                _ensure_value_metadata(ctx, new_val)
+                return new_val
     cur_type = getattr(value, "type", None)
     cur_dtype = getattr(cur_type, "dtype", None)
     if cur_dtype == target_enum:

@@ -16,6 +16,7 @@ from jax import core
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
@@ -501,7 +502,11 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             const_parts: list[np.ndarray] = []
             all_static = True
             for component in shape_components:
-                payload = getattr(component, "const_value", None)
+                payload = (
+                    const_value_to_numpy(component)
+                    if component.const_value is not None
+                    else None
+                )
                 if payload is None:
                     all_static = False
                     break
@@ -531,8 +536,14 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, shape_tensor)
 
         reshape_out = None
-        arr_const = getattr(arr_val, "const_value", None)
-        shape_const = getattr(shape_tensor, "const_value", None)
+        arr_const = (
+            const_value_to_numpy(arr_val) if arr_val.const_value is not None else None
+        )
+        shape_const = (
+            const_value_to_numpy(shape_tensor)
+            if shape_tensor.const_value is not None
+            else None
+        )
         inline_allowed = getattr(ctx, "_inside_function_scope", False)
         if inline_allowed and arr_const is not None and shape_const is not None:
             try:

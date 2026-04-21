@@ -17,6 +17,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
@@ -362,12 +363,8 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                 return value
 
         dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-        const_payload = getattr(value, "const_value", None)
-        if const_payload is not None:
-            try:
-                arr = const_payload.numpy()
-            except Exception:
-                arr = None
+        if value.const_value is not None:
+            arr = const_value_to_numpy(value)
             if arr is not None and arr.dtype != target_dtype:
                 arr = arr.astype(target_dtype, copy=False)
                 value.const_value = ir.tensor(arr)
