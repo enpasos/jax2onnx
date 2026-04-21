@@ -36,6 +36,10 @@ def _linspace_float32() -> jax.Array:
     return jnp.linspace(0.0, 1.0, num=3, dtype=jnp.float32)
 
 
+def _arange_float32() -> jax.Array:
+    return jnp.arange(1.0, 2.0, 0.25, dtype=jnp.float32)
+
+
 def test_convert_element_type_preserves_explicit_float32_target_under_x64() -> None:
     model = to_onnx(
         _convert_to_float32,
@@ -99,6 +103,18 @@ def test_full_preserves_explicit_float32_dtype_under_x64() -> None:
 def test_linspace_preserves_explicit_float32_dtype_under_x64() -> None:
     model = to_onnx(
         _linspace_float32,
+        [],
+        return_mode="ir",
+        enable_double_precision=True,
+    )
+
+    assert model.graph.outputs[0].type is not None
+    assert model.graph.outputs[0].type.dtype == ir.DataType.FLOAT
+
+
+def test_arange_preserves_explicit_float32_dtype_under_x64() -> None:
+    model = to_onnx(
+        _arange_float32,
         [],
         return_mode="ir",
         enable_double_precision=True,
