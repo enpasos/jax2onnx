@@ -131,22 +131,6 @@ def _dbg_tm(*a: object) -> None:
         print("[tm-inline]", *a)
 
 
-# ---------------- Replacement helpers ----------------
-
-
-def _replace_all_uses_with(
-    values: Union[ir.Value, Sequence[ir.Value]],
-    replacements: Union[ir.Value, Sequence[ir.Value]],
-    *,
-    replace_graph_outputs: bool = False,
-) -> None:
-    ir.convenience.replace_all_uses_with(
-        values,
-        replacements,
-        replace_graph_outputs=replace_graph_outputs,
-    )
-
-
 # ---------------- Public helper shims (restored for unit tests) ----------------
 
 
@@ -525,7 +509,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                             if next_target is not None and next_target == src_dtype:
                                 final_out = next_outs[0]
                                 src_val = ins[0]
-                                _replace_all_uses_with(
+                                ir.convenience.replace_all_uses_with(
                                     final_out, src_val, replace_graph_outputs=True
                                 )
                                 graph.remove([n, next_node])
@@ -542,7 +526,9 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                 continue
             src_val = ins[0]
             out_val = outs[0]
-            _replace_all_uses_with(out_val, src_val, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                out_val, src_val, replace_graph_outputs=True
+            )
             graph.remove(n)
             changed = True
             break
@@ -908,7 +894,9 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             t2_out = _node_output(node)
             reducer_out = _node_output(reducer)
             _copy_shape_dtype(reducer_out, t2_out)
-            _replace_all_uses_with(t2_out, reducer_out, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                t2_out, reducer_out, replace_graph_outputs=True
+            )
 
             # 4. Cleanup
             # node.inputs might be tuple? Just remove from graph.
@@ -1054,7 +1042,9 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
                 t_in = (_node_inputs(out_transpose) or [None])[0]
                 if t_out is None or not isinstance(t_in, ir.Value):
                     continue
-                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    t_out, t_in, replace_graph_outputs=True
+                )
             graph.remove(list(output_transposes))
 
             # Remove now-unused input Transpose(perm_fwd) nodes.
@@ -1227,7 +1217,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     consumer_out = _node_output(consumer)
                     if consumer_out is None:
                         continue
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         consumer_out, out, replace_graph_outputs=True
                     )
                     to_remove.add(consumer)
@@ -1317,7 +1307,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 t_in = (_node_inputs(t_out_node) or [None])[0]
                 if not isinstance(t_in, ir.Value):
                     continue
-                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    t_out, t_in, replace_graph_outputs=True
+                )
             if output_transposes:
                 graph.remove(list(output_transposes))
 
@@ -1394,7 +1386,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             if t2_out is None:
                 continue
             new_src = t1_in if not elem_nodes else t2_in
-            _replace_all_uses_with(t2_out, new_src, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                t2_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, t2_node])
             changed = True
             break
@@ -1459,7 +1453,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     continue
                 if allowed_nodes:
                     last_allowed = allowed_nodes[-1]
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         _node_output(T1), t1_in, replace_graph_outputs=True
                     )
                     new_src = _node_output(last_allowed) or t1_in
@@ -1467,7 +1461,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     new_src = t1_in
                 old_out = _node_output(T2)
                 assert old_out is not None
-                _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    old_out, new_src, replace_graph_outputs=True
+                )
                 graph.remove([T1, T2])
                 changed = True
                 break
@@ -1509,7 +1505,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     # Rewire T2's consumers to use T1's input directly
                     old_out = _node_output(T2)
                     assert old_out is not None
-                    _replace_all_uses_with(old_out, t1_in, replace_graph_outputs=True)
+                    ir.convenience.replace_all_uses_with(
+                        old_out, t1_in, replace_graph_outputs=True
+                    )
                     # Remove only T2, not T1 (T1 still has other consumers)
                     graph.remove(T2)
                     removed_any = True
@@ -1610,14 +1608,16 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 )
             if allowed_fwd:
                 last_allowed = allowed_fwd[-1]
-                _replace_all_uses_with(
+                ir.convenience.replace_all_uses_with(
                     _node_output(T1), src, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
             old_out = _node_output(T2)
-            _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                old_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, T2])
             changed = True
             break
@@ -1675,7 +1675,9 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             dst_dims = _value_dims(dst_val)
             if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
                 continue
-            _replace_all_uses_with(dst_val, data_val, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                dst_val, data_val, replace_graph_outputs=True
+            )
             graph.remove(node)
             changed = True
             break
@@ -2101,7 +2103,7 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     ins_new = list(ins)
                     ins_new[2] = rep_val
                     old_not_out = _node_output(producer)
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         old_not_out, rep_val, replace_graph_outputs=True
                     )
                     _set_node_inputs(n, ins_new)
