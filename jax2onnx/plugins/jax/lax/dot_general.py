@@ -10,7 +10,6 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     cast_real_tensor,
@@ -25,9 +24,17 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
+
+
+def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
+    return cast(
+        ir.DataType | None,
+        getattr(getattr(value, "type", None), "dtype", None),
+    )
 
 
 @register_primitive(
@@ -533,9 +540,12 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
                     getattr(lhs_var.aval, "dtype", np.float32),
                 )
             )
-            result.type = ir.TensorType(
-                _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+            result_dtype = (
+                _value_ir_dtype(lhs_prepped)
+                or _value_ir_dtype(rhs_prepped)
+                or numpy_dtype_to_ir(out_dtype)
             )
+            result.type = ir.TensorType(result_dtype)
             _stamp_type_and_shape(result, out_shape)
             _ensure_value_metadata(ctx, result)
             ctx.bind_value_for_var(out_var, result)
@@ -590,9 +600,12 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         )
 
         _stamp_type_and_shape(result, out_shape)
-        result.type = ir.TensorType(
-            _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        result_dtype = (
+            _value_ir_dtype(lhs_val)
+            or _value_ir_dtype(rhs_input)
+            or numpy_dtype_to_ir(out_dtype)
         )
+        result.type = ir.TensorType(result_dtype)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
         return True
@@ -694,28 +707,24 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             _outputs=[desired_name],
         )
 
-        spec_type = getattr(out_spec, "type", None)
-        if spec_type is not None:
-            result.type = spec_type
+        inferred_dtype = next(
+            (
+                _value_ir_dtype(v)
+                for v in (lhs_val_prepped, rhs_val_prepped, lhs_val, rhs_val)
+                if _value_ir_dtype(v) is not None
+            ),
+            None,
+        )
+        if inferred_dtype is not None:
+            result.type = ir.TensorType(inferred_dtype)
         else:
             aval_dtype = getattr(out_var.aval, "dtype", None)
             if aval_dtype is not None:
-                result.type = ir.TensorType(
-                    _dtype_to_ir(
-                        np.dtype(aval_dtype), ctx.builder.enable_double_precision
-                    )
-                )
+                result.type = ir.TensorType(numpy_dtype_to_ir(np.dtype(aval_dtype)))
             else:
-                inferred_dtype = next(
-                    (
-                        getattr(getattr(v, "type", None), "dtype", None)
-                        for v in (lhs_val, rhs_val)
-                        if getattr(getattr(v, "type", None), "dtype", None) is not None
-                    ),
-                    None,
-                )
-                if inferred_dtype is not None:
-                    result.type = ir.TensorType(inferred_dtype)
+                spec_type = getattr(out_spec, "type", None)
+                if spec_type is not None:
+                    result.type = spec_type
 
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

@@ -13,8 +13,8 @@ from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
 from jax.interpreters import batching
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
@@ -235,7 +235,7 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         target_dtype = _promote_dtype(
             [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
         )
-        target_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        target_enum = numpy_dtype_to_ir(target_dtype)
 
         inputs: list[ir.Value] = []
         for var in in_vars:
