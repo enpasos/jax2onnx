@@ -37,3 +37,11 @@ def const_value_to_numpy(value: object) -> np.ndarray[Any, np.dtype[Any]] | None
     if tensor is None:
         return None
     return tensor_to_numpy(tensor)
+
+
+def tensor_attr(name: str, tensor: object) -> ir.Attr:
+    return ir.convenience.convert_attribute(
+        name,
+        cast(Any, tensor),
+        ir.AttributeType.TENSOR,
+    )

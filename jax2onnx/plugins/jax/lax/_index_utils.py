@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import SymbolicDimOrigin
+from jax2onnx.ir_utils import tensor_attr
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
@@ -43,7 +44,6 @@ def _const_i64(
     )
     if builder is not None and (inside_function or builder_mode):
         tensor_obj = ir.tensor(arr)
-        tensor_obj = ir.tensor(arr)
         val_name = ctx.fresh_name(name_hint)
         val = ir.Value(
             name=val_name,
@@ -51,7 +51,7 @@ def _const_i64(
             shape=ir.Shape(arr.shape),
             const_value=tensor_obj,
         )
-        attributes = [ir.Attr("value", ir.AttributeType.TENSOR, tensor_obj)]
+        attributes = [tensor_attr("value", tensor_obj)]
         node = ir.Node(
             op_type="Constant",
             domain="",

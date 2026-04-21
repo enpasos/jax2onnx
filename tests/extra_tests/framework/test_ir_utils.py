@@ -3,7 +3,7 @@
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr, tensor_to_numpy
 
 
 def test_tensor_to_numpy_reads_onnx_ir_tensor() -> None:
@@ -50,3 +50,12 @@ def test_const_value_to_numpy_reads_constant_node_output() -> None:
 
     assert actual is not None
     np.testing.assert_array_equal(actual, array)
+
+
+def test_tensor_attr_converts_tensor_value() -> None:
+    array = np.array([1, 2, 3], dtype=np.int64)
+
+    attr = tensor_attr("value", ir.tensor(array))
+
+    assert attr.type == ir.AttributeType.TENSOR
+    np.testing.assert_array_equal(tensor_to_numpy(attr.as_tensor()), array)

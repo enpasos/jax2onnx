@@ -20,7 +20,7 @@ from collections.abc import MutableSequence
 import os
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr, AttributeType
+from jax2onnx.ir_utils import tensor_attr
 from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
@@ -428,7 +428,7 @@ class IRContext:
         self.builder.initializers.append(value)
 
     def _materialize_constant_value(self, value: ir.Value, tensor: Any) -> None:
-        attributes = [Attr("value", AttributeType.TENSOR, tensor)]
+        attributes = [tensor_attr("value", tensor)]
         node = ir.Node(
             op_type="Constant",
             domain="",
@@ -499,7 +499,7 @@ class IRContext:
                     inputs=[],
                     outputs=[value],
                     name=self.fresh_name("Constant"),
-                    attributes=[Attr("value", AttributeType.TENSOR, tensor)],
+                    attributes=[tensor_attr("value", tensor)],
                 )
             )
         else:
@@ -710,9 +710,8 @@ class IRContext:
                                 outputs=[cast_val],
                                 name=self.fresh_name("Cast"),
                                 attributes=[
-                                    Attr(
+                                    ir.convenience.convert_attribute(
                                         "to",
-                                        AttributeType.INT,
                                         int(target_enum.value),
                                     )
                                 ],

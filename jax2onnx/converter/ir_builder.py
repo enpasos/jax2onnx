@@ -18,9 +18,8 @@ from typing import (
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
-from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
 from .typing_support import SymbolicDimOrigin
 
 
@@ -395,9 +394,7 @@ class IRBuilder:
                 ),
                 const_value=tensor,
             )
-            attributes = [
-                Attr("value", AttributeType.TENSOR, tensor),
-            ]
+            attributes = [tensor_attr("value", tensor)]
             node = ir.Node(
                 op_type="Constant",
                 domain="",

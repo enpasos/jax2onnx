@@ -9,7 +9,7 @@ from typing import Iterable, TypeAlias, Union, cast
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
-from jax2onnx.ir_utils import tensor_to_numpy
+from jax2onnx.ir_utils import tensor_attr, tensor_to_numpy
 
 DimValue: TypeAlias = Union[int, ir.SymbolicDim, None]
 
@@ -162,11 +162,7 @@ def _promote_constant_attributes(node: ir.Node) -> None:
     if array.dtype != np.float32:
         return
     promoted = ir.tensor(array.astype(np.float64))
-    node.attributes["value"] = ir.Attr(
-        "value",
-        AttributeType.TENSOR,
-        promoted,
-    )
+    node.attributes["value"] = tensor_attr("value", promoted)
 
 
 def _process_graph(
