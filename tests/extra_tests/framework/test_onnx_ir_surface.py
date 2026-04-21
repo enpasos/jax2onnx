@@ -156,6 +156,7 @@ def test_convenience_surface_matches_stub() -> None:
         "convert_attributes",
         "create_value_mapping",
         "get_const_tensor",
+        "rename_values",
         "replace_all_uses_with",
         "replace_nodes_and_values",
     }

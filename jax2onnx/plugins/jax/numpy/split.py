@@ -19,6 +19,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
+from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -179,6 +180,20 @@ def _resolve_split_sizes(
             ),
         },
         {
+            "testcase": "split_single_section",
+            "callable": lambda x: jnp.split(x, 1, axis=1),
+            "input_shapes": [(1, 9)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "path": "Split",
+                        "counts": {"Split": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "split_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(
                 lambda y: jnp.sum(jnp.split(y, 2, axis=0)[0] ** 2)
@@ -271,14 +286,14 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
                 name = ctx.fresh_name("split_out")
             output_names.append(name)
 
-        split_outputs = builder.Split(
-            arr_val,
-            split_val,
-            axis=int(axis),
-            _outputs=output_names,
+        split_outputs = normalize_builder_outputs(
+            builder.Split(
+                arr_val,
+                split_val,
+                axis=int(axis),
+                _outputs=output_names,
+            )
         )
-        if not isinstance(split_outputs, (tuple, list)):
-            split_outputs = [split_outputs]
 
         for result, spec, sz, out_var in zip(split_outputs, out_specs, sizes, out_vars):
             spec_type = getattr(spec, "type", None)

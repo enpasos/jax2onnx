@@ -13,6 +13,7 @@
 ### **jax2onnx 0.13.0**
 
 * Restore JAX 0.10.0 compatibility by updating GPT-OSS examples to the new `jnp.clip(min=..., max=...)` API and tolerating legacy `scan` payload params removed upstream.
+* Reuse the `onnx-ir` 0.2.1 bulk `rename_values` helper for custom input/output naming, including initializer-safe output-name swaps.
 
 
 

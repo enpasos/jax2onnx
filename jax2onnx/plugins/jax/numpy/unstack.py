@@ -14,6 +14,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -125,6 +126,21 @@ def _normalize_axis(axis: int, rank: int) -> int:
             ),
         },
         {
+            "testcase": "unstack_axis_1_single",
+            "callable": lambda x: jnp.unstack(x, axis=1),
+            "input_values": [np.array([[1.0], [2.0]], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                [
+                    {
+                        "inputs": {1: {"const": 1.0}},
+                        "path": "Split:2x1 -> Squeeze:2",
+                        "counts": {"Split": 1, "Squeeze": 1},
+                    }
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "unstack_vmap_batching",
             "callable": lambda x: jax.vmap(lambda y: jnp.unstack(y, axis=0))(x),
             "input_shapes": [(3, 2, 4)],
@@ -177,11 +193,13 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
         split_shape = list(arr_shape)
         split_shape[axis] = 1
         split_outputs = [ctx.fresh_name("unstack_split_out") for _ in range(int(size))]
-        split_values = builder.Split(
-            arr_val,
-            split_sizes,
-            _outputs=split_outputs,
-            axis=int(axis),
+        split_values = normalize_builder_outputs(
+            builder.Split(
+                arr_val,
+                split_sizes,
+                _outputs=split_outputs,
+                axis=int(axis),
+            )
         )
         for split_val in split_values:
             if getattr(arr_val, "type", None) is not None:

@@ -372,28 +372,8 @@ def _apply_custom_io_names_on_ir(
         for value in _collect_top_graph_values(graph)
         if id(value) in target_by_value and getattr(value, "name", None) is not None
     ]
-
-    # Rename in two phases so permutations are safe. onnx_ir prevents an
-    # initializer from taking another live initializer name, so direct in-place
-    # swaps (for example, const_0 <-> const_1) can fail.
-    tmp_prefix = "__j2o_tmp_io_name_"
-    used_names = {
-        getattr(value, "name", "")
-        for value in _collect_top_graph_values(graph)
-        if getattr(value, "name", None)
-    }
-    next_tmp_index = 0
-    for value in rename_values:
-        tmp = f"{tmp_prefix}{next_tmp_index}"
-        while tmp in used_names:
-            next_tmp_index += 1
-            tmp = f"{tmp_prefix}{next_tmp_index}"
-        next_tmp_index += 1
-        used_names.add(tmp)
-        value.name = tmp
-
-    for value in rename_values:
-        value.name = target_by_value[id(value)]
+    target_names = [target_by_value[id(value)] for value in rename_values]
+    ir.convenience.rename_values(rename_values, target_names)
 
 
 if TYPE_CHECKING:
