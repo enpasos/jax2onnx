@@ -28,21 +28,26 @@ _DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
 _IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
 
 
+def tensor_to_numpy(tensor: object) -> np.ndarray[Any, np.dtype[Any]] | None:
+    numpy_method = getattr(tensor, "numpy", None)
+    if callable(numpy_method):
+        try:
+            return cast(np.ndarray[Any, np.dtype[Any]], numpy_method())
+        except Exception:
+            return None
+    try:
+        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
+    except Exception:
+        return None
+
+
 def const_value_to_numpy(value: object) -> np.ndarray[Any, np.dtype[Any]] | None:
     if not isinstance(value, ir.Value):
         return None
     tensor = ir.convenience.get_const_tensor(value)
     if tensor is None:
         return None
-    try:
-        return cast(np.ndarray[Any, np.dtype[Any]], tensor.numpy())
-    except AttributeError:
-        try:
-            return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
-        except Exception:
-            return None
-    except Exception:
-        return None
+    return tensor_to_numpy(tensor)
 
 
 def cast_param_like(

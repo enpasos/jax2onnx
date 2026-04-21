@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final, Optional
+from typing import Callable, ClassVar, Final
 
 import equinox as eqx
 import jax
@@ -23,7 +23,7 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._utils import cast_param_like, const_value_to_numpy
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
@@ -39,31 +39,6 @@ def _ensure_static_int(dim: int | str | None) -> int:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
     raise TypeError("Dimension is not a static integer")
-
-
-def _value_to_numpy(val: ir.Value) -> Optional[np.ndarray]:
-    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
-        payload = getattr(val, attr, None)
-        if payload is None:
-            continue
-        try:
-            return np.asarray(payload)
-        except Exception:
-            try:
-                return np.asarray(payload())  # callable returning array-like
-            except Exception:
-                continue
-    return None
-
-
-def _set_value_const_payload(val: ir.Value, arr: np.ndarray) -> None:
-    payload = ir.tensor(arr) if hasattr(ir, "tensor") else arr
-    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
-        if hasattr(val, attr):
-            try:
-                setattr(val, attr, payload)
-            except Exception:
-                pass
 
 
 def _inline_scalar_bias(
@@ -85,12 +60,11 @@ def _inline_scalar_bias(
         return bias_val
 
     const_input = expand_inputs[0]
-    arr = _value_to_numpy(const_input)
-    # For debugging - disable in production if needed
+    arr = const_value_to_numpy(const_input)
     if arr is None:
         for init in getattr(ctx.builder, "initializers", []):
             if getattr(init, "name", None) == getattr(const_input, "name", None):
-                arr = _value_to_numpy(init)
+                arr = const_value_to_numpy(init)
                 if arr is not None:
                     break
     if arr is None:
