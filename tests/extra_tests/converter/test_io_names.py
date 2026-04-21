@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+import onnx_ir as ir
 import pytest
 import jax.numpy as jnp
 
@@ -86,6 +87,50 @@ def test_custom_output_names_support_swapping_constant_initializers():
 
     assert [value.name for value in ir_model.graph.outputs] == swapped_names
     assert sorted(ir_model.graph.initializers.keys()) == sorted(swapped_names)
+
+
+def test_custom_output_names_delegate_to_onnx_ir_rename_helper(monkeypatch):
+    calls: list[list[str]] = []
+
+    def _fake_rename(values, names):
+        calls.append(list(names))
+        temp_names = [f"__fake_tmp_{idx}" for idx, _ in enumerate(values)]
+        for value, temp_name in zip(values, temp_names):
+            value.name = temp_name
+        for value, name in zip(values, names):
+            value.name = name
+
+    monkeypatch.setattr(ir.convenience, "rename_values", _fake_rename, raising=False)
+
+    baseline = to_onnx(_constant_pair, inputs=[], return_mode="ir")
+    baseline_names = [value.name for value in baseline.graph.outputs]
+    swapped_names = [baseline_names[1], baseline_names[0]]
+
+    ir_model = to_onnx(
+        _constant_pair,
+        inputs=[],
+        output_names=swapped_names,
+        return_mode="ir",
+    )
+
+    assert calls == [swapped_names]
+    assert [value.name for value in ir_model.graph.outputs] == swapped_names
+
+
+def test_custom_output_names_support_tmp_prefix_targets():
+    baseline = to_onnx(_constant_pair, inputs=[], return_mode="ir")
+    baseline_names = [value.name for value in baseline.graph.outputs]
+    target_names = ["__j2o_tmp_io_name_1", baseline_names[0]]
+
+    ir_model = to_onnx(
+        _constant_pair,
+        inputs=[],
+        output_names=target_names,
+        return_mode="ir",
+    )
+
+    assert [value.name for value in ir_model.graph.outputs] == target_names
+    assert sorted(ir_model.graph.initializers.keys()) == sorted(target_names)
 
 
 def test_default_names_unchanged_when_no_custom_names():
