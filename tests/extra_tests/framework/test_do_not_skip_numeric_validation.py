@@ -106,6 +106,9 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     ("primitives.jnp", "cumprod", "jnp_cumprod_axis1"),
     ("primitives.jnp", "cumprod", "jnp_cumprod_axis_none_flatten"),
     ("primitives.jnp", "cumprod", "jnp_cumprod_dtype_cast"),
+    # JAX 0.10 removed the legacy a_min/a_max keyword spelling, so this testcase
+    # only verifies converter/plugin compatibility during export.
+    ("primitives.jnp", "clip", "clip_keyword_legacy_a_min_a_max_aliases"),
 }
 _ALLOWED_SKIP_CONTEXTS: set[str] = {
     "examples.maxtext",  # ORT cannot execute MaxText graphs yet.

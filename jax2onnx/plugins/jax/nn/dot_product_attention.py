@@ -1289,6 +1289,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     "deterministic": kwargs.pop("deterministic", None),
                     "dtype": kwargs.pop("dtype", None),
                     "precision": kwargs.pop("precision", None),
+                    "return_residual": kwargs.pop("return_residual", None),
                 }
 
                 if isinstance(mask_arg, tuple) and len(mask_arg) == 2:

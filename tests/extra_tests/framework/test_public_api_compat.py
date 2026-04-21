@@ -78,3 +78,20 @@ def test_jax_nn_dpa_plugin_world_accepts_local_window_size_argument() -> None:
         )
 
     np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_jax_nn_dpa_plugin_world_accepts_default_return_residual() -> None:
+    import jax.nn as jax_nn
+
+    import_all_plugins()
+
+    q = np.arange(8, dtype=np.float32).reshape((1, 2, 1, 4))
+    k = np.arange(12, dtype=np.float32).reshape((1, 3, 1, 4))
+    v = (np.arange(12, dtype=np.float32) + 10.0).reshape((1, 3, 1, 4))
+
+    expected = np.asarray(jax_nn.dot_product_attention(q, k, v, return_residual=False))
+
+    with _activate_plugin_worlds():
+        got = np.asarray(jax_nn.dot_product_attention(q, k, v, return_residual=False))
+
+    np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
