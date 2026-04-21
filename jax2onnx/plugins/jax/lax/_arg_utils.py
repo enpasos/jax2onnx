@@ -11,8 +11,8 @@ import onnx_ir as ir
 
 from jax import core
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -62,7 +62,7 @@ def lower_arg_reduction(
         arg_input = builder_cast(
             ctx,
             operand_val,
-            _dtype_to_ir(np.dtype(np.int64), ctx.builder.enable_double_precision),
+            numpy_dtype_to_ir(np.dtype(np.int64)),
             name_hint=f"{name_prefix}_bool_cast",
         )
         _stamp_type_and_shape(arg_input, operand_shape)
@@ -95,7 +95,7 @@ def lower_arg_reduction(
     _stamp_type_and_shape(arg_tmp, reduced_shape)
     _ensure_value_metadata(ctx, arg_tmp)
 
-    target_enum = _dtype_to_ir(index_dtype, ctx.builder.enable_double_precision)
+    target_enum = numpy_dtype_to_ir(index_dtype)
     if target_enum == ir.DataType.INT64:
         out_val = builder_identity(
             ctx,

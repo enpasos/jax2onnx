@@ -13,8 +13,8 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -203,7 +203,7 @@ class JnpSizePlugin(PrimitiveLeafPlugin):
         out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.int32)
         )
-        out_enum = _dtype_to_ir(out_dtype, bool(ctx.builder.enable_double_precision))
+        out_enum = numpy_dtype_to_ir(out_dtype)
 
         if out_enum == ir.DataType.INT64:
             result = size_i64
