@@ -253,15 +253,14 @@ class ConvPlugin(PrimitiveLeafPlugin):
             bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
             bias_val = b_val
             if len(bias_shape) > 1:
-                const_payload = getattr(bias_val, "const_value", None)
-                if const_payload is not None:
-                    original_bias_val = bias_val
-                    bias_val = inline_reshape_initializer(
-                        ctx,
-                        bias_val,
-                        (bias_shape[0],),
-                        name_hint="eqx_conv_bias_inline",
-                    )
+                original_bias_val = bias_val
+                bias_val = inline_reshape_initializer(
+                    ctx,
+                    bias_val,
+                    (bias_shape[0],),
+                    name_hint="eqx_conv_bias_inline",
+                )
+                if bias_val is not original_bias_val:
                     try:
                         ctx.builder.initializers.remove(original_bias_val)
                     except ValueError:

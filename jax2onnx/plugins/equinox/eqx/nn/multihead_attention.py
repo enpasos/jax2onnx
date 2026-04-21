@@ -214,15 +214,14 @@ def _apply_rotary_process_heads_lowering(
         reshape_vals[seq_axis] = seq_len
         reshape_vals[-1] = embedding_size
         target_shape = tuple(int(v) for v in reshape_vals)
-        const_payload = getattr(cache_val, "const_value", None)
-        if const_payload is not None:
-            original = cache_val
-            cache_val = inline_reshape_initializer(
-                ctx,
-                cache_val,
-                target_shape,
-                name_hint=f"{prefix}_{tag}_reshape_inline",
-            )
+        original = cache_val
+        cache_val = inline_reshape_initializer(
+            ctx,
+            cache_val,
+            target_shape,
+            name_hint=f"{prefix}_{tag}_reshape_inline",
+        )
+        if cache_val is not original:
             try:
                 ctx.builder.initializers.remove(original)
             except (ValueError, AttributeError):
