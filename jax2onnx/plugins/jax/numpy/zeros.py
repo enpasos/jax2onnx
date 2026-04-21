@@ -11,12 +11,11 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -82,7 +81,7 @@ class JnpZerosPlugin(PrimitiveLeafPlugin):
 
         shape = _normalize_shape(params.get("shape"))
         req_dtype = np.dtype(params.get("dtype", np.float32))
-        target_enum = _dtype_to_ir(req_dtype, ctx.builder.enable_double_precision)
+        target_enum = numpy_dtype_to_ir(req_dtype)
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("zeros_out"))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", shape))

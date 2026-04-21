@@ -16,10 +16,42 @@ def _bitcast_to_float32(x: jax.Array) -> jax.Array:
     return jax.lax.bitcast_convert_type(x, new_dtype=jnp.float32)
 
 
+def _zeros_float32() -> jax.Array:
+    return jnp.zeros((2,), dtype=jnp.float32)
+
+
+def _ones_float32() -> jax.Array:
+    return jnp.ones((2,), dtype=jnp.float32)
+
+
 def test_convert_element_type_preserves_explicit_float32_target_under_x64() -> None:
     model = to_onnx(
         _convert_to_float32,
         [jax.ShapeDtypeStruct((2,), jnp.float64)],
+        return_mode="ir",
+        enable_double_precision=True,
+    )
+
+    assert model.graph.outputs[0].type is not None
+    assert model.graph.outputs[0].type.dtype == ir.DataType.FLOAT
+
+
+def test_zeros_preserves_explicit_float32_dtype_under_x64() -> None:
+    model = to_onnx(
+        _zeros_float32,
+        [],
+        return_mode="ir",
+        enable_double_precision=True,
+    )
+
+    assert model.graph.outputs[0].type is not None
+    assert model.graph.outputs[0].type.dtype == ir.DataType.FLOAT
+
+
+def test_ones_preserves_explicit_float32_dtype_under_x64() -> None:
+    model = to_onnx(
+        _ones_float32,
+        [],
         return_mode="ir",
         enable_double_precision=True,
     )
