@@ -28,6 +28,7 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir.traversal import RecursiveGraphIterator
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -92,18 +93,9 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     if np.issubdtype(np_dtype, np.floating):
         return ir.DataType.DOUBLE if np_dtype == np.float64 else ir.DataType.FLOAT
     if np.issubdtype(np_dtype, np.integer):
-        return {
-            np.dtype(np.int64): ir.DataType.INT64,
-            np.dtype(np.int32): ir.DataType.INT32,
-            np.dtype(np.int16): ir.DataType.INT16,
-            np.dtype(np.int8): ir.DataType.INT8,
-            np.dtype(np.uint64): ir.DataType.UINT64,
-            np.dtype(np.uint32): ir.DataType.UINT32,
-            np.dtype(np.uint16): ir.DataType.UINT16,
-            np.dtype(np.uint8): ir.DataType.UINT8,
-        }.get(np_dtype, ir.DataType.INT64)
-    if np_dtype == np.bool_:
-        return ir.DataType.BOOL
+        return numpy_dtype_to_ir(np_dtype, default=ir.DataType.INT64)
+    if np_dtype == np.dtype(np.bool_):
+        return numpy_dtype_to_ir(np_dtype)
     return ir.DataType.FLOAT
 
 
