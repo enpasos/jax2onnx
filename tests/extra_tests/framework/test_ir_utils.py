@@ -6,6 +6,7 @@ import onnx_ir as ir
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     ir_dtype_to_numpy,
+    numpy_dtype_to_ir,
     tensor_attr,
     tensor_to_numpy,
 )
@@ -74,3 +75,18 @@ def test_ir_dtype_to_numpy_uses_onnx_ir_dtype_mapping() -> None:
     assert ir_dtype_to_numpy(int(ir.DataType.FLOAT.value)) == np.dtype(np.float32)
     assert ir_dtype_to_numpy(np.dtype(np.float16)) == np.dtype(np.float16)
     assert ir_dtype_to_numpy(object(), default=None) is None
+
+
+def test_numpy_dtype_to_ir_uses_onnx_ir_dtype_mapping() -> None:
+    assert numpy_dtype_to_ir(np.float32) == ir.DataType.FLOAT
+    assert numpy_dtype_to_ir(np.dtype(np.float64)) == ir.DataType.DOUBLE
+    assert numpy_dtype_to_ir(np.dtype(np.float16)) == ir.DataType.FLOAT16
+    assert numpy_dtype_to_ir(np.dtype(np.int32)) == ir.DataType.INT32
+    assert numpy_dtype_to_ir(np.dtype(np.bool_)) == ir.DataType.BOOL
+    assert (
+        numpy_dtype_to_ir(
+            object(),
+            default=ir.DataType.INT64,
+        )
+        == ir.DataType.INT64
+    )

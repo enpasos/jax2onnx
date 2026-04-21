@@ -65,3 +65,14 @@ def ir_dtype_to_numpy(
         except Exception:
             return default
     return default
+
+
+def numpy_dtype_to_ir(
+    dtype: object,
+    *,
+    default: ir.DataType = ir.DataType.FLOAT,
+) -> ir.DataType:
+    try:
+        return ir.DataType.from_numpy(np.dtype(dtype))
+    except Exception:
+        return default

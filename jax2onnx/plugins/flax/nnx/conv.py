@@ -33,7 +33,7 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _as_ir_dim_label,
@@ -155,7 +155,7 @@ def _annotate_value(ctx, val: ir.Value, dtype, shape) -> None:
         pass
     try:
         if getattr(val, "type", None) is None:
-            val.type = ir.TensorType(_ir_dtype_from_numpy(dtype))
+            val.type = ir.TensorType(numpy_dtype_to_ir(dtype))
     except Exception:
         pass
     if ctx is not None:
@@ -241,20 +241,6 @@ def _same_upper_pads_static(
     return pads_beg, pads_end
 
 
-def _ir_dtype_from_numpy(dt):
-    dt = np.dtype(dt)
-    # Common dtypes we need for these tests
-    if dt == np.dtype("float32"):
-        return ir.DataType.FLOAT
-    if dt == np.dtype("float64"):
-        return ir.DataType.DOUBLE
-    if dt == np.dtype("int64"):
-        return ir.DataType.INT64
-    if dt == np.dtype("int32"):
-        return ir.DataType.INT32
-    return ir.DataType.FLOAT
-
-
 def _const_from_array(ctx, arr: np.ndarray, name: str | None = None) -> ir.Value:
     builder = getattr(ctx, "builder", None)
     base_name = name or "const"
@@ -278,7 +264,7 @@ def _const_from_array(ctx, arr: np.ndarray, name: str | None = None) -> ir.Value
 
     value = ir.Value(
         name=name_hint,
-        type=ir.TensorType(_ir_dtype_from_numpy(np_arr.dtype)),
+        type=ir.TensorType(numpy_dtype_to_ir(np_arr.dtype)),
         shape=ir.Shape(tuple(int(d) for d in np_arr.shape)),
         const_value=ir.tensor(np_arr),
     )
