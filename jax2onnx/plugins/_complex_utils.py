@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Dict, Final, Tuple, cast
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr, AttributeType
 
 from jax2onnx.plugins._ir_shapes import (
     DimValue,
@@ -113,7 +112,7 @@ def ensure_complex_dtype(
         "Cast",
         inputs=[value],
         outputs=[cast_out],
-        attributes=[Attr("to", AttributeType.INT, int(target_dtype.value))],
+        attributes=[ir.convenience.convert_attribute("to", int(target_dtype.value))],
         name=ctx.fresh_name("Cast"),
     )
     _ensure_value_metadata(ctx, cast_out)

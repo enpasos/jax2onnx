@@ -21,18 +21,6 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-def _int_attr(name: str, value: int):
-    Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-    if Attr is None:
-        return None
-    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-    if hasattr(Attr, "i"):
-        return Attr.i(name, int(value))
-    if AttrType is not None:
-        return Attr(name, AttrType.INT, int(value))
-    return Attr(name, int(value))
-
-
 def _axis_attr_equals(model, expected: int) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "LogSoftmax"),

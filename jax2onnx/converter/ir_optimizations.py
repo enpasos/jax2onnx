@@ -886,8 +886,8 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
 
                     reducer.replace_input_with(axes_input_idx, new_axes_val)
                 else:
-                    reducer.attributes["axes"] = ir.Attr(
-                        "axes", IRAttrType.INTS, list(new_axes)
+                    reducer.attributes["axes"] = ir.convenience.convert_attribute(
+                        "axes", list(new_axes), IRAttrType.INTS
                     )
 
             # 3. Bypass T2
