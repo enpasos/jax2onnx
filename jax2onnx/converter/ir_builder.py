@@ -4,7 +4,7 @@
 from __future__ import annotations
 import os
 import traceback
-from collections.abc import MutableSequence, Sequence
+from collections.abc import Mapping, MutableSequence, Sequence
 from typing import (
     Any,
     Final,
@@ -661,16 +661,22 @@ class IRBuilder:
         op_type: str,
         inputs: Sequence[ir.Value],
         outputs: Sequence[ir.Value],
-        attributes: Optional[list[ir.Attr]] = None,
+        attributes: Mapping[str, Any] | Sequence[ir.Attr] | None = None,
         name: Optional[str] = None,
     ) -> ir.Node:
+        if attributes is None:
+            attrs: Sequence[ir.Attr] = ()
+        elif isinstance(attributes, Mapping):
+            attrs = ir.convenience.convert_attributes(attributes)
+        else:
+            attrs = list(attributes)
         n = ir.Node(
             op_type=op_type,
             domain="",
             inputs=list(inputs),
             outputs=list(outputs),
             name=name or self.fresh_name(op_type),
-            attributes=(attributes or []),
+            attributes=attrs,
         )
         self.nodes.append(n)
         self._maybe_attach_stacktrace_to_nodes([n])

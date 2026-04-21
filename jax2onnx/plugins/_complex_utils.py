@@ -112,7 +112,7 @@ def ensure_complex_dtype(
         "Cast",
         inputs=[value],
         outputs=[cast_out],
-        attributes=[ir.convenience.convert_attribute("to", int(target_dtype.value))],
+        attributes={"to": int(target_dtype.value)},
         name=ctx.fresh_name("Cast"),
     )
     _ensure_value_metadata(ctx, cast_out)

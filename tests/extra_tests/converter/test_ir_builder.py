@@ -199,3 +199,19 @@ def test_ir_builder_model_roundtrip_preserves_initializer_connections() -> None:
     w2 = g.initializers["w"]
     node = list(g)[0]
     assert node.inputs[1] is w2
+
+
+def test_ir_builder_add_node_converts_mapping_attributes() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.Value(name="x", shape=ir.Shape((2,)), type=ir.TensorType(ir.DataType.FLOAT))
+    y = ir.Value(name="y", shape=ir.Shape((2,)), type=ir.TensorType(ir.DataType.FLOAT))
+
+    node = builder.add_node(
+        "ReduceMean",
+        inputs=[x],
+        outputs=[y],
+        attributes={"keepdims": 1, "axes": [0]},
+    )
+
+    assert node.attributes["keepdims"].as_int() == 1
+    assert node.attributes["axes"].as_ints() == (0,)
