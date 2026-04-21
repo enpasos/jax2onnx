@@ -33,7 +33,7 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins._utils import cast_param_like, const_value_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     _as_ir_dim_label,
     _dim_label_from_value_or_aval,
@@ -307,28 +307,6 @@ def _require_builder(ctx):
     return builder
 
 
-def _to_numpy(tensor_obj) -> np.ndarray | None:
-    # Try several common IR flavors
-    for meth in ("numpy", "to_numpy", "to_array"):
-        fn = getattr(tensor_obj, meth, None)
-        if callable(fn):
-            try:
-                return np.asarray(fn())
-            except Exception:
-                pass
-    for attr in ("array", "ndarray", "value"):
-        val = getattr(tensor_obj, attr, None)
-        if val is not None:
-            try:
-                return np.asarray(val)
-            except Exception:
-                pass
-    try:
-        return np.asarray(tensor_obj)
-    except Exception:
-        return None
-
-
 def _maybe_fold_param_transpose(
     ctx, val: ir.Value, perm: Sequence[int], name: str = "folded_param"
 ) -> ir.Value:
@@ -336,7 +314,7 @@ def _maybe_fold_param_transpose(
     if const is None:
         # Not a constant initializer; fall back to runtime Transpose.
         return _transpose(ctx, val, perm)
-    arr = _to_numpy(const)
+    arr = const_value_to_numpy(val)
     if arr is None:
         # Couldn't read data -> safe fallback
         return _transpose(ctx, val, perm)

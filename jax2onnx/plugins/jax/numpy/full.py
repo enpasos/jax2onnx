@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
-from typing import Any, Callable, ClassVar, Final, cast
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax import core
@@ -18,6 +18,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -37,14 +38,7 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
 
 
 def _const_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
-    const = getattr(value, "const_value", None)
-    if const is None:
-        return None
-    try:
-        arr = np.asarray(const)
-    except Exception:
-        return None
-    return cast(np.ndarray[Any, np.dtype[Any]], arr)
+    return const_value_to_numpy(value)
 
 
 def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:

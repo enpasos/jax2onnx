@@ -28,7 +28,9 @@ _DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
 _IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
 
 
-def _const_tensor_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
+def const_value_to_numpy(value: object) -> np.ndarray[Any, np.dtype[Any]] | None:
+    if not isinstance(value, ir.Value):
+        return None
     tensor = ir.convenience.get_const_tensor(value)
     if tensor is None:
         return None
@@ -61,7 +63,7 @@ def cast_param_like(
         return param
 
     if param.const_value is not None:
-        np_arr = _const_tensor_numpy(param)
+        np_arr = const_value_to_numpy(param)
         target_np = _IR_TO_NP_DTYPE.get(l_dt)
         if np_arr is not None and target_np is not None:
             if np_arr.dtype != target_np:
@@ -97,7 +99,7 @@ def inline_reshape_initializer(
     if val.const_value is None:
         return val  # not a constant → caller must insert a Reshape node
 
-    arr = _const_tensor_numpy(val)
+    arr = const_value_to_numpy(val)
     if arr is None:
         return val
 

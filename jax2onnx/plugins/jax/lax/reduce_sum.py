@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -18,16 +19,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _const_scalar(value: Any) -> float | int | None:
-    const = getattr(value, "const_value", None)
-    if const is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const)
-    except Exception:
-        try:
-            arr = np.asarray(const.numpy())
-        except Exception:
-            return None
     if arr.shape != ():
         return None
     scalar = arr.item()

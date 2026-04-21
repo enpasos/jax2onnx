@@ -16,6 +16,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
@@ -310,16 +311,9 @@ register_reduction_batch_rule(JnpSumPlugin._PRIM, jax.lax.reduce_sum_p)
 
 
 def _const_scalar(value: Any) -> float | int | None:
-    const = getattr(value, "const_value", None)
-    if const is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const)
-    except Exception:
-        try:
-            arr = np.asarray(const.numpy())
-        except Exception:
-            return None
     if arr.shape != ():
         return None
     scalar = arr.item()
