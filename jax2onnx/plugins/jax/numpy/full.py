@@ -13,12 +13,11 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -109,8 +108,7 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
-        enable_double = bool(ctx.builder.enable_double_precision)
-        out_enum = _dtype_to_ir(out_dtype, enable_double)
+        out_enum = numpy_dtype_to_ir(out_dtype)
         out_np_dtype = ir_dtype_to_numpy(out_enum)
         if out_np_dtype is None:
             out_np_dtype = np.dtype(np.float32)
@@ -118,7 +116,7 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         fill_dtype = np.dtype(
             getattr(getattr(fill_var, "aval", None), "dtype", out_dtype)
         )
-        fill_enum = _dtype_to_ir(fill_dtype, enable_double)
+        fill_enum = numpy_dtype_to_ir(fill_dtype)
         fill_cast = fill_val
         if fill_enum != out_enum:
             fill_cast = ctx.builder.Cast(
