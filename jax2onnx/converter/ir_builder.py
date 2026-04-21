@@ -59,16 +59,18 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
 
 def _value_const_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
     """Return a numpy view of `value` when backed by a constant tensor."""
-    const = value.const_value
+    const = ir.convenience.get_const_tensor(value)
     if const is None:
         return None
     try:
         array = const.numpy()
-    except Exception:
+    except AttributeError:
         try:
             array = np.asarray(const)
         except Exception:
             return None
+    except Exception:
+        return None
     return cast(np.ndarray[Any, np.dtype[Any]], array)
 
 

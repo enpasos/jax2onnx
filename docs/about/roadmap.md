@@ -14,7 +14,7 @@
 
 * Restore JAX 0.10.0 compatibility by updating GPT-OSS examples to the new `jnp.clip(min=..., max=...)` API and tolerating legacy `scan` payload params removed upstream.
 * Broaden `jax.nn.dot_product_attention` compatibility with grouped-query attention and unbatched `TNH` inputs by reusing the shared IR KV-head expansion path already exercised by Flax NNX.
-* Reuse the `onnx-ir` 0.2.1 bulk `rename_values` helper for custom input/output naming, including initializer-safe output-name swaps.
+* Reuse `onnx-ir` 0.2.1 helpers for graph rewrites and constant handling, including bulk `rename_values`, `replace_all_uses_with`, and `get_const_tensor`.
 
 
 

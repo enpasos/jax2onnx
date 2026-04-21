@@ -381,7 +381,7 @@ def _shape_dims_key(
 def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     if not isinstance(val, ir.Value):
         return None
-    arr = _to_numpy_from_any(val.const_value)
+    arr = _to_numpy_from_any(val)
     if arr is None:
         return None
     np_arr = np.asarray(arr)
@@ -565,11 +565,11 @@ def _is_inverse_perm(perm1: Sequence[int], perm2: Sequence[int]) -> bool:
 def _is_scalar_const_value(val: Optional[ir.Value]) -> bool:
     if not isinstance(val, ir.Value):
         return False
-    if val.const_value is None and not val.is_initializer():
-        return False
-    arr = _to_numpy_from_any(val.const_value)
+    arr = _to_numpy_from_any(val)
     if arr is not None:
         return bool(arr.size == 1)
+    if not val.is_initializer():
+        return False
     dims = _shape_dims_seq(val.shape)
     if dims is None:
         return False
@@ -819,20 +819,6 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             if len(reducer_ins) > 1:
                 axes_val = reducer_ins[1]
                 axes = _value_const_ints(axes_val)
-                if axes is None:
-                    # Fallback: check if produced by Constant node
-                    prod = axes_val.producer()
-                    if prod is not None and prod.op_type == "Constant":
-                        attr = prod.attributes.get("value")
-                        if attr is not None and attr.type == IRAttrType.TENSOR:
-                            try:
-                                arr = attr.as_tensor().numpy()
-                                if arr is not None and np.issubdtype(
-                                    arr.dtype, np.integer
-                                ):
-                                    axes = tuple(arr.flatten().tolist())
-                            except Exception:
-                                pass
 
                 if axes is None:
                     # Dynamic axes or unable to resolve constant - Abort
@@ -1889,7 +1875,8 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
         return _as_ndarray(x)
 
     if isinstance(x, ir.Value):
-        return _to_numpy_from_any(x.const_value)
+        tensor = ir.convenience.get_const_tensor(x)
+        return _to_numpy_from_any(tensor)
 
     if isinstance(x, ir.TensorProtocol):
         # Trust .numpy() from TensorProtocol
@@ -2033,9 +2020,9 @@ def _read_scalar_bool_from_value_or_constant(
         return None
 
     if isinstance(v_or_name, ir.Value):
-        val = _as_scalar_bool(v_or_name.const_value)
+        val = _as_scalar_bool(v_or_name)
         if val is not None:
-            _dbg_tm("read Value-const:", type(v_or_name).__name__, "→", val)
+            _dbg_tm("read Value const tensor:", type(v_or_name).__name__, "→", val)
             return val
 
     producer = _producer_node(nodes, v_or_name)
@@ -2045,30 +2032,12 @@ def _read_scalar_bool_from_value_or_constant(
     if node.op_type != "Constant":
         return None
 
-    attr = _get_attr(node, "value")
-    if isinstance(attr, ir.Attr):
-        if attr.type is IRAttrType.TENSOR:
-            tensor = attr.as_tensor()
-            val = _as_scalar_bool(tensor)
-            if val is not None:
-                _dbg_tm("read Const-attr tensor →", val)
-                return val
-        val = _as_scalar_bool(attr.value)
-        if val is not None:
-            _dbg_tm("read Const-attr value →", val)
-            return val
-    elif attr is not None:
-        val = _as_scalar_bool(attr)
-        if val is not None:
-            _dbg_tm("read Const-attr payload →", val)
-            return val
-
     for output in _node_outputs(node):
         if output is None:
             continue
-        val = _as_scalar_bool(output.const_value)
+        val = _as_scalar_bool(output)
         if val is not None:
-            _dbg_tm("read Const output →", val)
+            _dbg_tm("read Const output tensor →", val)
             return val
     return None
 

@@ -1,7 +1,7 @@
 # jax2onnx/plugins/_utils.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Final, Sequence
+from typing import TYPE_CHECKING, Any, Final, Sequence, cast
 import numpy as np
 import onnx_ir as ir
 
@@ -28,6 +28,21 @@ _DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
 _IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
 
 
+def _const_tensor_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
+    tensor = ir.convenience.get_const_tensor(value)
+    if tensor is None:
+        return None
+    try:
+        return cast(np.ndarray[Any, np.dtype[Any]], tensor.numpy())
+    except AttributeError:
+        try:
+            return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
 def cast_param_like(
     ctx: "IRBuildContext",
     param: ir.Value,
@@ -45,12 +60,8 @@ def cast_param_like(
     if p_dt is None or l_dt is None or p_dt == l_dt:
         return param
 
-    const_tensor = param.const_value
-    if const_tensor is not None:
-        try:
-            np_arr = const_tensor.numpy()
-        except Exception:
-            np_arr = None
+    if param.const_value is not None:
+        np_arr = _const_tensor_numpy(param)
         target_np = _IR_TO_NP_DTYPE.get(l_dt)
         if np_arr is not None and target_np is not None:
             if np_arr.dtype != target_np:
@@ -83,9 +94,12 @@ def inline_reshape_initializer(
     If `val` is a constant initializer, create a new initializer with the data
     reshaped to `new_shape` and return it. Otherwise, return `val` unchanged.
     """
-    arr = val.const_value
-    if arr is None:
+    if val.const_value is None:
         return val  # not a constant → caller must insert a Reshape node
+
+    arr = _const_tensor_numpy(val)
+    if arr is None:
+        return val
 
     np_arr = np.asarray(arr).reshape(new_shape)
     # Preserve dtype from the original value when available

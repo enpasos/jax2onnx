@@ -64,6 +64,19 @@ def test_to_numpy_and_scalar_bool_from_tensor_and_attr():
     assert _as_scalar_bool(tensor) is True
     assert _as_scalar_bool(attr_tensor) is True
 
+    const_out = ir.Value(name="const_out")
+    ir.Node(
+        op_type="Constant",
+        domain="",
+        inputs=[],
+        outputs=[const_out],
+        name="Const_true",
+        attributes=[attr_tensor],
+    )
+    const_arr = _to_numpy_from_any(const_out)
+    assert const_arr is not None and const_arr.shape == () and bool(const_arr)
+    assert _as_scalar_bool(const_out) is True
+
 
 def test_literal_false_strings_roundtrip():
     arr = _to_numpy_from_any("false")
