@@ -16,6 +16,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -32,25 +33,6 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
     if any(d < 0 for d in dims):
         raise ValueError(f"negative dimensions are not allowed: {dims}")
     return dims
-
-
-def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
-    mapping: dict[ir.DataType, np.dtype[Any]] = {
-        ir.DataType.BOOL: np.dtype(np.bool_),
-        ir.DataType.INT8: np.dtype(np.int8),
-        ir.DataType.INT16: np.dtype(np.int16),
-        ir.DataType.INT32: np.dtype(np.int32),
-        ir.DataType.INT64: np.dtype(np.int64),
-        ir.DataType.UINT8: np.dtype(np.uint8),
-        ir.DataType.UINT16: np.dtype(np.uint16),
-        ir.DataType.UINT32: np.dtype(np.uint32),
-        ir.DataType.UINT64: np.dtype(np.uint64),
-        ir.DataType.FLOAT16: np.dtype(np.float16),
-        ir.DataType.FLOAT: np.dtype(np.float32),
-        ir.DataType.DOUBLE: np.dtype(np.float64),
-        ir.DataType.BFLOAT16: np.dtype(np.float32),
-    }
-    return mapping.get(dtype, np.dtype(np.float32))
 
 
 @register_primitive(
@@ -110,7 +92,9 @@ class JnpZerosPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, shape_tensor)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("zeros_out")
-        zero_np_dtype = _np_dtype_from_ir(target_enum)
+        zero_np_dtype = ir_dtype_to_numpy(target_enum)
+        if zero_np_dtype is None:
+            zero_np_dtype = np.dtype(np.float32)
         result = ctx.builder.ConstantOfShape(
             shape_tensor,
             value=ir.tensor(np.asarray([0], dtype=zero_np_dtype)),

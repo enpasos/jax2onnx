@@ -45,3 +45,23 @@ def tensor_attr(name: str, tensor: object) -> ir.Attr:
         cast(Any, tensor),
         ir.AttributeType.TENSOR,
     )
+
+
+def ir_dtype_to_numpy(
+    dtype: object,
+    *,
+    default: np.dtype[Any] | None = np.dtype(np.float32),
+) -> np.dtype[Any] | None:
+    if isinstance(dtype, np.dtype):
+        return dtype
+    if isinstance(dtype, ir.DataType):
+        try:
+            return cast(np.dtype[Any], np.dtype(dtype.numpy()))
+        except Exception:
+            return default
+    if isinstance(dtype, (int, np.integer)):
+        try:
+            return ir_dtype_to_numpy(ir.DataType(int(dtype)), default=default)
+        except Exception:
+            return default
+    return default

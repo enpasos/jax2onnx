@@ -3,7 +3,12 @@
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr, tensor_to_numpy
+from jax2onnx.ir_utils import (
+    const_value_to_numpy,
+    ir_dtype_to_numpy,
+    tensor_attr,
+    tensor_to_numpy,
+)
 
 
 def test_tensor_to_numpy_reads_onnx_ir_tensor() -> None:
@@ -59,3 +64,13 @@ def test_tensor_attr_converts_tensor_value() -> None:
 
     assert attr.type == ir.AttributeType.TENSOR
     np.testing.assert_array_equal(tensor_to_numpy(attr.as_tensor()), array)
+
+
+def test_ir_dtype_to_numpy_uses_onnx_ir_dtype_mapping() -> None:
+    assert ir_dtype_to_numpy(ir.DataType.INT64) == np.dtype(np.int64)
+    assert ir_dtype_to_numpy(ir.DataType.BFLOAT16) == np.dtype(
+        ir.DataType.BFLOAT16.numpy()
+    )
+    assert ir_dtype_to_numpy(int(ir.DataType.FLOAT.value)) == np.dtype(np.float32)
+    assert ir_dtype_to_numpy(np.dtype(np.float16)) == np.dtype(np.float16)
+    assert ir_dtype_to_numpy(object(), default=None) is None
