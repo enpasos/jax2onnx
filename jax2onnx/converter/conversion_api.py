@@ -114,6 +114,45 @@ def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
     return ir.Shape(dims)
 
 
+def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
+    if isinstance(value, Attr):
+        return value
+
+    attr_value: object = value
+    attr_type: Optional[AttributeType] = None
+    if isinstance(value, (np.bool_, np.integer)):
+        attr_value = int(value)
+    elif isinstance(value, np.floating):
+        attr_value = float(value)
+    elif isinstance(value, (list, tuple)):
+        if all(isinstance(x, (bool, np.bool_, int, np.integer)) for x in value):
+            attr_value = [int(x) for x in value]
+            attr_type = AttributeType.INTS
+        elif all(isinstance(x, (float, np.floating)) for x in value):
+            attr_value = [float(x) for x in value]
+            attr_type = AttributeType.FLOATS
+        elif all(isinstance(x, str) for x in value):
+            attr_value = list(value)
+            attr_type = AttributeType.STRINGS
+
+    try:
+        return ir.convenience.convert_attribute(name, cast(Any, attr_value), attr_type)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        tensor_value = (
+            attr_value
+            if hasattr(attr_value, "data_type")
+            else ir.tensor(np.asarray(attr_value))
+        )
+        return ir.convenience.convert_attribute(
+            name, cast(Any, tensor_value), AttributeType.TENSOR
+        )
+    except Exception:
+        return None
+
+
 def _as_sds_list(
     inputs: Sequence[InputSpec], enable_double_precision: bool
 ) -> List["jax.ShapeDtypeStruct"]:
@@ -786,13 +825,6 @@ def to_onnx(
 
         # ---- Late attribute overrides (polish; not structural rewrites) ----
 
-        def _ir_attr_int(name: str, val: int) -> Attr:
-            ival = int(val)
-            try:
-                return Attr.i(name, ival)
-            except AttributeError:
-                return Attr(name, AttributeType.INT, ival)
-
         def _finalize_model_value_shapes(
             model_proto: ir.Model, _ctx: IRContext
         ) -> None:
@@ -892,47 +924,12 @@ def to_onnx(
                 node.name: node for node in gr.nodes if node.name
             }
 
-            def _make_attr(name: str, value: object) -> Optional[Attr]:
-                if isinstance(value, Attr):
-                    return value
-
-                try:
-                    return Attr(name, value)
-                except TypeError:
-                    pass
-                except Exception:
-                    pass
-
-                v = value
-                if isinstance(v, (bool, np.bool_, int, np.integer)):
-                    return Attr(name, AttributeType.INT, int(v))
-                if isinstance(v, (float, np.floating)):
-                    return Attr(name, AttributeType.FLOAT, float(v))
-                if isinstance(v, str):
-                    return Attr(name, AttributeType.STRING, v)
-
-                if isinstance(v, (list, tuple)):
-                    if all(isinstance(x, (bool, np.bool_, int, np.integer)) for x in v):
-                        return Attr(name, AttributeType.INTS, [int(x) for x in v])
-                    if all(isinstance(x, (float, np.floating)) for x in v):
-                        return Attr(name, AttributeType.FLOATS, [float(x) for x in v])
-                    if all(isinstance(x, str) for x in v):
-                        return Attr(name, AttributeType.STRINGS, list(v))
-
-                try:
-                    tensor_val = (
-                        v if hasattr(v, "data_type") else ir.tensor(np.asarray(v))
-                    )
-                    return Attr(name, AttributeType.TENSOR, tensor_val)
-                except Exception:
-                    return None
-
             for nm, kv in (overrides or {}).items():
                 node = name2node.get(nm)
                 if node is None or kv is None:
                     continue
                 for attr_name, attr_value in kv.items():
-                    attr_obj = _make_attr(attr_name, attr_value)
+                    attr_obj = _convert_ir_attr(attr_name, attr_value)
                     if attr_obj is not None:
                         node.attributes[attr_name] = attr_obj
 
@@ -942,7 +939,7 @@ def to_onnx(
                     continue
                 if "axis" in node.attributes:
                     continue
-                node.attributes["axis"] = _ir_attr_int("axis", 0)
+                node.attributes["axis"] = ir.convenience.convert_attribute("axis", 0)
 
         # Apply overrides/fixes to top graph
         _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)

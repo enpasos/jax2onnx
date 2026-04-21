@@ -167,9 +167,11 @@ def test_convenience_surface_matches_stub() -> None:
 
 
 def test_convenience_signatures_include_used_options() -> None:
+    attr_sig = inspect.signature(ir.convenience.convert_attribute)
     replace_sig = inspect.signature(ir.convenience.replace_all_uses_with)
     mapping_sig = inspect.signature(ir.convenience.create_value_mapping)
 
+    assert "attr_type" in attr_sig.parameters
     assert "replace_graph_outputs" in replace_sig.parameters
     assert "include_subgraphs" in mapping_sig.parameters
 
