@@ -33,7 +33,8 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._utils import cast_param_like, const_value_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _as_ir_dim_label,
     _dim_label_from_value_or_aval,
