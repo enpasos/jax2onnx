@@ -562,6 +562,22 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             ),
         },
         {
+            "testcase": "dpa_return_residual_false",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, return_residual=False
+            ),
+            "input_shapes": [(1, 2, 1, 4), (1, 3, 1, 4), (1, 3, 1, 4)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x1x2x4 -> MatMul:1x1x2x3 -> Mul:1x1x2x3 -> "
+                    "Softmax:1x1x2x3 -> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "dpa_tiny_mask_all_valid",
             "callable": lambda q, k, v, mask: jax_nn.dot_product_attention(
                 q, k, v, mask=mask
