@@ -96,3 +96,21 @@ def inline_reshape_initializer(
     return ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=np_arr
     )
+
+
+def normalize_builder_outputs(
+    outputs: ir.Value | Sequence[ir.Value],
+) -> tuple[ir.Value, ...]:
+    """
+    Normalize ONNX IR builder outputs to a tuple of values.
+
+    The underlying builder collapses op results to a bare ``ir.Value`` whenever
+    the requested output arity is 1, even if the caller passed a one-element
+    ``_outputs`` sequence. Multi-result lowerings that iterate over the builder
+    result should use this helper so the single-output edge case behaves like
+    the general multi-output path.
+    """
+
+    if isinstance(outputs, ir.Value):
+        return (outputs,)
+    return tuple(outputs)
