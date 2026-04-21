@@ -23,7 +23,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _static_dim_as_int
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins._utils import const_value_to_numpy, tensor_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 

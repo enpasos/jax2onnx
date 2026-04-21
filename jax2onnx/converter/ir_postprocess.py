@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable as IterableABC, Mapping, Sequence as SequenceABC
 from itertools import chain
-from typing import Any, Iterable, TypeAlias, Union, cast
+from typing import Iterable, TypeAlias, Union, cast
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
+from jax2onnx.ir_utils import tensor_to_numpy
 
 DimValue: TypeAlias = Union[int, ir.SymbolicDim, None]
 
@@ -140,27 +141,9 @@ def _loosen_graph_value_shapes(
             _reset_tensor_type(initializer)
 
 
-def _tensor_to_numpy(tensor: object) -> np.ndarray | None:
-    if tensor is None:
-        return None
-    if isinstance(tensor, np.ndarray):
-        return tensor
-    if hasattr(tensor, "numpy"):
-        try:
-            result = tensor.numpy()
-        except Exception:
-            return None
-        if isinstance(result, np.ndarray):
-            return result
-        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(result))
-    if isinstance(tensor, (list, tuple)):
-        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
-    return None
-
-
 def _maybe_promote_value_to_double(value: ir.Value) -> None:
     tensor = value.const_value
-    array = _tensor_to_numpy(tensor)
+    array = tensor_to_numpy(tensor)
     if array is None or array.dtype != np.float32:
         return
     promoted = ir.tensor(array.astype(np.float64))
@@ -173,7 +156,9 @@ def _promote_constant_attributes(node: ir.Node) -> None:
     if value_attr is None or value_attr.type is not AttributeType.TENSOR:
         return
     tensor = value_attr.as_tensor()
-    array = tensor.numpy()
+    array = tensor_to_numpy(tensor)
+    if array is None:
+        return
     if array.dtype != np.float32:
         return
     promoted = ir.tensor(array.astype(np.float64))

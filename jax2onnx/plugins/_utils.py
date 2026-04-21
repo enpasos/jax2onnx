@@ -1,9 +1,10 @@
 # jax2onnx/plugins/_utils.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Final, Sequence, cast
+from typing import TYPE_CHECKING, Any, Final, Sequence
 import numpy as np
 import onnx_ir as ir
+from jax2onnx.ir_utils import const_value_to_numpy
 
 if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
@@ -26,28 +27,6 @@ _DTYPE_PAIRS: Final[Sequence[tuple[ir.DataType, np.dtype[Any]]]] = (
 
 
 _IR_TO_NP_DTYPE: dict[ir.DataType, np.dtype[Any]] = dict(_DTYPE_PAIRS)
-
-
-def tensor_to_numpy(tensor: object) -> np.ndarray[Any, np.dtype[Any]] | None:
-    numpy_method = getattr(tensor, "numpy", None)
-    if callable(numpy_method):
-        try:
-            return cast(np.ndarray[Any, np.dtype[Any]], numpy_method())
-        except Exception:
-            return None
-    try:
-        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(tensor))
-    except Exception:
-        return None
-
-
-def const_value_to_numpy(value: object) -> np.ndarray[Any, np.dtype[Any]] | None:
-    if not isinstance(value, ir.Value):
-        return None
-    tensor = ir.convenience.get_const_tensor(value)
-    if tensor is None:
-        return None
-    return tensor_to_numpy(tensor)
 
 
 def cast_param_like(
