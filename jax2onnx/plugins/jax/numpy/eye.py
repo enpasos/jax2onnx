@@ -10,12 +10,11 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -49,7 +48,6 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
             "testcase": "jnp_eye_square",
             "callable": lambda: jnp.eye(4, dtype=jnp.float32),
             "input_values": [],
-            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:4x4 -> EyeLike:4x4"],
                 no_unused_inputs=True,
@@ -59,7 +57,6 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
             "testcase": "jnp_eye_rect_k1",
             "callable": lambda: jnp.eye(3, 5, k=1, dtype=jnp.float32),
             "input_values": [],
-            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:3x5 -> EyeLike:3x5"],
                 no_unused_inputs=True,
@@ -96,10 +93,7 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("eye_out"))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", (n_i, m_i)))
-        out_spec_type = getattr(out_spec, "type", None)
-        target_enum = _dtype_to_ir(req_dtype, ctx.builder.enable_double_precision)
-        if out_spec_type is not None:
-            target_enum = out_spec_type.dtype
+        target_enum = numpy_dtype_to_ir(req_dtype)
 
         shape_tensor = _const_i64(
             ctx,
@@ -132,10 +126,7 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
             dtype=int(target_enum.value),
             _outputs=[desired_name],
         )
-        if out_spec_type is not None:
-            result.type = out_spec_type
-        else:
-            result.type = ir.TensorType(target_enum)
+        result.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

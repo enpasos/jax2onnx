@@ -24,6 +24,10 @@ def _ones_float32() -> jax.Array:
     return jnp.ones((2,), dtype=jnp.float32)
 
 
+def _eye_float32() -> jax.Array:
+    return jnp.eye(2, dtype=jnp.float32)
+
+
 def test_convert_element_type_preserves_explicit_float32_target_under_x64() -> None:
     model = to_onnx(
         _convert_to_float32,
@@ -51,6 +55,18 @@ def test_zeros_preserves_explicit_float32_dtype_under_x64() -> None:
 def test_ones_preserves_explicit_float32_dtype_under_x64() -> None:
     model = to_onnx(
         _ones_float32,
+        [],
+        return_mode="ir",
+        enable_double_precision=True,
+    )
+
+    assert model.graph.outputs[0].type is not None
+    assert model.graph.outputs[0].type.dtype == ir.DataType.FLOAT
+
+
+def test_eye_preserves_explicit_float32_dtype_under_x64() -> None:
+    model = to_onnx(
+        _eye_float32,
         [],
         return_mode="ir",
         enable_double_precision=True,
