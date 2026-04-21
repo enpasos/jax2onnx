@@ -8,6 +8,7 @@ import onnx_ir as ir
 from jax import core
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -19,19 +20,18 @@ _SIGNED_TO_UNSIGNED: dict[ir.DataType, tuple[ir.DataType, np.dtype[Any], int]] =
     ir.DataType.INT64: (ir.DataType.UINT64, np.dtype(np.uint64), 64),
 }
 
-_NP_SIGNED_TO_IR: dict[np.dtype[Any], ir.DataType] = {
-    np.dtype(np.int8): ir.DataType.INT8,
-    np.dtype(np.int16): ir.DataType.INT16,
-    np.dtype(np.int32): ir.DataType.INT32,
-    np.dtype(np.int64): ir.DataType.INT64,
-}
-
-_NP_UNSIGNED_TO_IR: dict[np.dtype[Any], ir.DataType] = {
-    np.dtype(np.uint8): ir.DataType.UINT8,
-    np.dtype(np.uint16): ir.DataType.UINT16,
-    np.dtype(np.uint32): ir.DataType.UINT32,
-    np.dtype(np.uint64): ir.DataType.UINT64,
-}
+_INTEGER_DTYPES: frozenset[np.dtype[Any]] = frozenset(
+    {
+        np.dtype(np.int8),
+        np.dtype(np.int16),
+        np.dtype(np.int32),
+        np.dtype(np.int64),
+        np.dtype(np.uint8),
+        np.dtype(np.uint16),
+        np.dtype(np.uint32),
+        np.dtype(np.uint64),
+    }
+)
 
 
 @register_primitive(
@@ -93,10 +93,8 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
 
         aval = getattr(lhs_var, "aval", None)
         aval_dtype: np.dtype[Any] = np.dtype(getattr(aval, "dtype", np.int32))
-        if aval_dtype in _NP_SIGNED_TO_IR:
-            return _NP_SIGNED_TO_IR[aval_dtype]
-        if aval_dtype in _NP_UNSIGNED_TO_IR:
-            return _NP_UNSIGNED_TO_IR[aval_dtype]
+        if aval_dtype in _INTEGER_DTYPES:
+            return numpy_dtype_to_ir(aval_dtype)
         raise NotImplementedError(
             f"shift_right_arithmetic unsupported dtype '{aval_dtype}'"
         )
