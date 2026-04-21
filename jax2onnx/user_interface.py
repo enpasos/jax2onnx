@@ -245,33 +245,22 @@ def _normalize_io_names(
     return normalized
 
 
-def _collect_top_graph_values(graph: ir.Graph) -> List[ir.Value]:
-    values: List[ir.Value] = []
-    seen: set[int] = set()
+def _top_graph_value_map(graph: ir.Graph) -> Dict[str, ir.Value]:
+    """Return named values from the top graph only."""
 
-    def _push(value: Optional[ir.Value]) -> None:
-        if value is None:
-            return
+    return ir.convenience.create_value_mapping(graph, include_subgraphs=False)
+
+
+def _unique_values(values: Sequence[ir.Value]) -> List[ir.Value]:
+    unique: List[ir.Value] = []
+    seen: set[int] = set()
+    for value in values:
         vid = id(value)
         if vid in seen:
-            return
+            continue
         seen.add(vid)
-        values.append(value)
-
-    for value in graph.inputs:
-        _push(value)
-    for value in graph.outputs:
-        _push(value)
-    for value in graph.initializers.values():
-        _push(value)
-
-    for node in graph:
-        for value in node.inputs:
-            _push(value)
-        for value in node.outputs:
-            _push(value)
-
-    return values
+        unique.append(value)
+    return unique
 
 
 def _resolve_positional_inputs(
@@ -352,7 +341,7 @@ def _apply_custom_io_names_on_ir(
 
     renamed_ids = set(target_by_value.keys())
     occupied_by_other: set[str] = set()
-    for value in _collect_top_graph_values(graph):
+    for value in _top_graph_value_map(graph).values():
         name = getattr(value, "name", None)
         if not name:
             continue
@@ -367,11 +356,9 @@ def _apply_custom_io_names_on_ir(
             f"Custom names collide with existing graph value names: {joined}."
         )
 
-    rename_values = [
-        value
-        for value in _collect_top_graph_values(graph)
-        if id(value) in target_by_value and getattr(value, "name", None) is not None
-    ]
+    rename_values = _unique_values(
+        [value for value, _ in rename_pairs if getattr(value, "name", None) is not None]
+    )
     target_names = [target_by_value[id(value)] for value in rename_values]
     ir.convenience.rename_values(rename_values, target_names)
 
