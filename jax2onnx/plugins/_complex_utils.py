@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Dict, Final, Tuple, cast
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     DimValue,
     _ensure_value_metadata,
@@ -26,16 +27,6 @@ _COMPLEX_PAIR: Final[Dict[ir.DataType, ir.DataType]] = {
 _BASE_TO_COMPLEX: Final[Dict[ir.DataType, ir.DataType]] = {
     ir.DataType.FLOAT: ir.DataType.COMPLEX64,
     ir.DataType.DOUBLE: ir.DataType.COMPLEX128,
-}
-
-_COMPLEX_TO_NP_DTYPE: Final[Dict[ir.DataType, np.dtype]] = {
-    ir.DataType.COMPLEX64: np.dtype(np.complex64),
-    ir.DataType.COMPLEX128: np.dtype(np.complex128),
-}
-
-_REAL_BASE_NP_DTYPE: Final[Dict[ir.DataType, np.dtype]] = {
-    ir.DataType.FLOAT: np.dtype(np.float32),
-    ir.DataType.DOUBLE: np.dtype(np.float64),
 }
 
 COMPLEX_DTYPES: Final[frozenset[ir.DataType]] = frozenset(_COMPLEX_PAIR.keys())
@@ -252,7 +243,12 @@ def ensure_packed_real_pair(
             ctx, value, base_dtype, name_hint=f"{name_hint}_real_cast"
         )
     )
-    zero_np = np.asarray(0, dtype=_REAL_BASE_NP_DTYPE[base_dtype])
+    zero_np_dtype = ir_dtype_to_numpy(base_dtype, default=None)
+    if zero_np_dtype is None:
+        raise ValueError(
+            f"Unsupported real base dtype for complex packing: {base_dtype}"
+        )
+    zero_np = np.asarray(0, dtype=zero_np_dtype)
     zero_const = ctx.bind_const_for_var(object(), zero_np)
     zero_val = cast(
         ir.Value,
