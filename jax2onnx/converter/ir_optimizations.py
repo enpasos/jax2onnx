@@ -20,6 +20,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
 
 # ---------------- Config ----------------
 
@@ -1875,15 +1876,12 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
         return _as_ndarray(x)
 
     if isinstance(x, ir.Value):
-        tensor = ir.convenience.get_const_tensor(x)
-        return _to_numpy_from_any(tensor)
+        arr = const_value_to_numpy(x)
+        return cast(ArrayND, arr) if arr is not None else None
 
     if isinstance(x, ir.TensorProtocol):
-        # Trust .numpy() from TensorProtocol
-        try:
-            return _as_ndarray(x.numpy())
-        except Exception:
-            return None
+        arr = tensor_to_numpy(x)
+        return cast(ArrayND, arr) if arr is not None else None
 
     if isinstance(x, ir.Attr):
         return _to_numpy_from_attr(x)
