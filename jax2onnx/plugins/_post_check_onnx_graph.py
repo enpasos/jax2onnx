@@ -1075,6 +1075,17 @@ def _extract_constant_array(
     if op_type == "Constant":
         tensor = _constant_attr_tensor(producer)
         return _tensor_to_numpy(tensor)
+    if op_type == "Cast":
+        inputs = _inputs_of(producer)
+        if not inputs:
+            return None
+        arr = _extract_constant_array(inputs[0], nodes, graph, depth + 1)
+        if arr is None:
+            return None
+        dtype_code = _node_attr_int(producer, "to")
+        if dtype_code is None:
+            return arr
+        return arr.astype(_onnx_dtype_to_np(dtype_code), copy=False)
     if op_type in {"Expand", "Reshape", "Squeeze", "Unsqueeze"}:
         inputs = _inputs_of(producer)
         if inputs:
@@ -1175,6 +1186,45 @@ def _onnx_dtype_to_np(code: int) -> np.dtype:
         11: np.float64,
     }
     return np.dtype(mapping.get(code, np.float32))
+
+
+def _node_attr_int(node, name: str) -> Optional[int]:
+    attrs = getattr(node, "attributes", None)
+    if isinstance(attrs, dict) and name in attrs:
+        return _attr_to_int(attrs[name])
+
+    attr_list = attrs or getattr(node, "attribute", None)
+    if isinstance(attr_list, (list, tuple)):
+        for attr in attr_list:
+            if getattr(attr, "name", None) == name:
+                return _attr_to_int(attr)
+
+    extra = getattr(node, "_attributes", None)
+    if isinstance(extra, dict) and name in extra:
+        return _attr_to_int(extra[name])
+    return None
+
+
+def _attr_to_int(attr) -> Optional[int]:
+    if attr is None:
+        return None
+    if isinstance(attr, (int, np.integer)):
+        return int(attr)
+    for method_name in ("as_int", "as_i"):
+        method = getattr(attr, method_name, None)
+        if callable(method):
+            try:
+                return int(method())
+            except Exception:
+                pass
+    for field in ("i", "value"):
+        value = getattr(attr, field, None)
+        if isinstance(value, (int, np.integer)):
+            return int(value)
+    try:
+        return int(attr)
+    except Exception:
+        return None
 
 
 def _constant_attr_tensor(node) -> Any:

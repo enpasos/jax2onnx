@@ -12,12 +12,15 @@ from jax import core
 from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import (
+    const_value_to_numpy,
+    ir_dtype_to_numpy,
+    numpy_dtype_to_ir,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -58,6 +61,28 @@ def _infer_result_dtype(
     return result
 
 
+def _bind_exact_const(
+    ctx: LoweringContextProtocol,
+    array: np.ndarray[Any, np.dtype[Any]],
+    name_hint: str,
+) -> ir.Value:
+    tensor = ir.tensor(array)
+    shape = tuple(int(d) for d in array.shape)
+    value = ir.Value(
+        name=ctx.fresh_name(name_hint),
+        type=ir.TensorType(numpy_dtype_to_ir(array.dtype)),
+        shape=ir.Shape(shape),
+        const_value=tensor,
+    )
+    append_initializer = getattr(ctx, "_handle_initializer_append", None)
+    if callable(append_initializer):
+        append_initializer(value)
+    else:
+        ctx.builder.initializers.append(value)
+    _ensure_value_metadata(ctx, value)
+    return value
+
+
 def _maybe_cast(
     ctx: LoweringContextProtocol,
     value: ir.Value,
@@ -67,24 +92,20 @@ def _maybe_cast(
     if value.const_value is not None:
         np_arr = const_value_to_numpy(value)
         if np_arr is not None:
-            enum_to_np = {
-                ir.DataType.FLOAT: np.float32,
-                ir.DataType.DOUBLE: np.float64,
-                ir.DataType.INT32: np.int32,
-                ir.DataType.INT64: np.int64,
-                ir.DataType.INT16: np.int16,
-                ir.DataType.INT8: np.int8,
-                ir.DataType.UINT8: np.uint8,
-                ir.DataType.BOOL: np.bool_,
-            }
-            target_dtype = enum_to_np.get(target_enum)
+            target_dtype = ir_dtype_to_numpy(target_enum, default=None)
             if target_dtype is not None and np_arr.dtype != target_dtype:
-                new_val = ctx.bind_const_for_var(
-                    object(), np_arr.astype(target_dtype, copy=False)
-                )
-                _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
-                _ensure_value_metadata(ctx, new_val)
-                return new_val
+                postprocess_promotes_float32 = bool(
+                    getattr(ctx.builder, "enable_double_precision", False)
+                ) and np.dtype(target_dtype) == np.dtype(np.float32)
+                if not postprocess_promotes_float32:
+                    new_val = _bind_exact_const(
+                        ctx,
+                        np_arr.astype(target_dtype, copy=False),
+                        name_hint,
+                    )
+                    _stamp_type_and_shape(new_val, tuple(int(d) for d in np_arr.shape))
+                    _ensure_value_metadata(ctx, new_val)
+                    return new_val
     cur_type = getattr(value, "type", None)
     cur_dtype = getattr(cur_type, "dtype", None)
     if cur_dtype == target_enum:
@@ -315,10 +336,10 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
 
         out_var = eqn.outvars[0]
         out_dtype: np.dtype[Any] = np.dtype(getattr(out_var.aval, "dtype", np.float32))
-        target_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
+        target_enum = numpy_dtype_to_ir(out_dtype)
 
         work_dtype = _normalize_dtype(out_dtype, ctx.builder.enable_double_precision)
-        work_enum = _dtype_to_ir(work_dtype, ctx.builder.enable_double_precision)
+        work_enum = numpy_dtype_to_ir(work_dtype)
 
         start_val = ctx.get_value_for_var(
             start_var,
