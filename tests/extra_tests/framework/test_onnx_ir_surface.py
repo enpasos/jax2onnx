@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import onnx_ir as ir
 
 
@@ -162,6 +164,14 @@ def test_convenience_surface_matches_stub() -> None:
     }
     missing = expected - convenience_public
     assert not missing, f"ir.convenience missing {sorted(missing)}"
+
+
+def test_convenience_signatures_include_used_options() -> None:
+    replace_sig = inspect.signature(ir.convenience.replace_all_uses_with)
+    mapping_sig = inspect.signature(ir.convenience.create_value_mapping)
+
+    assert "replace_graph_outputs" in replace_sig.parameters
+    assert "include_subgraphs" in mapping_sig.parameters
 
 
 def test_top_level_exports_match_expectations() -> None:
