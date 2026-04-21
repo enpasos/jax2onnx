@@ -168,7 +168,7 @@ def _builder_op(
 
     if output is not None:
         if not getattr(output, "name", None):
-            output.name = ctx.fresh_name(name_hint)
+            ir.convenience.rename_values(output, ctx.fresh_name(name_hint))
         result = builder.op(
             op_type,
             list(inputs),

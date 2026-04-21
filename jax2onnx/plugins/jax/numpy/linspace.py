@@ -434,7 +434,7 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, final_val)
         else:
             final_val = linspace_vals
-        final_val.name = out_name
+        ir.convenience.rename_values(final_val, out_name)
         _stamp_type_and_shape(final_val, (num,))
         _ensure_value_metadata(ctx, final_val)
         ctx.bind_value_for_var(out_var, final_val)

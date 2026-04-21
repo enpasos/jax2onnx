@@ -221,7 +221,7 @@ class JnpSizePlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("size_out")
-        result.name = desired_name
+        ir.convenience.rename_values(result, desired_name)
         _stamp_type_and_shape(result, ())
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

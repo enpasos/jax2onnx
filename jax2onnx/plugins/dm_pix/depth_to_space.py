@@ -249,10 +249,11 @@ class DmPixDepthToSpacePlugin(PrimitiveLeafPlugin):
             )
         else:
             result = out_nhwc4
-            result.name = (
+            ir.convenience.rename_values(
+                result,
                 getattr(out_spec, "name", None)
                 or getattr(result, "name", None)
-                or ctx.fresh_name("depth_to_space_out_nhwc")
+                or ctx.fresh_name("depth_to_space_out_nhwc"),
             )
 
         out_spec_type = getattr(out_spec, "type", None)
