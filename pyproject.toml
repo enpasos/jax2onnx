@@ -18,7 +18,7 @@ dependencies = [
     "onnxruntime>=1.24.1",
     "einops>=0.8.1",
     "equinox>=0.13.1",
-    "onnx-ir>=0.1.15",
+    "onnx-ir>=0.2.1",
     "huggingface-hub>=0.26.0",
     "dm-pix>=0.4.4"
 ]
