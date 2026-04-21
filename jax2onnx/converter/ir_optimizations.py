@@ -139,16 +139,11 @@ def _replace_all_uses_with(
     *,
     replace_graph_outputs: bool = False,
 ) -> None:
-    try:
-        ir.convenience.replace_all_uses_with(
-            values,
-            replacements,
-            replace_graph_outputs=replace_graph_outputs,
-        )
-        return
-    except TypeError:
-        # Compatibility with older onnx_ir that lacks replace_graph_outputs.
-        ir.convenience.replace_all_uses_with(values, replacements)
+    ir.convenience.replace_all_uses_with(
+        values,
+        replacements,
+        replace_graph_outputs=replace_graph_outputs,
+    )
 
 
 # ---------------- Public helper shims (restored for unit tests) ----------------
