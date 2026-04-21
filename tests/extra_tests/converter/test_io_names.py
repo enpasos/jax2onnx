@@ -89,7 +89,7 @@ def test_custom_output_names_support_swapping_constant_initializers():
     assert sorted(ir_model.graph.initializers.keys()) == sorted(swapped_names)
 
 
-def test_custom_output_names_use_onnx_ir_rename_helper_when_available(monkeypatch):
+def test_custom_output_names_delegate_to_onnx_ir_rename_helper(monkeypatch):
     calls: list[list[str]] = []
 
     def _fake_rename(values, names):
@@ -117,9 +117,7 @@ def test_custom_output_names_use_onnx_ir_rename_helper_when_available(monkeypatc
     assert [value.name for value in ir_model.graph.outputs] == swapped_names
 
 
-def test_custom_output_names_fallback_avoids_tmp_prefix_target_collisions(monkeypatch):
-    monkeypatch.delattr(ir.convenience, "rename_values", raising=False)
-
+def test_custom_output_names_support_tmp_prefix_targets():
     baseline = to_onnx(_constant_pair, inputs=[], return_mode="ir")
     baseline_names = [value.name for value in baseline.graph.outputs]
     target_names = ["__j2o_tmp_io_name_1", baseline_names[0]]

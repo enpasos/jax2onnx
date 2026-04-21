@@ -302,35 +302,6 @@ def _resolve_positional_inputs(
     return fallback
 
 
-def _rename_values_atomically(
-    values: Sequence[ir.Value],
-    target_by_value: Mapping[int, str],
-    occupied_names: set[str],
-) -> None:
-    rename_helper = getattr(getattr(ir, "convenience", None), "rename_values", None)
-    target_names = [target_by_value[id(value)] for value in values]
-    if callable(rename_helper):
-        rename_helper(values, target_names)
-        return
-
-    # Fallback for released onnx_ir versions without convenience.rename_values().
-    tmp_prefix = "__j2o_tmp_io_name_"
-    used_names = set(occupied_names)
-    used_names.update(target_names)
-    next_tmp_index = 0
-    for value in values:
-        tmp = f"{tmp_prefix}{next_tmp_index}"
-        while tmp in used_names:
-            next_tmp_index += 1
-            tmp = f"{tmp_prefix}{next_tmp_index}"
-        next_tmp_index += 1
-        used_names.add(tmp)
-        value.name = tmp
-
-    for value in values:
-        value.name = target_by_value[id(value)]
-
-
 def _apply_custom_io_names_on_ir(
     model: ir.Model,
     *,
@@ -401,12 +372,8 @@ def _apply_custom_io_names_on_ir(
         for value in _collect_top_graph_values(graph)
         if id(value) in target_by_value and getattr(value, "name", None) is not None
     ]
-    occupied_names = {
-        getattr(value, "name", "")
-        for value in _collect_top_graph_values(graph)
-        if getattr(value, "name", None)
-    }
-    _rename_values_atomically(rename_values, target_by_value, occupied_names)
+    target_names = [target_by_value[id(value)] for value in rename_values]
+    ir.convenience.rename_values(rename_values, target_names)
 
 
 if TYPE_CHECKING:
