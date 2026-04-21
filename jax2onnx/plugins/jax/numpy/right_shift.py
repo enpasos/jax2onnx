@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
@@ -71,7 +70,7 @@ def cast_to_dtype(
     np_dtype: np.dtype[Any],
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
     cast_val = ctx.builder.Cast(
