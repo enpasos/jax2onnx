@@ -11,9 +11,8 @@ import onnx_ir as ir
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -113,7 +112,7 @@ class RandomBernoulliPlugin(PrimitiveLeafPlugin):
             p_input = ctx.builder.Cast(
                 p_val,
                 _outputs=[ctx.fresh_name("bernoulli_prob_f32")],
-                to=int(_dtype_to_ir(np.dtype(np.float32), False).value),
+                to=int(numpy_dtype_to_ir(np.dtype(np.float32)).value),
             )
             if getattr(p_val, "shape", None) is not None:
                 p_input.shape = p_val.shape
