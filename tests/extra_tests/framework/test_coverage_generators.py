@@ -213,6 +213,19 @@ def test_onnx_coverage_recommends_next_action_for_uncovered_categories(
     assert expected in onnx_coverage._recommend_for_uncovered(op)
 
 
+def test_onnx_coverage_open_action_bucket_summary_counts_only_uncovered_ops() -> None:
+    summary = onnx_coverage.build_open_action_bucket_summary(
+        official_ops=["Add", "GridSample", "QuantizeLinear"],
+        metadata_usage={"Add": {"jax/lax/add"}},
+        lowering_usage={},
+    )
+
+    assert "Vision-specific native ops: `1`" in summary
+    assert "Quantization scope: `1`" in summary
+    assert "General triage: `0`" in summary
+    assert "Add" not in summary
+
+
 def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
     target = tmp_path / "coverage.md"
     target.write_text("# Coverage\n", encoding="utf-8")

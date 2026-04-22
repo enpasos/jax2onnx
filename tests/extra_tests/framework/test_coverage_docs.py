@@ -28,6 +28,7 @@ ONNX_EXTRA_ROW_RE: Final = re.compile(
     r"(?P<lowering>[^|]+) \| (?P<modules>[^|]+) \| "
     r"(?P<candidates>[^|]+) \| (?P<next_action>[^|]+) \|$"
 )
+ONNX_ACTION_BUCKET_RE: Final = re.compile(r"^  - (?P<label>[^:]+): `(?P<count>\d+)`$")
 ONNX_CHECK: Final = "\u2705"
 ONNX_EMPTY: Final = "\u2796"
 COMPONENT_COVERAGE_MISSING_STATUSES: Final = {
@@ -94,6 +95,15 @@ def _onnx_extra_rows(text: str) -> list[dict[str, str]]:
                 {key: value.strip() for key, value in match.groupdict().items()}
             )
     return rows
+
+
+def _onnx_action_buckets(text: str) -> dict[str, int]:
+    buckets: dict[str, int] = {}
+    for line in text.splitlines():
+        match = ONNX_ACTION_BUCKET_RE.match(line)
+        if match is not None:
+            buckets[match.group("label")] = int(match.group("count"))
+    return buckets
 
 
 def _assert_doc_counts(
@@ -262,11 +272,14 @@ def test_onnx_operator_coverage_doc_summary_matches_tables() -> None:
     main_rows = _onnx_main_rows(text)
     extra_rows = _onnx_extra_rows(text)
     referenced_rows = [row for row in main_rows if row["in_plugins"] == ONNX_CHECK]
+    action_buckets = _onnx_action_buckets(text)
 
     assert main_rows, "ONNX operator coverage has no main table rows"
     assert summary["Operators in index"] == len(main_rows)
     assert summary["Operators referenced in plugins"] == len(referenced_rows)
     assert summary["Extra plugin names not present in index"] == len(extra_rows)
+    assert action_buckets, "ONNX operator coverage has no action buckets"
+    assert sum(action_buckets.values()) == len(main_rows) - len(referenced_rows)
 
     expected_coverage = f"{len(referenced_rows) / len(main_rows):.1%}"
     assert f"- Coverage: `{expected_coverage}`" in text

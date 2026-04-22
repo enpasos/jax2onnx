@@ -12,6 +12,14 @@ This matrix starts from the official ONNX operator index and shows which operato
 - Operators in index: `200`
 - Operators referenced in plugins: `155`
 - Coverage: `77.5%`
+- Open operators by next action:
+  - Sequence/Optional/String containers: `16`
+  - Quantization scope: `7`
+  - Vision-specific native ops: `9`
+  - Target-model specialized ops: `12`
+  - Low-complexity math quick wins: `0`
+  - Common model native ops: `0`
+  - General triage: `1`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - `Next Action` classifies uncovered operators and metadata/lowering drift.
 - Extra plugin names not present in index: `6`
