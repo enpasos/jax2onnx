@@ -281,3 +281,17 @@ def test_onnx_operator_coverage_doc_summary_matches_tables() -> None:
         has_lowering = row["lowering"] == ONNX_CHECK
         assert has_metadata or has_lowering, row["name"]
         assert row["modules"] != ONNX_EMPTY, row["name"]
+
+
+def test_onnx_operator_coverage_has_no_official_metadata_lowering_asymmetry() -> None:
+    text = _read_doc("docs/user_guide/onnx_operator_coverage.md")
+    asymmetries = [
+        f"{row['op']}: metadata={row['metadata']} lowering={row['lowering']}"
+        for row in _onnx_main_rows(text)
+        if row["metadata"] != row["lowering"]
+    ]
+
+    assert not asymmetries, (
+        "Official ONNX operator coverage should not contain metadata/lowering "
+        "asymmetries:\n" + "\n".join(asymmetries)
+    )

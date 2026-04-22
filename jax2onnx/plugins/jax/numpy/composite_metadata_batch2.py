@@ -522,8 +522,12 @@ class JnpRollMetadata(_JnpCompositeMetadataBatch2Plugin):
             "doc": "https://onnx.ai/onnx/operators/onnx__Transpose.html",
         },
         {
-            "component": "ReverseSequence",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReverseSequence.html",
+            "component": "Gather",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Gather.html",
+        },
+        {
+            "component": "Range",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Range.html",
         },
     ],
     since="0.12.1",

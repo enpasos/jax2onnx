@@ -10,8 +10,8 @@ This matrix starts from the official ONNX operator index and shows which operato
 
 - Source index: `ONNX 1.22.0 documentation` (`https://onnx.ai/onnx/operators/index.html`)
 - Operators in index: `200`
-- Operators referenced in plugins: `156`
-- Coverage: `78.0%`
+- Operators referenced in plugins: `155`
+- Coverage: `77.5%`
 - `Potential JAX Ops` lists candidate JAX entry points for each operator.
 - Extra plugin names not present in index: `6`
 
@@ -19,12 +19,12 @@ This matrix starts from the official ONNX operator index and shows which operato
 
 | ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |
 |:--------------|:-----------|:---------|:---------|:---------------|:------------------|
-| [Abs](https://onnx.ai/onnx/operators/onnx__Abs.html) | ✅ | ✅ | ✅ | `jax/lax/abs`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/cbrt`<br>`jax/lax/lgamma`<br>`jax/lax/lu`<br>... +6 | Covered via existing plugin primitives. |
+| [Abs](https://onnx.ai/onnx/operators/onnx__Abs.html) | ✅ | ✅ | ✅ | `jax/lax/abs`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/cbrt`<br>`jax/lax/lgamma`<br>`jax/lax/lu`<br>... +8 | Covered via existing plugin primitives. |
 | [Acos](https://onnx.ai/onnx/operators/onnx__Acos.html) | ✅ | ✅ | ✅ | `jax/lax/acos`<br>`jax/numpy/acos` | `jax.lax.acos`<br>`jax.numpy.arccos` |
 | [Acosh](https://onnx.ai/onnx/operators/onnx__Acosh.html) | ✅ | ✅ | ✅ | `jax/lax/acosh`<br>`jax/numpy/acosh` | `jax.lax.acosh`<br>`jax.numpy.arccosh` |
-| [Add](https://onnx.ai/onnx/operators/onnx__Add.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/recurrent`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/linen/dot_product_attention`<br>`flax/linen/einsum`<br>`flax/linen/multi_head_attention`<br>... +60 | Covered via existing plugin primitives. |
+| [Add](https://onnx.ai/onnx/operators/onnx__Add.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/recurrent`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/linen/dot_product_attention`<br>`flax/linen/einsum`<br>`flax/linen/multi_head_attention`<br>... +64 | Covered via existing plugin primitives. |
 | [AffineGrid](https://onnx.ai/onnx/operators/onnx__AffineGrid.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [And](https://onnx.ai/onnx/operators/onnx__And.html) | ✅ | ✅ | ✅ | `flax/nnx/combine_masks`<br>`jax/lax/and`<br>`jax/lax/betainc`<br>`jax/lax/clz`<br>`jax/lax/igamma`<br>`jax/lax/nextafter`<br>... +4 | Covered via existing plugin primitives. |
+| [And](https://onnx.ai/onnx/operators/onnx__And.html) | ✅ | ✅ | ✅ | `flax/nnx/combine_masks`<br>`jax/lax/and`<br>`jax/lax/betainc`<br>`jax/lax/clz`<br>`jax/lax/igamma`<br>`jax/lax/nextafter`<br>... +9 | Covered via existing plugin primitives. |
 | [ArgMax](https://onnx.ai/onnx/operators/onnx__ArgMax.html) | ✅ | ✅ | ✅ | `jax/lax/_arg_utils`<br>`jax/lax/argmax`<br>`jax/lax/lu`<br>`jax/numpy/argmax`<br>`jax/numpy/composite_metadata_batch3`<br>`jax/random/categorical` | Covered via existing plugin primitives. |
 | [ArgMin](https://onnx.ai/onnx/operators/onnx__ArgMin.html) | ✅ | ✅ | ✅ | `jax/lax/_arg_utils`<br>`jax/lax/argmin`<br>`jax/numpy/argmin`<br>`jax/numpy/composite_metadata_batch3` | Covered via existing plugin primitives. |
 | [Asin](https://onnx.ai/onnx/operators/onnx__Asin.html) | ✅ | ✅ | ✅ | `jax/lax/asin`<br>`jax/numpy/asin` | `jax.lax.asin`<br>`jax.numpy.arcsin` |
@@ -42,7 +42,7 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [BitwiseOr](https://onnx.ai/onnx/operators/onnx__BitwiseOr.html) | ✅ | ✅ | ✅ | `jax/lax/clz`<br>`jax/lax/or`<br>`jax/lax/shift_right_arithmetic`<br>`jax/numpy/bitwise_or`<br>`jax/numpy/right_shift` | Covered via existing plugin primitives. |
 | [BitwiseXor](https://onnx.ai/onnx/operators/onnx__BitwiseXor.html) | ✅ | ✅ | ✅ | `jax/lax/xor`<br>`jax/numpy/bitwise_xor` | Covered via existing plugin primitives. |
 | [BlackmanWindow](https://onnx.ai/onnx/operators/onnx__BlackmanWindow.html) | ✅ | ✅ | ✅ | `jax/numpy/windows` | Covered via existing plugin primitives. |
-| [Cast](https://onnx.ai/onnx/operators/onnx__Cast.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/embedding`<br>`flax/linen/dot_product_attention`<br>`flax/nnx/combine_masks`<br>`flax/nnx/dot_product_attention`<br>`flax/nnx/embed`<br>... +66 | Covered via existing plugin primitives. |
+| [Cast](https://onnx.ai/onnx/operators/onnx__Cast.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/embedding`<br>`flax/linen/dot_product_attention`<br>`flax/nnx/combine_masks`<br>`flax/nnx/dot_product_attention`<br>`flax/nnx/embed`<br>... +80 | Covered via existing plugin primitives. |
 | [CastLike](https://onnx.ai/onnx/operators/onnx__CastLike.html) | ✅ | ✅ | ✅ | `_utils`<br>`flax/linen/conv`<br>`flax/linen/dense_general`<br>`flax/nnx/conv`<br>`flax/nnx/linear`<br>`flax/nnx/linear_general`<br>... +1 | Covered via existing plugin primitives. |
 | [Ceil](https://onnx.ai/onnx/operators/onnx__Ceil.html) | ✅ | ✅ | ✅ | `jax/lax/ceil`<br>`jax/numpy/ceil` | `jax.lax.ceil`<br>`jax.numpy.ceil` |
 | [Celu](https://onnx.ai/onnx/operators/onnx__Celu.html) | ✅ | ✅ | ✅ | `jax/nn/celu` | Covered via existing plugin primitives. |
@@ -50,7 +50,7 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [Clip](https://onnx.ai/onnx/operators/onnx__Clip.html) | ✅ | ✅ | ✅ | `flax/nnx/hard_tanh`<br>`jax/numpy/clip` | Covered via existing plugin primitives. |
 | [Col2Im](https://onnx.ai/onnx/operators/onnx__Col2Im.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Compress](https://onnx.ai/onnx/operators/onnx__Compress.html) | ✅ | ✅ | ✅ | `jax/numpy/compress` | Covered via existing plugin primitives. |
-| [Concat](https://onnx.ai/onnx/operators/onnx__Concat.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`_axis0_utils`<br>`_complex_utils`<br>`equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>... +33 | Covered via existing plugin primitives. |
+| [Concat](https://onnx.ai/onnx/operators/onnx__Concat.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`_axis0_utils`<br>`_complex_utils`<br>`equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>... +39 | Covered via existing plugin primitives. |
 | [ConcatFromSequence](https://onnx.ai/onnx/operators/onnx__ConcatFromSequence.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Constant](https://onnx.ai/onnx/operators/onnx__Constant.html) | ✅ | ✅ | ✅ | `flax/nnx/dropout`<br>`jax/numpy/windows` | Covered via existing plugin primitives. |
 | [ConstantOfShape](https://onnx.ai/onnx/operators/onnx__ConstantOfShape.html) | ✅ | ✅ | ✅ | `jax/numpy/eye`<br>`jax/numpy/full`<br>`jax/numpy/ones`<br>`jax/numpy/zeros` | Covered via existing plugin primitives. |
@@ -66,20 +66,20 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [DepthToSpace](https://onnx.ai/onnx/operators/onnx__DepthToSpace.html) | ✅ | ✅ | ✅ | `dm_pix/depth_to_space` | Covered via existing plugin primitives. |
 | [DequantizeLinear](https://onnx.ai/onnx/operators/onnx__DequantizeLinear.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Det](https://onnx.ai/onnx/operators/onnx__Det.html) | ✅ | ✅ | ✅ | `jax/numpy/linalg_det` | Covered via existing plugin primitives. |
-| [Div](https://onnx.ai/onnx/operators/onnx__Div.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/spectral_norm`<br>`equinox/eqx/nn/weight_norm`<br>`flax/linen/dot_product_attention`<br>`flax/linen/spectral_norm`<br>`flax/linen/weight_norm`<br>... +37 | Covered via existing plugin primitives. |
+| [Div](https://onnx.ai/onnx/operators/onnx__Div.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/spectral_norm`<br>`equinox/eqx/nn/weight_norm`<br>`flax/linen/dot_product_attention`<br>`flax/linen/spectral_norm`<br>`flax/linen/weight_norm`<br>... +46 | Covered via existing plugin primitives. |
 | [Dropout](https://onnx.ai/onnx/operators/onnx__Dropout.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/dropout`<br>`flax/linen/dropout`<br>`flax/nnx/dot_product_attention`<br>`flax/nnx/dropout` | Covered via existing plugin primitives. |
 | [DynamicQuantizeLinear](https://onnx.ai/onnx/operators/onnx__DynamicQuantizeLinear.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Einsum](https://onnx.ai/onnx/operators/onnx__Einsum.html) | ✅ | ✅ | ✅ | `flax/linen/einsum`<br>`flax/nnx/einsum`<br>`jax/lax/dot_general`<br>`jax/nn/scaled_dot_general`<br>`jax/numpy/einsum` | Covered via existing plugin primitives. |
 | [Elu](https://onnx.ai/onnx/operators/onnx__Elu.html) | ✅ | ✅ | ✅ | `flax/nnx/elu`<br>`jax/nn/elu` | Covered via existing plugin primitives. |
-| [Equal](https://onnx.ai/onnx/operators/onnx__Equal.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/clz`<br>`jax/lax/eigh`<br>`jax/lax/eq`<br>... +15 | Covered via existing plugin primitives. |
+| [Equal](https://onnx.ai/onnx/operators/onnx__Equal.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/clz`<br>`jax/lax/eigh`<br>`jax/lax/eq`<br>... +18 | Covered via existing plugin primitives. |
 | [Erf](https://onnx.ai/onnx/operators/onnx__Erf.html) | ✅ | ✅ | ✅ | `jax/lax/erf`<br>`jax/lax/erf_inv`<br>`jax/lax/erfc` | Covered via existing plugin primitives. |
 | [Exp](https://onnx.ai/onnx/operators/onnx__Exp.html) | ✅ | ✅ | ✅ | `jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/betainc`<br>`jax/lax/cosh`<br>`jax/lax/cumlogsumexp`<br>`jax/lax/erf_inv`<br>... +11 | Covered via existing plugin primitives. |
-| [Expand](https://onnx.ai/onnx/operators/onnx__Expand.html) | ✅ | ✅ | ✅ | `_axis0_utils`<br>`jax/lax/broadcast_in_dim`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/gather`<br>`jax/lax/iota`<br>`jax/lax/scan`<br>... +3 | Covered via existing plugin primitives. |
+| [Expand](https://onnx.ai/onnx/operators/onnx__Expand.html) | ✅ | ✅ | ✅ | `_axis0_utils`<br>`jax/lax/broadcast_in_dim`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/gather`<br>`jax/lax/iota`<br>`jax/lax/scan`<br>... +4 | Covered via existing plugin primitives. |
 | [EyeLike](https://onnx.ai/onnx/operators/onnx__EyeLike.html) | ✅ | ✅ | ✅ | `jax/numpy/eye` | Covered via existing plugin primitives. |
 | [Flatten](https://onnx.ai/onnx/operators/onnx__Flatten.html) | ✅ | ✅ | ✅ | `jax/numpy/reshape` | Covered via existing plugin primitives. |
-| [Floor](https://onnx.ai/onnx/operators/onnx__Floor.html) | ✅ | ✅ | ✅ | `jax/lax/floor`<br>`jax/lax/nextafter`<br>`jax/lax/polygamma`<br>`jax/lax/reduce_precision`<br>`jax/numpy/floor`<br>`jax/numpy/floor_divide`<br>... +1 | Covered via existing plugin primitives. |
+| [Floor](https://onnx.ai/onnx/operators/onnx__Floor.html) | ✅ | ✅ | ✅ | `jax/lax/floor`<br>`jax/lax/nextafter`<br>`jax/lax/polygamma`<br>`jax/lax/reduce_precision`<br>`jax/numpy/floor`<br>`jax/numpy/floor_divide`<br>... +3 | Covered via existing plugin primitives. |
 | [GRU](https://onnx.ai/onnx/operators/onnx__GRU.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Gather](https://onnx.ai/onnx/operators/onnx__Gather.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/embedding`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/embed`<br>`flax/nnx/conv`<br>`flax/nnx/embed`<br>... +31 | Covered via existing plugin primitives. |
+| [Gather](https://onnx.ai/onnx/operators/onnx__Gather.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/embedding`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/embed`<br>`flax/nnx/conv`<br>`flax/nnx/embed`<br>... +41 | Covered via existing plugin primitives. |
 | [GatherElements](https://onnx.ai/onnx/operators/onnx__GatherElements.html) | ✅ | ✅ | ✅ | `flax/nnx/flip_sequences`<br>`jax/lax/sort` | Covered via existing plugin primitives. |
 | [GatherND](https://onnx.ai/onnx/operators/onnx__GatherND.html) | ✅ | ✅ | ✅ | `jax/lax/gather` | Covered via existing plugin primitives. |
 | [Gelu](https://onnx.ai/onnx/operators/onnx__Gelu.html) | ✅ | ✅ | ✅ | `flax/nnx/gelu`<br>`jax/nn/gelu` | Covered via existing plugin primitives. |
@@ -87,8 +87,8 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [GlobalAveragePool](https://onnx.ai/onnx/operators/onnx__GlobalAveragePool.html) | ✅ | ✅ | ✅ | `flax/linen/avg_pool`<br>`flax/nnx/avg_pool` | Covered via existing plugin primitives. |
 | [GlobalLpPool](https://onnx.ai/onnx/operators/onnx__GlobalLpPool.html) | ✅ | ✅ | ✅ | `jax/numpy/linalg_norm` | Covered via existing plugin primitives. |
 | [GlobalMaxPool](https://onnx.ai/onnx/operators/onnx__GlobalMaxPool.html) | ✅ | ✅ | ✅ | `flax/linen/max_pool`<br>`flax/nnx/max_pool` | Covered via existing plugin primitives. |
-| [Greater](https://onnx.ai/onnx/operators/onnx__Greater.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/digamma`<br>`jax/lax/gt`<br>`jax/lax/igamma`<br>`jax/lax/nextafter`<br>... +6 | Covered via existing plugin primitives. |
-| [GreaterOrEqual](https://onnx.ai/onnx/operators/onnx__GreaterOrEqual.html) | ✅ | ✅ | ✅ | `jax/lax/ge`<br>`jax/numpy/greater_equal` | Covered via existing plugin primitives. |
+| [Greater](https://onnx.ai/onnx/operators/onnx__Greater.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/digamma`<br>`jax/lax/gather`<br>`jax/lax/gt`<br>`jax/lax/igamma`<br>... +9 | Covered via existing plugin primitives. |
+| [GreaterOrEqual](https://onnx.ai/onnx/operators/onnx__GreaterOrEqual.html) | ✅ | ✅ | ✅ | `jax/lax/ge`<br>`jax/numpy/digitize`<br>`jax/numpy/greater_equal`<br>`jax/numpy/histogram`<br>`jax/numpy/histogram2d`<br>`jax/numpy/histogramdd` | Covered via existing plugin primitives. |
 | [GridSample](https://onnx.ai/onnx/operators/onnx__GridSample.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [GroupNormalization](https://onnx.ai/onnx/operators/onnx__GroupNormalization.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/group_norm`<br>`flax/linen/group_norm`<br>`flax/linen/instance_norm`<br>`flax/nnx/group_norm` | Covered via existing plugin primitives. |
 | [HammingWindow](https://onnx.ai/onnx/operators/onnx__HammingWindow.html) | ✅ | ✅ | ✅ | `jax/numpy/windows` | Covered via existing plugin primitives. |
@@ -96,38 +96,38 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [HardSigmoid](https://onnx.ai/onnx/operators/onnx__HardSigmoid.html) | ✅ | ✅ | ✅ | `jax/nn/hard_sigmoid` | Covered via existing plugin primitives. |
 | [HardSwish](https://onnx.ai/onnx/operators/onnx__HardSwish.html) | ✅ | ✅ | ✅ | `jax/nn/hard_swish` | Covered via existing plugin primitives. |
 | [Hardmax](https://onnx.ai/onnx/operators/onnx__Hardmax.html) | ✅ | ✅ | ✅ | `jax/nn/hardmax` | Covered via existing plugin primitives. |
-| [Identity](https://onnx.ai/onnx/operators/onnx__Identity.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/identity`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/sequential`<br>`jax/core/name`<br>`jax/lax/_control_flow_utils`<br>`jax/lax/_cum_extrema`<br>... +46 | Covered via existing plugin primitives. |
+| [Identity](https://onnx.ai/onnx/operators/onnx__Identity.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/identity`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/sequential`<br>`jax/core/name`<br>`jax/lax/_control_flow_utils`<br>`jax/lax/_cum_extrema`<br>... +52 | Covered via existing plugin primitives. |
 | [If](https://onnx.ai/onnx/operators/onnx__If.html) | ✅ | ✅ | ✅ | `jax/lax/cond` | Covered via existing plugin primitives. |
 | [ImageDecoder](https://onnx.ai/onnx/operators/onnx__ImageDecoder.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [InstanceNormalization](https://onnx.ai/onnx/operators/onnx__InstanceNormalization.html) | ✅ | ✅ | ✅ | `flax/linen/instance_norm` | Covered via existing plugin primitives. |
-| [IsInf](https://onnx.ai/onnx/operators/onnx__IsInf.html) | ✅ | ✅ | ✅ | `jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/numpy/isfinite` | Covered via existing plugin primitives. |
-| [IsNaN](https://onnx.ai/onnx/operators/onnx__IsNaN.html) | ✅ | ✅ | ✅ | `jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/composite_metadata_batch3`<br>`jax/numpy/isfinite` | Covered via existing plugin primitives. |
+| [IsInf](https://onnx.ai/onnx/operators/onnx__IsInf.html) | ✅ | ✅ | ✅ | `jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/numpy/frexp`<br>`jax/numpy/isfinite`<br>`jax/numpy/spacing` | Covered via existing plugin primitives. |
+| [IsNaN](https://onnx.ai/onnx/operators/onnx__IsNaN.html) | ✅ | ✅ | ✅ | `jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/composite_metadata_batch3`<br>`jax/numpy/frexp`<br>`jax/numpy/isfinite`<br>... +2 | Covered via existing plugin primitives. |
 | [LRN](https://onnx.ai/onnx/operators/onnx__LRN.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [LSTM](https://onnx.ai/onnx/operators/onnx__LSTM.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [LayerNormalization](https://onnx.ai/onnx/operators/onnx__LayerNormalization.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/layer_norm`<br>`flax/linen/layer_norm`<br>`flax/nnx/layer_norm` | Covered via existing plugin primitives. |
 | [LeakyRelu](https://onnx.ai/onnx/operators/onnx__LeakyRelu.html) | ✅ | ✅ | ✅ | `flax/nnx/leaky_relu`<br>`jax/nn/leaky_relu` | Covered via existing plugin primitives. |
-| [Less](https://onnx.ai/onnx/operators/onnx__Less.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`jax/lax/atan2`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/betainc`<br>`jax/lax/digamma`<br>... +18 | Covered via existing plugin primitives. |
-| [LessOrEqual](https://onnx.ai/onnx/operators/onnx__LessOrEqual.html) | ✅ | ✅ | ✅ | `jax/lax/eigh`<br>`jax/lax/le`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/less_equal` | Covered via existing plugin primitives. |
-| [Log](https://onnx.ai/onnx/operators/onnx__Log.html) | ✅ | ✅ | ✅ | `jax/lax/cumlogsumexp`<br>`jax/lax/digamma`<br>`jax/lax/erf_inv`<br>`jax/lax/lgamma`<br>`jax/lax/log`<br>`jax/lax/log1p`<br>... +7 | Covered via existing plugin primitives. |
+| [Less](https://onnx.ai/onnx/operators/onnx__Less.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`jax/lax/atan2`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/betainc`<br>`jax/lax/digamma`<br>... +27 | Covered via existing plugin primitives. |
+| [LessOrEqual](https://onnx.ai/onnx/operators/onnx__LessOrEqual.html) | ✅ | ✅ | ✅ | `jax/lax/eigh`<br>`jax/lax/le`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/digitize`<br>`jax/numpy/histogram`<br>`jax/numpy/histogram2d`<br>... +4 | Covered via existing plugin primitives. |
+| [Log](https://onnx.ai/onnx/operators/onnx__Log.html) | ✅ | ✅ | ✅ | `jax/lax/cumlogsumexp`<br>`jax/lax/digamma`<br>`jax/lax/erf_inv`<br>`jax/lax/lgamma`<br>`jax/lax/log`<br>`jax/lax/log1p`<br>... +9 | Covered via existing plugin primitives. |
 | [LogSoftmax](https://onnx.ai/onnx/operators/onnx__LogSoftmax.html) | ✅ | ✅ | ✅ | `flax/nnx/log_softmax`<br>`jax/nn/log_softmax` | Covered via existing plugin primitives. |
 | [Loop](https://onnx.ai/onnx/operators/onnx__Loop.html) | ✅ | ✅ | ✅ | `flax/linen/recurrent`<br>`jax/lax/_control_flow_utils`<br>`jax/lax/fori_loop`<br>`jax/lax/scan`<br>`jax/lax/while_loop`<br>`jax/numpy/composite_metadata_batch6` | Covered via existing plugin primitives. |
 | [LpNormalization](https://onnx.ai/onnx/operators/onnx__LpNormalization.html) | ✅ | ✅ | ✅ | `jax/lax/div` | Covered via existing plugin primitives. |
 | [LpPool](https://onnx.ai/onnx/operators/onnx__LpPool.html) | ✅ | ✅ | ✅ | `jax/lax/reduce_window_sum` | Covered via existing plugin primitives. |
 | [MatMul](https://onnx.ai/onnx/operators/onnx__MatMul.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/multihead_attention`<br>`equinox/eqx/nn/spectral_norm`<br>`flax/linen/dot_product_attention`<br>`flax/linen/multi_head_attention`<br>`flax/linen/multi_head_dot_product_attention`<br>`flax/linen/self_attention`<br>... +20 | Covered via existing plugin primitives. |
 | [MatMulInteger](https://onnx.ai/onnx/operators/onnx__MatMulInteger.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Max](https://onnx.ai/onnx/operators/onnx__Max.html) | ✅ | ✅ | ✅ | `jax/lax/clamp`<br>`jax/lax/eig`<br>`jax/lax/igamma`<br>`jax/lax/max`<br>`jax/lax/shift_right_arithmetic`<br>`jax/lax/svd`<br>... +5 | Covered via existing plugin primitives. |
+| [Max](https://onnx.ai/onnx/operators/onnx__Max.html) | ✅ | ✅ | ✅ | `jax/lax/clamp`<br>`jax/lax/eig`<br>`jax/lax/gather`<br>`jax/lax/igamma`<br>`jax/lax/max`<br>`jax/lax/shift_right_arithmetic`<br>... +7 | Covered via existing plugin primitives. |
 | [MaxPool](https://onnx.ai/onnx/operators/onnx__MaxPool.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/adaptive_pool`<br>`equinox/eqx/nn/max_pool`<br>`equinox/eqx/nn/pool`<br>`flax/linen/max_pool`<br>`flax/linen/min_pool`<br>`flax/linen/pool`<br>... +6 | Covered via existing plugin primitives. |
 | [MaxRoiPool](https://onnx.ai/onnx/operators/onnx__MaxRoiPool.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [MaxUnpool](https://onnx.ai/onnx/operators/onnx__MaxUnpool.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Mean](https://onnx.ai/onnx/operators/onnx__Mean.html) | ✅ | ✅ | ✅ | `jax/lax/div` | Covered via existing plugin primitives. |
 | [MeanVarianceNormalization](https://onnx.ai/onnx/operators/onnx__MeanVarianceNormalization.html) | ✅ | ✅ | ✅ | `jax/nn/standardize` | Covered via existing plugin primitives. |
 | [MelWeightMatrix](https://onnx.ai/onnx/operators/onnx__MelWeightMatrix.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Min](https://onnx.ai/onnx/operators/onnx__Min.html) | ✅ | ✅ | ✅ | `jax/lax/clamp`<br>`jax/lax/igamma`<br>`jax/lax/min`<br>`jax/lax/shift_right_arithmetic`<br>`jax/nn/hard_tanh`<br>`jax/nn/relu6`<br>... +3 | Covered via existing plugin primitives. |
+| [Min](https://onnx.ai/onnx/operators/onnx__Min.html) | ✅ | ✅ | ✅ | `jax/lax/clamp`<br>`jax/lax/gather`<br>`jax/lax/igamma`<br>`jax/lax/min`<br>`jax/lax/shift_right_arithmetic`<br>`jax/nn/hard_tanh`<br>... +5 | Covered via existing plugin primitives. |
 | [Mish](https://onnx.ai/onnx/operators/onnx__Mish.html) | ✅ | ✅ | ✅ | `jax/nn/mish` | Covered via existing plugin primitives. |
 | [Mod](https://onnx.ai/onnx/operators/onnx__Mod.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/reduce_xor`<br>`jax/lax/rem`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/composite_metadata_batch3`<br>`jax/numpy/fmod` | Covered via existing plugin primitives. |
-| [Mul](https://onnx.ai/onnx/operators/onnx__Mul.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/multihead_attention`<br>`equinox/eqx/nn/recurrent`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`equinox/eqx/nn/weight_norm`<br>... +68 | Covered via existing plugin primitives. |
+| [Mul](https://onnx.ai/onnx/operators/onnx__Mul.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/multihead_attention`<br>`equinox/eqx/nn/recurrent`<br>`equinox/eqx/nn/rms_norm`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`equinox/eqx/nn/weight_norm`<br>... +78 | Covered via existing plugin primitives. |
 | [Multinomial](https://onnx.ai/onnx/operators/onnx__Multinomial.html) | ✅ | ✅ | ✅ | `jax/random/categorical` | Covered via existing plugin primitives. |
-| [Neg](https://onnx.ai/onnx/operators/onnx__Neg.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/linen/min_pool`<br>`flax/linen/pool`<br>`flax/nnx/log_sigmoid`<br>`jax/lax/_cum_extrema`<br>... +16 | Covered via existing plugin primitives. |
+| [Neg](https://onnx.ai/onnx/operators/onnx__Neg.html) | ✅ | ✅ | ✅ | `_complex_utils`<br>`equinox/eqx/nn/rotary_positional_embedding`<br>`flax/linen/min_pool`<br>`flax/linen/pool`<br>`flax/nnx/log_sigmoid`<br>`jax/lax/_cum_extrema`<br>... +18 | Covered via existing plugin primitives. |
 | [NegativeLogLikelihoodLoss](https://onnx.ai/onnx/operators/onnx__NegativeLogLikelihoodLoss.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [NonMaxSuppression](https://onnx.ai/onnx/operators/onnx__NonMaxSuppression.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [NonZero](https://onnx.ai/onnx/operators/onnx__NonZero.html) | ✅ | ✅ | ✅ | `jax/lax/scatter`<br>`jax/lax/scatter_utils` | Covered via existing plugin primitives. |
@@ -136,10 +136,10 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [Optional](https://onnx.ai/onnx/operators/onnx__Optional.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [OptionalGetElement](https://onnx.ai/onnx/operators/onnx__OptionalGetElement.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [OptionalHasElement](https://onnx.ai/onnx/operators/onnx__OptionalHasElement.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Or](https://onnx.ai/onnx/operators/onnx__Or.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/lax/or`<br>`jax/numpy/bitwise_or`<br>... +1 | Covered via existing plugin primitives. |
+| [Or](https://onnx.ai/onnx/operators/onnx__Or.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/gather`<br>`jax/lax/is_finite`<br>`jax/lax/nextafter`<br>`jax/lax/or`<br>... +7 | Covered via existing plugin primitives. |
 | [PRelu](https://onnx.ai/onnx/operators/onnx__PRelu.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/prelu`<br>`flax/linen/prelu`<br>`flax/nnx/prelu` | Covered via existing plugin primitives. |
 | [Pad](https://onnx.ai/onnx/operators/onnx__Pad.html) | ✅ | ✅ | ✅ | `_axis0_utils`<br>`jax/lax/pad`<br>`jax/lax/reduce_window_sum`<br>`jax/numpy/composite_metadata_batch4`<br>`jax/numpy/pad` | Covered via existing plugin primitives. |
-| [Pow](https://onnx.ai/onnx/operators/onnx__Pow.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/lax/betainc`<br>`jax/lax/cbrt`<br>`jax/lax/exp2`<br>`jax/lax/igamma`<br>... +9 | Covered via existing plugin primitives. |
+| [Pow](https://onnx.ai/onnx/operators/onnx__Pow.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/lax/betainc`<br>`jax/lax/cbrt`<br>`jax/lax/exp2`<br>`jax/lax/igamma`<br>... +12 | Covered via existing plugin primitives. |
 | [QLinearConv](https://onnx.ai/onnx/operators/onnx__QLinearConv.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [QLinearMatMul](https://onnx.ai/onnx/operators/onnx__QLinearMatMul.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [QuantizeLinear](https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
@@ -158,14 +158,14 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [ReduceMax](https://onnx.ai/onnx/operators/onnx__ReduceMax.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/reduce`<br>`jax/lax/reduce_max`<br>`jax/lax/reduce_or`<br>`jax/numpy/amax`<br>`jax/numpy/any`<br>... +3 | Covered via existing plugin primitives. |
 | [ReduceMean](https://onnx.ai/onnx/operators/onnx__ReduceMean.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/numpy/composite_metadata`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/composite_metadata_batch5`<br>`jax/numpy/mean` | Covered via existing plugin primitives. |
 | [ReduceMin](https://onnx.ai/onnx/operators/onnx__ReduceMin.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/reduce`<br>`jax/lax/reduce_and`<br>`jax/lax/reduce_min`<br>`jax/numpy/all`<br>`jax/numpy/amin`<br>... +3 | Covered via existing plugin primitives. |
-| [ReduceProd](https://onnx.ai/onnx/operators/onnx__ReduceProd.html) | ✅ | ✅ | ✅ | `flax/nnx/conv`<br>`jax/lax/_cum_extrema`<br>`jax/lax/_reduce_utils`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/reduce_prod`<br>`jax/numpy/composite_metadata_batch2`<br>... +2 | Covered via existing plugin primitives. |
-| [ReduceSum](https://onnx.ai/onnx/operators/onnx__ReduceSum.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`jax/lax/_reduce_utils`<br>`jax/lax/reduce_sum`<br>`jax/lax/reduce_xor`<br>`jax/lax/svd`<br>`jax/numpy/composite_metadata_batch2`<br>... +3 | Covered via existing plugin primitives. |
+| [ReduceProd](https://onnx.ai/onnx/operators/onnx__ReduceProd.html) | ✅ | ✅ | ✅ | `flax/nnx/conv`<br>`jax/lax/_cum_extrema`<br>`jax/lax/_reduce_utils`<br>`jax/lax/dynamic_update_slice`<br>`jax/lax/reduce_prod`<br>`jax/numpy/composite_metadata_batch2`<br>... +3 | Covered via existing plugin primitives. |
+| [ReduceSum](https://onnx.ai/onnx/operators/onnx__ReduceSum.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`jax/lax/_reduce_utils`<br>`jax/lax/reduce_sum`<br>`jax/lax/reduce_xor`<br>`jax/lax/svd`<br>`jax/numpy/composite_metadata_batch2`<br>... +10 | Covered via existing plugin primitives. |
 | [ReduceSumSquare](https://onnx.ai/onnx/operators/onnx__ReduceSumSquare.html) | ✅ | ✅ | ✅ | `jax/lax/_reduce_utils`<br>`jax/lax/reduce_sum`<br>`jax/numpy/sum` | `jax.numpy.sum(jax.numpy.square(x), axis=...)` |
 | [RegexFullMatch](https://onnx.ai/onnx/operators/onnx__RegexFullMatch.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Relu](https://onnx.ai/onnx/operators/onnx__Relu.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/lambda`<br>`equinox/eqx/nn/sequential`<br>`flax/nnx/relu`<br>`jax/nn/relu` | Covered via existing plugin primitives. |
-| [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>`flax/linen/dense`<br>... +33 | Covered via existing plugin primitives. |
+| [Reshape](https://onnx.ai/onnx/operators/onnx__Reshape.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>`flax/linen/dense`<br>... +38 | Covered via existing plugin primitives. |
 | [Resize](https://onnx.ai/onnx/operators/onnx__Resize.html) | ✅ | ✅ | ✅ | `jax/image/resize` | Covered via existing plugin primitives. |
-| [ReverseSequence](https://onnx.ai/onnx/operators/onnx__ReverseSequence.html) | ✅ | ✅ | ➖ | `jax/numpy/composite_metadata_batch2` | Covered via existing plugin primitives. |
+| [ReverseSequence](https://onnx.ai/onnx/operators/onnx__ReverseSequence.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [RoiAlign](https://onnx.ai/onnx/operators/onnx__RoiAlign.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [RotaryEmbedding](https://onnx.ai/onnx/operators/onnx__RotaryEmbedding.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rotary_positional_embedding` | Covered via existing plugin primitives. |
 | [Round](https://onnx.ai/onnx/operators/onnx__Round.html) | ✅ | ✅ | ✅ | `jax/lax/polygamma`<br>`jax/lax/reduce_precision`<br>`jax/lax/round` | `jax.lax.round`<br>`jax.numpy.round` |
@@ -185,7 +185,7 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [Shape](https://onnx.ai/onnx/operators/onnx__Shape.html) | ✅ | ✅ | ✅ | `_axis0_utils`<br>`equinox/eqx/nn/linear`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/dense`<br>`flax/linen/dense_general`<br>`flax/nnx/conv`<br>... +13 | Covered via existing plugin primitives. |
 | [Shrink](https://onnx.ai/onnx/operators/onnx__Shrink.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [Sigmoid](https://onnx.ai/onnx/operators/onnx__Sigmoid.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/lambda`<br>`equinox/eqx/nn/recurrent`<br>`equinox/eqx/nn/sequential`<br>`flax/linen/recurrent`<br>`flax/nnx/glu`<br>`flax/nnx/sigmoid`<br>... +5 | Covered via existing plugin primitives. |
-| [Sign](https://onnx.ai/onnx/operators/onnx__Sign.html) | ✅ | ✅ | ✅ | `jax/lax/bessel_i1e`<br>`jax/lax/cbrt`<br>`jax/lax/eig`<br>`jax/lax/erf_inv`<br>`jax/lax/nextafter`<br>`jax/lax/reduce_precision`<br>... +3 | Covered via existing plugin primitives. |
+| [Sign](https://onnx.ai/onnx/operators/onnx__Sign.html) | ✅ | ✅ | ✅ | `jax/lax/bessel_i1e`<br>`jax/lax/cbrt`<br>`jax/lax/eig`<br>`jax/lax/erf_inv`<br>`jax/lax/nextafter`<br>`jax/lax/reduce_precision`<br>... +4 | Covered via existing plugin primitives. |
 | [Sin](https://onnx.ai/onnx/operators/onnx__Sin.html) | ✅ | ✅ | ✅ | `jax/lax/cos`<br>`jax/lax/digamma`<br>`jax/lax/lgamma`<br>`jax/lax/sin`<br>`jax/numpy/composite_metadata_batch2`<br>`jax/numpy/cos`<br>... +2 | Covered via existing plugin primitives. |
 | [Sinh](https://onnx.ai/onnx/operators/onnx__Sinh.html) | ✅ | ✅ | ✅ | `jax/lax/sinh`<br>`jax/numpy/sinh` | Covered via existing plugin primitives. |
 | [Size](https://onnx.ai/onnx/operators/onnx__Size.html) | ✅ | ✅ | ✅ | `jax/numpy/size` | Covered via existing plugin primitives. |
@@ -197,12 +197,12 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [SpaceToDepth](https://onnx.ai/onnx/operators/onnx__SpaceToDepth.html) | ✅ | ✅ | ✅ | `dm_pix/space_to_depth` | Covered via existing plugin primitives. |
 | [Split](https://onnx.ai/onnx/operators/onnx__Split.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rotary_positional_embedding`<br>`flax/nnx/glu`<br>`jax/lax/split`<br>`jax/nn/glu`<br>`jax/numpy/split`<br>`jax/numpy/unstack` | Covered via existing plugin primitives. |
 | [SplitToSequence](https://onnx.ai/onnx/operators/onnx__SplitToSequence.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Sqrt](https://onnx.ai/onnx/operators/onnx__Sqrt.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/cholesky`<br>`jax/lax/cholesky_update`<br>... +12 | Covered via existing plugin primitives. |
+| [Sqrt](https://onnx.ai/onnx/operators/onnx__Sqrt.html) | ✅ | ✅ | ✅ | `equinox/eqx/nn/rms_norm`<br>`flax/nnx/rms_norm`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/cholesky`<br>`jax/lax/cholesky_update`<br>... +13 | Covered via existing plugin primitives. |
 | [Squeeze](https://onnx.ai/onnx/operators/onnx__Squeeze.html) | ✅ | ✅ | ✅ | `dm_pix/depth_to_space`<br>`dm_pix/space_to_depth`<br>`equinox/eqx/nn/adaptive_pool`<br>`equinox/eqx/nn/avg_pool`<br>`equinox/eqx/nn/conv`<br>`equinox/eqx/nn/max_pool`<br>... +15 | Covered via existing plugin primitives. |
 | [StringConcat](https://onnx.ai/onnx/operators/onnx__StringConcat.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [StringNormalizer](https://onnx.ai/onnx/operators/onnx__StringNormalizer.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
 | [StringSplit](https://onnx.ai/onnx/operators/onnx__StringSplit.html) | ➖ | ➖ | ➖ | ➖ | No clear direct primitive; likely composite JAX expression. |
-| [Sub](https://onnx.ai/onnx/operators/onnx__Sub.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/cholesky`<br>`jax/lax/cholesky_update`<br>`jax/lax/conv`<br>`jax/lax/digamma`<br>... +37 | Covered via existing plugin primitives. |
+| [Sub](https://onnx.ai/onnx/operators/onnx__Sub.html) | ✅ | ✅ | ✅ | `jax/lax/atan2`<br>`jax/lax/betainc`<br>`jax/lax/cholesky`<br>`jax/lax/cholesky_update`<br>`jax/lax/conv`<br>`jax/lax/digamma`<br>... +46 | Covered via existing plugin primitives. |
 | [Sum](https://onnx.ai/onnx/operators/onnx__Sum.html) | ✅ | ✅ | ✅ | `jax/lax/add_any` | Covered via existing plugin primitives. |
 | [Swish](https://onnx.ai/onnx/operators/onnx__Swish.html) | ✅ | ✅ | ✅ | `jax/nn/silu` | Covered via existing plugin primitives. |
 | [Tan](https://onnx.ai/onnx/operators/onnx__Tan.html) | ✅ | ✅ | ✅ | `jax/lax/tan`<br>`jax/numpy/tan` | `jax.lax.tan`<br>`jax.numpy.tan` |
@@ -215,9 +215,9 @@ This matrix starts from the official ONNX operator index and shows which operato
 | [Transpose](https://onnx.ai/onnx/operators/onnx__Transpose.html) | ✅ | ✅ | ✅ | `dm_pix/depth_to_space`<br>`dm_pix/space_to_depth`<br>`equinox/eqx/nn/multihead_attention`<br>`flax/linen/avg_pool`<br>`flax/linen/conv`<br>`flax/linen/conv_local`<br>... +35 | Covered via existing plugin primitives. |
 | [Trilu](https://onnx.ai/onnx/operators/onnx__Trilu.html) | ✅ | ✅ | ✅ | `jax/numpy/trilu` | Covered via existing plugin primitives. |
 | [Unique](https://onnx.ai/onnx/operators/onnx__Unique.html) | ✅ | ✅ | ✅ | `jax/numpy/unique` | Covered via existing plugin primitives. |
-| [Unsqueeze](https://onnx.ai/onnx/operators/onnx__Unsqueeze.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`_complex_utils`<br>`dm_pix/depth_to_space`<br>`dm_pix/space_to_depth`<br>`equinox/eqx/nn/adaptive_pool`<br>`equinox/eqx/nn/avg_pool`<br>... +28 | Covered via existing plugin primitives. |
+| [Unsqueeze](https://onnx.ai/onnx/operators/onnx__Unsqueeze.html) | ✅ | ✅ | ✅ | `_attention_utils`<br>`_complex_utils`<br>`dm_pix/depth_to_space`<br>`dm_pix/space_to_depth`<br>`equinox/eqx/nn/adaptive_pool`<br>`equinox/eqx/nn/avg_pool`<br>... +38 | Covered via existing plugin primitives. |
 | [Upsample](https://onnx.ai/onnx/operators/onnx__Upsample.html) | ✅ | ✅ | ✅ | `jax/image/resize` | Covered via existing plugin primitives. |
-| [Where](https://onnx.ai/onnx/operators/onnx__Where.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`flax/nnx/dot_product_attention`<br>`jax/lax/atan2`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/betainc`<br>... +27 | Covered via existing plugin primitives. |
+| [Where](https://onnx.ai/onnx/operators/onnx__Where.html) | ✅ | ✅ | ✅ | `flax/linen/dot_product_attention`<br>`flax/nnx/dot_product_attention`<br>`jax/lax/atan2`<br>`jax/lax/bessel_i0e`<br>`jax/lax/bessel_i1e`<br>`jax/lax/betainc`<br>... +34 | Covered via existing plugin primitives. |
 | [Xor](https://onnx.ai/onnx/operators/onnx__Xor.html) | ✅ | ✅ | ✅ | `jax/lax/xor`<br>`jax/numpy/bitwise_xor`<br>`jax/numpy/floor_divide` | Covered via existing plugin primitives. |
 
 </div>
