@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `190`
+- Covered (direct plugin): `191`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `11`
+- Missing dedicated plugin coverage: `10`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -198,7 +198,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `hamming` | `covered` | `jax/numpy/windows` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `hanning` | `covered` | `jax/numpy/windows` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `heaviside` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `histogram` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `histogram` | `covered` | `jax/numpy/histogram` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `histogram2d` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `histogram_bin_edges` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `histogramdd` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
