@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -34,19 +34,14 @@ _SIGNED_TO_UNSIGNED: dict[ir.DataType, tuple[ir.DataType, np.dtype[Any], int]] =
     ir.DataType.INT64: (ir.DataType.UINT64, np.dtype(np.uint64), 64),
 }
 
-_NP_SIGNED_TO_IR: dict[np.dtype[Any], ir.DataType] = {
-    np.dtype(np.int8): ir.DataType.INT8,
-    np.dtype(np.int16): ir.DataType.INT16,
-    np.dtype(np.int32): ir.DataType.INT32,
-    np.dtype(np.int64): ir.DataType.INT64,
-}
-
-_NP_UNSIGNED_TO_IR: dict[np.dtype[Any], ir.DataType] = {
-    np.dtype(np.uint8): ir.DataType.UINT8,
-    np.dtype(np.uint16): ir.DataType.UINT16,
-    np.dtype(np.uint32): ir.DataType.UINT32,
-    np.dtype(np.uint64): ir.DataType.UINT64,
-}
+_SIGNED_INTEGER_DTYPES: frozenset[np.dtype[Any]] = frozenset(
+    {
+        np.dtype(np.int8),
+        np.dtype(np.int16),
+        np.dtype(np.int32),
+        np.dtype(np.int64),
+    }
+)
 
 
 def abstract_eval_via_orig_binary(
@@ -75,7 +70,7 @@ def cast_to_dtype(
     np_dtype: np.dtype[Any],
     name_hint: str,
 ) -> ir.Value:
-    dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
+    dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
     cast_val = ctx.builder.Cast(
@@ -304,9 +299,9 @@ def lower_right_shift_core(
         ctx.bind_value_for_var(out_var, result)
         return
 
-    signed_enum = _NP_SIGNED_TO_IR.get(out_dtype)
-    if signed_enum is None:
+    if out_dtype not in _SIGNED_INTEGER_DTYPES:
         raise NotImplementedError(f"right_shift unsupported dtype '{out_dtype}'")
+    signed_enum = numpy_dtype_to_ir(out_dtype)
 
     result = _lower_signed_arithmetic_right_shift(
         ctx,

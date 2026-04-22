@@ -10,8 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -31,25 +31,6 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
     return n_i, m_i
 
 
-def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
-    mapping: dict[ir.DataType, np.dtype[Any]] = {
-        ir.DataType.BOOL: np.dtype(np.bool_),
-        ir.DataType.INT8: np.dtype(np.int8),
-        ir.DataType.INT16: np.dtype(np.int16),
-        ir.DataType.INT32: np.dtype(np.int32),
-        ir.DataType.INT64: np.dtype(np.int64),
-        ir.DataType.UINT8: np.dtype(np.uint8),
-        ir.DataType.UINT16: np.dtype(np.uint16),
-        ir.DataType.UINT32: np.dtype(np.uint32),
-        ir.DataType.UINT64: np.dtype(np.uint64),
-        ir.DataType.FLOAT16: np.dtype(np.float16),
-        ir.DataType.FLOAT: np.dtype(np.float32),
-        ir.DataType.DOUBLE: np.dtype(np.float64),
-        ir.DataType.BFLOAT16: np.dtype(np.float32),
-    }
-    return mapping.get(dtype, np.dtype(np.float32))
-
-
 @register_primitive(
     jaxpr_primitive=_EYE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.eye.html",
@@ -67,7 +48,6 @@ def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
             "testcase": "jnp_eye_square",
             "callable": lambda: jnp.eye(4, dtype=jnp.float32),
             "input_values": [],
-            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:4x4 -> EyeLike:4x4"],
                 no_unused_inputs=True,
@@ -77,7 +57,6 @@ def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
             "testcase": "jnp_eye_rect_k1",
             "callable": lambda: jnp.eye(3, 5, k=1, dtype=jnp.float32),
             "input_values": [],
-            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["ConstantOfShape:3x5 -> EyeLike:3x5"],
                 no_unused_inputs=True,
@@ -114,10 +93,7 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("eye_out"))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", (n_i, m_i)))
-        out_spec_type = getattr(out_spec, "type", None)
-        target_enum = _dtype_to_ir(req_dtype, ctx.builder.enable_double_precision)
-        if out_spec_type is not None:
-            target_enum = out_spec_type.dtype
+        target_enum = numpy_dtype_to_ir(req_dtype)
 
         shape_tensor = _const_i64(
             ctx,
@@ -127,7 +103,9 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(shape_tensor, (2,))
         _ensure_value_metadata(ctx, shape_tensor)
 
-        dummy_dtype = _np_dtype_from_ir(target_enum)
+        dummy_dtype = ir_dtype_to_numpy(target_enum)
+        if dummy_dtype is None:
+            dummy_dtype = np.dtype(np.float32)
         dummy = ctx.builder.ConstantOfShape(
             shape_tensor,
             value=ir.tensor(np.asarray([0], dtype=dummy_dtype)),
@@ -148,10 +126,7 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
             dtype=int(target_enum.value),
             _outputs=[desired_name],
         )
-        if out_spec_type is not None:
-            result.type = out_spec_type
-        else:
-            result.type = ir.TensorType(target_enum)
+        result.type = ir.TensorType(target_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

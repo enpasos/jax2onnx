@@ -11,8 +11,8 @@ import onnx_ir as ir
 from jax import core
 from jax.extend.core import Literal as JaxLiteral
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -210,10 +210,7 @@ def _resolve_result_dtype(
     enable_x64: bool,
 ) -> np.dtype[Any]:
     if dtype_param is not None:
-        requested = np.dtype(dtype_param)
-        if np.issubdtype(requested, np.floating):
-            return np.dtype(np.float64 if enable_x64 else np.float32)
-        return requested
+        return np.dtype(dtype_param)
 
     float_detected = False
     for aval in avals:
@@ -657,9 +654,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
         result_dtype: np.dtype[Any] = _resolve_result_dtype(
             avals, dtype_param, enable_x64
         )
-        target_enum: ir.DataType = _dtype_to_ir(
-            result_dtype, ctx.builder.enable_double_precision
-        )
+        target_enum: ir.DataType = numpy_dtype_to_ir(result_dtype)
 
         literal_args: list[float | int] | None = []
         input_vals: list[ir.Value] = []

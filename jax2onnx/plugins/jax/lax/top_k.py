@@ -9,6 +9,7 @@ import numpy as np
 
 import onnx_ir as ir
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -34,11 +35,13 @@ if TYPE_CHECKING:  # pragma: no cover
             "testcase": "top_k_last_axis",
             "callable": lambda x: jax.lax.top_k(x, 3),
             "input_shapes": [(5,)],
+            "expected_output_dtypes": [np.float32, np.int32],
         },
         {
             "testcase": "top_k_matrix",
             "callable": lambda x: jax.lax.top_k(x, 2),
             "input_shapes": [(4, 6)],
+            "expected_output_dtypes": [np.float32, np.int32],
         },
     ],
 )
@@ -48,18 +51,16 @@ class TopKPlugin(PrimitiveLeafPlugin):
         values_var, indices_var = eqn.outvars
 
         arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("topk_in"))
-        [
-            ctx.get_value_for_var(values_var, name_hint=ctx.fresh_name("topk_values")),
-            ctx.get_value_for_var(
-                indices_var, name_hint=ctx.fresh_name("topk_indices")
-            ),
-        ]
+        ctx.get_value_for_var(values_var, name_hint=ctx.fresh_name("topk_values"))
+        indices_spec = ctx.get_value_for_var(
+            indices_var, name_hint=ctx.fresh_name("topk_indices")
+        )
 
         arr_shape = tuple(getattr(getattr(arr_var, "aval", None), "shape", ()))
         arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
 
         k = int(eqn.params.get("k", 1))
-        axis = int(eqn.params.get("dimension", -1))
+        axis = int(eqn.params.get("axis", eqn.params.get("dimension", -1)))
         if axis < 0 and arr_shape:
             axis += len(arr_shape)
 
@@ -90,5 +91,23 @@ class TopKPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, values)
         _ensure_value_metadata(ctx, indices)
 
+        target_idx_dtype: np.dtype[Any] = np.dtype(
+            getattr(getattr(indices_var, "aval", None), "dtype", np.int32)
+        )
+        idx_dtype_enum = numpy_dtype_to_ir(target_idx_dtype)
+        result_indices = indices
+        if idx_dtype_enum != ir.DataType.INT64:
+            result_indices = ctx.builder.Cast(
+                indices,
+                to=int(idx_dtype_enum.value),
+                _outputs=[
+                    getattr(indices_spec, "name", None)
+                    or ctx.fresh_name("topk_indices")
+                ],
+            )
+            result_indices.type = ir.TensorType(idx_dtype_enum)
+            _stamp_type_and_shape(result_indices, result_shape)
+            _ensure_value_metadata(ctx, result_indices)
+
         ctx.bind_value_for_var(values_var, values)
-        ctx.bind_value_for_var(indices_var, indices)
+        ctx.bind_value_for_var(indices_var, result_indices)

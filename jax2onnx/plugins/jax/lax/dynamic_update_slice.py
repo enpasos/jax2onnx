@@ -10,6 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -32,16 +33,9 @@ def _binary_scalar(
 
 
 def _const_scalar_i64(value: ir.Value) -> int | None:
-    const_val = getattr(value, "const_value", None)
-    if const_val is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const_val.numpy())
-    except Exception:
-        try:
-            arr = np.asarray(const_val)
-        except Exception:
-            return None
     if arr.size != 1:
         return None
     try:

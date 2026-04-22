@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import (
@@ -21,13 +22,21 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax2onnx.converter.ir_context import IRContext
 
 
-_DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
-    np.dtype(np.int32): ir.DataType.INT32,
-    np.dtype(np.int64): ir.DataType.INT64,
-    np.dtype(np.float32): ir.DataType.FLOAT,
-    np.dtype(np.float64): ir.DataType.DOUBLE,
-    np.dtype(np.bool_): ir.DataType.BOOL,
-}
+_SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
+    {
+        np.dtype(np.int8),
+        np.dtype(np.int16),
+        np.dtype(np.int32),
+        np.dtype(np.int64),
+        np.dtype(np.uint8),
+        np.dtype(np.uint16),
+        np.dtype(np.uint32),
+        np.dtype(np.uint64),
+        np.dtype(np.float32),
+        np.dtype(np.float64),
+        np.dtype(np.bool_),
+    }
+)
 
 
 @register_primitive(
@@ -58,6 +67,16 @@ _DTYPE_TO_IR: Final[dict[np.dtype[Any], ir.DataType]] = {
             "input_shapes": [],
             "post_check_onnx_graph": EG(
                 ["Range:10 -> Cast:10"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "iota_uint8",
+            "callable": lambda: jax.lax.iota(np.uint8, 8),
+            "input_shapes": [],
+            "expected_output_dtypes": [np.uint8],
+            "post_check_onnx_graph": EG(
+                ["Range:8 -> Cast:8"],
                 no_unused_inputs=True,
             ),
         },
@@ -161,9 +180,9 @@ class IotaPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, expanded)
             current = expanded
 
-        target_dtype = _DTYPE_TO_IR.get(dtype)
-        if target_dtype is None:
+        if dtype not in _SUPPORTED_IOTA_DTYPES:
             raise TypeError(f"Unsupported dtype for lax.iota: {dtype}")
+        target_dtype = numpy_dtype_to_ir(dtype)
 
         if target_dtype != ir.DataType.INT64:
             cast_out = builder.Cast(

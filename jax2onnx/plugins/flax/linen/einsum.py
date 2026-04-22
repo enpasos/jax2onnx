@@ -248,7 +248,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, result)
         else:
             if getattr(einsum_out, "name", None) != out_name:
-                einsum_out.name = out_name
+                ir.convenience.rename_values(einsum_out, out_name)
             if spec_type is not None:
                 einsum_out.type = spec_type
             ctx.bind_value_for_var(out_var, einsum_out)

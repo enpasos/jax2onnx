@@ -11,9 +11,8 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._axis0_utils import _np_dtype_for_enum
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -108,7 +107,7 @@ class OneHotPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("one_hot_out")
 
         out_dtype_enum = getattr(getattr(out_spec, "type", None), "dtype", None)
-        out_dtype = _np_dtype_for_enum(out_dtype_enum)
+        out_dtype = ir_dtype_to_numpy(out_dtype_enum, default=None)
         if out_dtype is None:
             out_dtype = np.dtype(
                 getattr(getattr(out_var, "aval", None), "dtype", np.float32)
@@ -122,11 +121,7 @@ class OneHotPlugin(PrimitiveLeafPlugin):
             indices_input = ctx.builder.Cast(
                 x_val,
                 _outputs=[ctx.fresh_name("one_hot_indices_i64")],
-                to=int(
-                    _dtype_to_ir(
-                        np.dtype(np.int64), ctx.builder.enable_double_precision
-                    ).value
-                ),
+                to=int(numpy_dtype_to_ir(np.dtype(np.int64)).value),
             )
             if getattr(x_val, "shape", None) is not None:
                 indices_input.shape = x_val.shape

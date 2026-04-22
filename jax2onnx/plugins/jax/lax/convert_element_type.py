@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -51,9 +51,7 @@ class ConvertElementTypePlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("convert_out")
         )
 
-        target_dtype = _dtype_to_ir(
-            np.dtype(out_var.aval.dtype), ctx.builder.enable_double_precision
-        )
+        target_dtype = numpy_dtype_to_ir(np.dtype(out_var.aval.dtype))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("convert_out")
         producer = getattr(out_spec, "producer", lambda: None)

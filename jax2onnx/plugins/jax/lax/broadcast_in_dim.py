@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Final, Optional, Set, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, Set, cast
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -23,27 +23,12 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._loop_extent_meta import get_axis0_override, set_axis0_override
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _static_dim_as_int
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, tensor_to_numpy
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
 
 if TYPE_CHECKING:
     pass  # for hints
-
-_IR_TO_NP_DTYPE: Final[dict[ir.DataType, np.dtype[Any]]] = {
-    ir.DataType.FLOAT16: np.dtype(np.float16),
-    ir.DataType.BFLOAT16: np.dtype(getattr(np, "bfloat16", np.float16)),
-    ir.DataType.FLOAT: np.dtype(np.float32),
-    ir.DataType.DOUBLE: np.dtype(np.float64),
-    ir.DataType.INT8: np.dtype(np.int8),
-    ir.DataType.INT16: np.dtype(np.int16),
-    ir.DataType.INT32: np.dtype(np.int32),
-    ir.DataType.INT64: np.dtype(np.int64),
-    ir.DataType.UINT8: np.dtype(np.uint8),
-    ir.DataType.UINT16: np.dtype(np.uint16),
-    ir.DataType.UINT32: np.dtype(np.uint32),
-    ir.DataType.UINT64: np.dtype(np.uint64),
-    ir.DataType.BOOL: np.dtype(np.bool_),
-}
 
 
 def _dynamic_or_constant(
@@ -58,31 +43,19 @@ def _dynamic_or_constant(
     return _check
 
 
-def _np_dtype_from_ir(enum: Any) -> Optional[np.dtype[Any]]:
-    if isinstance(enum, ir.DataType):
-        return _IR_TO_NP_DTYPE.get(enum)
-    if isinstance(enum, (int, np.integer)):
-        try:
-            return _IR_TO_NP_DTYPE.get(ir.DataType(enum))
-        except Exception:
-            return None
-    return None
-
-
-def _value_to_numpy(val: ir.Value | None) -> np.ndarray[Any, Any] | None:
+def _value_to_numpy(val: object | None) -> np.ndarray[Any, Any] | None:
     if val is None:
         return None
-    for attr in ("const_value", "_const_value", "value", "data", "numpy"):
-        payload = getattr(val, attr, None)
-        if payload is None:
-            continue
+    arr = const_value_to_numpy(val)
+    if arr is not None:
+        return cast(np.ndarray[Any, Any], arr)
+    if isinstance(val, ir.Attr) and val.type == ir.AttributeType.TENSOR:
         try:
-            return cast(np.ndarray[Any, Any], np.asarray(payload))
+            tensor_arr = tensor_to_numpy(val.as_tensor())
         except Exception:
-            try:
-                return cast(np.ndarray[Any, Any], np.asarray(payload()))
-            except Exception:
-                continue
+            return None
+        if tensor_arr is not None:
+            return cast(np.ndarray[Any, Any], tensor_arr)
     return None
 
 
@@ -109,7 +82,7 @@ def _node_constant_array(
         if arr is None:
             return None
         target_enum = getattr(getattr(target_value, "type", None), "dtype", None)
-        dtype = _np_dtype_from_ir(target_enum)
+        dtype = ir_dtype_to_numpy(target_enum, default=None)
         if dtype is not None:
             return cast(np.ndarray[Any, Any], np.asarray(arr, dtype=dtype))
         return arr

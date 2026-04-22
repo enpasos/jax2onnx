@@ -27,6 +27,7 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -104,16 +105,9 @@ def _lower_complex_div(
 
 
 def _const_scalar_as_float(value: ir.Value) -> Optional[float]:
-    const_val = getattr(value, "const_value", None)
-    if const_val is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const_val.numpy())
-    except Exception:
-        try:
-            arr = np.asarray(const_val)
-        except Exception:
-            return None
     if arr.size != 1:
         return None
     try:
@@ -123,16 +117,9 @@ def _const_scalar_as_float(value: ir.Value) -> Optional[float]:
 
 
 def _const_axes(value: ir.Value) -> Optional[list[int]]:
-    const_val = getattr(value, "const_value", None)
-    if const_val is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const_val.numpy())
-    except Exception:
-        try:
-            arr = np.asarray(const_val)
-        except Exception:
-            return None
     if arr.size == 0:
         return []
     try:
@@ -422,7 +409,7 @@ class DivPlugin(PrimitiveLeafPlugin):
             ctx, lhs_val, rhs_val, out_spec, out_var
         )
         output_name = out_spec.name or ctx.fresh_name("div_out")
-        out_spec.name = output_name
+        ir.convenience.rename_values(out_spec, output_name)
 
         def _is_complex_var(var: object) -> bool:
             aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)

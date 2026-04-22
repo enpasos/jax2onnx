@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence as _Seq
-from typing import Any, Callable, ClassVar, Final, cast
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax import core
@@ -13,8 +13,8 @@ import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -34,32 +34,6 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
     if any(d < 0 for d in dims):
         raise ValueError(f"negative dimensions are not allowed: {dims}")
     return dims
-
-
-def _const_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
-    const = getattr(value, "const_value", None)
-    if const is None:
-        return None
-    try:
-        arr = np.asarray(const)
-    except Exception:
-        return None
-    return cast(np.ndarray[Any, np.dtype[Any]], arr)
-
-
-def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
-    mapping: dict[ir.DataType, np.dtype[Any]] = {
-        ir.DataType.BOOL: np.dtype(np.bool_),
-        ir.DataType.INT8: np.dtype(np.int8),
-        ir.DataType.INT16: np.dtype(np.int16),
-        ir.DataType.INT32: np.dtype(np.int32),
-        ir.DataType.INT64: np.dtype(np.int64),
-        ir.DataType.UINT8: np.dtype(np.uint8),
-        ir.DataType.FLOAT16: np.dtype(np.float16),
-        ir.DataType.FLOAT: np.dtype(np.float32),
-        ir.DataType.DOUBLE: np.dtype(np.float64),
-    }
-    return mapping.get(dtype, np.dtype(np.float32))
 
 
 @register_primitive(
@@ -134,14 +108,15 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
-        enable_double = bool(ctx.builder.enable_double_precision)
-        out_enum = _dtype_to_ir(out_dtype, enable_double)
-        out_np_dtype = _np_dtype_from_ir(out_enum)
+        out_enum = numpy_dtype_to_ir(out_dtype)
+        out_np_dtype = ir_dtype_to_numpy(out_enum)
+        if out_np_dtype is None:
+            out_np_dtype = np.dtype(np.float32)
 
         fill_dtype = np.dtype(
             getattr(getattr(fill_var, "aval", None), "dtype", out_dtype)
         )
-        fill_enum = _dtype_to_ir(fill_dtype, enable_double)
+        fill_enum = numpy_dtype_to_ir(fill_dtype)
         fill_cast = fill_val
         if fill_enum != out_enum:
             fill_cast = ctx.builder.Cast(
@@ -164,7 +139,7 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("full_out")
 
-        fill_const = _const_numpy(fill_cast)
+        fill_const = const_value_to_numpy(fill_cast)
         if fill_const is not None and fill_const.size == 1:
             scalar = np.asarray([fill_const.reshape(())], dtype=out_np_dtype)
             result = ctx.builder.ConstantOfShape(

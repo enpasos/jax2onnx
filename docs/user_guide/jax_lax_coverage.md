@@ -5,10 +5,10 @@
 - Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`.
 
 ## Snapshot
-- Total docs operators: `201`
-- Covered (direct plugin): `137`
+- Total docs operators: `204`
+- Covered (direct plugin): `138`
 - Covered (via alias primitive): `14`
-- Composite/helper (no standalone plugin expected): `33`
+- Composite/helper (no standalone plugin expected): `35`
 - Out of scope (distributed/token/host): `17`
 - Missing primitive plugins: `0`
 - Missing `lax.linalg` plugins: `0`
@@ -48,6 +48,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `
 | [x] | `bitwise_xor` | `covered_indirect` | `jax/lax/xor` | Covered via `xor` primitive. |
 | [x] | `broadcast` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `broadcast_in_dim` | `covered` | `jax/lax/broadcast_in_dim` | Direct plugin coverage. |
+| [x] | `broadcast_like` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `broadcast_shapes` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `broadcast_to_rank` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `broadcasted_iota` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
@@ -125,6 +126,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `
 | [x] | `linalg.householder_product` | `covered` | `jax/lax/householder_product` | Direct plugin coverage. |
 | [x] | `linalg.lu` | `covered` | `jax/lax/lu` | Direct plugin coverage. |
 | [x] | `linalg.lu_pivots_to_permutation` | `covered` | `jax/lax/lu_pivots_to_permutation` | Direct plugin coverage. |
+| [x] | `linalg.ormqr` | `covered` | `jax/lax/ormqr` | Direct plugin coverage. |
 | [x] | `linalg.qdwh` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `linalg.qr` | `covered` | `jax/lax/qr` | Direct plugin coverage. |
 | [x] | `linalg.schur` | `covered` | `jax/lax/schur` | Direct plugin coverage. |
@@ -208,6 +210,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `
 | [x] | `sqrt` | `covered` | `jax/lax/sqrt` | Direct plugin coverage. |
 | [x] | `square` | `covered` | `jax/lax/square` | Direct plugin coverage. |
 | [x] | `squeeze` | `covered` | `jax/lax/squeeze` | Direct plugin coverage. |
+| [x] | `stage` | `composite` | `-` | Trace helper API; no standalone primitive plugin. |
 | [x] | `stop_gradient` | `covered` | `jax/lax/stop_gradient` | Direct plugin coverage. |
 | [x] | `sub` | `covered` | `jax/lax/sub` | Direct plugin coverage. |
 | [x] | `switch` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |

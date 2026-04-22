@@ -28,20 +28,32 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 _LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2): "NCW",
+    (0, 2, 1): "NWC",
     (0, 1, 2, 3): "NCHW",
     (0, 3, 1, 2): "NHWC",
+    "NCW": "NCW",
+    "NWC": "NWC",
     "NCHW": "NCHW",
     "NHWC": "NHWC",
 }
 _FILTER_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2): "OIW",
+    (2, 1, 0): "WIO",
     (0, 1, 2, 3): "OIHW",
     (3, 2, 0, 1): "HWIO",
+    "OIW": "OIW",
+    "WIO": "WIO",
     "OIHW": "OIHW",
     "HWIO": "HWIO",
 }
 _OUTPUT_LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
+    (0, 1, 2): "NCW",
+    (0, 2, 1): "NWC",
     (0, 1, 2, 3): "NCHW",
     (0, 3, 1, 2): "NHWC",
+    "NCW": "NCW",
+    "NWC": "NWC",
     "NCHW": "NCHW",
     "NHWC": "NHWC",
 }
@@ -71,6 +83,16 @@ def _flatten_padding(pads: Sequence[Sequence[int]]) -> list[int]:
     befores = [int(before) for before, _ in pads]
     afters = [int(after) for _, after in pads]
     return befores + afters
+
+
+def _canonical_input_layout(layout: str) -> str:
+    return "NCW" if len(layout) == 3 else "NCHW"
+
+
+def _canonical_kernel_layout(layout: str, *, is_transpose: bool) -> str:
+    if len(layout) == 3:
+        return "IOW" if is_transpose else "OIW"
+    return "IOHW" if is_transpose else "OIHW"
 
 
 def _flip_spatial_dims(
@@ -170,6 +192,28 @@ def _flip_spatial_dims(
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
                 ["Conv:1x3x3x3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_general_dilated_1d",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1,),
+                padding="VALID",
+                dimension_numbers=("NCW", "OIW", "NCW"),
+            ),
+            "input_values": [
+                np.array([[[1.0, 2.0, 3.0, 4.0]]], dtype=np.float32),
+                np.array([[[0.5, -1.0]]], dtype=np.float32),
+            ],
+            "expected_output_shapes": [(1, 1, 3)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    {"path": "Conv", "counts": {"Conv": 1}},
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -332,7 +376,7 @@ def _flip_spatial_dims(
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.conv_general_dilated`` to ONNX ``Conv`` (2D, NHWC/NCHW)."""
+    """Lower ``lax.conv_general_dilated`` to ONNX ``Conv``."""
 
     def lower(self, ctx: "IRContext", eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars[:2]
@@ -367,7 +411,10 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         lhs_dilation = params.get("lhs_dilation")
         is_transpose = lhs_dilation and any(d > 1 for d in lhs_dilation)
         op_type = "ConvTranspose" if is_transpose else "Conv"
-        target_kernel_layout = "IOHW" if is_transpose else "OIHW"
+        target_input_layout = _canonical_input_layout(lhs_layout)
+        target_kernel_layout = _canonical_kernel_layout(
+            rhs_layout, is_transpose=bool(is_transpose)
+        )
 
         padding = params.get("padding", "VALID")
         if isinstance(padding, str):
@@ -375,7 +422,8 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             if pad_mode in ("SAME", "SAME_UPPER"):
                 conv_kwargs["auto_pad"] = "SAME_UPPER"
             elif pad_mode == "VALID":
-                conv_kwargs["pads"] = [0, 0, 0, 0]
+                num_spatial = max(len(lhs_shape) - 2, 0)
+                conv_kwargs["pads"] = [0] * (2 * num_spatial)
             else:
                 raise NotImplementedError(f"Unsupported padding mode {padding}")
         else:
@@ -464,7 +512,6 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             ),
             ctx.builder.enable_double_precision,
         )
-        print(f"DEBUG: conv_dtype_enum={conv_dtype_enum}")
 
         if self._maybe_lower_complex(
             ctx,
@@ -482,16 +529,17 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             out_layout,
             conv_kwargs,
             op_type,
+            target_input_layout,
             target_kernel_layout,
         ):
             return
 
         canonical_input = lhs_val
-        if lhs_layout != "NCHW":
-            perm = _perm(lhs_layout, "NCHW")
+        if lhs_layout != target_input_layout:
+            perm = _perm(lhs_layout, target_input_layout)
             transposed = ctx.builder.Transpose(
                 lhs_val,
-                _outputs=[ctx.fresh_name("conv_lhs_nchw")],
+                _outputs=[ctx.fresh_name(f"conv_lhs_{target_input_layout.lower()}")],
                 perm=perm,
             )
             lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
@@ -516,9 +564,9 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, transposed)
             canonical_kernel = transposed
 
-        need_output_transpose = out_layout != "NCHW"
+        need_output_transpose = out_layout != target_input_layout
         perm_to_nchw: Sequence[int] | None = (
-            _perm(out_layout, "NCHW") if need_output_transpose else None
+            _perm(out_layout, target_input_layout) if need_output_transpose else None
         )
 
         canonical_input = cast_real_tensor(
@@ -529,7 +577,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         )
 
         conv_output_name = (
-            ctx.fresh_name("conv_out_nchw")
+            ctx.fresh_name(f"conv_out_{target_input_layout.lower()}")
             if need_output_transpose
             else (getattr(out_spec, "name", None) or ctx.fresh_name(op_type))
         )
@@ -558,7 +606,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, conv_result)
 
         if need_output_transpose:
-            perm_back = _perm("NCHW", out_layout)
+            perm_back = _perm(target_input_layout, out_layout)
             final_name = getattr(out_spec, "name", None) or ctx.fresh_name("conv_out")
             final_val = ctx.builder.Transpose(
                 conv_result,
@@ -589,6 +637,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         out_layout: str,
         conv_kwargs: dict[str, object],
         op_type: str,
+        target_input_layout: str,
         target_kernel_layout: str,
     ) -> bool:
         def _is_complex_var(var: Any) -> bool:
@@ -647,14 +696,22 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             ctx, rhs_ready, target_dtype, prefix="conv_rhs"
         )
 
-        perm_input = _perm(lhs_layout, "NCHW") if lhs_layout != "NCHW" else None
-        perm_kernel = _perm(rhs_layout, "OIHW") if rhs_layout != "OIHW" else None
-        need_output_transpose = out_layout != "NCHW"
+        perm_input = (
+            _perm(lhs_layout, target_input_layout)
+            if lhs_layout != target_input_layout
+            else None
+        )
+        perm_kernel = (
+            _perm(rhs_layout, target_kernel_layout)
+            if rhs_layout != target_kernel_layout
+            else None
+        )
+        need_output_transpose = out_layout != target_input_layout
         perm_to_nchw: Sequence[int] | None = (
-            _perm(out_layout, "NCHW") if need_output_transpose else None
+            _perm(out_layout, target_input_layout) if need_output_transpose else None
         )
         perm_back: Sequence[int] | None = (
-            _perm("NCHW", out_layout) if need_output_transpose else None
+            _perm(target_input_layout, out_layout) if need_output_transpose else None
         )
         conv_shape_nchw = (
             tuple(out_shape[i] for i in perm_to_nchw)

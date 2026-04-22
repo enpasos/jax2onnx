@@ -28,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
             "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
         }
     ],
-    since="<your_current_version>",
+    since="0.13.0",
     context="primitives.lax",
     component="copy",
     testcases=[

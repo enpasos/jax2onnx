@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -90,13 +90,7 @@ class RngBitGeneratorPlugin(PrimitiveLeafPlugin):
         bits_np_dtype = np.dtype(
             params.get("dtype", getattr(getattr(out_bits_var, "aval", None), "dtype"))
         )
-        bits_dtype_enum = _dtype_to_ir(
-            bits_np_dtype, ctx.builder.enable_double_precision
-        )
-        if bits_dtype_enum is None:
-            raise TypeError(
-                f"Unsupported rng_bit_generator output dtype '{bits_np_dtype}'"
-            )
+        bits_dtype_enum = numpy_dtype_to_ir(bits_np_dtype)
 
         unit = ctx.builder.RandomUniform(
             shape=bits_shape,

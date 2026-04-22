@@ -82,7 +82,7 @@ def lower_add(ctx: "IRContext", eqn: Any) -> None:
         ctx, a_val, b_val, out_spec, out_var
     )
     output_name = out_spec.name or ctx.fresh_name("add_out")
-    out_spec.name = output_name
+    ir.convenience.rename_values(out_spec, output_name)
 
     def _is_complex_var(var: object) -> bool:
         aval_dtype = getattr(getattr(var, "aval", None), "dtype", None)

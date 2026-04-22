@@ -22,18 +22,6 @@ if TYPE_CHECKING:
     from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
-def _make_float_attr(name: str, value: float):
-    Attr = getattr(ir, "Attr", getattr(ir, "Attribute", None))
-    if Attr is None:
-        return None
-    AttrType = getattr(ir, "AttributeType", getattr(ir, "AttrType", None))
-    if hasattr(Attr, "f"):
-        return Attr.f(name, float(value))
-    if AttrType is not None:
-        return Attr(name, AttrType.FLOAT, float(value))
-    return Attr(name, float(value))
-
-
 def _alpha_attr_equals(model, expected: float) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "LeakyRelu"), None

@@ -14,15 +14,10 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins._attention_utils import expand_grouped_kv_heads
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._utils import cast_param_like
-from jax2onnx.plugins.jax.lax._index_utils import (
-    _const_i64,
-    _gather_int_scalar,
-    _shape_of,
-    _unsqueeze_scalar,
-)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     _DynamicParamWrapper,
@@ -124,97 +119,6 @@ EXPECT_DPA_GQA_NATIVE: Final = EG(
         )
     ]
 )
-
-
-def _expand_grouped_kv_heads(
-    ctx: "IRContext",
-    source_val: ir.Value,
-    *,
-    q_num_heads: int,
-    kv_num_heads: int,
-    batch_dim: DimLike,
-    seq_dim: DimLike,
-    head_dim: DimLike,
-    prefix: str,
-) -> ir.Value:
-    if q_num_heads == kv_num_heads:
-        return source_val
-    if q_num_heads % kv_num_heads != 0:
-        raise ValueError(
-            "nnx.dot_product_attention requires q_num_heads to be divisible by kv_num_heads"
-        )
-
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder for GQA expansion")
-
-    group_size = q_num_heads // kv_num_heads
-    source_dtype = _dtype_enum_from_value(source_val)
-
-    source_shape = _shape_of(ctx, source_val, f"{prefix}_shape")
-    batch_scalar = _gather_int_scalar(ctx, source_shape, 0, f"{prefix}_batch")
-    seq_scalar = _gather_int_scalar(ctx, source_shape, 1, f"{prefix}_seq")
-    head_scalar = _gather_int_scalar(ctx, source_shape, 3, f"{prefix}_head")
-
-    unsqueeze_axes = _const_i64(
-        ctx,
-        np.asarray([3], dtype=np.int64),
-        f"{prefix}_unsqueeze_axes",
-    )
-    unsqueezed = builder.Unsqueeze(
-        source_val,
-        unsqueeze_axes,
-        _outputs=[ctx.fresh_name(f"{prefix}_unsqueezed")],
-    )
-    unsqueezed.type = ir.TensorType(source_dtype)
-    _stamp_type_and_shape(unsqueezed, (batch_dim, seq_dim, kv_num_heads, 1, head_dim))
-    _ensure_value_metadata(ctx, unsqueezed)
-
-    tile_repeats = _const_i64(
-        ctx,
-        np.asarray([1, 1, 1, group_size, 1], dtype=np.int64),
-        f"{prefix}_tile_repeats",
-    )
-    tiled = builder.Tile(
-        unsqueezed,
-        tile_repeats,
-        _outputs=[ctx.fresh_name(f"{prefix}_tiled")],
-    )
-    tiled.type = ir.TensorType(source_dtype)
-    _stamp_type_and_shape(
-        tiled, (batch_dim, seq_dim, kv_num_heads, group_size, head_dim)
-    )
-    _ensure_value_metadata(ctx, tiled)
-
-    batch_vec = _unsqueeze_scalar(ctx, batch_scalar, 0, f"{prefix}_batch_vec")
-    seq_vec = _unsqueeze_scalar(ctx, seq_scalar, 0, f"{prefix}_seq_vec")
-    q_heads_vec = _const_i64(
-        ctx,
-        np.asarray([q_num_heads], dtype=np.int64),
-        f"{prefix}_q_heads_vec",
-    )
-    head_vec = _unsqueeze_scalar(ctx, head_scalar, 0, f"{prefix}_head_vec")
-    reshape_shape = builder.Concat(
-        batch_vec,
-        seq_vec,
-        q_heads_vec,
-        head_vec,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{prefix}_reshape_shape")],
-    )
-    reshape_shape.type = ir.TensorType(ir.DataType.INT64)
-    _stamp_type_and_shape(reshape_shape, (4,))
-    _ensure_value_metadata(ctx, reshape_shape)
-
-    expanded = builder.Reshape(
-        tiled,
-        reshape_shape,
-        _outputs=[ctx.fresh_name(f"{prefix}_expanded")],
-    )
-    expanded.type = ir.TensorType(source_dtype)
-    _stamp_type_and_shape(expanded, (batch_dim, seq_dim, q_num_heads, head_dim))
-    _ensure_value_metadata(ctx, expanded)
-    return expanded
 
 
 @register_primitive(
@@ -596,7 +500,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(q_t, (batch_dim_i, q_num_heads_i, q_len_i, head_dim_i))
         _ensure_value_metadata(ctx, q_t)
 
-        k_expanded = _expand_grouped_kv_heads(
+        k_expanded = expand_grouped_kv_heads(
             ctx,
             k_val,
             q_num_heads=q_num_heads_i,
@@ -605,6 +509,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             seq_dim=k_len_i,
             head_dim=head_dim_i,
             prefix="dpa_k_gqa",
+            op_name="nnx.dot_product_attention",
         )
 
         k_t = builder.Transpose(
@@ -740,7 +645,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, dropped_weights)
             weights = dropped_weights
 
-        v_expanded = _expand_grouped_kv_heads(
+        v_expanded = expand_grouped_kv_heads(
             ctx,
             v_val,
             q_num_heads=q_num_heads_i,
@@ -749,6 +654,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             seq_dim=k_len_i,
             head_dim=v_head_dim_i,
             prefix="dpa_v_gqa",
+            op_name="nnx.dot_product_attention",
         )
 
         v_t = builder.Transpose(

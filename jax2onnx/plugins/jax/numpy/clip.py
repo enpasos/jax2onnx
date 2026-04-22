@@ -175,6 +175,24 @@ _CLIP_PRIM: Final = make_jnp_primitive("jax.numpy.clip")
             "callable": lambda x: jnp.clip(x, min=-0.1),
             "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
         },
+        {
+            "testcase": "clip_keyword_max_alias",
+            "callable": lambda x: jnp.clip(x, max=0.25),
+            "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
+        },
+        {
+            "testcase": "clip_keyword_min_max_aliases",
+            "callable": lambda x: jnp.clip(x, min=-0.5, max=0.25),
+            "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
+        },
+        {
+            "testcase": "clip_keyword_legacy_a_min_a_max_aliases",
+            "callable": lambda x: jnp.clip(x, a_min=-0.5, a_max=0.25),
+            "input_values": [np.array([-1.0, 0.0, 2.0], dtype=np.float32)],
+            # Native JAX 0.10 no longer accepts these legacy keywords; this case
+            # specifically guards converter/plugin compatibility during export.
+            "skip_numeric_validation": True,
+        },
     ],
 )
 class JnpClipPlugin(PrimitiveLeafPlugin):

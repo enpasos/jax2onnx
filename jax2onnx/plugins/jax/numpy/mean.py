@@ -12,7 +12,6 @@ import jax
 from jax import core
 import jax.numpy as jnp
 from jax.interpreters import batching
-from onnx_ir import Attr, AttributeType
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -220,7 +219,7 @@ class JnpMeanPlugin(PrimitiveLeafPlugin):
         out_val = ctx.get_value_for_var(out_var)
 
         # Attributes
-        attrs = [Attr("keepdims", AttributeType.INT, 1 if keepdims else 0)]
+        attrs = {"keepdims": 1 if keepdims else 0}
 
         ctx.builder.add_node(
             op_type="ReduceMean", inputs=inputs, outputs=[out_val], attributes=attrs

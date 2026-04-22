@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import DefaultDict
 from urllib.request import urlopen
 
+from scripts._coverage_generation import write_or_check_generated
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "jax2onnx" / "plugins"
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / "user_guide" / "onnx_operator_coverage.md"
@@ -43,12 +45,29 @@ _QUANTIZATION_OPS = {
 }
 _SPECIALIZED_OPS = {
     "GRU",
+    "LRN",
     "LSTM",
+    "MelWeightMatrix",
+    "NegativeLogLikelihoodLoss",
     "RNN",
+    "Scan",
+    "SoftmaxCrossEntropyLoss",
     "STFT",
     "TfIdfVectorizer",
     "ImageDecoder",
     "RegexFullMatch",
+}
+_VISION_GEOMETRY_OPS = {
+    "AffineGrid",
+    "CenterCropPad",
+    "Col2Im",
+    "DeformConv",
+    "GridSample",
+    "MaxRoiPool",
+    "MaxUnpool",
+    "NonMaxSuppression",
+    "ReverseSequence",
+    "RoiAlign",
 }
 _LOW_COMPLEXITY_MATH_OPS = {
     "Acos",
@@ -75,6 +94,46 @@ _COMMON_MODEL_OPS = {
     "Unique",
     "NonZero",
     "OneHot",
+}
+
+_ACTION_BUCKET_CONTAINER = "Sequence/Optional/String containers"
+_ACTION_BUCKET_QUANTIZATION = "Quantization scope"
+_ACTION_BUCKET_SPECIALIZED = "Target-model specialized ops"
+_ACTION_BUCKET_VISION = "Vision-specific native ops"
+_ACTION_BUCKET_LOW_COMPLEXITY = "Low-complexity math quick wins"
+_ACTION_BUCKET_COMMON_MODEL = "Common model native ops"
+_ACTION_BUCKET_GENERAL = "General triage"
+_ACTION_BUCKET_ORDER = (
+    _ACTION_BUCKET_CONTAINER,
+    _ACTION_BUCKET_QUANTIZATION,
+    _ACTION_BUCKET_VISION,
+    _ACTION_BUCKET_SPECIALIZED,
+    _ACTION_BUCKET_LOW_COMPLEXITY,
+    _ACTION_BUCKET_COMMON_MODEL,
+    _ACTION_BUCKET_GENERAL,
+)
+_ACTION_BUCKET_RECOMMENDATIONS = {
+    _ACTION_BUCKET_CONTAINER: (
+        "If in scope, add container plugins; else mark explicitly out-of-scope."
+    ),
+    _ACTION_BUCKET_QUANTIZATION: (
+        "Decide quantization scope, then add lowerings/tests or mark as not planned."
+    ),
+    _ACTION_BUCKET_SPECIALIZED: (
+        "Add only when demanded by target models; document priority."
+    ),
+    _ACTION_BUCKET_VISION: (
+        "Vision-specific op; add only when a target model needs the native ONNX op."
+    ),
+    _ACTION_BUCKET_LOW_COMPLEXITY: (
+        "Good quick win: add primitive plugin, metadata, and expect_graph test."
+    ),
+    _ACTION_BUCKET_COMMON_MODEL: (
+        "Common model op; prioritize based on user demand and add regression tests."
+    ),
+    _ACTION_BUCKET_GENERAL: (
+        "Evaluate demand and either implement plugin support or document non-goal."
+    ),
 }
 
 _JAX_OP_CANDIDATES: dict[str, tuple[str, ...]] = {
@@ -161,20 +220,40 @@ def _format_modules(modules: set[str], max_items: int = 6) -> str:
     return "<br>".join(lines)
 
 
-def _recommend_for_uncovered(op: str) -> str:
-    if op.startswith(_CONTAINER_PREFIXES):
-        return "If in scope, add container plugins; else mark explicitly out-of-scope."
+def _action_bucket_for_uncovered(op: str) -> str:
+    if op.startswith(_CONTAINER_PREFIXES) or "Sequence" in op:
+        return _ACTION_BUCKET_CONTAINER
     if op in _QUANTIZATION_OPS or "Quantize" in op or op.endswith("Integer"):
-        return "Decide quantization scope, then add lowerings/tests or mark as not planned."
+        return _ACTION_BUCKET_QUANTIZATION
     if op in _SPECIALIZED_OPS:
-        return "Add only when demanded by target models; document priority."
+        return _ACTION_BUCKET_SPECIALIZED
+    if op in _VISION_GEOMETRY_OPS:
+        return _ACTION_BUCKET_VISION
     if op.startswith("Reduce") or op in _LOW_COMPLEXITY_MATH_OPS:
-        return "Good quick win: add primitive plugin, metadata, and expect_graph test."
+        return _ACTION_BUCKET_LOW_COMPLEXITY
     if "Pool" in op or op in _COMMON_MODEL_OPS:
-        return (
-            "Common model op; prioritize based on user demand and add regression tests."
-        )
-    return "Evaluate demand and either implement plugin support or document non-goal."
+        return _ACTION_BUCKET_COMMON_MODEL
+    return _ACTION_BUCKET_GENERAL
+
+
+def _recommend_for_uncovered(op: str) -> str:
+    return _ACTION_BUCKET_RECOMMENDATIONS[_action_bucket_for_uncovered(op)]
+
+
+def build_open_action_bucket_summary(
+    *,
+    official_ops: list[str],
+    metadata_usage: dict[str, set[str]],
+    lowering_usage: dict[str, set[str]],
+) -> str:
+    counts = dict.fromkeys(_ACTION_BUCKET_ORDER, 0)
+    for op in official_ops:
+        if metadata_usage.get(op) or lowering_usage.get(op):
+            continue
+        counts[_action_bucket_for_uncovered(op)] += 1
+
+    bucket_lines = [f"  - {label}: `{counts[label]}`" for label in _ACTION_BUCKET_ORDER]
+    return "- Open operators by next action:\n" + "\n".join(bucket_lines)
 
 
 def _format_jax_candidates(
@@ -242,8 +321,8 @@ def build_main_table(
     lowering_usage: dict[str, set[str]],
 ) -> tuple[str, int]:
     header = (
-        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
-        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|"
+        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Next Action |\n"
+        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|:------------|"
     )
 
     rows: list[str] = []
@@ -262,7 +341,8 @@ def build_main_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(all_modules)} | "
-            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} |"
+            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} | "
+            f"{_recommend_for_official_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
         )
 
     table = f"{header}\n" + "\n".join(rows)
@@ -292,12 +372,13 @@ def build_extra_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(metadata_modules | lowering_modules)} | "
-            f"{_format_extra_jax_candidates(op)} |"
+            f"{_format_extra_jax_candidates(op)} | "
+            f"{_recommend_for_extra_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
         )
 
     header = (
-        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
-        "|:----------------------|:---------|:---------|:---------------|:------------------|"
+        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Next Action |\n"
+        "|:----------------------|:---------|:---------|:---------------|:------------------|:------------|"
     )
     table = f"{header}\n" + "\n".join(rows)
     wrapped = (
@@ -346,6 +427,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also scan modules under jax2onnx/plugins/examples.",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check whether the coverage doc is current without writing files.",
+    )
     return parser.parse_args()
 
 
@@ -376,7 +462,13 @@ def main() -> None:
             f"- Operators in index: `{len(official_ops)}`",
             f"- Operators referenced in plugins: `{used_count}`",
             f"- Coverage: `{used_count / len(official_ops):.1%}`",
+            build_open_action_bucket_summary(
+                official_ops=official_ops,
+                metadata_usage=metadata_usage,
+                lowering_usage=lowering_usage,
+            ),
             "- `Potential JAX Ops` lists candidate JAX entry points for each operator.",
+            "- `Next Action` classifies uncovered operators and metadata/lowering drift.",
         ]
     )
     if extra_count:
@@ -395,9 +487,13 @@ def main() -> None:
         end_marker=EXTRA_END,
         replacement=extra_table,
     )
-    args.output.write_text(output_text, encoding="utf-8")
 
-    logger.info("Updated %s", args.output)
+    write_or_check_generated(
+        args.output,
+        output_text,
+        check=args.check,
+        label="ONNX operator coverage page",
+    )
 
 
 if __name__ == "__main__":

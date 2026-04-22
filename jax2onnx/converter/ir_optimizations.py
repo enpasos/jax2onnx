@@ -20,6 +20,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
 
 # ---------------- Config ----------------
 
@@ -128,22 +129,6 @@ def _dbg(*a: object) -> None:
 def _dbg_tm(*a: object) -> None:
     if TM_DEBUG:
         print("[tm-inline]", *a)
-
-
-# ---------------- Replacement helpers ----------------
-
-
-def _replace_all_uses_with(
-    values: Union[ir.Value, Sequence[ir.Value]],
-    replacements: Union[ir.Value, Sequence[ir.Value]],
-    *,
-    replace_graph_outputs: bool = False,
-) -> None:
-    ir.convenience.replace_all_uses_with(
-        values,
-        replacements,
-        replace_graph_outputs=replace_graph_outputs,
-    )
 
 
 # ---------------- Public helper shims (restored for unit tests) ----------------
@@ -381,7 +366,7 @@ def _shape_dims_key(
 def _value_const_ints(val: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
     if not isinstance(val, ir.Value):
         return None
-    arr = _to_numpy_from_any(val.const_value)
+    arr = _to_numpy_from_any(val)
     if arr is None:
         return None
     np_arr = np.asarray(arr)
@@ -524,7 +509,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                             if next_target is not None and next_target == src_dtype:
                                 final_out = next_outs[0]
                                 src_val = ins[0]
-                                _replace_all_uses_with(
+                                ir.convenience.replace_all_uses_with(
                                     final_out, src_val, replace_graph_outputs=True
                                 )
                                 graph.remove([n, next_node])
@@ -541,7 +526,9 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                 continue
             src_val = ins[0]
             out_val = outs[0]
-            _replace_all_uses_with(out_val, src_val, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                out_val, src_val, replace_graph_outputs=True
+            )
             graph.remove(n)
             changed = True
             break
@@ -565,11 +552,11 @@ def _is_inverse_perm(perm1: Sequence[int], perm2: Sequence[int]) -> bool:
 def _is_scalar_const_value(val: Optional[ir.Value]) -> bool:
     if not isinstance(val, ir.Value):
         return False
-    if val.const_value is None and not val.is_initializer():
-        return False
-    arr = _to_numpy_from_any(val.const_value)
+    arr = _to_numpy_from_any(val)
     if arr is not None:
         return bool(arr.size == 1)
+    if not val.is_initializer():
+        return False
     dims = _shape_dims_seq(val.shape)
     if dims is None:
         return False
@@ -819,20 +806,6 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             if len(reducer_ins) > 1:
                 axes_val = reducer_ins[1]
                 axes = _value_const_ints(axes_val)
-                if axes is None:
-                    # Fallback: check if produced by Constant node
-                    prod = axes_val.producer()
-                    if prod is not None and prod.op_type == "Constant":
-                        attr = prod.attributes.get("value")
-                        if attr is not None and attr.type == IRAttrType.TENSOR:
-                            try:
-                                arr = attr.as_tensor().numpy()
-                                if arr is not None and np.issubdtype(
-                                    arr.dtype, np.integer
-                                ):
-                                    axes = tuple(arr.flatten().tolist())
-                            except Exception:
-                                pass
 
                 if axes is None:
                     # Dynamic axes or unable to resolve constant - Abort
@@ -913,15 +886,17 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
 
                     reducer.replace_input_with(axes_input_idx, new_axes_val)
                 else:
-                    reducer.attributes["axes"] = ir.Attr(
-                        "axes", IRAttrType.INTS, list(new_axes)
+                    reducer.attributes["axes"] = ir.convenience.convert_attribute(
+                        "axes", list(new_axes), IRAttrType.INTS
                     )
 
             # 3. Bypass T2
             t2_out = _node_output(node)
             reducer_out = _node_output(reducer)
             _copy_shape_dtype(reducer_out, t2_out)
-            _replace_all_uses_with(t2_out, reducer_out, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                t2_out, reducer_out, replace_graph_outputs=True
+            )
 
             # 4. Cleanup
             # node.inputs might be tuple? Just remove from graph.
@@ -1067,7 +1042,9 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
                 t_in = (_node_inputs(out_transpose) or [None])[0]
                 if t_out is None or not isinstance(t_in, ir.Value):
                     continue
-                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    t_out, t_in, replace_graph_outputs=True
+                )
             graph.remove(list(output_transposes))
 
             # Remove now-unused input Transpose(perm_fwd) nodes.
@@ -1240,7 +1217,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     consumer_out = _node_output(consumer)
                     if consumer_out is None:
                         continue
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         consumer_out, out, replace_graph_outputs=True
                     )
                     to_remove.add(consumer)
@@ -1330,7 +1307,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 t_in = (_node_inputs(t_out_node) or [None])[0]
                 if not isinstance(t_in, ir.Value):
                     continue
-                _replace_all_uses_with(t_out, t_in, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    t_out, t_in, replace_graph_outputs=True
+                )
             if output_transposes:
                 graph.remove(list(output_transposes))
 
@@ -1407,7 +1386,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             if t2_out is None:
                 continue
             new_src = t1_in if not elem_nodes else t2_in
-            _replace_all_uses_with(t2_out, new_src, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                t2_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, t2_node])
             changed = True
             break
@@ -1472,7 +1453,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     continue
                 if allowed_nodes:
                     last_allowed = allowed_nodes[-1]
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         _node_output(T1), t1_in, replace_graph_outputs=True
                     )
                     new_src = _node_output(last_allowed) or t1_in
@@ -1480,7 +1461,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     new_src = t1_in
                 old_out = _node_output(T2)
                 assert old_out is not None
-                _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
+                ir.convenience.replace_all_uses_with(
+                    old_out, new_src, replace_graph_outputs=True
+                )
                 graph.remove([T1, T2])
                 changed = True
                 break
@@ -1522,7 +1505,9 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     # Rewire T2's consumers to use T1's input directly
                     old_out = _node_output(T2)
                     assert old_out is not None
-                    _replace_all_uses_with(old_out, t1_in, replace_graph_outputs=True)
+                    ir.convenience.replace_all_uses_with(
+                        old_out, t1_in, replace_graph_outputs=True
+                    )
                     # Remove only T2, not T1 (T1 still has other consumers)
                     graph.remove(T2)
                     removed_any = True
@@ -1623,14 +1608,16 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 )
             if allowed_fwd:
                 last_allowed = allowed_fwd[-1]
-                _replace_all_uses_with(
+                ir.convenience.replace_all_uses_with(
                     _node_output(T1), src, replace_graph_outputs=True
                 )
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
             old_out = _node_output(T2)
-            _replace_all_uses_with(old_out, new_src, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                old_out, new_src, replace_graph_outputs=True
+            )
             graph.remove([T1, T2])
             changed = True
             break
@@ -1688,7 +1675,9 @@ def remove_identity_reshapes_ir(graph: ir.Graph) -> None:
             dst_dims = _value_dims(dst_val)
             if dst_dims is not None and not _shapes_match_exact(dst_dims, target_dims):
                 continue
-            _replace_all_uses_with(dst_val, data_val, replace_graph_outputs=True)
+            ir.convenience.replace_all_uses_with(
+                dst_val, data_val, replace_graph_outputs=True
+            )
             graph.remove(node)
             changed = True
             break
@@ -1889,14 +1878,12 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
         return _as_ndarray(x)
 
     if isinstance(x, ir.Value):
-        return _to_numpy_from_any(x.const_value)
+        arr = const_value_to_numpy(x)
+        return cast(ArrayND, arr) if arr is not None else None
 
     if isinstance(x, ir.TensorProtocol):
-        # Trust .numpy() from TensorProtocol
-        try:
-            return _as_ndarray(x.numpy())
-        except Exception:
-            return None
+        arr = tensor_to_numpy(x)
+        return cast(ArrayND, arr) if arr is not None else None
 
     if isinstance(x, ir.Attr):
         return _to_numpy_from_attr(x)
@@ -2033,9 +2020,9 @@ def _read_scalar_bool_from_value_or_constant(
         return None
 
     if isinstance(v_or_name, ir.Value):
-        val = _as_scalar_bool(v_or_name.const_value)
+        val = _as_scalar_bool(v_or_name)
         if val is not None:
-            _dbg_tm("read Value-const:", type(v_or_name).__name__, "→", val)
+            _dbg_tm("read Value const tensor:", type(v_or_name).__name__, "→", val)
             return val
 
     producer = _producer_node(nodes, v_or_name)
@@ -2045,30 +2032,12 @@ def _read_scalar_bool_from_value_or_constant(
     if node.op_type != "Constant":
         return None
 
-    attr = _get_attr(node, "value")
-    if isinstance(attr, ir.Attr):
-        if attr.type is IRAttrType.TENSOR:
-            tensor = attr.as_tensor()
-            val = _as_scalar_bool(tensor)
-            if val is not None:
-                _dbg_tm("read Const-attr tensor →", val)
-                return val
-        val = _as_scalar_bool(attr.value)
-        if val is not None:
-            _dbg_tm("read Const-attr value →", val)
-            return val
-    elif attr is not None:
-        val = _as_scalar_bool(attr)
-        if val is not None:
-            _dbg_tm("read Const-attr payload →", val)
-            return val
-
     for output in _node_outputs(node):
         if output is None:
             continue
-        val = _as_scalar_bool(output.const_value)
+        val = _as_scalar_bool(output)
         if val is not None:
-            _dbg_tm("read Const output →", val)
+            _dbg_tm("read Const output tensor →", val)
             return val
     return None
 
@@ -2134,7 +2103,7 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
                     ins_new = list(ins)
                     ins_new[2] = rep_val
                     old_not_out = _node_output(producer)
-                    _replace_all_uses_with(
+                    ir.convenience.replace_all_uses_with(
                         old_not_out, rep_val, replace_graph_outputs=True
                     )
                     _set_node_inputs(n, ins_new)

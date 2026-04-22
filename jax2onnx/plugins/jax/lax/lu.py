@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -109,9 +109,7 @@ def _cast_int_vector_to_out_dtype(
     out_name: str,
     out_shape: tuple[int, ...],
 ) -> ir.Value:
-    out_dtype_enum = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-    if out_dtype_enum is None:
-        raise TypeError(f"Unsupported integer output dtype '{out_dtype}'")
+    out_dtype_enum = numpy_dtype_to_ir(out_dtype)
 
     if out_dtype_enum == ir.DataType.INT64:
         out = ctx.builder.Identity(vec_i64, _outputs=[out_name])

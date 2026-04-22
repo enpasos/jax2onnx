@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -128,13 +128,7 @@ class ApproxTopKPlugin(PrimitiveLeafPlugin):
         target_idx_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(indices_var, "aval", None), "dtype", np.int32)
         )
-        idx_dtype_enum = _dtype_to_ir(
-            target_idx_dtype, ctx.builder.enable_double_precision
-        )
-        if idx_dtype_enum is None:
-            raise TypeError(
-                f"Unsupported approx_top_k index dtype '{target_idx_dtype}'"
-            )
+        idx_dtype_enum = numpy_dtype_to_ir(target_idx_dtype)
         result_indices = indices
         result_indices.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(result_indices, result_shape_t)

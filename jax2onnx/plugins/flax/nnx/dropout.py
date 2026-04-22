@@ -14,6 +14,7 @@ from jax2onnx.plugins.plugin_system import (
 )
 import onnx_ir as ir
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -171,21 +172,6 @@ def post_check_onnx_graph(model) -> bool:
 
 
 # ---- helpers ---------------------------------------------------------------
-def _ir_dtype_from_numpy(dt) -> "ir.DataType":
-    dt = np.dtype(dt)
-    if dt == np.float32:
-        return ir.DataType.FLOAT
-    if dt == np.float64:
-        return ir.DataType.DOUBLE
-    if dt == np.int64:
-        return ir.DataType.INT64
-    if dt == np.int32:
-        return ir.DataType.INT32
-    if dt == np.bool_:
-        return ir.DataType.BOOL
-    return ir.DataType.FLOAT
-
-
 def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
     builder = getattr(ctx, "builder", None)
     if builder is None:
@@ -228,7 +214,7 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
             const_val = builder.add_initializer_from_scalar(name=init_name, value=arr)
         else:
             const_val = builder.add_initializer_from_array(name=init_name, array=arr)
-    const_val.type = ir.TensorType(_ir_dtype_from_numpy(arr.dtype))
+    const_val.type = ir.TensorType(numpy_dtype_to_ir(arr.dtype))
     _stamp_type_and_shape(const_val, arr.shape if arr.shape else ())
     _ensure_value_metadata(ctx, const_val)
     return const_val
@@ -418,7 +404,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         if x_dtype_enum is None:
             aval_dtype = getattr(getattr(x_var, "aval", None), "dtype", None)
             if aval_dtype is not None:
-                x_dtype_enum = _ir_dtype_from_numpy(aval_dtype)
+                x_dtype_enum = numpy_dtype_to_ir(aval_dtype)
         if x_dtype_enum is not None:
             dropout_res.type = ir.TensorType(x_dtype_enum)
         if x_dims_meta:

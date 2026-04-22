@@ -439,6 +439,20 @@ def _scan_captured_vector_with_xs_f64(xs: Any) -> Any:
             ),
         },
         {
+            "testcase": "scan_unroll_reuses_loop",
+            "callable": lambda xs: jax.lax.scan(
+                lambda c, x: (c * 0.5 + x, c + x),
+                jnp.zeros((), dtype=xs.dtype),
+                xs,
+                unroll=4,
+            )[1],
+            "input_values": [np.asarray([1.0, 2.0, -1.0, 3.0], dtype=np.float32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Loop"], search_functions=True, no_unused_inputs=True
+            ),
+        },
+        {
             "testcase": "scan_no_xs",
             "callable": lambda x: jax.lax.scan(
                 lambda carry, _: (carry + 1, carry), x, xs=None, length=5
@@ -702,10 +716,6 @@ class ScanPlugin(PrimitiveLeafPlugin):
         num_consts = int(params.get("num_consts", 0) or 0)
         if params.get("reverse", False):
             raise NotImplementedError("Reverse scan is not supported in IR pipeline.")
-        if params.get("unroll", 1) != 1:
-            raise NotImplementedError(
-                "Scan with unroll > 1 is not supported in IR pipeline."
-            )
 
         jaxpr = closed_jaxpr.jaxpr
         total_invars = len(jaxpr.invars)

@@ -26,6 +26,7 @@ from jax.interpreters import batching
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
+from jax2onnx.plugins._attention_utils import expand_grouped_kv_heads
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -127,6 +128,34 @@ def _cast_to_int64(
     return casted
 
 
+def _cast_like_value(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    var: object,
+    like: ir.Value,
+    base: str,
+) -> ir.Value:
+    target_dtype = _dtype_enum_from_value(like)
+    current_dtype = getattr(getattr(value, "type", None), "dtype", None)
+    if current_dtype == target_dtype:
+        return value
+    casted = _builder_tensor_op(
+        ctx,
+        "Cast",
+        [value],
+        base=base,
+        dtype=target_dtype,
+        shape=tuple(getattr(getattr(var, "aval", None), "shape", ())),
+        attributes={"to": int(target_dtype.value)},
+    )
+    _stamp_type_and_shape(
+        casted, tuple(getattr(getattr(var, "aval", None), "shape", ()))
+    )
+    _ensure_value_metadata(ctx, casted)
+    return casted
+
+
 def _make_range_value(
     ctx: LoweringContextProtocol, limit: ir.Value, *, base: str
 ) -> ir.Value:
@@ -162,6 +191,19 @@ def _logical_and(
     return out
 
 
+def _normalize_local_window_size(
+    value: object,
+) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, np.integer)):
+        window = int(value)
+        return (window, window)
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return (int(value[0]), int(value[1]))
+    raise TypeError("local_window_size must be an int or a pair of ints")
+
+
 def _builder_tensor_op(
     ctx: LoweringContextProtocol,
     op_type: str,
@@ -187,6 +229,48 @@ def _builder_tensor_op(
         dtype=dtype_enum,
         shape=shape_dims,
         attributes=attributes,
+    )
+
+
+def _unsqueeze_leading_batch(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    shape: Tuple[object, ...],
+    base: str,
+) -> ir.Value:
+    axes = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{base}_axes"),
+        array=np.asarray([0], dtype=np.int64),
+    )
+    return _builder_tensor_op(
+        ctx,
+        "Unsqueeze",
+        [value, axes],
+        base=base,
+        dtype_like=value,
+        shape=(1, *shape),
+    )
+
+
+def _squeeze_leading_batch(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    shape: Tuple[object, ...],
+    base: str,
+) -> ir.Value:
+    axes = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{base}_axes"),
+        array=np.asarray([0], dtype=np.int64),
+    )
+    return _builder_tensor_op(
+        ctx,
+        "Squeeze",
+        [value, axes],
+        base=base,
+        dtype_like=value,
+        shape=shape,
     )
 
 
@@ -264,6 +348,21 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 [
                     "Transpose:2x8x4x32 -> MatMul:2x8x4x4 -> Mul:2x8x4x4 -> "
                     "Softmax:2x8x4x4 -> MatMul:2x8x4x32 -> Transpose:2x4x8x32"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_tnh_unbatched",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(4, 2, 8), (5, 2, 8), (5, 2, 8)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Unsqueeze:1x4x2x8 -> Transpose:1x2x4x8 -> "
+                    "MatMul:1x2x4x5 -> Mul:1x2x4x5 -> Softmax:1x2x4x5 -> "
+                    "MatMul:1x2x4x8 -> Transpose:1x4x2x8 -> Squeeze:4x2x8"
                 ],
                 no_unused_inputs=True,
             ),
@@ -397,6 +496,86 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
             "rtol_f64": 1e-6,
             "atol_f64": 1e-6,
             "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
+        },
+        {
+            "testcase": "dpa_with_bias",
+            "callable": lambda q, k, v, bias: jax_nn.dot_product_attention(
+                q, k, v, bias=bias
+            ),
+            "input_shapes": [
+                (2, 8, 4, 16),
+                (2, 8, 4, 16),
+                (2, 8, 4, 16),
+                (2, 4, 8, 8),
+            ],
+            "input_dtypes": [np.float32, np.float32, np.float32, np.float32],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x4x8x16 -> MatMul:2x4x8x8 -> Mul:2x4x8x8 -> "
+                    "Add:2x4x8x8 -> Softmax:2x4x8x8 -> MatMul:2x4x8x16 -> "
+                    "Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_with_custom_scale",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, scale=0.5
+            ),
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 4, 16), (2, 8, 4, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:2x4x8x16 -> MatMul:2x4x8x8 -> Mul:2x4x8x8 -> "
+                    "Softmax:2x4x8x8 -> MatMul:2x4x8x16 -> Transpose:2x8x4x16"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_gqa_basic",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(q, k, v),
+            "input_shapes": [(2, 8, 4, 16), (2, 8, 2, 16), (2, 8, 2, 16)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Tile -> Transpose -> MatMul",
+                        {
+                            "counts": {
+                                "Tile": 2,
+                                "MatMul": 2,
+                                "Mul": 1,
+                                "Softmax": 1,
+                                "Transpose": 4,
+                            }
+                        },
+                    ),
+                    "Mul -> Softmax -> MatMul",
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "dpa_return_residual_false",
+            "callable": lambda q, k, v: jax_nn.dot_product_attention(
+                q, k, v, return_residual=False
+            ),
+            "input_shapes": [(1, 2, 1, 4), (1, 3, 1, 4), (1, 3, 1, 4)],
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x1x2x4 -> MatMul:1x1x2x3 -> Mul:1x1x2x3 -> "
+                    "Softmax:1x1x2x3 -> MatMul:1x1x2x4 -> Transpose:1x2x1x4"
+                ],
+                no_unused_inputs=True,
+            ),
         },
         {
             "testcase": "dpa_tiny_mask_all_valid",
@@ -540,17 +719,9 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
                 q, k, v, local_window_size=(1, 1)
             ),
             "input_shapes": [(1, 16, 1, 4), (1, 16, 1, 4), (1, 16, 1, 4)],
-            "rtol": 5e-1,
-            "atol": 5e-1,
-            "rtol_f64": 5e-1,
-            "atol_f64": 5e-1,
-            "post_check_onnx_graph": EG(
-                [
-                    "Transpose:1x1x16x4 -> MatMul:1x1x16x16 -> Mul:1x1x16x16 -> "
-                    "Softmax:1x1x16x16 -> MatMul:1x1x16x4 -> Transpose:1x16x1x4"
-                ],
-                no_unused_inputs=True,
-            ),
+            "rtol_f64": 1e-6,
+            "atol_f64": 1e-6,
+            "post_check_onnx_graph": _EXPECT_DPA_MASK_WHERE,
         },
         {
             "testcase": "dpa_vmap_tnh_issue190",
@@ -609,10 +780,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         invars = list(eqn.invars)
         out_var = eqn.outvars[0]
 
+        has_bias = bool(eqn.params.get("has_bias", False))
         has_mask = bool(eqn.params.get("has_mask", False))
         has_query_lengths = bool(eqn.params.get("has_query_lengths", False))
         has_key_value_lengths = bool(eqn.params.get("has_key_value_lengths", False))
         is_causal = bool(eqn.params.get("is_causal", False))
+        scale_value = eqn.params.get("scale", None)
+        local_window_size = _normalize_local_window_size(
+            eqn.params.get("local_window_size", None)
+        )
 
         idx = 0
         q_var = invars[idx]
@@ -621,6 +797,9 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         idx += 1
         v_var = invars[idx]
         idx += 1
+        bias_var = invars[idx] if has_bias else None
+        if has_bias:
+            idx += 1
         mask_var = invars[idx] if has_mask else None
         if has_mask:
             idx += 1
@@ -635,27 +814,71 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
+        v_shape = tuple(getattr(getattr(v_var, "aval", None), "shape", ()))
         np_dtype = _numpy_dtype_from_aval(q_var)
 
-        if len(q_shape) != 4 or len(k_shape) != 4:
+        ranks = (len(q_shape), len(k_shape), len(v_shape))
+        if len(set(ranks)) != 1 or ranks[0] not in (3, 4):
             raise NotImplementedError(
-                "jax.nn.dot_product_attention expects 4D query/key inputs"
+                "jax.nn.dot_product_attention expects matching 3D TNH or 4D "
+                "BTNH query/key/value inputs"
             )
+
+        unbatched_inputs = ranks[0] == 3
+        if unbatched_inputs:
+            q_val = _unsqueeze_leading_batch(
+                ctx, q_val, shape=q_shape, base="dpa_q_batched"
+            )
+            k_val = _unsqueeze_leading_batch(
+                ctx, k_val, shape=k_shape, base="dpa_k_batched"
+            )
+            v_val = _unsqueeze_leading_batch(
+                ctx, v_val, shape=v_shape, base="dpa_v_batched"
+            )
+            q_shape = (1, *q_shape)
+            k_shape = (1, *k_shape)
+            v_shape = (1, *v_shape)
 
         batch_dim, q_len, num_heads, head_dim = q_shape
         k_len = k_shape[1]
+        key_num_heads = k_shape[2]
+        value_num_heads = v_shape[2]
 
         batch_dim_v, _ = _coerce_dim(batch_dim, "batch")
-        num_heads_v, _ = _coerce_dim(num_heads, "num_heads")
+        num_heads_v, num_heads_static = _coerce_dim(num_heads, "num_heads")
+        key_num_heads_v, key_num_heads_static = _coerce_dim(
+            key_num_heads, "key_num_heads"
+        )
+        value_num_heads_v, value_num_heads_static = _coerce_dim(
+            value_num_heads, "value_num_heads"
+        )
         head_dim_v, head_static = _coerce_dim(head_dim, "head")
         if not head_static:
             raise NotImplementedError(
                 "jax.nn.dot_product_attention requires a static head dimension"
             )
+        if not (num_heads_static and key_num_heads_static and value_num_heads_static):
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires static query/key/value "
+                "head counts"
+            )
         q_len_v, _ = _coerce_dim(q_len, "query length")
         k_len_v, _ = _coerce_dim(k_len, "key length")
 
         head_dim_i = cast(int, head_dim_v)
+        num_heads_static_i = cast(int, num_heads_v)
+        key_num_heads_i = cast(int, key_num_heads_v)
+        value_num_heads_i = cast(int, value_num_heads_v)
+        if key_num_heads_i != value_num_heads_i:
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires matching key/value "
+                "head counts"
+            )
+        if num_heads_static_i % key_num_heads_i != 0:
+            raise NotImplementedError(
+                "jax.nn.dot_product_attention requires q_num_heads to be "
+                "divisible by kv_num_heads"
+            )
         batch_dim_i: DimLike = _symbolic_or_dim("B", batch_dim_v)
         num_heads_i: DimLike = _symbolic_or_dim("N", num_heads_v)
         q_len_i: DimLike = _symbolic_or_dim("T", q_len_v)
@@ -673,12 +896,24 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(q_t, (batch_dim_i, num_heads_i, q_len_i, head_dim_sym))
 
+        k_expanded = expand_grouped_kv_heads(
+            ctx,
+            k_val,
+            q_num_heads=num_heads_static_i,
+            kv_num_heads=key_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=head_dim_sym,
+            prefix="dpa_k_gqa",
+            op_name="jax.nn.dot_product_attention",
+        )
+
         k_t = _builder_tensor_op(
             ctx,
             "Transpose",
-            [k_val],
+            [k_expanded],
             base="dpa_kT",
-            dtype_like=k_val,
+            dtype_like=k_expanded,
             shape=(batch_dim, num_heads, head_dim, k_len),
             attributes={"perm": (0, 2, 3, 1)},
         )
@@ -694,9 +929,12 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         )
         _stamp_type_and_shape(logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
 
+        scale_scalar = 1.0 / np.sqrt(float(head_dim_i))
+        if scale_value is not None:
+            scale_scalar = float(scale_value)
         scale = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("dpa_scale"),
-            value=np.asarray(1.0 / np.sqrt(float(head_dim_i)), dtype=np_dtype),
+            value=np.asarray(scale_scalar, dtype=np_dtype),
         )
 
         current_logits = _builder_tensor_op(
@@ -710,6 +948,40 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(
             current_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
         )
+
+        if has_bias and bias_var is not None:
+            bias_val = ctx.get_value_for_var(
+                bias_var, name_hint=ctx.fresh_name("dpa_bias")
+            )
+            bias_val = _cast_like_value(
+                ctx,
+                bias_val,
+                var=bias_var,
+                like=current_logits,
+                base="dpa_bias_cast",
+            )
+            bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+            if bias_dims:
+                _stamp_type_and_shape(
+                    bias_val,
+                    tuple(
+                        _symbolic_or_dim(f"M{idx}", dim)
+                        for idx, dim in enumerate(bias_dims)
+                    ),
+                )
+            _ensure_value_metadata(ctx, bias_val)
+            biased_logits = _builder_tensor_op(
+                ctx,
+                "Add",
+                [current_logits, bias_val],
+                base="dpa_bias_add",
+                dtype_like=current_logits,
+                shape=(batch_dim, num_heads, q_len, k_len),
+            )
+            _stamp_type_and_shape(
+                biased_logits, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
+            )
+            current_logits = biased_logits
 
         if is_causal:
             if not (
@@ -748,8 +1020,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             current_logits = causal_logits
 
+        q_idx_broadcast: ir.Value | None = None
+        k_idx_broadcast: ir.Value | None = None
         length_mask_bool: ir.Value | None = None
-        if has_query_lengths or has_key_value_lengths:
+        if has_query_lengths or has_key_value_lengths or local_window_size is not None:
             q_shape_val = _shape_of(ctx, q_val, "dpa_q_shape")
             q_len_scalar = _gather_int_scalar(
                 ctx, q_shape_val, axis=1, name_hint="dpa_q_len"
@@ -789,6 +1063,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(k_idx_broadcast, (1, 1, 1, k_len_i))
 
+        if has_query_lengths or has_key_value_lengths:
             q_mask: ir.Value | None = None
             if query_len_var is not None:
                 query_len_val = ctx.get_value_for_var(
@@ -866,6 +1141,60 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 length_mask_bool = k_mask
 
         mask_bool: ir.Value | None = None
+        if local_window_size is not None:
+            if q_idx_broadcast is None or k_idx_broadcast is None:
+                raise RuntimeError(
+                    "dot_product_attention local window mask indices were not created"
+                )
+            left_window, right_window = local_window_size
+            left_window_val = _scalar_i64(ctx, left_window, "dpa_window_left")
+            right_window_val = _scalar_i64(ctx, right_window, "dpa_window_right")
+            left_limit = _builder_tensor_op(
+                ctx,
+                "Add",
+                [k_idx_broadcast, left_window_val],
+                base="dpa_window_left_limit",
+                dtype=ir.DataType.INT64,
+                shape=(1, 1, 1, k_len),
+            )
+            _stamp_type_and_shape(left_limit, (1, 1, 1, k_len_i))
+            left_ok = _builder_tensor_op(
+                ctx,
+                "LessOrEqual",
+                [q_idx_broadcast, left_limit],
+                base="dpa_window_left_ok",
+                dtype=ir.DataType.BOOL,
+                shape=(1, 1, q_len, k_len),
+            )
+            _stamp_type_and_shape(left_ok, (1, 1, q_len_i, k_len_i))
+
+            right_limit = _builder_tensor_op(
+                ctx,
+                "Sub",
+                [k_idx_broadcast, right_window_val],
+                base="dpa_window_right_limit",
+                dtype=ir.DataType.INT64,
+                shape=(1, 1, 1, k_len),
+            )
+            _stamp_type_and_shape(right_limit, (1, 1, 1, k_len_i))
+            right_ok = _builder_tensor_op(
+                ctx,
+                "GreaterOrEqual",
+                [q_idx_broadcast, right_limit],
+                base="dpa_window_right_ok",
+                dtype=ir.DataType.BOOL,
+                shape=(1, 1, q_len, k_len),
+            )
+            _stamp_type_and_shape(right_ok, (1, 1, q_len_i, k_len_i))
+            mask_bool = _logical_and(
+                ctx,
+                left_ok,
+                right_ok,
+                base="dpa_window_mask",
+                shape_hint=(1, 1, q_len_i, k_len_i),
+            )
+            _stamp_type_and_shape(mask_bool, (1, 1, q_len_i, k_len_i))
+
         if has_mask and mask_var is not None:
             mask_val = ctx.get_value_for_var(
                 mask_var, name_hint=ctx.fresh_name("dpa_mask")
@@ -1025,12 +1354,24 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i))
 
+        v_expanded = expand_grouped_kv_heads(
+            ctx,
+            v_val,
+            q_num_heads=num_heads_static_i,
+            kv_num_heads=value_num_heads_i,
+            batch_dim=batch_dim_i,
+            seq_dim=k_len_i,
+            head_dim=head_dim_sym,
+            prefix="dpa_v_gqa",
+            op_name="jax.nn.dot_product_attention",
+        )
+
         v_t = _builder_tensor_op(
             ctx,
             "Transpose",
-            [v_val],
+            [v_expanded],
             base="dpa_vT",
-            dtype_like=v_val,
+            dtype_like=v_expanded,
             shape=(batch_dim, num_heads, k_len, head_dim),
             attributes={"perm": (0, 2, 1, 3)},
         )
@@ -1056,6 +1397,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             attributes={"perm": (0, 2, 1, 3)},
         )
         _stamp_type_and_shape(result, (batch_dim_i, q_len_i, num_heads_i, head_dim_sym))
+        if unbatched_inputs:
+            result = _squeeze_leading_batch(
+                ctx,
+                result,
+                shape=(q_len, num_heads, head_dim),
+                base="dpa_out_unbatched",
+            )
+            _stamp_type_and_shape(result, (q_len_i, num_heads_i, head_dim_sym))
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
@@ -1098,6 +1447,25 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 is_causal = bool(kwargs.pop("is_causal", False))
                 query_seq_lengths = kwargs.pop("query_seq_lengths", None)
                 key_value_seq_lengths = kwargs.pop("key_value_seq_lengths", None)
+                scale = kwargs.pop("scale", None)
+                scale = None if scale is None else float(scale)
+                local_window_size = _normalize_local_window_size(
+                    kwargs.pop("local_window_size", None)
+                )
+                implementation = kwargs.pop("implementation", None)
+                if implementation not in (None, "xla", "cudnn"):
+                    raise ValueError(
+                        f"Unsupported implementation option: {implementation}"
+                    )
+                unsupported_values = {
+                    "broadcast_dropout": kwargs.pop("broadcast_dropout", None),
+                    "dropout_rng": kwargs.pop("dropout_rng", None),
+                    "dropout_rate": kwargs.pop("dropout_rate", None),
+                    "deterministic": kwargs.pop("deterministic", None),
+                    "dtype": kwargs.pop("dtype", None),
+                    "precision": kwargs.pop("precision", None),
+                    "return_residual": kwargs.pop("return_residual", None),
+                }
 
                 if isinstance(mask_arg, tuple) and len(mask_arg) == 2:
                     query_lengths, key_lengths = mask_arg
@@ -1129,35 +1497,35 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                         )
 
                 unsupported = {
-                    key: kwargs.get(key)
-                    for key in (
-                        "broadcast_dropout",
-                        "dropout_rng",
-                        "dropout_rate",
-                        "deterministic",
-                        "dtype",
-                        "precision",
-                    )
-                    if kwargs.get(key) not in (None, False, 0.0)
+                    key: value
+                    for key, value in unsupported_values.items()
+                    if value not in (None, False, 0.0)
                 }
                 if unsupported:
                     raise NotImplementedError(
                         "jax.nn.dot_product_attention converter plugin does not "
                         f"support arguments {tuple(unsupported.keys())}"
                     )
-
-                if bias_arg is not None:
-                    raise NotImplementedError(
-                        "jax.nn.dot_product_attention bias argument is not yet supported"
+                if kwargs:
+                    unexpected = tuple(sorted(kwargs))
+                    raise TypeError(
+                        "dot_product_attention() got unexpected keyword "
+                        f"arguments {unexpected}"
                     )
 
                 params = {
                     "is_causal": is_causal,
+                    "scale": scale,
+                    "local_window_size": local_window_size,
+                    "implementation": implementation,
+                    "has_bias": bias_arg is not None,
                     "has_mask": mask_arg is not None,
                     "has_query_lengths": query_seq_lengths is not None,
                     "has_key_value_lengths": key_value_seq_lengths is not None,
                 }
                 operands = [q, k, v]
+                if bias_arg is not None:
+                    operands.append(bias_arg)
                 if mask_arg is not None:
                     operands.append(mask_arg)
                 if query_seq_lengths is not None:
@@ -1184,7 +1552,37 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
 @DotProductAttentionPlugin._PRIM.def_impl
 def _impl(*args: Any, **kwargs: Any) -> ArrayLike:
-    return _ORIG_DOT_PRODUCT_ATTENTION(*args, **kwargs)
+    has_bias = bool(kwargs.pop("has_bias", False))
+    has_mask = bool(kwargs.pop("has_mask", False))
+    has_query_lengths = bool(kwargs.pop("has_query_lengths", False))
+    has_key_value_lengths = bool(kwargs.pop("has_key_value_lengths", False))
+    scale = kwargs.pop("scale", None)
+    local_window_size = kwargs.pop("local_window_size", None)
+    implementation = kwargs.pop("implementation", None)
+
+    extra = list(args[3:])
+    idx = 0
+    bias = extra[idx] if has_bias else None
+    idx += 1 if has_bias else 0
+    mask = extra[idx] if has_mask else None
+    idx += 1 if has_mask else 0
+    query_seq_lengths = extra[idx] if has_query_lengths else None
+    idx += 1 if has_query_lengths else 0
+    key_value_seq_lengths = extra[idx] if has_key_value_lengths else None
+
+    return _ORIG_DOT_PRODUCT_ATTENTION(
+        args[0],
+        args[1],
+        args[2],
+        bias=bias,
+        mask=mask,
+        scale=scale,
+        query_seq_lengths=query_seq_lengths,
+        key_value_seq_lengths=key_value_seq_lengths,
+        local_window_size=local_window_size,
+        implementation=implementation,
+        **kwargs,
+    )
 
 
 BatchDim: TypeAlias = int | None
@@ -1203,6 +1601,10 @@ def _dpa_batch_rule(
     batch_dims: tuple[BatchDim, ...],
     *,
     is_causal: bool = False,
+    scale: float | None = None,
+    local_window_size: tuple[int, int] | None = None,
+    implementation: str | None = None,
+    has_bias: bool = False,
     has_mask: bool = False,
     has_query_lengths: bool = False,
     has_key_value_lengths: bool = False,
@@ -1219,6 +1621,10 @@ def _dpa_batch_rule(
 
     params = {
         "is_causal": bool(is_causal),
+        "scale": scale,
+        "local_window_size": local_window_size,
+        "implementation": implementation,
+        "has_bias": bool(has_bias),
         "has_mask": bool(has_mask),
         "has_query_lengths": bool(has_query_lengths),
         "has_key_value_lengths": bool(has_key_value_lengths),
@@ -1262,6 +1668,18 @@ def _dpa_batch_rule(
     ]
 
     idx = 3
+    if has_bias:
+        bias_val = prepared_args[idx]
+        idx += 1
+        if not hasattr(bias_val, "ndim"):
+            raise NotImplementedError(
+                "dot_product_attention batching requires array-like bias values"
+            )
+        if bias_val.ndim >= 5:
+            merged_args.append(_flatten_first_two_dims(bias_val))
+        else:
+            merged_args.append(bias_val)
+
     if has_mask:
         mask_val = prepared_args[idx]
         idx += 1

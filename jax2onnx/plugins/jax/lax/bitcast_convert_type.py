@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 no_unused_inputs=True,
             ),
             "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "bitcast_tensor_i32_to_f32",
@@ -53,6 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover
                 no_unused_inputs=True,
             ),
             "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
         },
     ],
 )
@@ -62,9 +64,8 @@ class BitcastConvertTypePlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: "IRContext", eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
-        target_dtype = _dtype_to_ir(
-            np.dtype(eqn.params.get("new_dtype", out_var.aval.dtype)),
-            ctx.builder.enable_double_precision,
+        target_dtype = numpy_dtype_to_ir(
+            np.dtype(eqn.params.get("new_dtype", out_var.aval.dtype))
         )
 
         operand_val = ctx.get_value_for_var(

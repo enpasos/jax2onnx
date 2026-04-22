@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -18,16 +19,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def _const_scalar(value: Any) -> float | int | None:
-    const = getattr(value, "const_value", None)
-    if const is None:
+    arr = const_value_to_numpy(value)
+    if arr is None:
         return None
-    try:
-        arr = np.asarray(const)
-    except Exception:
-        try:
-            arr = np.asarray(const.numpy())
-        except Exception:
-            return None
     if arr.shape != ():
         return None
     scalar = arr.item()
@@ -106,6 +100,17 @@ def _all_axes(x: Any) -> tuple[int, ...]:
             ),
         },
         {
+            "testcase": "reduce_sum_uint32_axis",
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=(1,)),
+            "input_values": [np.arange(8, dtype=np.uint32).reshape(1, 8)],
+            "expected_output_dtypes": [np.uint32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Cast:1x8 -> ReduceSum:1 -> Cast:1"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "reduce_sum_keepdims",
             "callable": lambda x: jax.lax.broadcast_in_dim(
                 jax.lax.reduce_sum(x, axes=(1,)),
@@ -116,6 +121,16 @@ def _all_axes(x: Any) -> tuple[int, ...]:
             "post_check_onnx_graph": EG(
                 ["ReduceSum:3 -> Reshape:3x1 -> Expand:3x1"],
                 no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "reduce_sum_no_axes",
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=()),
+            "input_values": [np.asarray([1.0, 2.0, -3.0], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                ["Identity:3"],
+                no_unused_inputs=True,
+                must_absent=["ReduceSum"],
             ),
         },
         {

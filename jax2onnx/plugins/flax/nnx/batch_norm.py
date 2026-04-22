@@ -10,6 +10,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
+from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -71,7 +72,7 @@ def _const_from_array(ctx, name_hint: str, arr: np.ndarray) -> ir.Value:
 
     value = ir.Value(
         name=base_name,
-        type=ir.TensorType(_ir_dtype_from_numpy(np_arr.dtype)),
+        type=ir.TensorType(numpy_dtype_to_ir(np_arr.dtype)),
         shape=ir.Shape(tuple(int(d) for d in np_arr.shape)),
         const_value=ir.tensor(np_arr),
     )
@@ -341,7 +342,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(x_val, x_shape)
 
         x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        bn_dtype = x_dtype if x_dtype is not None else _ir_dtype_from_numpy(x_np_dtype)
+        bn_dtype = x_dtype if x_dtype is not None else numpy_dtype_to_ir(x_np_dtype)
 
         rank = len(x_shape)
         bn_in = x_val
@@ -534,18 +535,3 @@ def _impl(
     m = jnp.reshape(mean, param_shape).astype(x.dtype, copy=False)
     v = jnp.reshape(var, param_shape).astype(x.dtype, copy=False)
     return (x - m) * s / jnp.sqrt(v + epsilon) + b
-
-
-def _ir_dtype_from_numpy(dt: np.dtype) -> ir.DataType:
-    dt = np.dtype(dt)
-    if dt == np.dtype("float32"):
-        return ir.DataType.FLOAT
-    if dt == np.dtype("float64"):
-        return ir.DataType.DOUBLE
-    if dt == np.dtype("int64"):
-        return ir.DataType.INT64
-    if dt == np.dtype("int32"):
-        return ir.DataType.INT32
-    if dt == np.dtype("bool"):
-        return ir.DataType.BOOL
-    return ir.DataType.FLOAT

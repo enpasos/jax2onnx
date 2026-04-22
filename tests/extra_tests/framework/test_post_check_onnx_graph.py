@@ -266,6 +266,36 @@ def test_inputs_predicate_matches_constant_after_expand():
     assert check(m)
 
 
+def test_inputs_predicate_matches_constant_after_cast():
+    x = V("x", ir.DataType.FLOAT, (2,))
+    ratio_raw = V("ratio_raw", ir.DataType.DOUBLE, ())
+    ratio_raw.const_value = np.asarray(0.5, dtype=np.float64)
+    ratio = V("ratio", ir.DataType.FLOAT, ())
+    y = V("y", ir.DataType.FLOAT, (2,))
+
+    cast = ir.Node(
+        op_type="Cast",
+        domain="",
+        inputs=[ratio_raw],
+        outputs=[ratio],
+        name="CastRatio",
+        attributes=[ir.Attr("to", ir.AttributeType.INT, int(ir.DataType.FLOAT.value))],
+    )
+    dropout = ir.Node(
+        op_type="Dropout",
+        domain="",
+        inputs=[x, ratio],
+        outputs=[y],
+        name="Dropout",
+    )
+    graph = ir.Graph(name="top", inputs=[x], outputs=[y], nodes=[cast, dropout])
+    model = ir.Model(graph=graph, ir_version=10)
+
+    check = EG([{"path": "Dropout", "inputs": {1: {"const": 0.5}}}])
+
+    assert check(model)
+
+
 def test_inputs_predicate_const_mismatch():
     m = build_dropout_like_graph(ratio=0.3, training=False, use_expand=True)
     check = EG(

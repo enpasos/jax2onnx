@@ -4,7 +4,7 @@
 from __future__ import annotations
 import os
 import traceback
-from collections.abc import MutableSequence, Sequence
+from collections.abc import Mapping, MutableSequence, Sequence
 from typing import (
     Any,
     Final,
@@ -13,14 +13,13 @@ from typing import (
     Optional,
     Tuple,
     Union,
-    cast,
     overload,
 )
 
 import numpy as np
 import onnx_ir as ir
-from onnx_ir import Attr, AttributeType
 from onnx_ir._tape import Builder as _TapeBuilder
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
 from .typing_support import SymbolicDimOrigin
 
 
@@ -55,21 +54,6 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
         return ir.DataType.from_numpy(key)
     except Exception as e:
         raise TypeError(f"Unsupported dtype: {dtype}") from e
-
-
-def _value_const_numpy(value: ir.Value) -> np.ndarray[Any, np.dtype[Any]] | None:
-    """Return a numpy view of `value` when backed by a constant tensor."""
-    const = value.const_value
-    if const is None:
-        return None
-    try:
-        array = const.numpy()
-    except Exception:
-        try:
-            array = np.asarray(const)
-        except Exception:
-            return None
-    return cast(np.ndarray[Any, np.dtype[Any]], array)
 
 
 class _InitializerList(MutableSequence[ir.Value]):
@@ -184,8 +168,8 @@ class _InitializerList(MutableSequence[ir.Value]):
             if existing is value:
                 return
 
-            arr_new = _value_const_numpy(value)
-            arr_old = _value_const_numpy(existing)
+            arr_new = const_value_to_numpy(value)
+            arr_old = const_value_to_numpy(existing)
             if arr_new is not None and arr_old is not None:
                 # Normalize dtype for fair comparison: onnx_ir tensors may
                 # materialize as float64 via numpy bridge.
@@ -371,7 +355,7 @@ class IRBuilder:
             # Enforce duplicate policy: identical → reuse; different → error.
             existing = self.graph.initializers[name]
 
-            arr_existing = _value_const_numpy(existing)
+            arr_existing = const_value_to_numpy(existing)
             arr_new = np.asarray(value)
             # Respect dtype downcast policy for floats when comparing
             if not self.enable_double_precision and np.issubdtype(
@@ -410,9 +394,7 @@ class IRBuilder:
                 ),
                 const_value=tensor,
             )
-            attributes = [
-                Attr("value", AttributeType.TENSOR, tensor),
-            ]
+            attributes = [tensor_attr("value", tensor)]
             node = ir.Node(
                 op_type="Constant",
                 domain="",
@@ -679,16 +661,22 @@ class IRBuilder:
         op_type: str,
         inputs: Sequence[ir.Value],
         outputs: Sequence[ir.Value],
-        attributes: Optional[list[ir.Attr]] = None,
+        attributes: Mapping[str, Any] | Sequence[ir.Attr] | None = None,
         name: Optional[str] = None,
     ) -> ir.Node:
+        if attributes is None:
+            attrs: Sequence[ir.Attr] = ()
+        elif isinstance(attributes, Mapping):
+            attrs = ir.convenience.convert_attributes(attributes)
+        else:
+            attrs = list(attributes)
         n = ir.Node(
             op_type=op_type,
             domain="",
             inputs=list(inputs),
             outputs=list(outputs),
             name=name or self.fresh_name(op_type),
-            attributes=(attributes or []),
+            attributes=attrs,
         )
         self.nodes.append(n)
         self._maybe_attach_stacktrace_to_nodes([n])

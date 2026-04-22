@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -32,25 +32,6 @@ def _normalize_shape(shape: Any) -> tuple[int, ...]:
     if any(d < 0 for d in dims):
         raise ValueError(f"negative dimensions are not allowed: {dims}")
     return dims
-
-
-def _np_dtype_from_ir(dtype: ir.DataType) -> np.dtype[Any]:
-    mapping: dict[ir.DataType, np.dtype[Any]] = {
-        ir.DataType.BOOL: np.dtype(np.bool_),
-        ir.DataType.INT8: np.dtype(np.int8),
-        ir.DataType.INT16: np.dtype(np.int16),
-        ir.DataType.INT32: np.dtype(np.int32),
-        ir.DataType.INT64: np.dtype(np.int64),
-        ir.DataType.UINT8: np.dtype(np.uint8),
-        ir.DataType.UINT16: np.dtype(np.uint16),
-        ir.DataType.UINT32: np.dtype(np.uint32),
-        ir.DataType.UINT64: np.dtype(np.uint64),
-        ir.DataType.FLOAT16: np.dtype(np.float16),
-        ir.DataType.FLOAT: np.dtype(np.float32),
-        ir.DataType.DOUBLE: np.dtype(np.float64),
-        ir.DataType.BFLOAT16: np.dtype(np.float32),
-    }
-    return mapping.get(dtype, np.dtype(np.float32))
 
 
 @register_primitive(
@@ -100,7 +81,7 @@ class JnpOnesPlugin(PrimitiveLeafPlugin):
 
         shape = _normalize_shape(params.get("shape"))
         req_dtype = np.dtype(params.get("dtype", np.float32))
-        target_enum = _dtype_to_ir(req_dtype, ctx.builder.enable_double_precision)
+        target_enum = numpy_dtype_to_ir(req_dtype)
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ones_out"))
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", shape))
@@ -110,7 +91,9 @@ class JnpOnesPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, shape_tensor)
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("ones_out")
-        one_np_dtype = _np_dtype_from_ir(target_enum)
+        one_np_dtype = ir_dtype_to_numpy(target_enum)
+        if one_np_dtype is None:
+            one_np_dtype = np.dtype(np.float32)
         result = ctx.builder.ConstantOfShape(
             shape_tensor,
             value=ir.tensor(np.asarray([1], dtype=one_np_dtype)),
