@@ -175,6 +175,26 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "unique_all",
+            lambda x: jnp.unique_all(x, size=4, fill_value=-1),
+            [np.array([3, 1, 3, 2], dtype=np.int32)],
+        ),
+        (
+            "unique_counts",
+            lambda x: jnp.unique_counts(x, size=4, fill_value=-1),
+            [np.array([3, 1, 3, 2], dtype=np.int32)],
+        ),
+        (
+            "unique_inverse",
+            lambda x: jnp.unique_inverse(x, size=4, fill_value=-1),
+            [np.array([3, 1, 3, 2], dtype=np.int32)],
+        ),
+        (
+            "unique_values",
+            lambda x: jnp.unique_values(x, size=4, fill_value=-1),
+            [np.array([3, 1, 3, 2], dtype=np.int32)],
+        ),
+        (
             "unpackbits",
             lambda x: jnp.unpackbits(x, bitorder="big"),
             [np.array([178], dtype=np.uint8)],

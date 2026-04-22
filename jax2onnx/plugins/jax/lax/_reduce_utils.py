@@ -109,6 +109,26 @@ def lower_reduction(
         operand_shape,
         work_dtype,
     )
+    if axes_attr == ():
+        desired_name = getattr(out_val, "name", None) or ctx.fresh_name(op_type)
+        producer = getattr(out_val, "producer", lambda: None)
+        if callable(producer) and producer() is not None:
+            desired_name = ctx.fresh_name(op_type)
+        result = ctx.builder.Identity(
+            reduced_input,
+            _outputs=[desired_name],
+        )
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        aval_dtype = getattr(out_var.aval, "dtype", None)
+        if aval_dtype is not None:
+            out_dtype_enum = _dtype_to_ir(
+                np.dtype(aval_dtype), ctx.builder.enable_double_precision
+            )
+            result.type = ir.TensorType(out_dtype_enum)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+        return
 
     inputs = [reduced_input]
     if axes_attr is not None:
@@ -231,6 +251,18 @@ def lower_boolean_reduction(
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
+    if axes_attr == ():
+        desired_name = ctx.fresh_name(mode)
+        result = ctx.builder.Identity(
+            operand_val,
+            _outputs=[desired_name],
+        )
+        result.type = ir.TensorType(ir.DataType.BOOL)
+        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+        ctx.bind_value_for_var(out_var, result)
+        return
 
     int_operand = _maybe_cast_input(ctx, operand_val, operand_shape, np.dtype(np.int64))
 

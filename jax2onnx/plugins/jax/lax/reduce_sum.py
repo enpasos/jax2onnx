@@ -124,6 +124,16 @@ def _all_axes(x: Any) -> tuple[int, ...]:
             ),
         },
         {
+            "testcase": "reduce_sum_no_axes",
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=()),
+            "input_values": [np.asarray([1.0, 2.0, -3.0], dtype=np.float32)],
+            "post_check_onnx_graph": EG(
+                ["Identity:3"],
+                no_unused_inputs=True,
+                must_absent=["ReduceSum"],
+            ),
+        },
+        {
             "testcase": "reduce_sum_of_abs_axis1",
             "callable": lambda x: jax.lax.reduce_sum(jax.lax.abs(x), axes=(1,)),
             "input_values": [np.array([[1.0, -2.0, 3.0], [-4.0, 5.0, -6.0]])],

@@ -63,6 +63,16 @@ if TYPE_CHECKING:  # pragma: no cover
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "reduce_or_no_axes",
+            "callable": lambda x: jax.lax.reduce_or(x, axes=()),
+            "input_values": [jnp.array([False, True, False], dtype=jnp.bool_)],
+            "post_check_onnx_graph": EG(
+                ["Identity:3"],
+                no_unused_inputs=True,
+                must_absent=["ReduceMax"],
+            ),
+        },
     ],
 )
 class ReduceOrPlugin(PrimitiveLeafPlugin):

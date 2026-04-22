@@ -162,6 +162,10 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "poly",
         "polymul",
         "polyval",
+        "unique_all",
+        "unique_counts",
+        "unique_inverse",
+        "unique_values",
         "unpackbits",
     ],
 )
