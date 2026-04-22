@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `186`
+- Covered (direct plugin): `187`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `15`
+- Missing dedicated plugin coverage: `14`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -399,7 +399,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `size` | `covered` | `jax/numpy/size` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sort` | `covered` | `jax/numpy/sort` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sort_complex` | `covered_indirect` | `jax/lax/sort, jax/numpy/sort` | Covered via alias or lower-level primitive `sort`. |
-| [ ] | `spacing` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `spacing` | `covered` | `jax/numpy/spacing` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `split` | `covered` | `jax/numpy/split` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sqrt` | `covered` | `jax/numpy/sqrt` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `square` | `covered_indirect` | `jax/lax/square` | Covered via alias or lower-level primitive `square`. |
