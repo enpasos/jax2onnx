@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `199`
+- Covered (direct plugin): `200`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `2`
+- Missing dedicated plugin coverage: `1`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -377,7 +377,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `rint` | `covered_indirect` | `jax/lax/round` | Covered via alias or lower-level primitive `round`. |
 | [x] | `roll` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `rollaxis` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `roots` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `roots` | `covered` | `jax/numpy/roots` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `rot90` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `round` | `covered_indirect` | `jax/lax/round` | Covered via alias or lower-level primitive `round`. |
 | [x] | `s_` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
