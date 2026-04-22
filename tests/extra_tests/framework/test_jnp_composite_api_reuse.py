@@ -100,6 +100,14 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "intersect1d",
+            lambda x, y: jnp.intersect1d(x, y, size=3, fill_value=-1),
+            [
+                np.array([1, 2, 3, 4], dtype=np.int32),
+                np.array([2, 4, 6], dtype=np.int32),
+            ],
+        ),
+        (
             "isin",
             lambda x, y: jnp.isin(x, y),
             [

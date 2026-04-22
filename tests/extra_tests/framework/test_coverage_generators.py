@@ -150,6 +150,7 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "fmax",
         "fmin",
         "heaviside",
+        "intersect1d",
         "isin",
         "lexsort",
         "linalg.slogdet",

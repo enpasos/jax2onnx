@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `98`
+- Composite/helper entries: `99`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `18`
+- Missing dedicated plugin coverage: `17`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -221,7 +221,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `int_` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `integer` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [ ] | `interp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `intersect1d` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `intersect1d` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `invert` | `covered` | `jax/numpy/invert` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `isclose` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `iscomplex` | `covered_indirect` | `jax/lax/imag` | Covered via alias or lower-level primitive `imag`. |

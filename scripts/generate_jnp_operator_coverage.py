@@ -163,6 +163,7 @@ COMPOSITE_HELPERS = {
     "hstack",
     "indices",
     "insert",
+    "intersect1d",
     "isclose",
     "isin",
     "isneginf",

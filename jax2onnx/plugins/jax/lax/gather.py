@@ -10,10 +10,12 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 
+from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
+    _gather_int_scalar,
     _lower_i64_vector,
     _scalar_i64,
     _shape_of,
@@ -88,6 +90,46 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     if dtype is None:
         raise TypeError("Missing dtype on value; ensure inputs are typed.")
     return dtype
+
+
+def _shape_tuple(value: ir.Value) -> tuple[Any, ...]:
+    shape = getattr(value, "shape", None)
+    dims = getattr(shape, "dims", None)
+    if dims is not None:
+        return tuple(dims)
+    if shape is not None:
+        try:
+            return tuple(shape)
+        except TypeError:
+            pass
+    return ()
+
+
+def _mode_name(mode: Any) -> str:
+    if mode is None:
+        return ""
+    name = getattr(mode, "name", None)
+    return str(name if name is not None else mode).upper()
+
+
+def _default_fill_value(dtype: ir.DataType) -> np.ndarray[Any, np.dtype[Any]]:
+    np_dtype = ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
+    if np.issubdtype(np_dtype, np.floating):
+        return np.asarray(np.nan, dtype=np_dtype)
+    if np.issubdtype(np_dtype, np.bool_):
+        return np.asarray(True, dtype=np_dtype)
+    if np.issubdtype(np_dtype, np.signedinteger):
+        return np.asarray(np.iinfo(np_dtype).min, dtype=np_dtype)
+    if np.issubdtype(np_dtype, np.unsignedinteger):
+        return np.asarray(np.iinfo(np_dtype).max, dtype=np_dtype)
+    return np.asarray(0, dtype=np_dtype)
+
+
+def _fill_value_array(fill_value: Any, dtype: ir.DataType) -> np.ndarray[Any, Any]:
+    if fill_value is None:
+        return _default_fill_value(dtype)
+    np_dtype = ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
+    return np.asarray(fill_value, dtype=np_dtype)
 
 
 @register_primitive(
@@ -225,6 +267,28 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
             ),
         },
         {
+            "testcase": "gather_fill_or_drop_oob_i32",
+            "callable": lambda x: jax.lax.gather(
+                x,
+                jax.numpy.array([[-1], [1], [3]], dtype=jnp.int32),
+                jax.lax.GatherDimensionNumbers(
+                    offset_dims=(),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1,),
+                mode=jax.lax.GatherScatterMode.FILL_OR_DROP,
+                fill_value=-9,
+            ),
+            "input_values": [np.array([10, 20, 30], dtype=np.int32)],
+            "expected_output_shapes": [(3,)],
+            "expected_output_dtypes": [np.int32],
+            "post_check_onnx_graph": EG(
+                ["Gather:3 -> Where:3"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "gather_dynamic_batch_simple_index",
             "callable": lambda x: x[:, 0, :],
             "input_shapes": [("B", 50, 256)],
@@ -296,7 +360,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 )
             elif gir_instr["op"] == "ONNX_Gather":
                 current_data_var = self._emit_gather_from_gir(
-                    ctx, gir_instr, current_data_var, current_indices_var
+                    ctx,
+                    gir_instr,
+                    current_data_var,
+                    current_indices_var,
+                    mode=mode,
+                    fill_value=eqn.params.get("fill_value"),
                 )
             elif gir_instr["op"] == "ONNX_GatherND":
                 current_data_var = self._emit_gather_nd_from_gir(
@@ -621,6 +690,9 @@ class GatherPlugin(PrimitiveLeafPlugin):
         gir_instr: dict[str, Any],
         input_tensor: ir.Value,
         index_tensor: ir.Value,
+        *,
+        mode: Any,
+        fill_value: Any,
     ) -> ir.Value:
         # emit a cast if the indices are not int32 or int64, cast to int64 just to be sure
         if index_tensor.type != ir.TensorType(
@@ -649,6 +721,17 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
         assert gather_axis is not None
 
+        mode_upper = _mode_name(mode)
+        invalid_mask = None
+        if mode_upper in {"CLIP", "FILL_OR_DROP"}:
+            index_tensor_final, invalid_mask = self._clip_gather_indices_for_mode(
+                ctx,
+                input_tensor,
+                index_tensor_final,
+                axis=gather_axis,
+                need_invalid_mask=(mode_upper == "FILL_OR_DROP"),
+            )
+
         # emit gather
         result_val = ctx.builder.Gather(
             input_tensor,
@@ -659,7 +742,149 @@ class GatherPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
         _ensure_value_metadata(ctx, result_val)
+        if mode_upper == "FILL_OR_DROP" and invalid_mask is not None:
+            result_val = self._fill_invalid_gather_result(
+                ctx,
+                input_tensor,
+                result_val,
+                invalid_mask,
+                axis=gather_axis,
+                fill_value=fill_value,
+            )
         return result_val
+
+    def _clip_gather_indices_for_mode(
+        self,
+        ctx: "IRContext",
+        input_tensor: ir.Value,
+        index_tensor: ir.Value,
+        *,
+        axis: int,
+        need_invalid_mask: bool,
+    ) -> tuple[ir.Value, ir.Value | None]:
+        index_shape = _shape_tuple(index_tensor)
+        if index_tensor.type != ir.TensorType(ir.DataType.INT64):
+            index_tensor = ctx.builder.Cast(
+                index_tensor,
+                _outputs=[ctx.fresh_name("gather_indices_i64")],
+                to=int(ir.DataType.INT64.value),
+            )
+            index_tensor.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(index_tensor, index_shape)
+            _ensure_value_metadata(ctx, index_tensor)
+
+        input_rank = len(_shape_tuple(input_tensor))
+        axis_norm = axis + input_rank if axis < 0 and input_rank else axis
+        input_shape = _shape_of(ctx, input_tensor, "gather_data_shape")
+        dim_scalar = _gather_int_scalar(ctx, input_shape, axis_norm, "gather_axis_dim")
+        one = _scalar_i64(ctx, 1, "gather_bound_one")
+        zero = _scalar_i64(ctx, 0, "gather_bound_zero")
+        max_index = ctx.builder.Sub(
+            dim_scalar,
+            one,
+            _outputs=[ctx.fresh_name("gather_max_index")],
+        )
+        max_index.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(max_index, ())
+        _ensure_value_metadata(ctx, max_index)
+
+        invalid_mask = None
+        if need_invalid_mask:
+            lt_zero = ctx.builder.Less(
+                index_tensor,
+                zero,
+                _outputs=[ctx.fresh_name("gather_index_lt_zero")],
+            )
+            lt_zero.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(lt_zero, index_shape)
+            _ensure_value_metadata(ctx, lt_zero)
+
+            gt_max = ctx.builder.Greater(
+                index_tensor,
+                max_index,
+                _outputs=[ctx.fresh_name("gather_index_gt_max")],
+            )
+            gt_max.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(gt_max, index_shape)
+            _ensure_value_metadata(ctx, gt_max)
+
+            invalid_mask = ctx.builder.Or(
+                lt_zero,
+                gt_max,
+                _outputs=[ctx.fresh_name("gather_invalid_index")],
+            )
+            invalid_mask.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(invalid_mask, index_shape)
+            _ensure_value_metadata(ctx, invalid_mask)
+
+        clipped_low = ctx.builder.Max(
+            index_tensor,
+            zero,
+            _outputs=[ctx.fresh_name("gather_index_nonnegative")],
+        )
+        clipped_low.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(clipped_low, index_shape)
+        _ensure_value_metadata(ctx, clipped_low)
+
+        clipped = ctx.builder.Min(
+            clipped_low,
+            max_index,
+            _outputs=[ctx.fresh_name("gather_index_clipped")],
+        )
+        clipped.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(clipped, index_shape)
+        _ensure_value_metadata(ctx, clipped)
+        return clipped, invalid_mask
+
+    def _fill_invalid_gather_result(
+        self,
+        ctx: "IRContext",
+        input_tensor: ir.Value,
+        result_val: ir.Value,
+        invalid_mask: ir.Value,
+        *,
+        axis: int,
+        fill_value: Any,
+    ) -> ir.Value:
+        input_shape = _shape_tuple(input_tensor)
+        input_rank = len(input_shape)
+        axis_norm = axis + input_rank if axis < 0 and input_rank else axis
+        mask_shape = _shape_tuple(invalid_mask)
+        for tail_axis in range(max(input_rank - axis_norm - 1, 0)):
+            axes = _const_i64(
+                ctx,
+                np.asarray([len(mask_shape)], dtype=np.int64),
+                f"gather_invalid_mask_axis_{tail_axis}",
+            )
+            invalid_mask = ctx.builder.Unsqueeze(
+                invalid_mask,
+                axes,
+                _outputs=[ctx.fresh_name("gather_invalid_mask_unsqueeze")],
+            )
+            mask_shape = mask_shape + (1,)
+            invalid_mask.type = ir.TensorType(ir.DataType.BOOL)
+            _stamp_type_and_shape(invalid_mask, mask_shape)
+            _ensure_value_metadata(ctx, invalid_mask)
+
+        result_dtype = _dtype_enum_from_value(result_val)
+        fill_const = ctx.builder.add_initializer_from_array(
+            name=ctx.fresh_name("gather_fill_value"),
+            array=_fill_value_array(fill_value, result_dtype),
+        )
+        fill_const.type = ir.TensorType(result_dtype)
+        _stamp_type_and_shape(fill_const, ())
+        _ensure_value_metadata(ctx, fill_const)
+
+        filled = ctx.builder.Where(
+            invalid_mask,
+            fill_const,
+            result_val,
+            _outputs=[ctx.fresh_name("gather_fill_or_drop")],
+        )
+        _stamp_type_and_shape(filled, _shape_tuple(result_val))
+        filled.type = ir.TensorType(result_dtype)
+        _ensure_value_metadata(ctx, filled)
+        return filled
 
     def _convert_symbolic_1d_int_vec(
         self, ctx: "IRContext", values: list[Any], name: str
