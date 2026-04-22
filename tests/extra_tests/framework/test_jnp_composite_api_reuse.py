@@ -22,6 +22,11 @@ from jax2onnx import allclose, to_onnx
             [np.array([0, 2, 0, 3], dtype=np.int32)],
         ),
         (
+            "argpartition",
+            lambda x: jnp.argpartition(x, 2),
+            [np.array([3.0, 1.0, 2.0, 4.0], dtype=np.float32)],
+        ),
+        (
             "average",
             lambda x: jnp.average(x, axis=0),
             [np.arange(6, dtype=np.float32).reshape(2, 3)],

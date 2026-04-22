@@ -116,6 +116,7 @@ COMPOSITE_HELPERS = {
     "append",
     "apply_along_axis",
     "apply_over_axes",
+    "argpartition",
     "argwhere",
     "array",
     "array_equal",

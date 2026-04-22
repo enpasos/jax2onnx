@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `86`
+- Composite/helper entries: `87`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `30`
+- Missing dedicated plugin coverage: `29`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -42,7 +42,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `arctanh` | `covered_indirect` | `jax/lax/atanh, jax/numpy/atanh` | Covered via alias or lower-level primitive `atanh`. |
 | [x] | `argmax` | `covered` | `jax/numpy/argmax` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `argmin` | `covered` | `jax/numpy/argmin` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `argpartition` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `argpartition` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `argsort` | `covered_indirect` | `jax/lax/sort, jax/numpy/sort` | Covered via alias or lower-level primitive `sort`. |
 | [x] | `argwhere` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `around` | `covered_indirect` | `jax/lax/round` | Covered via alias or lower-level primitive `round`. |
