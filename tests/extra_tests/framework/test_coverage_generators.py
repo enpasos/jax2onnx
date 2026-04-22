@@ -134,6 +134,27 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
     assert _jnp_status("positive") == "composite"
 
 
+@pytest.mark.parametrize(
+    "op",
+    [
+        "average",
+        "diff",
+        "divmod",
+        "fmax",
+        "fmin",
+        "heaviside",
+        "logaddexp",
+        "logaddexp2",
+        "modf",
+        "nan_to_num",
+    ],
+)
+def test_jnp_coverage_marks_verified_composite_math_apis_as_composite(
+    op: str,
+) -> None:
+    assert _jnp_status(op) == "composite"
+
+
 def test_lax_coverage_marks_broadcast_like_as_composite() -> None:
     assert _lax_status("broadcast_like") == "composite"
 
