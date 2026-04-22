@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `188`
+- Covered (direct plugin): `189`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `13`
+- Missing dedicated plugin coverage: `12`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -383,7 +383,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `s_` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `save` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `savez` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `searchsorted` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `searchsorted` | `covered` | `jax/numpy/searchsorted` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `select` | `covered` | `jax/numpy/select` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `set_printoptions` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `setdiff1d` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
