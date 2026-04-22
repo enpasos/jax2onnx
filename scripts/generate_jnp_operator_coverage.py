@@ -185,6 +185,7 @@ COMPOSITE_HELPERS = {
     "piecewise",
     "poly",
     "polymul",
+    "polyval",
     "positive",
     "r_",
     "repeat",

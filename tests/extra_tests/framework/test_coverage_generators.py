@@ -161,6 +161,7 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "packbits",
         "poly",
         "polymul",
+        "polyval",
         "unpackbits",
     ],
 )

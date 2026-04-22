@@ -167,6 +167,14 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "polyval",
+            lambda coeffs, x: jnp.polyval(coeffs, x),
+            [
+                np.array([2.0, -3.0, 4.0], dtype=np.float32),
+                np.array([1.5, -2.0], dtype=np.float32),
+            ],
+        ),
+        (
             "unpackbits",
             lambda x: jnp.unpackbits(x, bitorder="big"),
             [np.array([178], dtype=np.uint8)],

@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `88`
+- Composite/helper entries: `89`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `28`
+- Missing dedicated plugin coverage: `27`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -350,7 +350,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `polyint` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `polymul` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `polysub` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `polyval` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `polyval` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `positive` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `pow` | `covered` | `jax/numpy/pow` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `power` | `covered` | `jax/numpy/pow` | Direct plugin coverage via `jax_doc` or `component` metadata. |
