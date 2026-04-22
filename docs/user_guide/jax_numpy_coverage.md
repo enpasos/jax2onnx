@@ -7,10 +7,10 @@
 ## Snapshot
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
-- Covered (via alias/indirect signal): `63`
+- Covered (via alias/indirect signal): `77`
 - Composite/helper entries: `64`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `67`
+- Missing dedicated plugin coverage: `53`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -27,7 +27,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `allclose` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `amax` | `covered` | `jax/numpy/amax` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `amin` | `covered` | `jax/numpy/amin` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `angle` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `angle` | `covered_indirect` | `jax/lax/atan2, jax/numpy/atan2` | Covered via alias or lower-level primitive `atan2`. |
 | [x] | `any` | `covered` | `jax/numpy/any` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `append` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `apply_along_axis` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
@@ -143,23 +143,23 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `eye` | `covered` | `jax/numpy/eye` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `fabs` | `covered` | `jax/numpy/fabs` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `fft.fft` | `covered` | `jax/numpy/fft` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.fft2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.fft2` | `covered_indirect` | `jax/lax/fft, jax/numpy/fft` | Covered via alias or lower-level primitive `fft`. |
 | [x] | `fft.fftfreq` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.fftn` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.fftn` | `covered_indirect` | `jax/lax/fft, jax/numpy/fft` | Covered via alias or lower-level primitive `fft`. |
 | [x] | `fft.fftshift` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.hfft` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.hfft` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `irfft`. |
 | [x] | `fft.ifft` | `covered` | `jax/numpy/fft` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.ifft2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `fft.ifftn` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.ifft2` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `ifft`. |
+| [x] | `fft.ifftn` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `ifft`. |
 | [x] | `fft.ifftshift` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.ihfft` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.ihfft` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `rfft`. |
 | [x] | `fft.irfft` | `covered` | `jax/numpy/fft` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.irfft2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `fft.irfftn` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.irfft2` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `irfft`. |
+| [x] | `fft.irfftn` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `irfft`. |
 | [x] | `fft.rfft` | `covered` | `jax/numpy/fft` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.rfft2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.rfft2` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `rfft`. |
 | [x] | `fft.rfftfreq` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `fft.rfftn` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `fft.rfftn` | `covered_indirect` | `jax/numpy/fft` | Covered via alias or lower-level primitive `rfft`. |
 | [x] | `fill_diagonal` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `finfo` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `flatnonzero` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
@@ -212,7 +212,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `index_exp` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `indices` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `inexact` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `inner` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `inner` | `covered_indirect` | `jax/lax/dot_general` | Covered via alias or lower-level primitive `dot_general`. |
 | [x] | `insert` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `int16` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `int32` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
@@ -240,7 +240,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `iterable` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `ix_` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `kaiser` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `kron` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `kron` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
 | [x] | `lcm` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `ldexp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `left_shift` | `covered` | `jax/numpy/left_shift` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -357,7 +357,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `printoptions` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `prod` | `covered` | `jax/numpy/prod` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `promote_types` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `ptp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `ptp` | `covered_indirect` | `jax/lax/reduce_max` | Covered via alias or lower-level primitive `reduce_max`. |
 | [x] | `put` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `put_along_axis` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `quantile` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
