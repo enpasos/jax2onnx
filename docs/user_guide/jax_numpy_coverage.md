@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `189`
+- Covered (direct plugin): `190`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `12`
+- Missing dedicated plugin coverage: `11`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -121,7 +121,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `diagflat` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `diagonal` | `covered` | `jax/numpy/diagonal` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `diff` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `digitize` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `digitize` | `covered` | `jax/numpy/digitize` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `divide` | `covered` | `jax/numpy/divide` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `divmod` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `dot` | `covered` | `jax/numpy/dot` | Direct plugin coverage via `jax_doc` or `component` metadata. |
