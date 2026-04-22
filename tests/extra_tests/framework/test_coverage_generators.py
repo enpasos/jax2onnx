@@ -137,16 +137,21 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
 @pytest.mark.parametrize(
     "op",
     [
+        "argwhere",
         "average",
+        "bincount",
         "diff",
         "divmod",
         "fmax",
         "fmin",
         "heaviside",
+        "isin",
+        "linalg.slogdet",
         "logaddexp",
         "logaddexp2",
         "modf",
         "nan_to_num",
+        "nonzero",
     ],
 )
 def test_jnp_coverage_marks_verified_composite_math_apis_as_composite(

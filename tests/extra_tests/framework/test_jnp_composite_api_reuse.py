@@ -17,9 +17,19 @@ from jax2onnx import allclose, to_onnx
     ("case_id", "fn", "inputs"),
     [
         (
+            "argwhere",
+            lambda x: jnp.argwhere(x, size=3),
+            [np.array([0, 2, 0, 3], dtype=np.int32)],
+        ),
+        (
             "average",
             lambda x: jnp.average(x, axis=0),
             [np.arange(6, dtype=np.float32).reshape(2, 3)],
+        ),
+        (
+            "bincount",
+            lambda x: jnp.bincount(x, length=4),
+            [np.array([0, 1, 1, 3], dtype=np.int32)],
         ),
         (
             "diff",
@@ -59,6 +69,19 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "isin",
+            lambda x, y: jnp.isin(x, y),
+            [
+                np.array([1, 2, 3], dtype=np.int32),
+                np.array([2, 4], dtype=np.int32),
+            ],
+        ),
+        (
+            "linalg_slogdet",
+            lambda x: jnp.linalg.slogdet(x),
+            [np.array([[3.0, 1.0], [1.0, 2.0]], dtype=np.float32)],
+        ),
+        (
             "logaddexp",
             lambda x, y: jnp.logaddexp(x, y),
             [
@@ -83,6 +106,11 @@ from jax2onnx import allclose, to_onnx
             "nan_to_num",
             lambda x: jnp.nan_to_num(x),
             [np.array([1.0, np.nan, np.inf, -np.inf], dtype=np.float32)],
+        ),
+        (
+            "nonzero",
+            lambda x: jnp.nonzero(x, size=3),
+            [np.array([0, 2, 0, 3], dtype=np.int32)],
         ),
     ],
 )
