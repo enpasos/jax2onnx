@@ -72,6 +72,29 @@ if TYPE_CHECKING:  # pragma: no cover
             ),
         },
         {
+            "testcase": "scatter_add_fill_or_drop_oob_1d",
+            "callable": lambda operand, indices, updates: jax.lax.scatter_add(
+                operand,
+                indices,
+                updates,
+                jax.lax.ScatterDimensionNumbers(
+                    update_window_dims=(),
+                    inserted_window_dims=(0,),
+                    scatter_dims_to_operand_dims=(0,),
+                ),
+                mode=jax.lax.GatherScatterMode.FILL_OR_DROP,
+            ),
+            "input_values": [
+                np.zeros((3,), dtype=np.float32),
+                np.array([[0], [3], [1]], dtype=np.int32),
+                np.array([10.0, 20.0, 30.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": EG(
+                [("ScatterND:3", {"counts": {"NonZero": 1}})],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "scatter_add_batch_updates_1d_operand",
             "callable": lambda operand, indices, updates: jax.lax.scatter_add(
                 operand,

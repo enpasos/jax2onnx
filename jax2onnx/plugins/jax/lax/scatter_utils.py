@@ -19,6 +19,7 @@ from typing import Any, Dict, Sequence, Tuple
 import numpy as np
 import onnx_ir as ir
 from jax import core
+from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins.jax.lax._index_utils import (
@@ -36,6 +37,40 @@ def _maybe_static_extent(value: Any) -> int | None:
     if isinstance(value, (int, np.integer)):
         return int(value)
     return None
+
+
+def _static_elementwise_indices_in_bounds(
+    indices_val: ir.Value,
+    operand_shape: Sequence[Any],
+    scatter_axes: Sequence[int],
+) -> bool:
+    """Return true when a FILL_OR_DROP scatter can skip runtime filtering."""
+
+    scatter_axes = tuple(int(axis) for axis in scatter_axes)
+    if not scatter_axes:
+        return True
+
+    indices_arr = const_value_to_numpy(indices_val)
+    if indices_arr is None:
+        return False
+
+    index_depth = len(scatter_axes)
+    if indices_arr.size % index_depth != 0:
+        return False
+
+    indices_2d = np.asarray(indices_arr).reshape(-1, index_depth)
+    for col_pos, operand_axis in enumerate(scatter_axes):
+        dim = (
+            _maybe_static_extent(operand_shape[operand_axis])
+            if 0 <= operand_axis < len(operand_shape)
+            else None
+        )
+        if dim is None:
+            return False
+        col = indices_2d[:, col_pos]
+        if bool(np.any((col < 0) | (col >= dim))):
+            return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -826,6 +861,46 @@ def _filter_fill_or_drop_updates(
     return indices_filtered, updates_perm_val, num_valid, valid_idx_flat
 
 
+def _filter_fill_or_drop_elementwise_updates(
+    ctx: Any,
+    indices_2d: ir.Value,
+    updates_val: ir.Value,
+    *,
+    scatter_axes: Sequence[int],
+    operand_rank: int,
+    operand_shape_val: ir.Value,
+    mode: Any,
+) -> tuple[ir.Value, ir.Value]:
+    one_scalar = _scalar_i64(ctx, 1, "scatter_elementwise_window")
+    size_scalars = [one_scalar for _ in range(operand_rank)]
+    indices_filtered, _, _, gather_idx = _filter_fill_or_drop_updates(
+        ctx,
+        indices_2d,
+        updates_val,
+        scatter_axes=tuple(sorted(int(axis) for axis in scatter_axes)),
+        size_scalars=size_scalars,
+        operand_shape_val=operand_shape_val,
+        num_updates=_scalar_i64(ctx, 0, "scatter_elementwise_unused_count"),
+        mode=mode,
+    )
+    if gather_idx is None:
+        return indices_filtered, updates_val
+
+    updates_dtype = getattr(getattr(updates_val, "type", None), "dtype", None)
+    updates_shape = tuple(getattr(getattr(updates_val, "shape", None), "dims", ()))
+    filtered_shape = (None,) + updates_shape[1:] if updates_shape else (None,)
+    updates_filtered = _builder_op(
+        ctx,
+        "Gather",
+        [updates_val, gather_idx],
+        name_hint="scatter_updates_valid",
+        dtype=updates_dtype,
+        shape=filtered_shape,
+        attributes={"axis": 0},
+    )
+    return indices_filtered, updates_filtered
+
+
 def _create_zero_column(
     ctx: Any, num_updates_vec: ir.Value, name_hint: str
 ) -> tuple[ir.Value, ir.Value]:
@@ -1332,6 +1407,20 @@ def lower_scatter_elementwise(
         operand_shape=operand_shape,
         index_depth=index_depth,
     )
+    mode_name = getattr(mode, "name", str(mode)).upper() if mode is not None else ""
+    if "FILL_OR_DROP" in mode_name and not _static_elementwise_indices_in_bounds(
+        indices_val, operand_shape, scatter_axes
+    ):
+        operand_shape_val = _shape_of(ctx, operand_val, "scatter_operand_shape")
+        indices_ordered, updates_prepared = _filter_fill_or_drop_elementwise_updates(
+            ctx,
+            indices_ordered,
+            updates_prepared,
+            scatter_axes=scatter_axes,
+            operand_rank=operand_rank,
+            operand_shape_val=operand_shape_val,
+            mode=mode,
+        )
 
     reduction_norm = (reduction or "none").lower()
     if reduction_norm not in {"none", "add", "max", "min", "mul"}:

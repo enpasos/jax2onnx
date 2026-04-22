@@ -175,6 +175,39 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "place",
+            lambda x, vals: jnp.place(
+                x,
+                jnp.array([True, False, True]),
+                vals,
+                inplace=False,
+            ),
+            [
+                np.array([1, 2, 3], dtype=np.int32),
+                np.array([9, 8], dtype=np.int32),
+            ],
+        ),
+        (
+            "tril_indices",
+            lambda: jnp.tril_indices(3),
+            [],
+        ),
+        (
+            "tril_indices_from",
+            lambda x: jnp.tril_indices_from(x),
+            [np.zeros((3, 3), dtype=np.float32)],
+        ),
+        (
+            "triu_indices",
+            lambda: jnp.triu_indices(3),
+            [],
+        ),
+        (
+            "triu_indices_from",
+            lambda x: jnp.triu_indices_from(x),
+            [np.zeros((3, 3), dtype=np.float32)],
+        ),
+        (
             "unique_all",
             lambda x: jnp.unique_all(x, size=4, fill_value=-1),
             [np.array([3, 1, 3, 2], dtype=np.int32)],

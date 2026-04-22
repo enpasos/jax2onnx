@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `93`
+- Composite/helper entries: `98`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `23`
+- Missing dedicated plugin coverage: `18`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -341,7 +341,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `percentile` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `permute_dims` | `covered_indirect` | `jax/lax/transpose, jax/numpy/transpose` | Covered via alias or lower-level primitive `transpose`. |
 | [x] | `piecewise` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `place` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `place` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `poly` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `polyadd` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `polyder` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -420,12 +420,12 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `trapezoid` | `covered` | `jax/numpy/composite_metadata_batch3` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `tri` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `tril` | `covered_indirect` | `jax/numpy/trilu` | Covered via alias or lower-level primitive `triu`. |
-| [ ] | `tril_indices` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `tril_indices_from` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `tril_indices` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
+| [x] | `tril_indices_from` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `trim_zeros` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `triu` | `covered` | `jax/numpy/trilu` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `triu_indices` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `triu_indices_from` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `triu_indices` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
+| [x] | `triu_indices_from` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `true_divide` | `covered_indirect` | `jax/lax/div` | Covered via alias or lower-level primitive `div`. |
 | [x] | `trunc` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `ufunc` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
