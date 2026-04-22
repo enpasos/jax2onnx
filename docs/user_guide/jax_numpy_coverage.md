@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `196`
+- Covered (direct plugin): `197`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `5`
+- Missing dedicated plugin coverage: `4`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -269,7 +269,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `linalg.pinv` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.qr` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.slogdet` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `linalg.solve` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `linalg.solve` | `covered` | `jax/numpy/linalg_solve` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.svd` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.svdvals` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.tensordot` | `covered` | `jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3` | Direct plugin coverage via `jax_doc` or `component` metadata. |
