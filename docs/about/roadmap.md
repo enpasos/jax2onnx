@@ -7,7 +7,7 @@
 * Improve support for **physics-based simulations**.
  
 
-## Upcoming Version
+## Current Version
 
 
 ### **jax2onnx 0.13.0**
@@ -23,15 +23,6 @@
 * **Improve coverage documentation quality:** Add stale-doc checks for coverage generators, snapshot/zero-missing guards, ONNX metadata-vs-lowering asymmetry guards, and an ONNX operator coverage matrix with next-action buckets for the remaining open operators.
 
 
-
-## Current Version
- 
-
-### **jax2onnx 0.12.5**
-
-* **Add MaxDiffusion example coverage:** Export a lightweight MaxDiffusion UNet test matrix for selected SDXL-family configs, add an optional `maxdiffusion` dependency group, and wire the SotA checks into `run_all_checks.sh` with a pinned upstream checkout flow.
-* **Strengthen numeric validation for resize exports:** Stop skipping numeric validation for small static opset 9 linear resizes by lowering exact resize weights through `MatMul`, and align `jax.image.resize(..., method="nearest", antialias=True)` with JAX by treating nearest-neighbour antialiasing as a no-op.
-* **Fix symbolic and dynamic index-path exports:** Preserve symbolic dimension origins in the IR and unblock dynamic `lax.slice`, `gather`, `iota`, and `rev` lowerings, including reflect-padding exports for dynamic `nnx.Conv` paths.
 
  
  
