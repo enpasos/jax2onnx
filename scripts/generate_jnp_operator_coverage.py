@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "jax2onnx" / "plugins"
+JNP_PLUGIN_ROOT = PLUGIN_ROOT / "jax" / "numpy"
 DEFAULT_OUTPUT = REPO_ROOT / "work_notes_coverage_jnp.md"
 DEFAULT_MKDOCS_OUTPUT = REPO_ROOT / "docs" / "user_guide" / "jax_numpy_coverage.md"
 DEFAULT_DOC_URL = "https://docs.jax.dev/en/latest/jax.numpy.html"
@@ -24,27 +25,58 @@ JAX_DOC_URL_RE = re.compile(r'jax_doc\s*=\s*"([^"]+)"')
 JAX_DOC_NAME_RE = re.compile(r"jax\.numpy\.([A-Za-z0-9_.]+?)(?:\.html|$)")
 JAXPR_LITERAL_RE = re.compile(r'jaxpr_primitive\s*=\s*"([A-Za-z0-9_.-]+)"')
 JAXPR_NAME_RE = re.compile(r"jaxpr_primitive\s*=\s*([A-Za-z0-9_.]+)_p\.name")
+COMPONENT_LITERAL_RE = re.compile(r'component\s*=\s*"([A-Za-z0-9_.-]+)"')
 
 ALIAS_TO_OP = {
     "absolute": "abs",
-    "acos": "arccos",
-    "acosh": "arccosh",
-    "asin": "arcsin",
-    "asinh": "arcsinh",
-    "atan": "arctan",
-    "atan2": "arctan2",
-    "atanh": "arctanh",
+    "arccos": "acos",
+    "arccosh": "acosh",
+    "arcsin": "asin",
+    "arcsinh": "asinh",
+    "arctan": "atan",
+    "arctan2": "atan2",
+    "arctanh": "atanh",
     "bitwise_invert": "bitwise_not",
     "concat": "concatenate",
     "conjugate": "conj",
     "cumulative_prod": "cumprod",
     "cumulative_sum": "cumsum",
+    "copy": "copy",
+    "empty_like": "broadcast_in_dim",
+    "flip": "rev",
+    "full_like": "broadcast_in_dim",
+    "imag": "imag",
+    "isinf": "eq",
+    "isnan": "ne",
+    "logical_and": "and",
+    "logical_not": "not",
+    "logical_or": "or",
+    "logical_xor": "xor",
+    "matrix_transpose": "transpose",
+    "mod": "rem",
+    "multiply": "mul",
+    "negative": "neg",
+    "not_equal": "ne",
+    "ones_like": "broadcast_in_dim",
+    "permute_dims": "transpose",
     "pow": "power",
+    "ravel": "reshape",
+    "real": "real",
+    "reciprocal": "integer_pow",
+    "remainder": "rem",
+    "rint": "round",
+    "round": "round",
     "round_": "round",
+    "square": "square",
+    "subtract": "sub",
+    "swapaxes": "transpose",
     "tril": "triu",
+    "true_divide": "div",
+    "zeros_like": "broadcast_in_dim",
 }
 
 COMPOSITE_HELPERS = {
+    "allclose",
     "append",
     "apply_along_axis",
     "apply_over_axes",
@@ -59,6 +91,7 @@ COMPOSITE_HELPERS = {
     "atleast_1d",
     "atleast_2d",
     "atleast_3d",
+    "count_nonzero",
     "broadcast_arrays",
     "broadcast_shapes",
     "broadcast_to",
@@ -94,6 +127,7 @@ COMPOSITE_HELPERS = {
     "newaxis",
     "ogrid",
     "piecewise",
+    "positive",
     "r_",
     "repeat",
     "resize",
@@ -103,6 +137,7 @@ COMPOSITE_HELPERS = {
     "setxor1d",
     "stack",
     "take_along_axis",
+    "trunc",
     "trim_zeros",
     "union1d",
     "unwrap",
@@ -116,6 +151,7 @@ NON_FUNCTIONAL_ENTRIES = {
     "bool_",
     "byte",
     "bytes_",
+    "can_cast",
     "cdouble",
     "character",
     "clongdouble",
@@ -126,11 +162,23 @@ NON_FUNCTIONAL_ENTRIES = {
     "csingle",
     "double",
     "dtype",
+    "einsum_path",
     "finfo",
     "flatiter",
+    "flexible",
+    "float16",
+    "float32",
+    "float64",
+    "float_",
     "floating",
+    "from_dlpack",
+    "fromfile",
+    "frompyfunc",
     "generic",
+    "get_printoptions",
     "half",
+    "iinfo",
+    "index_exp",
     "inexact",
     "int_",
     "int8",
@@ -138,13 +186,25 @@ NON_FUNCTIONAL_ENTRIES = {
     "int32",
     "int64",
     "integer",
+    "iscomplexobj",
+    "isdtype",
+    "isrealobj",
+    "isscalar",
     "issubsctype",
     "issubdtype",
+    "iterable",
+    "load",
     "longdouble",
+    "ndim",
     "ndarray",
     "number",
+    "object_",
+    "printoptions",
     "promote_types",
     "result_type",
+    "save",
+    "savez",
+    "set_printoptions",
     "signedinteger",
     "single",
     "timedelta64",
@@ -154,6 +214,7 @@ NON_FUNCTIONAL_ENTRIES = {
     "uint32",
     "uint64",
     "unsignedinteger",
+    "ufunc",
     "void",
 }
 
@@ -217,13 +278,19 @@ def fetch_doc_ops(doc_url: str) -> list[str]:
 
 def collect_plugin_signals(
     plugin_root: Path,
-) -> tuple[DefaultDict[str, set[str]], DefaultDict[str, set[str]]]:
+) -> tuple[
+    DefaultDict[str, set[str]],
+    DefaultDict[str, set[str]],
+    DefaultDict[str, set[str]],
+]:
     doc_usage: DefaultDict[str, set[str]] = defaultdict(set)
     prim_usage: DefaultDict[str, set[str]] = defaultdict(set)
+    component_usage: DefaultDict[str, set[str]] = defaultdict(set)
 
     for path in sorted(plugin_root.rglob("*.py")):
         text = path.read_text(encoding="utf-8")
         module = _module_id(path)
+        is_jnp_plugin = path.is_relative_to(JNP_PLUGIN_ROOT)
 
         for jax_doc in JAX_DOC_URL_RE.findall(text):
             for op in JAX_DOC_NAME_RE.findall(jax_doc):
@@ -241,7 +308,22 @@ def collect_plugin_signals(
             prim_usage[prim.replace("-", "_")].add(module)
             prim_usage[prim.replace("_", "-")].add(module)
 
-    return doc_usage, prim_usage
+        if is_jnp_plugin:
+            for component in COMPONENT_LITERAL_RE.findall(text):
+                component_usage[component].add(module)
+                component_usage[component.replace("-", "_")].add(module)
+                component_usage[component.replace("_", "-")].add(module)
+
+    return doc_usage, prim_usage, component_usage
+
+
+def _usage_for_key(key: str, usage: dict[str, set[str]]) -> set[str]:
+    return (
+        set(usage.get(key, set()))
+        | set(usage.get(key.split(".")[-1], set()))
+        | set(usage.get(key.replace("-", "_"), set()))
+        | set(usage.get(key.replace("_", "-"), set()))
+    )
 
 
 def _status_for_op(
@@ -249,33 +331,43 @@ def _status_for_op(
     *,
     doc_usage: dict[str, set[str]],
     prim_usage: dict[str, set[str]],
+    component_usage: dict[str, set[str]],
 ) -> tuple[str, str, str]:
     base = op.split(".")[-1]
-    modules = set(doc_usage.get(op, set())) | set(doc_usage.get(base, set()))
+    modules = (
+        _usage_for_key(op, doc_usage)
+        | _usage_for_key(base, doc_usage)
+        | _usage_for_key(op, component_usage)
+        | _usage_for_key(base, component_usage)
+    )
     modules_text = ", ".join(sorted(modules)[:3]) if modules else "-"
 
     if modules:
-        return "covered", modules_text, "Direct plugin coverage via `jax_doc` metadata."
+        return (
+            "covered",
+            modules_text,
+            "Direct plugin coverage via `jax_doc` or `component` metadata.",
+        )
 
     alias = ALIAS_TO_OP.get(base)
-    if alias and (
-        doc_usage.get(alias)
-        or doc_usage.get(alias.split(".")[-1])
-        or prim_usage.get(alias)
-        or prim_usage.get(alias.replace("-", "_"))
-        or prim_usage.get(alias.replace("_", "-"))
-    ):
+    if alias:
         alias_modules = (
-            set(doc_usage.get(alias, set()))
-            | set(doc_usage.get(alias.split(".")[-1], set()))
-            | set(prim_usage.get(alias, set()))
-            | set(prim_usage.get(alias.replace("-", "_"), set()))
-            | set(prim_usage.get(alias.replace("_", "-"), set()))
+            _usage_for_key(alias, doc_usage)
+            | _usage_for_key(alias, component_usage)
+            | _usage_for_key(alias, prim_usage)
         )
+    else:
+        alias_modules = set()
+
+    if alias and alias_modules:
         alias_modules_text = (
             ", ".join(sorted(alias_modules)[:3]) if alias_modules else "-"
         )
-        return "covered_indirect", alias_modules_text, f"Covered via alias `{alias}`."
+        return (
+            "covered_indirect",
+            alias_modules_text,
+            f"Covered via alias or lower-level primitive `{alias}`.",
+        )
 
     if base in NON_FUNCTIONAL_ENTRIES:
         return (
@@ -299,11 +391,15 @@ def build_rows(
     *,
     doc_usage: dict[str, set[str]],
     prim_usage: dict[str, set[str]],
+    component_usage: dict[str, set[str]],
 ) -> list[CoverageRow]:
     rows: list[CoverageRow] = []
     for op in ops:
         status, modules_text, note = _status_for_op(
-            op, doc_usage=doc_usage, prim_usage=prim_usage
+            op,
+            doc_usage=doc_usage,
+            prim_usage=prim_usage,
+            component_usage=component_usage,
         )
         checkbox = (
             "x"
@@ -339,7 +435,7 @@ def render_markdown(rows: list[CoverageRow], *, doc_url: str, title: str) -> str
         f" `{doc_url}`"
     )
     lines.append(
-        "- Coverage signal: `jax_doc` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`."
+        "- Coverage signal: `jax_doc`/`component` metadata + `jaxpr_primitive` registrations in `jax2onnx/plugins/**/*.py`."
     )
     lines.append("")
     lines.append("## Snapshot")
@@ -375,8 +471,13 @@ def main() -> None:
     args = parser.parse_args()
 
     ops = fetch_doc_ops(args.doc_url)
-    doc_usage, prim_usage = collect_plugin_signals(PLUGIN_ROOT)
-    rows = build_rows(ops, doc_usage=doc_usage, prim_usage=prim_usage)
+    doc_usage, prim_usage, component_usage = collect_plugin_signals(PLUGIN_ROOT)
+    rows = build_rows(
+        ops,
+        doc_usage=doc_usage,
+        prim_usage=prim_usage,
+        component_usage=component_usage,
+    )
 
     work_notes_content = render_markdown(
         rows,
