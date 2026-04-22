@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Final, Iterable, Optional, Sequence
 
 import numpy as np
 import onnx_ir as ir
@@ -15,6 +15,15 @@ from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
+
+
+_REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
+    {
+        np.dtype(np.uint8),
+        np.dtype(np.uint16),
+        np.dtype(np.uint32),
+    }
+)
 
 
 def _normalize_axes(
@@ -72,6 +81,17 @@ def lower_reduction(
     requested_dtype = params.get("dtype") if allow_dtype_param else None
     if requested_dtype is not None:
         requested_dtype = np.dtype(requested_dtype)
+    operand_dtype_param = getattr(getattr(operand_var, "aval", None), "dtype", None)
+    operand_dtype = (
+        np.dtype(operand_dtype_param) if operand_dtype_param is not None else None
+    )
+
+    work_dtype = requested_dtype
+    needs_result_cast = False
+    effective_dtype = requested_dtype or operand_dtype
+    if op_type == "ReduceSum" and effective_dtype in _REDUCESUM_INT64_WORK_DTYPES:
+        work_dtype = np.dtype(np.int64)
+        needs_result_cast = True
 
     operand_val = ctx.get_value_for_var(
         operand_var, name_hint=ctx.fresh_name(f"{op_type.lower()}_in")
@@ -87,7 +107,7 @@ def lower_reduction(
         ctx,
         operand_val,
         operand_shape,
-        requested_dtype,
+        work_dtype,
     )
 
     inputs = [reduced_input]
@@ -101,69 +121,92 @@ def lower_reduction(
         desired_name = ctx.fresh_name(op_type)
 
     keepdims_attr = 1 if keepdims else 0
+    reduce_outputs = [ctx.fresh_name(op_type)] if needs_result_cast else [desired_name]
     if op_type == "ReduceSum":
         result = ctx.builder.ReduceSum(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceProd":
         result = ctx.builder.ReduceProd(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceMax":
         result = ctx.builder.ReduceMax(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceMin":
         result = ctx.builder.ReduceMin(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceL1":
         result = ctx.builder.ReduceL1(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceL2":
         result = ctx.builder.ReduceL2(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceLogSum":
         result = ctx.builder.ReduceLogSum(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceLogSumExp":
         result = ctx.builder.ReduceLogSumExp(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     elif op_type == "ReduceSumSquare":
         result = ctx.builder.ReduceSumSquare(
             *inputs,
             keepdims=keepdims_attr,
-            _outputs=[desired_name],
+            _outputs=reduce_outputs,
         )
     else:
         raise ValueError(f"Unsupported reduction op: {op_type}")
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     aval_dtype = getattr(out_var.aval, "dtype", None)
+    out_dtype_enum = None
     if aval_dtype is not None:
         out_dtype_enum = _dtype_to_ir(
             np.dtype(aval_dtype), ctx.builder.enable_double_precision
         )
+
+    if needs_result_cast:
+        result.type = ir.TensorType(ir.DataType.INT64)
+        _stamp_type_and_shape(result, out_shape)
+        _ensure_value_metadata(ctx, result)
+
+        target_dtype = out_dtype_enum or _dtype_to_ir(
+            np.dtype(effective_dtype), ctx.builder.enable_double_precision
+        )
+        cast_result = ctx.builder.Cast(
+            result,
+            _outputs=[desired_name],
+            to=int(target_dtype.value),
+        )
+        cast_result.type = ir.TensorType(target_dtype)
+        _stamp_type_and_shape(cast_result, out_shape)
+        _ensure_value_metadata(ctx, cast_result)
+        ctx.bind_value_for_var(out_var, cast_result)
+        return
+
+    if out_dtype_enum is not None:
         result.type = ir.TensorType(out_dtype_enum)
     _stamp_type_and_shape(result, out_shape)
 

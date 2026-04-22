@@ -24,8 +24,14 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
     {
+        np.dtype(np.int8),
+        np.dtype(np.int16),
         np.dtype(np.int32),
         np.dtype(np.int64),
+        np.dtype(np.uint8),
+        np.dtype(np.uint16),
+        np.dtype(np.uint32),
+        np.dtype(np.uint64),
         np.dtype(np.float32),
         np.dtype(np.float64),
         np.dtype(np.bool_),
@@ -61,6 +67,16 @@ _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
             "input_shapes": [],
             "post_check_onnx_graph": EG(
                 ["Range:10 -> Cast:10"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "iota_uint8",
+            "callable": lambda: jax.lax.iota(np.uint8, 8),
+            "input_shapes": [],
+            "expected_output_dtypes": [np.uint8],
+            "post_check_onnx_graph": EG(
+                ["Range:8 -> Cast:8"],
                 no_unused_inputs=True,
             ),
         },

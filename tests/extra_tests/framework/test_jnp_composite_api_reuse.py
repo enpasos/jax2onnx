@@ -139,6 +139,11 @@ from jax2onnx import allclose, to_onnx
             [np.array([0, 2, 0, 3], dtype=np.int32)],
         ),
         (
+            "packbits",
+            lambda x: jnp.packbits(x, bitorder="big"),
+            [np.array([1, 0, 1, 1, 0, 0, 1, 0], dtype=np.uint8)],
+        ),
+        (
             "poly",
             lambda x: jnp.poly(x),
             [np.array([1.0, 2.0, 3.0], dtype=np.float32)],
@@ -150,6 +155,11 @@ from jax2onnx import allclose, to_onnx
                 np.array([1.0, 2.0], dtype=np.float32),
                 np.array([3.0, 4.0, 5.0], dtype=np.float32),
             ],
+        ),
+        (
+            "unpackbits",
+            lambda x: jnp.unpackbits(x, bitorder="big"),
+            [np.array([178], dtype=np.uint8)],
         ),
     ],
 )

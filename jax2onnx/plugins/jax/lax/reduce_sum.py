@@ -100,6 +100,17 @@ def _all_axes(x: Any) -> tuple[int, ...]:
             ),
         },
         {
+            "testcase": "reduce_sum_uint32_axis",
+            "callable": lambda x: jax.lax.reduce_sum(x, axes=(1,)),
+            "input_values": [np.arange(8, dtype=np.uint32).reshape(1, 8)],
+            "expected_output_dtypes": [np.uint32],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Cast:1x8 -> ReduceSum:1 -> Cast:1"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "reduce_sum_keepdims",
             "callable": lambda x: jax.lax.broadcast_in_dim(
                 jax.lax.reduce_sum(x, axes=(1,)),

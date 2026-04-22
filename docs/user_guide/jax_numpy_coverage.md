@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `84`
+- Composite/helper entries: `86`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `32`
+- Missing dedicated plugin coverage: `30`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -335,7 +335,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `ones` | `covered` | `jax/numpy/ones` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `ones_like` | `covered_indirect` | `jax/lax/broadcast_in_dim` | Covered via alias or lower-level primitive `broadcast_in_dim`. |
 | [x] | `outer` | `covered` | `jax/numpy/outer` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `packbits` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `packbits` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `pad` | `covered` | `jax/numpy/pad` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `partition` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `percentile` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -440,7 +440,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [ ] | `unique_counts` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [ ] | `unique_inverse` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [ ] | `unique_values` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `unpackbits` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `unpackbits` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `unravel_index` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `unsignedinteger` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `unstack` | `covered` | `jax/numpy/unstack` | Direct plugin coverage via `jax_doc` or `component` metadata. |

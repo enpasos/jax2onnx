@@ -156,8 +156,10 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "modf",
         "nan_to_num",
         "nonzero",
+        "packbits",
         "poly",
         "polymul",
+        "unpackbits",
     ],
 )
 def test_jnp_coverage_marks_verified_composite_math_apis_as_composite(
