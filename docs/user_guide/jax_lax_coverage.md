@@ -6,12 +6,12 @@
 
 ## Snapshot
 - Total docs operators: `204`
-- Covered (direct plugin): `137`
+- Covered (direct plugin): `138`
 - Covered (via alias primitive): `14`
 - Composite/helper (no standalone plugin expected): `35`
 - Out of scope (distributed/token/host): `17`
 - Missing primitive plugins: `0`
-- Missing `lax.linalg` plugins: `1`
+- Missing `lax.linalg` plugins: `0`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `missing_linalg`.
@@ -126,7 +126,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`, `
 | [x] | `linalg.householder_product` | `covered` | `jax/lax/householder_product` | Direct plugin coverage. |
 | [x] | `linalg.lu` | `covered` | `jax/lax/lu` | Direct plugin coverage. |
 | [x] | `linalg.lu_pivots_to_permutation` | `covered` | `jax/lax/lu_pivots_to_permutation` | Direct plugin coverage. |
-| [ ] | `linalg.ormqr` | `missing_linalg` | `-` | Missing `jax.lax.linalg` primitive plugin. |
+| [x] | `linalg.ormqr` | `covered` | `jax/lax/ormqr` | Direct plugin coverage. |
 | [x] | `linalg.qdwh` | `composite` | `-` | Composite/helper API; no standalone primitive plugin. |
 | [x] | `linalg.qr` | `covered` | `jax/lax/qr` | Direct plugin coverage. |
 | [x] | `linalg.schur` | `covered` | `jax/lax/schur` | Direct plugin coverage. |

@@ -87,8 +87,11 @@ def test_lax_coverage_marks_trace_helpers_as_composite() -> None:
     assert _lax_status("stage") == "composite"
 
 
-def test_lax_coverage_keeps_ormqr_as_missing_linalg() -> None:
-    assert _lax_status("linalg.ormqr") == "missing_linalg"
+def test_lax_coverage_uses_ormqr_plugin_signal() -> None:
+    assert (
+        _lax_status("linalg.ormqr", prim_usage={"ormqr": {"jax/lax/ormqr"}})
+        == "covered"
+    )
 
 
 def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
