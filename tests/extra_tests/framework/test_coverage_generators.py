@@ -141,6 +141,8 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "argwhere",
         "average",
         "bincount",
+        "convolve",
+        "correlate",
         "diff",
         "divmod",
         "extract",
@@ -154,6 +156,8 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "modf",
         "nan_to_num",
         "nonzero",
+        "poly",
+        "polymul",
     ],
 )
 def test_jnp_coverage_marks_verified_composite_math_apis_as_composite(

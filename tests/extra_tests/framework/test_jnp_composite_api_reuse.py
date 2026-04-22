@@ -32,6 +32,22 @@ from jax2onnx import allclose, to_onnx
             [np.array([0, 1, 1, 3], dtype=np.int32)],
         ),
         (
+            "convolve",
+            lambda x, y: jnp.convolve(x, y, mode="full"),
+            [
+                np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                np.array([0.5, -1.0], dtype=np.float32),
+            ],
+        ),
+        (
+            "correlate",
+            lambda x, y: jnp.correlate(x, y, mode="full"),
+            [
+                np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                np.array([0.5, -1.0], dtype=np.float32),
+            ],
+        ),
+        (
             "diff",
             lambda x: jnp.diff(x),
             [np.arange(5, dtype=np.float32)],
@@ -121,6 +137,19 @@ from jax2onnx import allclose, to_onnx
             "nonzero",
             lambda x: jnp.nonzero(x, size=3),
             [np.array([0, 2, 0, 3], dtype=np.int32)],
+        ),
+        (
+            "poly",
+            lambda x: jnp.poly(x),
+            [np.array([1.0, 2.0, 3.0], dtype=np.float32)],
+        ),
+        (
+            "polymul",
+            lambda x, y: jnp.polymul(x, y),
+            [
+                np.array([1.0, 2.0], dtype=np.float32),
+                np.array([3.0, 4.0, 5.0], dtype=np.float32),
+            ],
         ),
     ],
 )

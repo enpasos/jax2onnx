@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `80`
+- Composite/helper entries: `84`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `36`
+- Missing dedicated plugin coverage: `32`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -97,11 +97,11 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `concatenate` | `covered` | `jax/numpy/concatenate` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `conj` | `covered` | `jax/numpy/conj` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `conjugate` | `covered_indirect` | `jax/lax/conj, jax/numpy/conj` | Covered via alias or lower-level primitive `conj`. |
-| [ ] | `convolve` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `convolve` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `copy` | `covered_indirect` | `jax/lax/copy` | Covered via alias or lower-level primitive `copy`. |
 | [x] | `copysign` | `covered` | `jax/numpy/copysign` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `corrcoef` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `correlate` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `correlate` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `cos` | `covered` | `jax/numpy/cos` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `cosh` | `covered` | `jax/numpy/cosh` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `count_nonzero` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
@@ -342,13 +342,13 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `permute_dims` | `covered_indirect` | `jax/lax/transpose, jax/numpy/transpose` | Covered via alias or lower-level primitive `transpose`. |
 | [x] | `piecewise` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [ ] | `place` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `poly` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `poly` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `polyadd` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `polyder` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `polydiv` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `polyfit` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `polyint` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `polymul` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `polymul` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `polysub` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `polyval` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `positive` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
