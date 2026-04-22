@@ -7,10 +7,10 @@
 ## Snapshot
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
-- Covered (via alias/indirect signal): `44`
+- Covered (via alias/indirect signal): `63`
 - Composite/helper entries: `64`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `86`
+- Missing dedicated plugin coverage: `67`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -43,9 +43,9 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `argmax` | `covered` | `jax/numpy/argmax` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `argmin` | `covered` | `jax/numpy/argmin` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `argpartition` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `argsort` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `argsort` | `covered_indirect` | `jax/lax/sort, jax/numpy/sort` | Covered via alias or lower-level primitive `sort`. |
 | [ ] | `argwhere` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `around` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `around` | `covered_indirect` | `jax/lax/round` | Covered via alias or lower-level primitive `round`. |
 | [x] | `array` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `array_equal` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `array_equiv` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
@@ -66,7 +66,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `bartlett` | `covered` | `jax/numpy/windows` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [ ] | `bincount` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `bitwise_and` | `covered` | `jax/numpy/bitwise_and` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `bitwise_count` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `bitwise_count` | `covered_indirect` | `jax/lax/population_count` | Covered via alias or lower-level primitive `population_count`. |
 | [x] | `bitwise_invert` | `covered_indirect` | `jax/numpy/bitwise_not` | Covered via alias or lower-level primitive `bitwise_not`. |
 | [x] | `bitwise_left_shift` | `covered` | `jax/numpy/bitwise_left_shift` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `bitwise_not` | `covered` | `jax/numpy/bitwise_not` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -81,7 +81,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `broadcast_to` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `c_` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `can_cast` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `cbrt` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `cbrt` | `covered_indirect` | `jax/lax/cbrt` | Covered via alias or lower-level primitive `cbrt`. |
 | [x] | `cdouble` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `ceil` | `covered` | `jax/numpy/ceil` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `character` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
@@ -112,8 +112,8 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `cumsum` | `covered` | `jax/numpy/cumsum` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `cumulative_prod` | `covered_indirect` | `jax/lax/cumprod, jax/numpy/cumprod` | Covered via alias or lower-level primitive `cumprod`. |
 | [x] | `cumulative_sum` | `covered_indirect` | `jax/lax/cumsum, jax/numpy/cumsum` | Covered via alias or lower-level primitive `cumsum`. |
-| [ ] | `deg2rad` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `degrees` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `deg2rad` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
+| [x] | `degrees` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
 | [x] | `delete` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `diag` | `covered` | `jax/numpy/diag` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `diag_indices` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
@@ -171,7 +171,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `float32` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `float64` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `float_` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `float_power` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `float_power` | `covered_indirect` | `jax/lax/pow, jax/numpy/pow` | Covered via alias or lower-level primitive `pow`. |
 | [x] | `floating` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `floor` | `covered` | `jax/numpy/floor` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `floor_divide` | `covered` | `jax/numpy/floor_divide` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -204,9 +204,9 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [ ] | `histogramdd` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `hsplit` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `hstack` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `hypot` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `hypot` | `covered_indirect` | `jax/lax/sqrt, jax/numpy/sqrt` | Covered via alias or lower-level primitive `sqrt`. |
 | [x] | `i0` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `identity` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `identity` | `covered_indirect` | `jax/lax/iota` | Covered via alias or lower-level primitive `iota`. |
 | [x] | `iinfo` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `imag` | `covered_indirect` | `jax/lax/imag` | Covered via alias or lower-level primitive `imag`. |
 | [x] | `index_exp` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
@@ -224,7 +224,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [ ] | `intersect1d` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `invert` | `covered` | `jax/numpy/invert` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `isclose` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `iscomplex` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `iscomplex` | `covered_indirect` | `jax/lax/imag` | Covered via alias or lower-level primitive `imag`. |
 | [x] | `iscomplexobj` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `isdtype` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `isfinite` | `covered` | `jax/numpy/isfinite` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -233,7 +233,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `isnan` | `covered_indirect` | `jax/lax/ne` | Covered via alias or lower-level primitive `ne`. |
 | [x] | `isneginf` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `isposinf` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `isreal` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `isreal` | `covered_indirect` | `jax/lax/imag` | Covered via alias or lower-level primitive `imag`. |
 | [x] | `isrealobj` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `isscalar` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `issubdtype` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
@@ -281,9 +281,9 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `linspace` | `covered` | `jax/numpy/linspace` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `load` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `log` | `covered` | `jax/numpy/log` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `log10` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `log1p` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `log2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `log10` | `covered_indirect` | `jax/lax/log, jax/numpy/log` | Covered via alias or lower-level primitive `log`. |
+| [x] | `log1p` | `covered_indirect` | `jax/lax/log1p` | Covered via alias or lower-level primitive `log1p`. |
+| [x] | `log2` | `covered_indirect` | `jax/lax/log, jax/numpy/log` | Covered via alias or lower-level primitive `log`. |
 | [ ] | `logaddexp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [ ] | `logaddexp2` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `logical_and` | `covered_indirect` | `jax/lax/and` | Covered via alias or lower-level primitive `and`. |
@@ -326,7 +326,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `ndarray.at` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `ndim` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `negative` | `covered_indirect` | `jax/lax/neg` | Covered via alias or lower-level primitive `neg`. |
-| [ ] | `nextafter` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `nextafter` | `covered_indirect` | `jax/lax/nextafter` | Covered via alias or lower-level primitive `nextafter`. |
 | [ ] | `nonzero` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `not_equal` | `covered_indirect` | `jax/lax/ne` | Covered via alias or lower-level primitive `ne`. |
 | [x] | `number` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
@@ -362,8 +362,8 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `put_along_axis` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `quantile` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `r_` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
-| [ ] | `rad2deg` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
-| [ ] | `radians` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `rad2deg` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
+| [x] | `radians` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
 | [x] | `ravel` | `covered_indirect` | `jax/lax/reshape, jax/numpy/reshape` | Covered via alias or lower-level primitive `reshape`. |
 | [x] | `ravel_multi_index` | `covered` | `jax/numpy/composite_metadata_batch3` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `real` | `covered_indirect` | `jax/lax/real` | Covered via alias or lower-level primitive `real`. |
@@ -390,7 +390,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `setxor1d` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `shape` | `covered` | `jax/numpy/shape` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sign` | `covered` | `jax/numpy/sign` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `signbit` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `signbit` | `covered_indirect` | `jax/lax/shift_right_arithmetic` | Covered via alias or lower-level primitive `shift_right_arithmetic`. |
 | [x] | `signedinteger` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `sin` | `covered` | `jax/numpy/sin` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sinc` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
@@ -398,7 +398,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `sinh` | `covered` | `jax/numpy/sinh` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `size` | `covered` | `jax/numpy/size` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sort` | `covered` | `jax/numpy/sort` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `sort_complex` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `sort_complex` | `covered_indirect` | `jax/lax/sort, jax/numpy/sort` | Covered via alias or lower-level primitive `sort`. |
 | [ ] | `spacing` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
 | [x] | `split` | `covered` | `jax/numpy/split` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `sqrt` | `covered` | `jax/numpy/sqrt` | Direct plugin coverage via `jax_doc` or `component` metadata. |

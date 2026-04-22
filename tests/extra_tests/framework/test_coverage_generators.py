@@ -69,6 +69,47 @@ def test_jnp_coverage_marks_lower_level_primitive_reuse_as_indirect() -> None:
     assert status == "covered_indirect"
 
 
+@pytest.mark.parametrize(
+    ("op", "primitive"),
+    [
+        ("argsort", "sort"),
+        ("around", "round"),
+        ("bitwise_count", "population_count"),
+        ("cbrt", "cbrt"),
+        ("deg2rad", "mul"),
+        ("degrees", "mul"),
+        ("float_power", "pow"),
+        ("hypot", "sqrt"),
+        ("iscomplex", "imag"),
+        ("isreal", "imag"),
+        ("log10", "log"),
+        ("log2", "log"),
+        ("log1p", "log1p"),
+        ("nextafter", "nextafter"),
+        ("rad2deg", "mul"),
+        ("radians", "mul"),
+        ("signbit", "shift_right_arithmetic"),
+        ("sort_complex", "sort"),
+    ],
+)
+def test_jnp_coverage_marks_verified_lax_reuse_as_indirect(
+    op: str, primitive: str
+) -> None:
+    status = _jnp_status(
+        op,
+        prim_usage={primitive: {f"jax/lax/{primitive}"}},
+    )
+
+    assert status == "covered_indirect"
+
+
+def test_jnp_coverage_marks_identity_as_iota_reuse() -> None:
+    assert (
+        _jnp_status("identity", prim_usage={"iota": {"jax/lax/iota"}})
+        == "covered_indirect"
+    )
+
+
 def test_jnp_coverage_marks_static_numpy_entries_as_non_functional() -> None:
     assert _jnp_status("float32") == "non_functional"
     assert _jnp_status("einsum_path") == "non_functional"
