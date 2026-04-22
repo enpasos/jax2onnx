@@ -45,12 +45,29 @@ _QUANTIZATION_OPS = {
 }
 _SPECIALIZED_OPS = {
     "GRU",
+    "LRN",
     "LSTM",
+    "MelWeightMatrix",
+    "NegativeLogLikelihoodLoss",
     "RNN",
+    "Scan",
+    "SoftmaxCrossEntropyLoss",
     "STFT",
     "TfIdfVectorizer",
     "ImageDecoder",
     "RegexFullMatch",
+}
+_VISION_GEOMETRY_OPS = {
+    "AffineGrid",
+    "CenterCropPad",
+    "Col2Im",
+    "DeformConv",
+    "GridSample",
+    "MaxRoiPool",
+    "MaxUnpool",
+    "NonMaxSuppression",
+    "ReverseSequence",
+    "RoiAlign",
 }
 _LOW_COMPLEXITY_MATH_OPS = {
     "Acos",
@@ -164,12 +181,16 @@ def _format_modules(modules: set[str], max_items: int = 6) -> str:
 
 
 def _recommend_for_uncovered(op: str) -> str:
-    if op.startswith(_CONTAINER_PREFIXES):
+    if op.startswith(_CONTAINER_PREFIXES) or "Sequence" in op:
         return "If in scope, add container plugins; else mark explicitly out-of-scope."
     if op in _QUANTIZATION_OPS or "Quantize" in op or op.endswith("Integer"):
         return "Decide quantization scope, then add lowerings/tests or mark as not planned."
     if op in _SPECIALIZED_OPS:
         return "Add only when demanded by target models; document priority."
+    if op in _VISION_GEOMETRY_OPS:
+        return (
+            "Vision-specific op; add only when a target model needs the native ONNX op."
+        )
     if op.startswith("Reduce") or op in _LOW_COMPLEXITY_MATH_OPS:
         return "Good quick win: add primitive plugin, metadata, and expect_graph test."
     if "Pool" in op or op in _COMMON_MODEL_OPS:
@@ -244,8 +265,8 @@ def build_main_table(
     lowering_usage: dict[str, set[str]],
 ) -> tuple[str, int]:
     header = (
-        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
-        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|"
+        "| ONNX Operator | In Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Next Action |\n"
+        "|:--------------|:-----------|:---------|:---------|:---------------|:------------------|:------------|"
     )
 
     rows: list[str] = []
@@ -264,7 +285,8 @@ def build_main_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(all_modules)} | "
-            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} |"
+            f"{_format_jax_candidates(op, has_coverage=bool(all_modules))} | "
+            f"{_recommend_for_official_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
         )
 
     table = f"{header}\n" + "\n".join(rows)
@@ -294,12 +316,13 @@ def build_extra_table(
             f"{'✅' if metadata_modules else '➖'} | "
             f"{'✅' if lowering_modules else '➖'} | "
             f"{_format_modules(metadata_modules | lowering_modules)} | "
-            f"{_format_extra_jax_candidates(op)} |"
+            f"{_format_extra_jax_candidates(op)} | "
+            f"{_recommend_for_extra_row(op, metadata_modules=metadata_modules, lowering_modules=lowering_modules)} |"
         )
 
     header = (
-        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops |\n"
-        "|:----------------------|:---------|:---------|:---------------|:------------------|"
+        "| Name Found in Plugins | Metadata | Lowering | Plugin Modules | Potential JAX Ops | Next Action |\n"
+        "|:----------------------|:---------|:---------|:---------------|:------------------|:------------|"
     )
     table = f"{header}\n" + "\n".join(rows)
     wrapped = (
@@ -384,6 +407,7 @@ def main() -> None:
             f"- Operators referenced in plugins: `{used_count}`",
             f"- Coverage: `{used_count / len(official_ops):.1%}`",
             "- `Potential JAX Ops` lists candidate JAX entry points for each operator.",
+            "- `Next Action` classifies uncovered operators and metadata/lowering drift.",
         ]
     )
     if extra_count:

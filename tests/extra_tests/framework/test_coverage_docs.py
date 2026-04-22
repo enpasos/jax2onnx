@@ -20,11 +20,13 @@ ONNX_MAIN_ROW_RE: Final = re.compile(
     r"^\| \[(?P<op>[A-Za-z0-9_]+)\]"
     r"\(https://onnx\.ai/onnx/operators/onnx__[A-Za-z0-9_]+\.html\) \| "
     r"(?P<in_plugins>[^|]+) \| (?P<metadata>[^|]+) \| "
-    r"(?P<lowering>[^|]+) \| (?P<modules>[^|]+) \| (?P<candidates>[^|]+) \|$"
+    r"(?P<lowering>[^|]+) \| (?P<modules>[^|]+) \| "
+    r"(?P<candidates>[^|]+) \| (?P<next_action>[^|]+) \|$"
 )
 ONNX_EXTRA_ROW_RE: Final = re.compile(
     r"^\| `(?P<name>[^`]+)` \| (?P<metadata>[^|]+) \| "
-    r"(?P<lowering>[^|]+) \| (?P<modules>[^|]+) \| (?P<candidates>[^|]+) \|$"
+    r"(?P<lowering>[^|]+) \| (?P<modules>[^|]+) \| "
+    r"(?P<candidates>[^|]+) \| (?P<next_action>[^|]+) \|$"
 )
 ONNX_CHECK: Final = "\u2705"
 ONNX_EMPTY: Final = "\u2796"
@@ -275,12 +277,14 @@ def test_onnx_operator_coverage_doc_summary_matches_tables() -> None:
         has_plugins = row["in_plugins"] == ONNX_CHECK
         assert has_plugins == (has_metadata or has_lowering), row["op"]
         assert (row["modules"] != ONNX_EMPTY) == has_plugins, row["op"]
+        assert row["next_action"], row["op"]
 
     for row in extra_rows:
         has_metadata = row["metadata"] == ONNX_CHECK
         has_lowering = row["lowering"] == ONNX_CHECK
         assert has_metadata or has_lowering, row["name"]
         assert row["modules"] != ONNX_EMPTY, row["name"]
+        assert row["next_action"], row["name"]
 
 
 def test_onnx_operator_coverage_has_no_official_metadata_lowering_asymmetry() -> None:

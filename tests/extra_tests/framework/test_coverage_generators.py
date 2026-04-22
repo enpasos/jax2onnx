@@ -9,6 +9,7 @@ import pytest
 from scripts._coverage_generation import write_or_check_generated
 from scripts import generate_jnp_operator_coverage as jnp_coverage
 from scripts import generate_lax_operator_coverage as lax_coverage
+from scripts import generate_onnx_operator_coverage as onnx_coverage
 
 
 def _jnp_status(
@@ -195,6 +196,21 @@ def test_lax_coverage_uses_ormqr_plugin_signal() -> None:
         _lax_status("linalg.ormqr", prim_usage={"ormqr": {"jax/lax/ormqr"}})
         == "covered"
     )
+
+
+@pytest.mark.parametrize(
+    ("op", "expected"),
+    [
+        ("QuantizeLinear", "Decide quantization scope"),
+        ("SequenceConstruct", "add container plugins"),
+        ("GridSample", "Vision-specific op"),
+        ("SoftmaxCrossEntropyLoss", "demanded by target models"),
+    ],
+)
+def test_onnx_coverage_recommends_next_action_for_uncovered_categories(
+    op: str, expected: str
+) -> None:
+    assert expected in onnx_coverage._recommend_for_uncovered(op)
 
 
 def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
