@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `187`
+- Covered (direct plugin): `188`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `14`
+- Missing dedicated plugin coverage: `13`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -178,7 +178,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `fmax` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `fmin` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `fmod` | `covered` | `jax/numpy/fmod` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `frexp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `frexp` | `covered` | `jax/numpy/frexp` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `from_dlpack` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
 | [x] | `frombuffer` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `fromfile` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
