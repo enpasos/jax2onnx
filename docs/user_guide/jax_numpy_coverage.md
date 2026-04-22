@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `192`
+- Covered (direct plugin): `193`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `9`
+- Missing dedicated plugin coverage: `8`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -201,7 +201,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `histogram` | `covered` | `jax/numpy/histogram` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `histogram2d` | `covered` | `jax/numpy/histogram2d` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `histogram_bin_edges` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `histogramdd` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `histogramdd` | `covered` | `jax/numpy/histogramdd` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `hsplit` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `hstack` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `hypot` | `covered_indirect` | `jax/lax/sqrt, jax/numpy/sqrt` | Covered via alias or lower-level primitive `sqrt`. |
