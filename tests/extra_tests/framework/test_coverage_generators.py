@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+from scripts._coverage_generation import write_or_check_generated
 from scripts import generate_jnp_operator_coverage as jnp_coverage
 
 
@@ -57,3 +62,46 @@ def test_jnp_coverage_marks_static_numpy_entries_as_non_functional() -> None:
 def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
     assert _jnp_status("allclose") == "composite"
     assert _jnp_status("positive") == "composite"
+
+
+def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
+    target = tmp_path / "coverage.md"
+    target.write_text("# Coverage\n", encoding="utf-8")
+
+    write_or_check_generated(
+        target,
+        "# Coverage",
+        check=True,
+        label="test coverage page",
+    )
+
+
+def test_write_or_check_generated_reports_stale_file(tmp_path: Path) -> None:
+    target = tmp_path / "coverage.md"
+    target.write_text("# Old\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        write_or_check_generated(
+            target,
+            "# New",
+            check=True,
+            label="test coverage page",
+        )
+
+    message = str(exc_info.value)
+    assert "test coverage page is stale" in message
+    assert "--- current" in message
+    assert "+++ generated" in message
+
+
+def test_write_or_check_generated_writes_file(tmp_path: Path) -> None:
+    target = tmp_path / "coverage.md"
+
+    write_or_check_generated(
+        target,
+        "# Coverage",
+        check=False,
+        label="test coverage page",
+    )
+
+    assert target.read_text(encoding="utf-8") == "# Coverage\n"

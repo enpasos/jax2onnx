@@ -5,12 +5,12 @@
 - Coverage signal: `jax_doc`, `jaxpr_primitive`, and `component` metadata in `jax2onnx/plugins/**/*.py`.
 
 ## Snapshot
-- Total API entries discovered: `258`
-- In-scope neural entries (`flax.linen/*`, `flax.nnx/nn/*`): `75`
-- Covered (direct Flax plugin): `40`
+- Total API entries discovered: `269`
+- In-scope neural entries (`flax.linen/*`, `flax.nnx/nn/*`): `79`
+- Covered (direct Flax plugin): `44`
 - Covered (indirect via lower-level plugins): `12`
 - Composite/helper entries: `23`
-- Out-of-scope entries: `183`
+- Out-of-scope entries: `190`
 - Missing dedicated Flax coverage: `0`
 
 ## Full Checklist
@@ -78,6 +78,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.RngStream.beta` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.RngStream.binomial` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.RngStream.bits` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.RngStream.broadcast` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.RngStream.categorical` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.RngStream.cauchy` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.RngStream.chisquare` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
@@ -129,6 +130,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.VariableMetadata` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.WeightNorm` | `covered` | `flax/linen/weight_norm` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.WithTag` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.avg_pool` | `covered` | `flax/linen/avg_pool, flax/nnx/avg_pool` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.bridge.NNXMeta` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.bridge.NNXMeta.__call__` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.bridge.NNXMeta.add_axis` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
@@ -211,6 +213,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.make_attention_mask` | `covered` | `flax/linen/dot_product_attention` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.make_causal_mask` | `covered` | `flax/linen/dot_product_attention` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.map_state` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.max_pool` | `covered` | `flax/linen/max_pool, flax/nnx/max_pool` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.merge` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.merge_state` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.metrics.Accuracy` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
@@ -218,6 +221,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.metrics.Metric` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.metrics.MultiMetric` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.metrics.Welford` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.min_pool` | `covered` | `flax/linen/min_pool` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.nn.dtypes.canonicalize_dtype` | `composite` | `-` | Helper/config API; no standalone ONNX plugin expected. |
 | [x] | `flax.nnx.nn.dtypes.promote_dtype` | `composite` | `-` | Helper/config API; no standalone ONNX plugin expected. |
 | [x] | `flax.nnx.nn.recurrent.Bidirectional` | `covered` | `flax/linen/recurrent` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
@@ -229,7 +233,9 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.nn.recurrent.flip_sequences` | `covered` | `flax/nnx/flip_sequences` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.one_hot` | `covered_indirect` | `jax/nn/one_hot` | Covered indirectly via lower-level JAX plugin signals. |
 | [x] | `flax.nnx.optimizer.Optimizer` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.pool` | `covered` | `flax/linen/pool` | Direct Flax plugin signal (jax_doc/jaxpr/component). |
 | [x] | `flax.nnx.pop` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.prefix` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.pure` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.recursive_map` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.register_data_type` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
@@ -260,17 +266,22 @@ Legend: `covered`, `covered_indirect`, `composite`, `out_of_scope`, `missing`.
 | [x] | `flax.nnx.to_flat_state` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.to_pure_dict` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.unflatten` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.unpack` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.update` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.update_context` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.value_and_grad` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.variable_name_from_type` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.variable_type_from_name` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.variables` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.view` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.view_info` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.vjp` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.vmap` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.while_loop` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.with_attributes` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.with_metadata` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.nnx.with_partitioning` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
+| [x] | `flax.nnx.with_rngs` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.struct.PyTreeNode` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.struct.dataclass` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |
 | [x] | `flax.training.train_state.TrainState` | `out_of_scope` | `-` | Outside neural-module surface; no dedicated converter plugin expected. |

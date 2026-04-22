@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import DefaultDict
 from urllib.request import urlopen
 
+from scripts._coverage_generation import write_or_check_generated
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "jax2onnx" / "plugins"
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / "user_guide" / "onnx_operator_coverage.md"
@@ -346,6 +348,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also scan modules under jax2onnx/plugins/examples.",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check whether the coverage doc is current without writing files.",
+    )
     return parser.parse_args()
 
 
@@ -395,9 +402,13 @@ def main() -> None:
         end_marker=EXTRA_END,
         replacement=extra_table,
     )
-    args.output.write_text(output_text, encoding="utf-8")
 
-    logger.info("Updated %s", args.output)
+    write_or_check_generated(
+        args.output,
+        output_text,
+        check=args.check,
+        label="ONNX operator coverage page",
+    )
 
 
 if __name__ == "__main__":

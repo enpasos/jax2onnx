@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import DefaultDict
 from urllib.request import Request, urlopen
 
+from scripts._coverage_generation import write_or_check_generated
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_ROOT = REPO_ROOT / "jax2onnx" / "plugins"
 JNP_PLUGIN_ROOT = PLUGIN_ROOT / "jax" / "numpy"
@@ -468,6 +470,11 @@ def main() -> None:
     parser.add_argument("--doc-url", default=DEFAULT_DOC_URL)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--mkdocs-output", type=Path, default=DEFAULT_MKDOCS_OUTPUT)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check whether the MkDocs coverage page is current without writing files.",
+    )
     args = parser.parse_args()
 
     ops = fetch_doc_ops(args.doc_url)
@@ -484,17 +491,34 @@ def main() -> None:
         doc_url=args.doc_url,
         title="Work Notes: JAX NumPy Coverage Checklist",
     )
-    args.output.write_text(work_notes_content + "\n", encoding="utf-8")
-    print(f"Wrote {len(rows)} rows to {args.output}")
 
     mkdocs_content = render_markdown(
         rows,
         doc_url=args.doc_url,
         title="JAX NumPy Coverage Checklist",
     )
+    if args.check:
+        write_or_check_generated(
+            args.mkdocs_output,
+            mkdocs_content + "\n",
+            check=True,
+            label="JAX NumPy coverage page",
+        )
+        return
+
+    write_or_check_generated(
+        args.output,
+        work_notes_content + "\n",
+        check=False,
+        label=f"JAX NumPy work notes coverage page ({len(rows)} rows)",
+    )
     if args.mkdocs_output != args.output:
-        args.mkdocs_output.write_text(mkdocs_content + "\n", encoding="utf-8")
-        print(f"Wrote {len(rows)} rows to {args.mkdocs_output}")
+        write_or_check_generated(
+            args.mkdocs_output,
+            mkdocs_content + "\n",
+            check=False,
+            label=f"JAX NumPy MkDocs coverage page ({len(rows)} rows)",
+        )
 
 
 if __name__ == "__main__":
