@@ -45,6 +45,16 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "extract",
+            lambda x: jnp.extract(
+                jnp.array([True, False, True]),
+                x,
+                size=3,
+                fill_value=-1.0,
+            ),
+            [np.array([1.0, 2.0, 3.0], dtype=np.float32)],
+        ),
+        (
             "fmax",
             lambda x, y: jnp.fmax(x, y),
             [
@@ -126,4 +136,17 @@ def test_jnp_composite_api_reuse_exports_and_runs(
     to_onnx(fn, inputs=inputs, return_mode="file", output_path=model_path)
 
     matches, message = allclose(fn, str(model_path), inputs, atol=1e-5, rtol=1e-4)
+    assert matches, message
+
+
+def test_jnp_empty_reuses_zero_broadcast_export(tmp_path: Path) -> None:
+    pytest.importorskip("onnxruntime")
+
+    def fn() -> jnp.ndarray:
+        return jnp.empty((2, 3), dtype=jnp.float32)
+
+    model_path = tmp_path / "empty.onnx"
+    to_onnx(fn, inputs=[], return_mode="file", output_path=model_path)
+
+    matches, message = allclose(fn, str(model_path), [], atol=1e-5, rtol=1e-4)
     assert matches, message

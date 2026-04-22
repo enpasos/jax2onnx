@@ -7,10 +7,10 @@
 ## Snapshot
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
-- Covered (via alias/indirect signal): `77`
-- Composite/helper entries: `79`
+- Covered (via alias/indirect signal): `78`
+- Composite/helper entries: `80`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `38`
+- Missing dedicated plugin coverage: `36`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -132,14 +132,14 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `ediff1d` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `einsum` | `covered` | `jax/numpy/einsum` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `einsum_path` | `non_functional` | `-` | Constant/dtype/type helper entry; no standalone plugin expected. |
-| [ ] | `empty` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `empty` | `covered_indirect` | `jax/lax/broadcast_in_dim` | Covered via alias or lower-level primitive `broadcast_in_dim`. |
 | [x] | `empty_like` | `covered_indirect` | `jax/lax/broadcast_in_dim` | Covered via alias or lower-level primitive `broadcast_in_dim`. |
 | [x] | `equal` | `covered` | `jax/numpy/equal` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `exp` | `covered` | `jax/numpy/exp` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `exp2` | `covered` | `jax/numpy/exp2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `expand_dims` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `expm1` | `covered` | `jax/numpy/expm1` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `extract` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `extract` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `eye` | `covered` | `jax/numpy/eye` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `fabs` | `covered` | `jax/numpy/fabs` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `fft.fft` | `covered` | `jax/numpy/fft` | Direct plugin coverage via `jax_doc` or `component` metadata. |
