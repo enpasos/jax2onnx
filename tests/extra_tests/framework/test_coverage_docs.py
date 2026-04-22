@@ -28,6 +28,12 @@ ONNX_EXTRA_ROW_RE: Final = re.compile(
 )
 ONNX_CHECK: Final = "\u2705"
 ONNX_EMPTY: Final = "\u2796"
+COMPONENT_COVERAGE_MISSING_STATUSES: Final = {
+    "docs/user_guide/jax_lax_coverage.md": {"missing", "missing_linalg"},
+    "docs/user_guide/jax_numpy_coverage.md": {"missing"},
+    "docs/user_guide/flax_api_coverage.md": {"missing"},
+    "docs/user_guide/equinox_nn_coverage.md": {"missing"},
+}
 
 
 def _read_doc(relative_path: str) -> str:
@@ -223,6 +229,23 @@ def test_equinox_nn_coverage_doc_snapshot_matches_table() -> None:
             "out_of_scope",
         },
         unchecked_statuses={"missing"},
+    )
+
+
+def test_component_coverage_docs_have_no_open_missing_entries() -> None:
+    failures: list[str] = []
+    for relative_path, missing_statuses in COMPONENT_COVERAGE_MISSING_STATUSES.items():
+        rows = _table_rows(_read_doc(relative_path))
+        missing_rows = [
+            f"{name} ({status})"
+            for _, name, status in rows
+            if status in missing_statuses
+        ]
+        if missing_rows:
+            failures.append(f"{relative_path}: {', '.join(missing_rows)}")
+
+    assert not failures, "Component coverage docs should stay complete:\n" + "\n".join(
+        failures
     )
 
 
