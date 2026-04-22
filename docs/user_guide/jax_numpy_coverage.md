@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `195`
+- Covered (direct plugin): `196`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `6`
+- Missing dedicated plugin coverage: `5`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -256,7 +256,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `linalg.eigh` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.eigvals` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.eigvalsh` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `linalg.inv` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `linalg.inv` | `covered` | `jax/numpy/linalg_inv` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.lstsq` | `covered` | `jax/numpy/composite_metadata_batch5` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.matmul` | `covered` | `jax/numpy/matmul` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.matrix_norm` | `covered` | `jax/numpy/composite_metadata_batch3` | Direct plugin coverage via `jax_doc` or `component` metadata. |
