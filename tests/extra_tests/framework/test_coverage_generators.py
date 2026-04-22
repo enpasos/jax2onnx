@@ -156,6 +156,7 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "linalg.slogdet",
         "logaddexp",
         "logaddexp2",
+        "mask_indices",
         "modf",
         "nan_to_num",
         "nonzero",

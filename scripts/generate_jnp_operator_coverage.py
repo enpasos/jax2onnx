@@ -173,6 +173,7 @@ COMPOSITE_HELPERS = {
     "lexsort",
     "logaddexp",
     "logaddexp2",
+    "mask_indices",
     "meshgrid",
     "mgrid",
     "modf",

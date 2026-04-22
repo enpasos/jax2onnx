@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `99`
+- Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `17`
+- Missing dedicated plugin coverage: `16`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -291,7 +291,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `logical_or` | `covered_indirect` | `jax/lax/or` | Covered via alias or lower-level primitive `or`. |
 | [x] | `logical_xor` | `covered_indirect` | `jax/lax/xor` | Covered via alias or lower-level primitive `xor`. |
 | [x] | `logspace` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `mask_indices` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `mask_indices` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `matmul` | `covered` | `jax/numpy/matmul` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `matrix_transpose` | `covered_indirect` | `jax/lax/transpose, jax/numpy/transpose` | Covered via alias or lower-level primitive `transpose`. |
 | [x] | `matvec` | `covered` | `jax/numpy/composite_metadata_batch2` | Direct plugin coverage via `jax_doc` or `component` metadata. |

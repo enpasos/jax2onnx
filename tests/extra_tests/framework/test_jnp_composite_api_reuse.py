@@ -142,6 +142,11 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "mask_indices",
+            lambda: jnp.mask_indices(3, jnp.triu, size=6),
+            [],
+        ),
+        (
             "modf",
             lambda x: jnp.modf(x),
             [np.array([-1.5, 2.25], dtype=np.float32)],
