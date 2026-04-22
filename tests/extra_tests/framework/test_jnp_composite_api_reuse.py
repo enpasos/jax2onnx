@@ -108,6 +108,11 @@ from jax2onnx import allclose, to_onnx
             ],
         ),
         (
+            "lexsort",
+            lambda keys: jnp.lexsort(keys),
+            [np.array([[2, 1, 2, 1], [0, 0, 1, 1]], dtype=np.int32)],
+        ),
+        (
             "linalg_slogdet",
             lambda x: jnp.linalg.slogdet(x),
             [np.array([[3.0, 1.0], [1.0, 2.0]], dtype=np.float32)],

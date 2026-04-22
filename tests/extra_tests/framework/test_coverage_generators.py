@@ -151,6 +151,7 @@ def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
         "fmin",
         "heaviside",
         "isin",
+        "lexsort",
         "linalg.slogdet",
         "logaddexp",
         "logaddexp2",

@@ -169,6 +169,7 @@ COMPOSITE_HELPERS = {
     "isposinf",
     "ix_",
     "kaiser",
+    "lexsort",
     "logaddexp",
     "logaddexp2",
     "meshgrid",

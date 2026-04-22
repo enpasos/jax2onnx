@@ -8,9 +8,9 @@
 - Total docs entries: `439`
 - Covered (direct plugin): `185`
 - Covered (via alias/indirect signal): `78`
-- Composite/helper entries: `87`
+- Composite/helper entries: `88`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `29`
+- Missing dedicated plugin coverage: `28`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -246,7 +246,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `left_shift` | `covered` | `jax/numpy/left_shift` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `less` | `covered` | `jax/numpy/less` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `less_equal` | `covered` | `jax/numpy/less_equal` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `lexsort` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `lexsort` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `linalg.cholesky` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.cond` | `covered` | `jax/numpy/composite_metadata_batch4` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `linalg.cross` | `covered` | `jax/numpy/composite_metadata` | Direct plugin coverage via `jax_doc` or `component` metadata. |
