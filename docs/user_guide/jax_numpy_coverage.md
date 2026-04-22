@@ -6,11 +6,11 @@
 
 ## Snapshot
 - Total docs entries: `439`
-- Covered (direct plugin): `185`
+- Covered (direct plugin): `186`
 - Covered (via alias/indirect signal): `78`
 - Composite/helper entries: `100`
 - Non-functional entries (dtype/type/constants): `60`
-- Missing dedicated plugin coverage: `16`
+- Missing dedicated plugin coverage: `15`
 
 ## Full Checklist
 Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
@@ -242,7 +242,7 @@ Legend: `covered`, `covered_indirect`, `composite`, `non_functional`, `missing`.
 | [x] | `kaiser` | `composite` | `-` | Composite/helper API; typically lowered through other primitives. |
 | [x] | `kron` | `covered_indirect` | `jax/lax/mul` | Covered via alias or lower-level primitive `mul`. |
 | [x] | `lcm` | `covered` | `jax/numpy/composite_metadata_batch6` | Direct plugin coverage via `jax_doc` or `component` metadata. |
-| [ ] | `ldexp` | `missing` | `-` | Missing dedicated `jax.numpy` plugin coverage. |
+| [x] | `ldexp` | `covered` | `jax/numpy/ldexp` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `left_shift` | `covered` | `jax/numpy/left_shift` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `less` | `covered` | `jax/numpy/less` | Direct plugin coverage via `jax_doc` or `component` metadata. |
 | [x] | `less_equal` | `covered` | `jax/numpy/less_equal` | Direct plugin coverage via `jax_doc` or `component` metadata. |
