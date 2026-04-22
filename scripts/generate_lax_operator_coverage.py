@@ -49,6 +49,7 @@ ALIAS_TO_PRIMITIVE = {
 COMPOSITE_HELPERS = {
     "associative_scan",
     "broadcast",
+    "broadcast_like",
     "broadcasted_iota",
     "broadcast_shapes",
     "broadcast_to_rank",
@@ -80,6 +81,10 @@ COMPOSITE_HELPERS = {
     "sort_key_val",
     "switch",
     "tile",
+}
+
+TRACE_HELPERS = {
+    "stage",
 }
 
 DISTRIBUTED_TOKEN_OR_HOST = {
@@ -224,6 +229,13 @@ def _status_for_op(
             "composite",
             modules_text,
             "Composite/helper API; no standalone primitive plugin.",
+        )
+
+    if base in TRACE_HELPERS:
+        return (
+            "composite",
+            modules_text,
+            "Trace helper API; no standalone primitive plugin.",
         )
 
     if base in DISTRIBUTED_TOKEN_OR_HOST:

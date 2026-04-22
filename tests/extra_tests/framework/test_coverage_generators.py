@@ -8,6 +8,7 @@ import pytest
 
 from scripts._coverage_generation import write_or_check_generated
 from scripts import generate_jnp_operator_coverage as jnp_coverage
+from scripts import generate_lax_operator_coverage as lax_coverage
 
 
 def _jnp_status(
@@ -22,6 +23,20 @@ def _jnp_status(
         doc_usage=doc_usage or {},
         prim_usage=prim_usage or {},
         component_usage=component_usage or {},
+    )
+    return status
+
+
+def _lax_status(
+    op: str,
+    *,
+    doc_usage: dict[str, set[str]] | None = None,
+    prim_usage: dict[str, set[str]] | None = None,
+) -> str:
+    status, _, _ = lax_coverage._status_for_op(
+        op,
+        doc_usage=doc_usage or {},
+        prim_usage=prim_usage or {},
     )
     return status
 
@@ -62,6 +77,18 @@ def test_jnp_coverage_marks_static_numpy_entries_as_non_functional() -> None:
 def test_jnp_coverage_marks_helper_apis_as_composite() -> None:
     assert _jnp_status("allclose") == "composite"
     assert _jnp_status("positive") == "composite"
+
+
+def test_lax_coverage_marks_broadcast_like_as_composite() -> None:
+    assert _lax_status("broadcast_like") == "composite"
+
+
+def test_lax_coverage_marks_trace_helpers_as_composite() -> None:
+    assert _lax_status("stage") == "composite"
+
+
+def test_lax_coverage_keeps_ormqr_as_missing_linalg() -> None:
+    assert _lax_status("linalg.ormqr") == "missing_linalg"
 
 
 def test_write_or_check_generated_accepts_current_file(tmp_path: Path) -> None:
