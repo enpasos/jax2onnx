@@ -247,8 +247,8 @@ without constructing a full export.
 Status: in progress. JAXPR tracing, IR context/input setup, function attachment,
 late attribute/Concat postprocessing, and final shape normalization now live in
 module-level helpers with direct tests. The equation lowering loop is now a
-separate helper as well; output layout handling and final model assembly are
-still inline in `to_onnx`.
+separate helper as well. Output binding and output NCHW adaptation now live in
+helpers; final model assembly is still inline in `to_onnx`.
 
 ### 4. Make layout adaptation a first-class helper
 
