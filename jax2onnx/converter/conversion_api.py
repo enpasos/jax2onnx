@@ -796,6 +796,119 @@ def _trace_to_jaxpr(
     )
 
 
+class _ConverterFacade:
+    builder: IRBuilder
+    ctx: IRContext
+
+    def __init__(self, ctx: IRContext) -> None:
+        self.builder = ctx.builder
+        self.ctx = ctx
+
+
+def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
+    converter = _ConverterFacade(ctx)
+    ctx._const_folder.install_producers(jpr)
+
+    for eqn_index, eqn in enumerate(jpr.eqns):
+        prim_name = eqn.primitive.name
+        plugin_ref = PLUGIN_REGISTRY.get(prim_name)
+        if plugin_ref is None:
+            raise NotImplementedError(
+                f"[converter] No plugins registered for primitive '{prim_name}'"
+            )
+        ctx._current_eqn = eqn
+        builder = ctx.builder
+        prev_jax_trace = builder.current_jax_traceback
+        prev_plugin_id = builder.current_plugin_identifier
+        prev_plugin_line = builder.current_plugin_line
+        jax_trace: Optional[str] = None
+        plugin_identifier: Optional[str] = None
+        plugin_line: Optional[str] = None
+        if builder.stacktrace_metadata_enabled:
+            try:
+                source_info = eqn.source_info
+            except AttributeError:
+                source_info = None
+
+            if source_info is not None:
+                try:
+                    tb = source_info.traceback
+                except AttributeError:
+                    tb = None
+                if tb is not None:
+                    try:
+                        jax_trace = str(tb)
+                    except Exception:
+                        jax_trace = None
+            try:
+                if isinstance(plugin_ref, PrimitiveLowering):
+                    lower_fn = plugin_ref.lower
+                    try:
+                        func_name = lower_fn.__name__
+                    except AttributeError:
+                        func_name = "lower"
+
+                    plugin_identifier = (
+                        f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
+                        f"{func_name}"
+                    )
+                    try:
+                        _, start_line = _ins.getsourcelines(lower_fn)
+                        plugin_line = str(start_line)
+                    except (OSError, TypeError):
+                        plugin_line = None
+                elif isinstance(plugin_ref, FunctionLowering):
+                    plugin_identifier = (
+                        f"{type(plugin_ref).__module__}."
+                        f"{type(plugin_ref).__name__}.get_handler"
+                    )
+                elif hasattr(plugin_ref, "__class__"):
+                    plugin_identifier = (
+                        f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
+                    )
+                else:
+                    plugin_identifier = prim_name
+            except Exception:
+                plugin_identifier = prim_name
+        builder.set_current_jax_traceback(jax_trace)
+        builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
+        lowering_result: object = None
+        try:
+            if isinstance(plugin_ref, PrimitiveLowering):
+                lower = plugin_ref.lower
+                try:
+                    has_params = "params" in _ins.signature(lower).parameters
+                except Exception:
+                    has_params = False
+                if has_params:
+                    lowering_result = lower(ctx, eqn, eqn.params)
+                else:
+                    lowering_result = lower(ctx, eqn)
+            elif isinstance(plugin_ref, FunctionLowering):
+                handler = plugin_ref.get_handler(converter)
+                lowering_result = handler(converter, eqn, eqn.params)
+            else:
+                raise NotImplementedError(
+                    f"[converter] Unsupported plugin type for '{prim_name}'"
+                )
+            _bind_returned_lowering_values(
+                ctx,
+                eqn,
+                lowering_result,
+                primitive_name=prim_name,
+            )
+            _assert_eqn_outputs_bound(
+                ctx,
+                eqn,
+                primitive_name=prim_name,
+                eqn_index=eqn_index,
+            )
+        finally:
+            builder.set_current_jax_traceback(prev_jax_trace)
+            builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
+    ctx._current_eqn = None
+
+
 def to_onnx(
     *,
     fn: Callable[..., Any],
@@ -852,112 +965,7 @@ def to_onnx(
         )
         _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
 
-        # Lower equations
-        class _ConverterFacade:
-            builder: IRBuilder
-            ctx: IRContext
-
-        converter = _ConverterFacade()
-        converter.builder = ctx.builder
-        converter.ctx = ctx
-
-        ctx._const_folder.install_producers(jpr)
-
-        for eqn_index, eqn in enumerate(jpr.eqns):
-            prim_name = eqn.primitive.name
-            plugin_ref = PLUGIN_REGISTRY.get(prim_name)
-            if plugin_ref is None:
-                raise NotImplementedError(
-                    f"[converter] No plugins registered for primitive '{prim_name}'"
-                )
-            ctx._current_eqn = eqn
-            builder = ctx.builder
-            prev_jax_trace = builder.current_jax_traceback
-            prev_plugin_id = builder.current_plugin_identifier
-            prev_plugin_line = builder.current_plugin_line
-            jax_trace: Optional[str] = None
-            plugin_identifier: Optional[str] = None
-            plugin_line: Optional[str] = None
-            if builder.stacktrace_metadata_enabled:
-                try:
-                    source_info = eqn.source_info
-                except AttributeError:
-                    source_info = None
-
-                if source_info is not None:
-                    try:
-                        tb = source_info.traceback
-                    except AttributeError:
-                        tb = None
-                    if tb is not None:
-                        try:
-                            jax_trace = str(tb)
-                        except Exception:
-                            jax_trace = None
-                try:
-                    if isinstance(plugin_ref, PrimitiveLowering):
-                        lower_fn = plugin_ref.lower
-                        try:
-                            func_name = lower_fn.__name__
-                        except AttributeError:
-                            func_name = "lower"
-
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
-                            f"{func_name}"
-                        )
-                        try:
-                            _, start_line = _ins.getsourcelines(lower_fn)
-                            plugin_line = str(start_line)
-                        except (OSError, TypeError):
-                            plugin_line = None
-                    elif isinstance(plugin_ref, FunctionLowering):
-                        plugin_identifier = f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}.get_handler"
-                    elif hasattr(plugin_ref, "__class__"):
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
-                        )
-                    else:
-                        plugin_identifier = prim_name
-                except Exception:
-                    plugin_identifier = prim_name
-            builder.set_current_jax_traceback(jax_trace)
-            builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
-            lowering_result: object = None
-            try:
-                if isinstance(plugin_ref, PrimitiveLowering):
-                    lower = plugin_ref.lower
-                    try:
-                        has_params = "params" in _ins.signature(lower).parameters
-                    except Exception:
-                        has_params = False
-                    if has_params:
-                        lowering_result = lower(ctx, eqn, eqn.params)
-                    else:
-                        lowering_result = lower(ctx, eqn)
-                elif isinstance(plugin_ref, FunctionLowering):
-                    handler = plugin_ref.get_handler(converter)
-                    lowering_result = handler(converter, eqn, eqn.params)
-                else:
-                    raise NotImplementedError(
-                        f"[converter] Unsupported plugin type for '{prim_name}'"
-                    )
-                _bind_returned_lowering_values(
-                    ctx,
-                    eqn,
-                    lowering_result,
-                    primitive_name=prim_name,
-                )
-                _assert_eqn_outputs_bound(
-                    ctx,
-                    eqn,
-                    primitive_name=prim_name,
-                    eqn_index=eqn_index,
-                )
-            finally:
-                builder.set_current_jax_traceback(prev_jax_trace)
-                builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
-        ctx._current_eqn = None
+        _lower_jaxpr_equations(ctx, jpr)
 
         # Outputs
         if not validated_outputs_as_nchw:
