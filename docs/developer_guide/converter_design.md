@@ -244,11 +244,10 @@ shape finalization. Extract the late phases into small modules or helpers:
 This would make failures easier to isolate and would let tests cover each phase
 without constructing a full export.
 
-Status: in progress. JAXPR tracing, IR context/input setup, function attachment,
-late attribute/Concat postprocessing, and final shape normalization now live in
-module-level helpers with direct tests. The equation lowering loop is now a
-separate helper as well. Output binding and output NCHW adaptation now live in
-helpers; final model assembly is still inline in `to_onnx`.
+Status: implemented. JAXPR tracing, IR context/input setup, equation lowering,
+output binding, function attachment, late attribute/Concat postprocessing,
+final shape normalization, and final model assembly now live in module-level
+helpers with direct tests.
 
 ### 4. Make layout adaptation a first-class helper
 
