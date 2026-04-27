@@ -59,6 +59,8 @@ InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 _ORT_SAFE_IR_VERSION: int = 10
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+_NHWC_TO_NCHW_PERM: tuple[int, int, int, int] = (0, 3, 1, 2)
+_NCHW_TO_NHWC_PERM: tuple[int, int, int, int] = (0, 2, 3, 1)
 
 
 @dataclass(frozen=True)
@@ -630,6 +632,115 @@ def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
             jax.config.update("jax_enable_x64", previous)
 
 
+def _create_ir_context(
+    *,
+    opset: int,
+    enable_double_precision: bool,
+    input_specs: Sequence[Any],
+    frozen_params: Mapping[str, object],
+    record_primitive_calls_file: Optional[str],
+) -> IRContext:
+    ctx = IRContext(
+        opset=opset,
+        enable_double_precision=enable_double_precision,
+        input_specs=input_specs,
+    )
+    ctx._call_input_param_names = set(frozen_params.keys())
+    ctx._call_input_param_literals = dict(frozen_params)
+
+    if record_primitive_calls_file:
+        ctx.record_primitive_calls_file = str(record_primitive_calls_file)
+
+    if ctx.get_function_registry() is None:
+        ctx.set_function_registry(FunctionRegistry())
+
+    return ctx
+
+
+def _bind_closed_jaxpr_constants(
+    ctx: IRContext,
+    jpr: Any,
+    consts: Sequence[object],
+    *,
+    default_float: np.dtype[Any],
+    enable_double_precision: bool,
+) -> None:
+    for cv, cval in zip(jpr.constvars, consts):
+        np_c = np.asarray(cval)
+        target_dtype = None
+        try:
+            target_dtype = np.dtype(cv.aval.dtype)
+        except AttributeError:
+            target_dtype = None
+        except TypeError:
+            target_dtype = None
+        desired_dtype = None
+        if target_dtype is not None and target_dtype != np_c.dtype:
+            desired_dtype = target_dtype
+        elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
+            desired_dtype = default_float
+
+        if (
+            not enable_double_precision
+            and desired_dtype is not None
+            and np.issubdtype(desired_dtype, np.floating)
+            and desired_dtype != np.float32
+            and np_c.dtype != np.float64
+        ):
+            desired_dtype = np.float32
+
+        if desired_dtype is not None and np_c.dtype != desired_dtype:
+            np_c = np_c.astype(desired_dtype, copy=False)
+
+        np_c = _maybe_promote_float_array(np_c, enable_double_precision)
+        ctx.bind_const_for_var(cv, np_c)
+
+
+def _bind_nchw_input_for_invar(ctx: IRContext, var: Any, index: int) -> None:
+    aval_shape = tuple(var.aval.shape)
+    if len(aval_shape) != 4:
+        raise ValueError(
+            f"inputs_as_nchw: input {index} has rank {len(aval_shape)}, expected 4 for NCHW handling."
+        )
+
+    nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
+    nchw_input_val = ir.Value(
+        name=f"in_{index}_nchw",
+        type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(var.aval.dtype))),
+        shape=_to_ir_shape(nchw_shape),
+    )
+    ctx._inputs.append(nchw_input_val)
+
+    transposed = ctx.builder.Transpose(
+        nchw_input_val,
+        perm=list(_NCHW_TO_NHWC_PERM),
+        _outputs=[f"in_{index}_nhwc_restored"],
+    )
+    transposed.type = nchw_input_val.type
+    transposed.shape = _to_ir_shape(aval_shape)
+    ctx._var2val[var] = transposed
+
+    for nchw_idx, dim in enumerate(nchw_shape):
+        if not isinstance(dim, (int, np.integer)):
+            origin = SymbolicDimOrigin(value=nchw_input_val, axis=nchw_idx)
+            ctx._sym_origin[dim] = origin
+            ctx._sym_origin_str[str(dim)] = origin
+
+
+def _bind_jaxpr_inputs(
+    ctx: IRContext,
+    jpr: Any,
+    *,
+    inputs_as_nchw: Sequence[int],
+) -> None:
+    nchw_inputs_indices = set(inputs_as_nchw)
+    for index, var in enumerate(jpr.invars):
+        if index in nchw_inputs_indices:
+            _bind_nchw_input_for_invar(ctx, var, index)
+        else:
+            ctx.add_input_for_invar(var, index)
+
+
 def _trace_to_jaxpr(
     *,
     fn: Callable[..., Any],
@@ -725,121 +836,21 @@ def to_onnx(
         validated_inputs_as_nchw = trace.inputs_as_nchw
         validated_outputs_as_nchw = trace.outputs_as_nchw
 
-        # 3) IR context & inputs/consts
-        ctx: IRContext = IRContext(
+        ctx = _create_ir_context(
             opset=opset,
             enable_double_precision=enable_double_precision,
             input_specs=sds_list,
+            frozen_params=frozen_params,
+            record_primitive_calls_file=record_primitive_calls_file,
         )
-        call_param_names = set(frozen_params.keys())
-        ctx._call_input_param_names = call_param_names
-        ctx._call_input_param_literals = dict(frozen_params)
-        # Expose knobs for downstream (optional)
-
-        if record_primitive_calls_file:
-            ctx.record_primitive_calls_file = str(record_primitive_calls_file)
-
-        if ctx.get_function_registry() is None:
-            ctx.set_function_registry(FunctionRegistry())
-
-        # Map constvars
-        for cv, cval in zip(jpr.constvars, closed.consts):
-            np_c = np.asarray(cval)
-            target_dtype = None
-            try:
-                target_dtype = np.dtype(cv.aval.dtype)
-            except AttributeError:
-                target_dtype = None
-            except TypeError:
-                target_dtype = None
-            desired_dtype = None
-            if target_dtype is not None and target_dtype != np_c.dtype:
-                desired_dtype = target_dtype
-            elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
-                desired_dtype = default_float
-
-            if (
-                not enable_double_precision
-                and desired_dtype is not None
-                and np.issubdtype(desired_dtype, np.floating)
-                and desired_dtype != np.float32
-                and np_c.dtype != np.float64
-            ):
-                desired_dtype = np.float32
-
-            if desired_dtype is not None and np_c.dtype != desired_dtype:
-                np_c = np_c.astype(desired_dtype, copy=False)
-
-            np_c = _maybe_promote_float_array(np_c, enable_double_precision)
-            ctx.bind_const_for_var(cv, np_c)
-
-        # Inputs
-        nchw_inputs_indices = set(validated_inputs_as_nchw)
-        for i, v in enumerate(jpr.invars):
-            if i in nchw_inputs_indices:
-                # User says this specific input is NCHW in the external world.
-                # JAX uses NHWC by default for images, so to bridge mismatch:
-                # 1. We declare the ONNX graph input as NCHW (permuted shape).
-                # 2. We Transpose it to NHWC.
-                # 3. We bind the variable 'v' to the result of that Transpose.
-
-                # We assume 4D standard layout for now:
-                # NCHW -> NHWC is [0, 2, 3, 1]
-
-                # Check rank is 4
-                aval_shape = tuple(v.aval.shape)
-                if len(aval_shape) != 4:
-                    raise ValueError(
-                        f"inputs_as_nchw: input {i} has rank {len(aval_shape)}, expected 4 for NCHW handling."
-                    )
-
-                # Create the NCHW input
-                # aval_shape is NHWC (JAX view).
-                # We want NCHW input: (N, C, H, W) -> (N, H, W, C) so
-                # if JAX says (N, H, W, C), the NCHW input shape should appear as (N, C, H, W)
-                # But wait, JAX usually tracks (N, H, W, C).
-                # To get NCHW shape from NHWC shape: permute (0, 3, 1, 2) on the JAX shape.
-
-                perm_to_nchw = [0, 3, 1, 2]
-                nchw_shape = tuple(aval_shape[p] for p in perm_to_nchw)
-
-                nchw_input_val = ir.Value(
-                    name=f"in_{i}_nchw",
-                    type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(v.aval.dtype))),
-                    shape=_to_ir_shape(nchw_shape),
-                )
-                ctx._inputs.append(nchw_input_val)
-
-                # Transpose NCHW -> NHWC to match JAX expectation
-                # Permutation: [0, 2, 3, 1]
-                perm_to_nhwc = [0, 2, 3, 1]
-                transposed = ctx.builder.Transpose(
-                    nchw_input_val,
-                    perm=perm_to_nhwc,
-                    _outputs=[f"in_{i}_nhwc_restored"],
-                )
-                transposed.type = nchw_input_val.type
-                transposed.shape = _to_ir_shape(aval_shape)
-                # This 'transposed' value has shape aval_shape (NHWC) and is what the graph uses.
-                ctx._var2val[v] = transposed
-
-                # Symbolic dim origin tracking (tricky with transpose, but we try)
-                # The input value 'nchw_input_val' has dims.
-                # The transposed value has different dims.
-                # We probably want to map symbolic dims to the NCHW input actually?
-                # The current system maps JAX invar dims to the declared input.
-                # Here declared input corresponds to 'nchw_shape'.
-                # So if JAX dim 0 is 'N', it maps to nchw_input_val dim 0.
-                # JAX dim 3 is 'C' (in NHWC), it maps to nchw_input_val dim 1.
-                # ...
-                # Track symbolic dim origins on the graph input (nchw_input_val)
-                for nchw_idx, d_dim in enumerate(nchw_shape):
-                    if not isinstance(d_dim, (int, np.integer)):
-                        origin = SymbolicDimOrigin(value=nchw_input_val, axis=nchw_idx)
-                        ctx._sym_origin[d_dim] = origin
-                        ctx._sym_origin_str[str(d_dim)] = origin
-            else:
-                ctx.add_input_for_invar(v, i)
+        _bind_closed_jaxpr_constants(
+            ctx,
+            jpr,
+            closed.consts,
+            default_float=default_float,
+            enable_double_precision=enable_double_precision,
+        )
+        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
 
         # Lower equations
         class _ConverterFacade:
