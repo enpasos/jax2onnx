@@ -25,7 +25,6 @@ from typing import (
     Mapping,
     Optional,
     Set,
-    TYPE_CHECKING,
     Union,
     cast,
 )
@@ -42,6 +41,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patche
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
     PrimitiveLowering,
     RngTrace,
     SymbolicDimOrigin,
@@ -53,9 +53,8 @@ logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 # Registries and state
 # ------------------------------------------------------------------------------
 
-# mypy/ruff-only import (avoid runtime cycles)
-if TYPE_CHECKING:
-    pass
+# Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
+_IRBuildContext = LoweringContextProtocol
 
 # Use a small private domain for ONNX functions. Netron shows the "f"
 # marker only when it can resolve a FunctionProto in a domain; ORT also

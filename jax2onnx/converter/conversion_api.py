@@ -45,13 +45,12 @@ from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .typing_support import (
     FunctionLowering,
+    LoweringContextProtocol,
     PrimitiveLowering,
     SymbolicDimOrigin,
 )
 
 from jax.extend import core as jcore_ext
-
-_LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
@@ -239,129 +238,125 @@ def _log_nonfatal_stage_failure(stage: str, exc: BaseException) -> None:
     _LOGGER.debug("Nonfatal export failure in %s", stage, exc_info=exc)
 
 
-# ---------------------------
-# Minimal IR Build Context facade (for plugins)
-# ---------------------------
+def _is_drop_var(var: object) -> bool:
+    drop_var_type = getattr(jcore_ext, "DropVar", None)
+    if isinstance(drop_var_type, type) and isinstance(var, drop_var_type):
+        return True
+    return type(var).__name__ == "DropVar"
 
 
-class _IRBuildContext:
-    def __init__(self, *, opset: int, default_float_dtype: np.dtype):
-        self.opset = opset
-        self._default_float_dtype = np.dtype(default_float_dtype)
-        self._var2val: Dict[Any, ir.Value] = {}
-        self._inputs: List[ir.Value] = []
-        self._initializers: List[ir.Value] = []
-        self._nodes: List[ir.Node] = []
-        self._name_counter = 0
-        self._symdim_origin: dict[object, SymbolicDimOrigin] = {}
-        self._symdim_origin_str: dict[str, SymbolicDimOrigin] = {}
+def _get_bound_value(ctx: IRContext, var: object) -> ir.Value | None:
+    try:
+        value = ctx.builder._var2val.get(var)
+    except TypeError:
+        return None
+    return value if isinstance(value, ir.Value) else None
 
-    def fresh_name(self, prefix: str) -> str:
-        self._name_counter += 1
-        return f"{prefix}_{self._name_counter}"
 
-    def add_node(
-        self,
-        node: ir.Node,
-        inputs: Sequence[ir.Value] | None = None,
-        outputs: Sequence[ir.Value] | None = None,
-    ) -> ir.Node:
-        if inputs is not None:
-            node.inputs = list(inputs)
-        if outputs is not None:
-            node.outputs = list(outputs)
-        self._nodes.append(node)
-        return node
+def _value_is_graph_connected(ctx: IRContext, value: ir.Value) -> bool:
+    if any(existing is value for existing in ctx.builder.inputs):
+        return True
+    if any(existing is value for existing in ctx.builder.initializers):
+        return True
+    for node in ctx.builder.nodes:
+        if any(output is value for output in node.outputs):
+            return True
+    return False
 
-    def get_value_for_var(
-        self,
-        var: Any,
-        *,
-        name_hint: Optional[str] = None,
-        prefer_np_dtype: Optional[np.dtype] = None,
-    ) -> "ir.Value":
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            arr = np.asarray(var.val)
-            if np.issubdtype(arr.dtype, np.floating):
-                if prefer_np_dtype is not None:
-                    prefer_dt = np.dtype(prefer_np_dtype)
-                    if np.issubdtype(prefer_dt, np.floating):
-                        target = (
-                            self._default_float_dtype
-                            if self._default_float_dtype == np.float64
-                            else prefer_dt
-                        )
-                    else:
-                        target = prefer_dt
-                else:
-                    target = self._default_float_dtype
-                arr = np.asarray(var.val, dtype=target)
-            c_ir = ir.Value(
-                name=name_hint or self.fresh_name("const"),
-                type=ir.TensorType(_to_ir_dtype_from_np(arr.dtype)),
-                shape=_to_ir_shape(arr.shape),
-                const_value=ir.tensor(arr),
+
+def _outvar_needs_binding(ctx: IRContext, var: object) -> bool:
+    value = _get_bound_value(ctx, var)
+    return value is None or not _value_is_graph_connected(ctx, value)
+
+
+def _coerce_lowering_result_values(
+    result: object, *, primitive_name: str
+) -> list[ir.Value] | None:
+    if result is None:
+        return None
+    if isinstance(result, ir.Value):
+        return [result]
+    if isinstance(result, (list, tuple)):
+        values = list(result)
+        if all(isinstance(value, ir.Value) for value in values):
+            return values
+    raise TypeError(
+        f"[converter] Primitive '{primitive_name}' returned unsupported lowering "
+        f"result {type(result).__name__}; expected ir.Value, a sequence of "
+        "ir.Value, or None"
+    )
+
+
+def _bind_returned_lowering_values(
+    ctx: IRContext,
+    eqn: object,
+    result: object,
+    *,
+    primitive_name: str,
+) -> None:
+    outvars = list(getattr(eqn, "outvars", ()))
+    non_drop_outvars = [
+        (index, var) for index, var in enumerate(outvars) if not _is_drop_var(var)
+    ]
+    unbound_outvars = [
+        (index, var)
+        for index, var in non_drop_outvars
+        if _outvar_needs_binding(ctx, var)
+    ]
+    if not unbound_outvars:
+        return
+
+    returned_values = _coerce_lowering_result_values(
+        result, primitive_name=primitive_name
+    )
+    if returned_values is None:
+        return
+
+    if len(returned_values) == len(non_drop_outvars):
+        indexed_values = zip(non_drop_outvars, returned_values)
+        for (_, var), value in indexed_values:
+            if _outvar_needs_binding(ctx, var):
+                ctx.bind_value_for_var(var, value)
+        return
+
+    if len(returned_values) == len(unbound_outvars):
+        for (_, var), value in zip(unbound_outvars, returned_values):
+            ctx.bind_value_for_var(var, value)
+        return
+
+    raise RuntimeError(
+        f"[converter] Primitive '{primitive_name}' returned {len(returned_values)} "
+        f"value(s), but {len(unbound_outvars)} non-drop outvar(s) remain unbound"
+    )
+
+
+def _assert_eqn_outputs_bound(
+    ctx: IRContext,
+    eqn: object,
+    *,
+    primitive_name: str,
+    eqn_index: int,
+) -> None:
+    for out_index, outvar in enumerate(getattr(eqn, "outvars", ())):
+        if _is_drop_var(outvar):
+            continue
+
+        bound_value = _get_bound_value(ctx, outvar)
+        if bound_value is None:
+            raise RuntimeError(
+                f"[converter] Primitive '{primitive_name}' at equation "
+                f"{eqn_index} did not bind output {out_index}"
             )
-            self._initializers.append(c_ir)
-            return c_ir
-
-        if var in self._var2val:
-            return self._var2val[var]
-
-        if not hasattr(var, "aval"):
-            raise TypeError(f"Unsupported var type: {type(var)}")
-        aval = var.aval
-        aval_dtype = aval.dtype
-        aval_shape = tuple(aval.shape)
-        v = ir.Value(
-            name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_to_ir_dtype_from_np(aval_dtype)),
-            shape=_to_ir_shape(aval_shape),
-        )
-        self._var2val[var] = v
-        return v
-
-    def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
-        aval = var.aval
-        val = ir.Value(
-            name=f"in_{index}",
-            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(aval.dtype))),
-            shape=_to_ir_shape(tuple(aval.shape)),
-        )
-        self._var2val[var] = val
-        self._inputs.append(val)
-
-        # Track symbolic dim origins
-        for ax, d in enumerate(tuple(aval.shape)):
-            if not isinstance(d, (int, np.integer)):
-                origin = SymbolicDimOrigin(value=val, axis=ax)
-                self._symdim_origin[d] = origin
-                self._symdim_origin_str[str(d)] = origin
-        return val
-
-    def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
-        if dim in self._symdim_origin:
-            return self._symdim_origin[dim]
-        return self._symdim_origin_str.get(str(dim))
-
-    def cast_like(
-        self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
-    ) -> ir.Value:
-        out = ir.Value(
-            name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
-            type=exemplar.type,
-            shape=tensor.shape,
-        )
-        self.add_node(
-            ir.Node(
-                op_type="CastLike",
-                domain="",
-                inputs=[tensor, exemplar],
-                outputs=[out],
-                name=self.fresh_name("CastLike"),
+        if not _value_is_graph_connected(ctx, bound_value):
+            value_name = bound_value.name or "<unnamed>"
+            raise RuntimeError(
+                f"[converter] Primitive '{primitive_name}' at equation {eqn_index} "
+                f"bound output {out_index} to disconnected value '{value_name}'"
             )
-        )
-        return out
+
+
+# Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
+_IRBuildContext = LoweringContextProtocol
 
 
 @contextmanager
@@ -591,7 +586,7 @@ def to_onnx(
 
         ctx._const_folder.install_producers(jpr)
 
-        for eqn in jpr.eqns:
+        for eqn_index, eqn in enumerate(jpr.eqns):
             prim_name = eqn.primitive.name
             plugin_ref = PLUGIN_REGISTRY.get(prim_name)
             if plugin_ref is None:
@@ -651,6 +646,7 @@ def to_onnx(
                     plugin_identifier = prim_name
             builder.set_current_jax_traceback(jax_trace)
             builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
+            lowering_result: object = None
             try:
                 if isinstance(plugin_ref, PrimitiveLowering):
                     lower = plugin_ref.lower
@@ -659,16 +655,28 @@ def to_onnx(
                     except Exception:
                         has_params = False
                     if has_params:
-                        lower(ctx, eqn, eqn.params)
+                        lowering_result = lower(ctx, eqn, eqn.params)
                     else:
-                        lower(ctx, eqn)
+                        lowering_result = lower(ctx, eqn)
                 elif isinstance(plugin_ref, FunctionLowering):
                     handler = plugin_ref.get_handler(converter)
-                    handler(converter, eqn, eqn.params)
+                    lowering_result = handler(converter, eqn, eqn.params)
                 else:
                     raise NotImplementedError(
                         f"[converter] Unsupported plugin type for '{prim_name}'"
                     )
+                _bind_returned_lowering_values(
+                    ctx,
+                    eqn,
+                    lowering_result,
+                    primitive_name=prim_name,
+                )
+                _assert_eqn_outputs_bound(
+                    ctx,
+                    eqn,
+                    primitive_name=prim_name,
+                    eqn_index=eqn_index,
+                )
             finally:
                 builder.set_current_jax_traceback(prev_jax_trace)
                 builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
