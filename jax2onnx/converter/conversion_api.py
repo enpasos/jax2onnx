@@ -17,6 +17,7 @@ from typing import (
     cast,
 )
 from contextlib import contextmanager, ExitStack
+from dataclasses import dataclass
 import inspect as _ins
 import logging
 import os
@@ -58,6 +59,16 @@ InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 _ORT_SAFE_IR_VERSION: int = 10
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _TraceResult:
+    closed_jaxpr: Any
+    jaxpr: Any
+    sds_list: list[jax.ShapeDtypeStruct]
+    frozen_params: dict[str, object]
+    inputs_as_nchw: tuple[int, ...]
+    outputs_as_nchw: tuple[int, ...]
 
 
 def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
@@ -619,6 +630,61 @@ def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
             jax.config.update("jax_enable_x64", previous)
 
 
+def _trace_to_jaxpr(
+    *,
+    fn: Callable[..., Any],
+    inputs: Sequence[InputSpec],
+    input_params: Optional[Mapping[str, object]],
+    enable_double_precision: bool,
+    inputs_as_nchw: Optional[Sequence[int]],
+    outputs_as_nchw: Optional[Sequence[int]],
+    input_names: Optional[Sequence[str]],
+    output_names: Optional[Sequence[str]],
+) -> _TraceResult:
+    sds_list = _as_sds_list(inputs, enable_double_precision)
+    frozen_params: Dict[str, object] = dict(input_params or {})
+
+    def _wrapped(*xs: Any) -> Any:
+        return fn(*xs, **frozen_params)
+
+    with _activate_plugin_worlds():
+        closed = jax.make_jaxpr(_wrapped)(*sds_list)
+    if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
+        try:
+            print(f"JAXPR: {closed.jaxpr.pretty_print()}")
+        except Exception:
+            pass
+    jpr = closed.jaxpr
+
+    if input_names is not None and len(input_names) != len(jpr.invars):
+        raise ValueError(
+            f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
+        )
+    if output_names is not None and len(output_names) != len(jpr.outvars):
+        raise ValueError(
+            f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
+        )
+    validated_inputs_as_nchw = _validate_layout_indices(
+        inputs_as_nchw,
+        kind="inputs_as_nchw",
+        upper_bound=len(jpr.invars),
+    )
+    validated_outputs_as_nchw = _validate_layout_indices(
+        outputs_as_nchw,
+        kind="outputs_as_nchw",
+        upper_bound=len(jpr.outvars),
+    )
+
+    return _TraceResult(
+        closed_jaxpr=closed,
+        jaxpr=jpr,
+        sds_list=sds_list,
+        frozen_params=frozen_params,
+        inputs_as_nchw=validated_inputs_as_nchw,
+        outputs_as_nchw=validated_outputs_as_nchw,
+    )
+
+
 def to_onnx(
     *,
     fn: Callable[..., Any],
@@ -641,43 +707,23 @@ def to_onnx(
     3) Run a single IR-wide optimization pass (cross-node cleanups).
     """
     with _force_jax_x64(enable_double_precision):
-        # 1) Abstract inputs
         default_float = _np_float_dtype(enable_double_precision)
-        sds_list = _as_sds_list(inputs, enable_double_precision)
-
-        # 2) JAXPR (optionally print for debugging)
-        frozen_params: Dict[str, object] = dict(input_params or {})
-
-        def _wrapped(*xs: Any) -> Any:
-            return fn(*xs, **frozen_params)
-
-        with _activate_plugin_worlds():
-            closed = jax.make_jaxpr(_wrapped)(*sds_list)
-        if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
-            try:
-                print(f"JAXPR: {closed.jaxpr.pretty_print()}")
-            except Exception:
-                pass
-        jpr = closed.jaxpr
-
-        if input_names is not None and len(input_names) != len(jpr.invars):
-            raise ValueError(
-                f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
-            )
-        if output_names is not None and len(output_names) != len(jpr.outvars):
-            raise ValueError(
-                f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
-            )
-        validated_inputs_as_nchw = _validate_layout_indices(
-            inputs_as_nchw,
-            kind="inputs_as_nchw",
-            upper_bound=len(jpr.invars),
+        trace = _trace_to_jaxpr(
+            fn=fn,
+            inputs=inputs,
+            input_params=input_params,
+            enable_double_precision=enable_double_precision,
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
+            input_names=input_names,
+            output_names=output_names,
         )
-        validated_outputs_as_nchw = _validate_layout_indices(
-            outputs_as_nchw,
-            kind="outputs_as_nchw",
-            upper_bound=len(jpr.outvars),
-        )
+        closed = trace.closed_jaxpr
+        jpr = trace.jaxpr
+        sds_list = trace.sds_list
+        frozen_params = trace.frozen_params
+        validated_inputs_as_nchw = trace.inputs_as_nchw
+        validated_outputs_as_nchw = trace.outputs_as_nchw
 
         # 3) IR context & inputs/consts
         ctx: IRContext = IRContext(
