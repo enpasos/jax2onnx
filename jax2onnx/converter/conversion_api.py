@@ -592,6 +592,38 @@ def _consume_onnx_function_hits() -> None:
         pass
 
 
+def _build_and_finalize_ir_model(
+    ctx: IRContext,
+    *,
+    model_name: str,
+    protective_clone: bool,
+) -> ir.Model:
+    ir_model = ctx.builder.to_ir_model(
+        name=model_name,
+        ir_version=_ORT_SAFE_IR_VERSION,
+        protective_clone=protective_clone,
+    )
+
+    _attach_ir_functions(ir_model, ctx)
+
+    try:
+        optimize_graph(ir_model)
+    except Exception as exc:
+        _log_nonfatal_stage_failure("optimize_graph", exc)
+
+    _apply_late_ir_attr_overrides(ir_model, ctx)
+    _consume_onnx_function_hits()
+
+    ir_model = run_optional_shape_inference(ir_model)
+
+    try:
+        _finalize_model_value_shapes(ir_model)
+    except Exception as exc:
+        _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
+
+    return ir_model
+
+
 @contextmanager
 def _activate_plugin_worlds() -> Iterator[None]:
     # Ensure plugin registry is populated
@@ -1033,30 +1065,8 @@ def to_onnx(
             enable_double_precision=enable_double_precision,
         )
 
-        # Build IR model
-        ir_model = ctx.builder.to_ir_model(
-            name=model_name,
-            ir_version=_ORT_SAFE_IR_VERSION,
+        return _build_and_finalize_ir_model(
+            ctx,
+            model_name=model_name,
             protective_clone=protective_clone,
         )
-
-        _attach_ir_functions(ir_model, ctx)
-
-        # ---- Single IR-wide optimization pass (centralized cleanups) ----
-        try:
-            optimize_graph(ir_model)
-        except Exception as exc:
-            _log_nonfatal_stage_failure("optimize_graph", exc)
-
-        # ---- Late attribute overrides (polish; not structural rewrites) ----
-        _apply_late_ir_attr_overrides(ir_model, ctx)
-        _consume_onnx_function_hits()
-
-        ir_model = run_optional_shape_inference(ir_model)
-
-        try:
-            _finalize_model_value_shapes(ir_model)
-        except Exception as exc:
-            _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
-
-        return ir_model

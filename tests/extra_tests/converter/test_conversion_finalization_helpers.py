@@ -8,6 +8,7 @@ import onnx_ir as ir
 from jax2onnx.converter.conversion_api import (
     _apply_late_ir_attr_overrides,
     _attach_ir_functions,
+    _build_and_finalize_ir_model,
     _finalize_model_value_shapes,
 )
 from jax2onnx.converter.ir_context import IRContext
@@ -114,3 +115,21 @@ def test_finalize_model_value_shapes_normalizes_symbolic_dims() -> None:
     assert isinstance(dims[0], int)
     assert isinstance(dims[1], ir.SymbolicDim)
     assert str(dims[1]) == "B"
+
+
+def test_build_and_finalize_ir_model_returns_named_finalized_model() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    value = _value("x", (np.int64(2), "B"))
+    ctx.builder.inputs.append(value)
+    ctx.builder.outputs.append(value)
+
+    model = _build_and_finalize_ir_model(
+        ctx,
+        model_name="assembled",
+        protective_clone=False,
+    )
+
+    assert model.graph.name == "assembled"
+    dims = model.graph.inputs[0].shape.dims
+    assert dims[0] == 2
+    assert isinstance(dims[1], ir.SymbolicDim)
