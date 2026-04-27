@@ -741,6 +741,66 @@ def _bind_jaxpr_inputs(
             ctx.add_input_for_invar(var, index)
 
 
+def _bind_nchw_output_for_outvar(
+    ctx: IRContext,
+    out_var: Any,
+    index: int,
+    *,
+    enable_double_precision: bool,
+) -> None:
+    val = ctx.get_value_for_var(out_var)
+    aval_shape = tuple(out_var.aval.shape)
+    if len(aval_shape) != 4:
+        raise ValueError(
+            f"outputs_as_nchw: output {index} has rank {len(aval_shape)}, expected 4."
+        )
+
+    output_type = val.type
+    if output_type is None:
+        aval_dtype = _maybe_dtype(out_var.aval)
+        if aval_dtype is not None:
+            ir_dtype = _dtype_to_ir(aval_dtype, enable_double_precision)
+            output_type = ir.TensorType(ir_dtype)
+
+    transposed_out = ctx.builder.Transpose(
+        val,
+        perm=list(_NHWC_TO_NCHW_PERM),
+        _outputs=[f"out_{index}_nchw_converted"],
+    )
+    if output_type is not None:
+        transposed_out.type = output_type
+
+    if isinstance(val.shape, ir.Shape):
+        src_dims = val.shape.dims
+        transposed_out.shape = ir.Shape(tuple(src_dims[p] for p in _NHWC_TO_NCHW_PERM))
+
+    ctx.builder.outputs.append(transposed_out)
+
+
+def _bind_jaxpr_outputs(
+    ctx: IRContext,
+    jpr: Any,
+    *,
+    outputs_as_nchw: Sequence[int],
+    enable_double_precision: bool,
+) -> None:
+    if not outputs_as_nchw:
+        ctx.add_outputs_from_vars(jpr.outvars)
+        return
+
+    nchw_outputs_indices = set(outputs_as_nchw)
+    for index, out_var in enumerate(jpr.outvars):
+        if index in nchw_outputs_indices:
+            _bind_nchw_output_for_outvar(
+                ctx,
+                out_var,
+                index,
+                enable_double_precision=enable_double_precision,
+            )
+        else:
+            ctx.add_outputs_from_vars([out_var])
+
+
 def _trace_to_jaxpr(
     *,
     fn: Callable[..., Any],
@@ -966,65 +1026,12 @@ def to_onnx(
         _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
 
         _lower_jaxpr_equations(ctx, jpr)
-
-        # Outputs
-        if not validated_outputs_as_nchw:
-            ctx.add_outputs_from_vars(jpr.outvars)
-        else:
-            # Customized output handling
-            nchw_outputs_indices = set(validated_outputs_as_nchw)
-            for i, out_var in enumerate(jpr.outvars):
-                val = ctx.get_value_for_var(out_var)
-                if i in nchw_outputs_indices:
-                    # User want this output to be NCHW.
-                    # We assume the graph produces NHWC (JAX standard).
-                    # So we insert Transpose (NHWC -> NCHW).
-
-                    # Check rank is 4
-                    # Note: val.shape might be None or symbolic, checking might be hard if shape is missing.
-                    # We'll rely on JAX aval if available, or just proceed if dynamic?
-                    # Let's assume JAX aval is truth.
-                    aval_shape = tuple(out_var.aval.shape)
-                    if len(aval_shape) != 4:
-                        raise ValueError(
-                            f"outputs_as_nchw: output {i} has rank {len(aval_shape)}, expected 4."
-                        )
-
-                    param_type_to_match = val.type
-                    if param_type_to_match is None:
-                        # Infer from JAX aval if IR type is missing
-                        aval_dtype = _maybe_dtype(out_var.aval)
-                        if aval_dtype is not None:
-                            ir_dtype = _dtype_to_ir(aval_dtype, enable_double_precision)
-                            param_type_to_match = ir.TensorType(ir_dtype)
-
-                    perm_nhwc_to_nchw = [0, 3, 1, 2]
-                    transposed_out = ctx.builder.Transpose(
-                        val,
-                        perm=perm_nhwc_to_nchw,
-                        _outputs=[f"out_{i}_nchw_converted"],
-                    )
-                    if param_type_to_match is not None:
-                        transposed_out.type = param_type_to_match
-
-                    # We add *transposed* value as graph output
-                    # The name of graph output usually comes from user or is auto-generated in `add_outputs_from_vars`.
-                    # We'll manually add it.
-
-                    # Ensure shape/dtype is stamped
-                    if val.shape is not None:
-                        # Permute shape
-                        if isinstance(val.shape, ir.Shape):
-                            src_dims = val.shape.dims
-                            new_dims = tuple(src_dims[p] for p in perm_nhwc_to_nchw)
-                            transposed_out.shape = ir.Shape(new_dims)
-
-                    # Add to graph outputs
-                    ctx.builder.outputs.append(transposed_out)
-
-                else:
-                    # Standard handling
-                    ctx.add_outputs_from_vars([out_var])
+        _bind_jaxpr_outputs(
+            ctx,
+            jpr,
+            outputs_as_nchw=validated_outputs_as_nchw,
+            enable_double_precision=enable_double_precision,
+        )
 
         # Build IR model
         ir_model = ctx.builder.to_ir_model(
