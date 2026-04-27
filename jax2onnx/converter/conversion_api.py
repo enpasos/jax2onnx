@@ -45,13 +45,12 @@ from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .typing_support import (
     FunctionLowering,
+    LoweringContextProtocol,
     PrimitiveLowering,
     SymbolicDimOrigin,
 )
 
 from jax.extend import core as jcore_ext
-
-_LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
@@ -356,129 +355,8 @@ def _assert_eqn_outputs_bound(
             )
 
 
-# ---------------------------
-# Minimal IR Build Context facade (for plugins)
-# ---------------------------
-
-
-class _IRBuildContext:
-    def __init__(self, *, opset: int, default_float_dtype: np.dtype):
-        self.opset = opset
-        self._default_float_dtype = np.dtype(default_float_dtype)
-        self._var2val: Dict[Any, ir.Value] = {}
-        self._inputs: List[ir.Value] = []
-        self._initializers: List[ir.Value] = []
-        self._nodes: List[ir.Node] = []
-        self._name_counter = 0
-        self._symdim_origin: dict[object, SymbolicDimOrigin] = {}
-        self._symdim_origin_str: dict[str, SymbolicDimOrigin] = {}
-
-    def fresh_name(self, prefix: str) -> str:
-        self._name_counter += 1
-        return f"{prefix}_{self._name_counter}"
-
-    def add_node(
-        self,
-        node: ir.Node,
-        inputs: Sequence[ir.Value] | None = None,
-        outputs: Sequence[ir.Value] | None = None,
-    ) -> ir.Node:
-        if inputs is not None:
-            node.inputs = list(inputs)
-        if outputs is not None:
-            node.outputs = list(outputs)
-        self._nodes.append(node)
-        return node
-
-    def get_value_for_var(
-        self,
-        var: Any,
-        *,
-        name_hint: Optional[str] = None,
-        prefer_np_dtype: Optional[np.dtype] = None,
-    ) -> "ir.Value":
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            arr = np.asarray(var.val)
-            if np.issubdtype(arr.dtype, np.floating):
-                if prefer_np_dtype is not None:
-                    prefer_dt = np.dtype(prefer_np_dtype)
-                    if np.issubdtype(prefer_dt, np.floating):
-                        target = (
-                            self._default_float_dtype
-                            if self._default_float_dtype == np.float64
-                            else prefer_dt
-                        )
-                    else:
-                        target = prefer_dt
-                else:
-                    target = self._default_float_dtype
-                arr = np.asarray(var.val, dtype=target)
-            c_ir = ir.Value(
-                name=name_hint or self.fresh_name("const"),
-                type=ir.TensorType(_to_ir_dtype_from_np(arr.dtype)),
-                shape=_to_ir_shape(arr.shape),
-                const_value=ir.tensor(arr),
-            )
-            self._initializers.append(c_ir)
-            return c_ir
-
-        if var in self._var2val:
-            return self._var2val[var]
-
-        if not hasattr(var, "aval"):
-            raise TypeError(f"Unsupported var type: {type(var)}")
-        aval = var.aval
-        aval_dtype = aval.dtype
-        aval_shape = tuple(aval.shape)
-        v = ir.Value(
-            name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_to_ir_dtype_from_np(aval_dtype)),
-            shape=_to_ir_shape(aval_shape),
-        )
-        self._var2val[var] = v
-        return v
-
-    def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
-        aval = var.aval
-        val = ir.Value(
-            name=f"in_{index}",
-            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(aval.dtype))),
-            shape=_to_ir_shape(tuple(aval.shape)),
-        )
-        self._var2val[var] = val
-        self._inputs.append(val)
-
-        # Track symbolic dim origins
-        for ax, d in enumerate(tuple(aval.shape)):
-            if not isinstance(d, (int, np.integer)):
-                origin = SymbolicDimOrigin(value=val, axis=ax)
-                self._symdim_origin[d] = origin
-                self._symdim_origin_str[str(d)] = origin
-        return val
-
-    def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
-        if dim in self._symdim_origin:
-            return self._symdim_origin[dim]
-        return self._symdim_origin_str.get(str(dim))
-
-    def cast_like(
-        self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
-    ) -> ir.Value:
-        out = ir.Value(
-            name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
-            type=exemplar.type,
-            shape=tensor.shape,
-        )
-        self.add_node(
-            ir.Node(
-                op_type="CastLike",
-                domain="",
-                inputs=[tensor, exemplar],
-                outputs=[out],
-                name=self.fresh_name("CastLike"),
-            )
-        )
-        return out
+# Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
+_IRBuildContext = LoweringContextProtocol
 
 
 @contextmanager

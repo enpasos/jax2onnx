@@ -93,8 +93,8 @@ The converter has a few legacy compatibility surfaces:
 
 - `IRContext._inputs`, `_nodes`, `_initializers`, and `_var2val` mirror builder
   state because older plugins still touch these attributes.
-- `conversion_api._IRBuildContext` remains as a compatibility typing facade for
-  plugins that import it under `TYPE_CHECKING`.
+- `conversion_api._IRBuildContext` and `plugin_system._IRBuildContext` remain as
+  compatibility aliases for plugins that import them under `TYPE_CHECKING`.
 
 These shims keep older plugin code working, but the architectural direction is
 builder-first and context-method-first.
@@ -223,6 +223,11 @@ used as a type-checking import by older plugins. Prefer a single public
 `LoweringContextProtocol` or a lightweight alias exported from one module. Keep
 the old import path temporarily with a deprecation comment, then remove the
 duplicate implementation once plugins no longer depend on it.
+
+Status: implemented. The duplicate `_IRBuildContext` class was removed from
+`conversion_api`; both legacy import paths now alias
+`LoweringContextProtocol`, and the shared protocol documents the legacy context
+methods and mirror attributes that still exist during migration.
 
 ### 3. Split `conversion_api.to_onnx`
 
