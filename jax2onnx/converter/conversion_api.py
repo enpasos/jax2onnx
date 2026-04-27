@@ -359,6 +359,226 @@ def _assert_eqn_outputs_bound(
 _IRBuildContext = LoweringContextProtocol
 
 
+def _function_id(func: ir.Function) -> tuple[str, str, str]:
+    return (
+        (func.domain or ""),
+        (func.name or ""),
+        (func.overload or ""),
+    )
+
+
+def _function_store_identifier(fn_ir: ir.Function) -> object:
+    identifier: object | None = None
+    try:
+        identifier_fn = fn_ir.identifier
+    except AttributeError:
+        identifier_fn = None
+
+    if callable(identifier_fn):
+        try:
+            identifier = identifier_fn()
+        except Exception:
+            identifier = None
+    if not identifier and hasattr(fn_ir, "id"):
+        identifier = object.__getattribute__(fn_ir, "id")
+    if not identifier:
+        identifier = _function_id(fn_ir)
+    return identifier
+
+
+def _iter_function_values(function_container: object) -> Iterable[ir.Function]:
+    if isinstance(function_container, dict):
+        return cast(Iterable[ir.Function], function_container.values())
+    if isinstance(function_container, Sequence):
+        return cast(Iterable[ir.Function], function_container)
+    return ()
+
+
+def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
+    ir_funcs = list(ctx.ir_functions)
+    if not ir_funcs:
+        return
+
+    functions_store = ir_model.functions
+    if functions_store is None:
+        try:
+            ir_model.functions = {}
+            functions_store = ir_model.functions
+        except Exception:
+            ir_model.functions = []
+            functions_store = ir_model.functions
+
+    if isinstance(functions_store, dict):
+        for fn_ir in ir_funcs:
+            functions_store[_function_store_identifier(fn_ir)] = fn_ir
+    elif isinstance(functions_store, list):
+        existing = {_function_id(func) for func in functions_store}
+        for fn_ir in ir_funcs:
+            func_id = _function_id(fn_ir)
+            if func_id not in existing:
+                functions_store.append(fn_ir)
+                existing.add(func_id)
+    else:
+        ir_model.functions = list(ir_funcs)
+
+    model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
+    model_imports.setdefault("", int(ctx.builder.opset) or 23)
+    for fn_ir in ir_funcs:
+        dom = (fn_ir.domain or "").strip()
+        if dom and dom not in model_imports:
+            model_imports[dom] = 1
+    try:
+        ir_model.opset_imports = model_imports
+    except Exception:
+        try:
+            existing_imports = ir_model.opset_imports
+            if hasattr(existing_imports, "update"):
+                existing_imports.update(model_imports)
+        except Exception:
+            pass
+
+
+def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
+    seen: set[int] = set()
+    staged: list[ir.Value] = []
+
+    def _queue(values: Iterable[ir.Value]) -> None:
+        for val in values:
+            if val is None:
+                continue
+            if not isinstance(val, ir.Value):
+                continue
+            vid = id(val)
+            if vid in seen:
+                continue
+            seen.add(vid)
+            staged.append(val)
+
+    def _on_enter(graph_like: object) -> None:
+        try:
+            _queue(graph_like.inputs)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        try:
+            _queue(graph_like.outputs)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        try:
+            _queue(graph_like.initializers)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+
+    for node in RecursiveGraphIterator(gr, enter_graph=_on_enter):
+        _queue(node.inputs)
+        _queue(node.outputs)
+
+    for value in staged:
+        yield value
+
+
+def _normalize_value_shape(val: ir.Value) -> None:
+    shape_obj = val.shape
+    if shape_obj is None:
+        return
+    if isinstance(shape_obj, ir.Shape):
+        dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
+    elif isinstance(shape_obj, Iterable):
+        dims_source = tuple(shape_obj)
+    else:
+        return
+
+    normalized_dims: List[object] = []
+    dirty = False
+    for dim in dims_source:
+        normalized_dim: object = dim
+        if isinstance(dim, (int, np.integer)):
+            normalized_dim = int(dim)
+        else:
+            label = _as_ir_dim_label(dim)
+            if isinstance(label, int):
+                normalized_dim = int(label)
+            elif isinstance(label, str):
+                normalized_dim = ir.SymbolicDim(label)
+        if normalized_dim is not dim:
+            dirty = True
+        normalized_dims.append(normalized_dim)
+
+    if dirty:
+        val.shape = ir.Shape(tuple(normalized_dims))
+
+
+def _finalize_model_value_shapes(model_proto: ir.Model) -> None:
+    for value in _iter_graph_values(model_proto.graph):
+        _normalize_value_shape(value)
+
+    for fn in _iter_function_values(model_proto.functions):
+        try:
+            fn_graph = fn.graph
+        except AttributeError:
+            continue
+        for value in _iter_graph_values(fn_graph):
+            _normalize_value_shape(value)
+
+
+def _apply_ir_attr_overrides_to_graph(
+    gr: ir.Graph, overrides: dict[str, dict[str, object]]
+) -> None:
+    if not overrides:
+        return
+    name2node: Dict[str, ir.Node] = {
+        node.name: node for node in gr.all_nodes() if node.name
+    }
+
+    for nm, kv in (overrides or {}).items():
+        node = name2node.get(nm)
+        if node is None or kv is None:
+            continue
+        for attr_name, attr_value in kv.items():
+            attr_obj = _convert_ir_attr(attr_name, attr_value)
+            if attr_obj is not None:
+                node.attributes[attr_name] = attr_obj
+
+
+def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
+    for node in gr.all_nodes():
+        if node.op_type != "Concat":
+            continue
+        if "axis" in node.attributes:
+            continue
+        node.attributes["axis"] = ir.convenience.convert_attribute("axis", 0)
+
+
+def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
+    _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
+    _fix_concat_axis_in_graph(ir_model.graph)
+
+    for fn in _iter_function_values(ir_model.functions):
+        try:
+            graph_obj = getattr(fn, "graph", None)
+            if graph_obj is None:
+                continue
+            overrides_attr: dict[str, dict[str, object]] = {}
+            if hasattr(fn, "_attr_overrides"):
+                raw_overrides = object.__getattribute__(fn, "_attr_overrides")
+                if raw_overrides:
+                    overrides_attr = dict(raw_overrides)
+            fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
+            _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
+            _fix_concat_axis_in_graph(graph_obj)
+        except Exception as exc:
+            fn_name = getattr(fn, "name", "<unnamed function>")
+            _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
+
+
+def _consume_onnx_function_hits() -> None:
+    try:
+        ps2._consume_onnx_function_hits()
+    except AttributeError:
+        pass
+    except Exception:
+        pass
+
+
 @contextmanager
 def _activate_plugin_worlds() -> Iterator[None]:
     # Ensure plugin registry is populated
@@ -748,74 +968,7 @@ def to_onnx(
             protective_clone=protective_clone,
         )
 
-        # Attach any native ir.Functions collected on ctx
-        ir_funcs = list(ctx.ir_functions)
-        if ir_funcs:
-            functions_store = ir_model.functions
-            if functions_store is None:
-                try:
-                    ir_model.functions = {}
-                    functions_store = ir_model.functions
-                except Exception:
-                    ir_model.functions = []
-                    functions_store = ir_model.functions
-
-            if isinstance(functions_store, dict):
-                for fn_ir in ir_funcs:
-                    identifier: object | None = None
-                    try:
-                        identifier_fn = fn_ir.identifier
-                    except AttributeError:
-                        identifier_fn = None
-
-                    if callable(identifier_fn):
-                        try:
-                            identifier = identifier_fn()
-                        except Exception:
-                            identifier = None
-                    if not identifier and hasattr(fn_ir, "id"):
-                        identifier = object.__getattribute__(fn_ir, "id")
-                    if not identifier:
-                        identifier = (
-                            (fn_ir.domain or ""),
-                            (fn_ir.name or ""),
-                            (fn_ir.overload or ""),
-                        )
-                    functions_store[identifier] = fn_ir
-            elif isinstance(functions_store, list):
-
-                def _fid(func: ir.Function) -> tuple[str, str, str]:
-                    return (
-                        (func.domain or ""),
-                        (func.name or ""),
-                        (func.overload or ""),
-                    )
-
-                existing = {_fid(func) for func in functions_store}
-                for fn_ir in ir_funcs:
-                    func_id = _fid(fn_ir)
-                    if func_id not in existing:
-                        functions_store.append(fn_ir)
-                        existing.add(func_id)
-            else:
-                ir_model.functions = list(ir_funcs)
-
-            # Ensure model-level opset imports cover default "" and each function domain
-            model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
-            model_imports.setdefault("", int(ctx.builder.opset) or 23)
-            for fn_ir in ir_funcs:
-                dom = (fn_ir.domain or "").strip()
-                if dom and dom not in model_imports:
-                    model_imports[dom] = 1
-            try:
-                ir_model.opset_imports = model_imports
-            except Exception:
-                try:
-                    existing_imports = ir_model.opset_imports
-                    if hasattr(existing_imports, "update"):
-                        existing_imports.update(model_imports)
-                except Exception:
-                    pass
+        _attach_ir_functions(ir_model, ctx)
 
         # ---- Single IR-wide optimization pass (centralized cleanups) ----
         try:
@@ -824,163 +977,13 @@ def to_onnx(
             _log_nonfatal_stage_failure("optimize_graph", exc)
 
         # ---- Late attribute overrides (polish; not structural rewrites) ----
-
-        def _finalize_model_value_shapes(
-            model_proto: ir.Model, _ctx: IRContext
-        ) -> None:
-            def _normalize_value_shape(val: ir.Value) -> None:
-                shape_obj = val.shape
-                if shape_obj is None:
-                    return
-                if isinstance(shape_obj, ir.Shape):
-                    dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
-                elif isinstance(shape_obj, Iterable):
-                    dims_source = tuple(shape_obj)
-                else:
-                    return
-
-                normalized_dims: List[object] = []
-                dirty = False
-                for dim in dims_source:
-                    normalized_dim: object = dim
-                    if isinstance(dim, (int, np.integer)):
-                        normalized_dim = int(dim)
-                    else:
-                        label = _as_ir_dim_label(dim)
-                        if isinstance(label, int):
-                            normalized_dim = int(label)
-                        elif isinstance(label, str):
-                            normalized_dim = ir.SymbolicDim(label)
-                    if normalized_dim is not dim:
-                        dirty = True
-                    normalized_dims.append(normalized_dim)
-
-                if dirty:
-                    val.shape = ir.Shape(tuple(normalized_dims))
-
-            def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
-                seen: set[int] = set()
-                staged: list[ir.Value] = []
-
-                def _queue(values: Iterable[ir.Value]) -> None:
-                    for val in values:
-                        if val is None:
-                            continue
-                        if not isinstance(val, ir.Value):
-                            continue
-                        vid = id(val)
-                        if vid in seen:
-                            continue
-                        seen.add(vid)
-                        staged.append(val)
-
-                def _on_enter(graph_like: object) -> None:
-                    try:
-                        _queue(graph_like.inputs)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-                    try:
-                        _queue(graph_like.outputs)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-                    try:
-                        _queue(graph_like.initializers)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-
-                for node in RecursiveGraphIterator(gr, enter_graph=_on_enter):
-                    _queue(node.inputs)
-                    _queue(node.outputs)
-
-                for value in staged:
-                    yield value
-
-            for value in _iter_graph_values(model_proto.graph):
-                _normalize_value_shape(value)
-
-            function_container = model_proto.functions
-            graph_values: Iterable[object]
-            if isinstance(function_container, dict):
-                graph_values = function_container.values()
-            elif isinstance(function_container, Sequence):
-                graph_values = function_container
-            else:
-                graph_values = ()
-
-            for fn in graph_values:
-                try:
-                    fn_graph = fn.graph
-                except AttributeError:
-                    continue
-                for value in _iter_graph_values(fn_graph):
-                    _normalize_value_shape(value)
-
-        def _apply_ir_attr_overrides_to_graph(
-            gr: ir.Graph, overrides: dict[str, dict[str, object]]
-        ) -> None:
-            if not overrides:
-                return
-            name2node: Dict[str, ir.Node] = {
-                node.name: node for node in gr.nodes if node.name
-            }
-
-            for nm, kv in (overrides or {}).items():
-                node = name2node.get(nm)
-                if node is None or kv is None:
-                    continue
-                for attr_name, attr_value in kv.items():
-                    attr_obj = _convert_ir_attr(attr_name, attr_value)
-                    if attr_obj is not None:
-                        node.attributes[attr_name] = attr_obj
-
-        def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
-            for node in gr.all_nodes():
-                if node.op_type != "Concat":
-                    continue
-                if "axis" in node.attributes:
-                    continue
-                node.attributes["axis"] = ir.convenience.convert_attribute("axis", 0)
-
-        # Apply overrides/fixes to top graph
-        _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
-        _fix_concat_axis_in_graph(ir_model.graph)
-        # …and to all function bodies (if any)
-        function_container = ir_model.functions
-        if isinstance(function_container, dict):
-            function_values: Iterable[ir.Function] = function_container.values()
-        elif isinstance(function_container, Sequence):
-            function_values = function_container
-        else:
-            function_values = []
-        for fn in function_values:
-            try:
-                graph_obj = getattr(fn, "graph", None)
-                if graph_obj is None:
-                    continue
-                overrides_attr: dict[str, dict[str, object]] = {}
-                if hasattr(fn, "_attr_overrides"):
-                    raw_overrides = object.__getattribute__(fn, "_attr_overrides")
-                    if raw_overrides:
-                        overrides_attr = dict(raw_overrides)
-                fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
-                _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
-                _fix_concat_axis_in_graph(graph_obj)
-            except Exception as exc:
-                fn_name = getattr(fn, "name", "<unnamed function>")
-                _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
-
-        # Avoid emitting placeholders for onnx_function hits across runs
-        try:
-            ps2._consume_onnx_function_hits()
-        except AttributeError:
-            pass
-        except Exception:
-            pass
+        _apply_late_ir_attr_overrides(ir_model, ctx)
+        _consume_onnx_function_hits()
 
         ir_model = run_optional_shape_inference(ir_model)
 
         try:
-            _finalize_model_value_shapes(ir_model, ctx)
+            _finalize_model_value_shapes(ir_model)
         except Exception as exc:
             _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
 

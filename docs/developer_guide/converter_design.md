@@ -244,6 +244,10 @@ shape finalization. Extract the late phases into small modules or helpers:
 This would make failures easier to isolate and would let tests cover each phase
 without constructing a full export.
 
+Status: started. Function attachment, late attribute/Concat postprocessing, and
+final shape normalization now live in module-level helpers with direct tests.
+The tracing and JAXPR-to-IR lowering phases are still inline in `to_onnx`.
+
 ### 4. Make layout adaptation a first-class helper
 
 `inputs_as_nchw` and `outputs_as_nchw` are currently hard-coded inside
