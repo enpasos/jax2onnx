@@ -28,6 +28,8 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 # Related documentation
 
 * [Plugin System Guide](plugin_system.md) – detailed guide on writing plugins.
+* [Converter Design Review](converter_design.md) – implementation-level map of
+  `jax2onnx/converter` plus improvement opportunities.
 * [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md) – canonical builder guardrails and examples.
 * [Expect Graph Reference](advanced_topics/expect_graph_reference.md) – structural test patterns for `expect_graph`.
 * [Subgraph Input Handling](advanced_topics/subgraph_input_handling.md) – control-flow body wiring (If/Loop/Scan).
