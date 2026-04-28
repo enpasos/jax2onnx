@@ -68,6 +68,8 @@ _VALID_RETURN_MODES = {"proto", "ir", "file"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
+OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
+OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
 
 @contextmanager
@@ -648,14 +650,36 @@ def to_onnx(
     return model_proto
 
 
+@overload
 def onnx_function(
-    target: Optional[Union[Callable, type]] = None,
+    target: None = ...,
+    *,
+    unique: bool = ...,
+    namespace: Optional[str] = ...,
+    name: Optional[str] = ...,
+    type: Optional[str] = ...,  # noqa: A002 - user-facing keyword
+) -> OnnxFunctionDecorator: ...
+
+
+@overload
+def onnx_function(
+    target: OnnxFunctionTarget,
+    *,
+    unique: bool = ...,
+    namespace: Optional[str] = ...,
+    name: Optional[str] = ...,
+    type: Optional[str] = ...,  # noqa: A002 - user-facing keyword
+) -> OnnxFunctionTarget: ...
+
+
+def onnx_function(
+    target: Optional[OnnxFunctionTarget] = None,
     *,
     unique: bool = False,
     namespace: Optional[str] = None,
     name: Optional[str] = None,
     type: Optional[str] = None,  # noqa: A002 - user-facing keyword
-) -> Union[Callable, type]:
+) -> Union[OnnxFunctionTarget, OnnxFunctionDecorator]:
     """
     Decorator to mark a function or class as an ONNX function.
 
@@ -705,8 +729,11 @@ def onnx_function(
         >>>         return self.activation(self.dense(x))
     """
 
-    return onnx_function_impl(
-        target, unique=unique, namespace=namespace, name=name, type=type
+    return cast(
+        Union[OnnxFunctionTarget, OnnxFunctionDecorator],
+        onnx_function_impl(
+            target, unique=unique, namespace=namespace, name=name, type=type
+        ),
     )
 
 
