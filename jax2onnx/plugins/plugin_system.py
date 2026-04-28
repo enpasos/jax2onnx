@@ -1224,7 +1224,10 @@ def _register_onnx_function_plugin(
         ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = plugin
         return qual, plugin
 
-    return qual, cast(FunctionPlugin, plugin)
+    raise ValueError(
+        f"@onnx_function registry collision for {qual}: "
+        f"{plugin.__class__.__name__} already owns {prim_name}"
+    )
 
 
 def _mark_onnx_function_target(

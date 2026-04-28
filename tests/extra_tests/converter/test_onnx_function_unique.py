@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import jax.numpy as jnp
 import pytest
 from flax import nnx
@@ -10,6 +13,7 @@ from jax2onnx import onnx_function
 from jax2onnx.plugins.plugin_system import (
     ONNX_FUNCTION_PLUGIN_REGISTRY,
     PLUGIN_REGISTRY,
+    PrimitivePlugin,
 )
 from jax2onnx.user_interface import to_onnx
 
@@ -71,6 +75,15 @@ def _DecoratorNameTypePrecedenceTarget(x: jnp.ndarray) -> jnp.ndarray:
 
 def _DecoratorRegistrySyncTarget(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.square(x)
+
+
+def _DecoratorRegistryCollisionTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+class _DecoratorCollisionPlugin(PrimitivePlugin):
+    def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
+        return []
 
 
 def _onnx_function_qual(target) -> str:
@@ -231,3 +244,17 @@ def test_onnx_function_reregistration_repairs_function_registry():
         assert ONNX_FUNCTION_PLUGIN_REGISTRY[qual] is plugin
     finally:
         _clear_onnx_function_registration(_DecoratorRegistrySyncTarget)
+
+
+def test_onnx_function_rejects_non_function_registry_collision():
+    _clear_onnx_function_registration(_DecoratorRegistryCollisionTarget)
+    try:
+        qual = _onnx_function_qual(_DecoratorRegistryCollisionTarget)
+        PLUGIN_REGISTRY[f"onnx_fn::{qual}"] = _DecoratorCollisionPlugin()
+
+        with pytest.raises(ValueError, match="@onnx_function registry collision"):
+            onnx_function(_DecoratorRegistryCollisionTarget)
+
+        assert qual not in ONNX_FUNCTION_PLUGIN_REGISTRY
+    finally:
+        _clear_onnx_function_registration(_DecoratorRegistryCollisionTarget)
