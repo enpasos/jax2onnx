@@ -18,7 +18,7 @@ The converter is a tiny, generic **JAXPR → IR** engine. It knows nothing about
 3. **Trace** your function to a **ClosedJaxpr**,
 4. **Lower** each equation by handing it to a plugin that claimed that primitive,
 5. **Assemble** an IR graph,
-6. **Optimize** the IR graph with a small, safe, plugin-agnostic pass,
+6. **Optimize** the IR graph with a safe, plugin-agnostic pass suite,
 7. **Finalize** a valid ONNX model (stamp shapes/dtypes, prune, serialize).
 
 Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW, etc. — stays in plugins.
@@ -28,6 +28,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 # Related documentation
 
 * [Plugin System Guide](plugin_system.md) – detailed guide on writing plugins.
+* [Converter Design Review](converter_design.md) – source-level map of the converter package and implemented design improvements.
 * [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md) – canonical builder guardrails and examples.
 * [Expect Graph Reference](advanced_topics/expect_graph_reference.md) – structural test patterns for `expect_graph`.
 * [Subgraph Input Handling](advanced_topics/subgraph_input_handling.md) – control-flow body wiring (If/Loop/Scan).
@@ -139,7 +140,7 @@ The full conversion pipeline spans two modules: [Conversion API](https://github.
 
 | Module | Responsibility |
 |--------|----------------|
-| [IR Optimizer](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_optimizations.py) | Pure optimization passes (DCE, CSE, constant lifting, reshape folding) |
+| [IR Optimizer](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_optimizations.py) | Declarative, IR-only pass suite for graph cleanup, CSE, constant lifting, shape propagation, and pruning |
 | [Conversion API](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/conversion_api.py) | Core conversion + optimization + finalization (returns precise-shape model) |
 | [IR Postprocess](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_postprocess.py) | Export preparation: shape loosening for runtime flexibility |
 | [User Interface](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/user_interface.py) | Public API facade: orchestrates conversion → postprocess → serialize |
