@@ -137,3 +137,32 @@ def lower_equation_with_plugin(
         eqn_index=eqn_index,
     )
     return lowering_result
+
+
+def lower_jaxpr_with_plugins(
+    *,
+    ctx: LoweringContextProtocol,
+    jaxpr: object,
+    registry: Mapping[str, object],
+    source: str,
+    converter: object | None = None,
+    missing_plugin_detail: str | None = None,
+) -> None:
+    """Lower every equation in a JAXPR-like object with registered plugins."""
+    for eqn_index, eqn in enumerate(getattr(jaxpr, "eqns", ())):
+        primitive_name = eqn.primitive.name
+        plugin = get_registered_lowering_plugin(
+            registry,
+            primitive_name,
+            source=source,
+            detail=missing_plugin_detail,
+        )
+        lower_equation_with_plugin(
+            plugin,
+            ctx=ctx,
+            eqn=eqn,
+            primitive_name=primitive_name,
+            eqn_index=eqn_index,
+            source=source,
+            converter=converter,
+        )

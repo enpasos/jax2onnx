@@ -13,6 +13,7 @@ from jax2onnx.converter.lowering_dispatch import (
     get_registered_lowering_plugin,
     identify_lowering_plugin,
     lower_equation_with_plugin,
+    lower_jaxpr_with_plugins,
     make_converter_facade,
 )
 
@@ -188,6 +189,44 @@ def test_lower_equation_with_plugin_dispatches_and_finalizes_outputs() -> None:
 
     assert result is input_value
     assert ctx.builder._var2val[outvar] is input_value
+
+
+def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
+    outvars = [object(), object()]
+    input_value = ir.Value(name="input")
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        )
+    )
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="return_input"),
+                outvars=[outvars[0]],
+            ),
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="return_input"),
+                outvars=[outvars[1]],
+            ),
+        ]
+    )
+
+    lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jaxpr,
+        registry={"return_input": _ReturnGraphInputPlugin()},
+        source="test",
+    )
+
+    assert ctx.builder._var2val[outvars[0]] is input_value
+    assert ctx.builder._var2val[outvars[1]] is input_value
 
 
 def test_reports_unsupported_plugin_type() -> None:

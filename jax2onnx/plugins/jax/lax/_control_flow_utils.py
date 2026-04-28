@@ -12,8 +12,7 @@ from onnx_ir import Shape as IRShape
 from jax import core
 
 from jax2onnx.converter.lowering_dispatch import (
-    get_registered_lowering_plugin,
-    lower_equation_with_plugin,
+    lower_jaxpr_with_plugins,
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -96,21 +95,12 @@ def lower_jaxpr_eqns(
     source: str = "control_flow",
 ) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
-    for inner_eqn_index, inner_eqn in enumerate(getattr(jaxpr, "eqns", ())):
-        prim = inner_eqn.primitive.name
-        plugin = get_registered_lowering_plugin(
-            PLUGIN_REGISTRY,
-            prim,
-            source=source,
-        )
-        lower_equation_with_plugin(
-            plugin,
-            ctx=ctx,
-            eqn=inner_eqn,
-            primitive_name=prim,
-            eqn_index=inner_eqn_index,
-            source=source,
-        )
+    lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jaxpr,
+        registry=PLUGIN_REGISTRY,
+        source=source,
+    )
 
 
 def make_subgraph_context(

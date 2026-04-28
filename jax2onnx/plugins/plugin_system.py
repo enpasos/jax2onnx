@@ -41,8 +41,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patche
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
-    get_registered_lowering_plugin,
-    lower_equation_with_plugin,
+    lower_jaxpr_with_plugins,
     make_converter_facade,
 )
 from jax2onnx.converter.typing_support import (
@@ -1085,23 +1084,14 @@ class FunctionPlugin(PrimitivePlugin):
             # Create a child converter facade
             child_conv = make_converter_facade(fscope.ctx)
             # Walk inner equations and dispatch plugins in CHILD ctx
-            for inner_eqn_index, inner_eqn in enumerate(jpr_f.eqns):
-                prim = inner_eqn.primitive.name
-                plugin = get_registered_lowering_plugin(
-                    PLUGIN_REGISTRY,
-                    prim,
-                    source="onnx_function",
-                    detail="in function body",
-                )
-                lower_equation_with_plugin(
-                    plugin,
-                    ctx=fscope.ctx,
-                    eqn=inner_eqn,
-                    primitive_name=prim,
-                    eqn_index=inner_eqn_index,
-                    source="onnx_function",
-                    converter=child_conv,
-                )
+            lower_jaxpr_with_plugins(
+                ctx=fscope.ctx,
+                jaxpr=jpr_f,
+                registry=PLUGIN_REGISTRY,
+                source="onnx_function",
+                converter=child_conv,
+                missing_plugin_detail="in function body",
+            )
 
             if dynamic_entries:
                 nodes = list(getattr(fscope.ctx.builder, "nodes", []) or [])
