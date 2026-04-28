@@ -7,7 +7,10 @@ from typing import Any
 
 import pytest
 
-from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
+from jax2onnx.converter.lowering_dispatch import (
+    dispatch_plugin_lowering,
+    get_registered_lowering_plugin,
+)
 
 
 class _PrimitiveNoParams:
@@ -26,6 +29,31 @@ class _FunctionStylePlugin:
             return (converter, conv, eqn, params)
 
         return handler
+
+
+def test_get_registered_lowering_plugin_returns_registered_plugin() -> None:
+    plugin = _PrimitiveNoParams()
+
+    result = get_registered_lowering_plugin(
+        {"sample": plugin},
+        "sample",
+        source="test",
+    )
+
+    assert result is plugin
+
+
+def test_get_registered_lowering_plugin_reports_missing_plugin() -> None:
+    with pytest.raises(
+        NotImplementedError,
+        match=r"\[test\] No plugins registered for primitive 'missing' in body",
+    ):
+        get_registered_lowering_plugin(
+            {},
+            "missing",
+            source="test",
+            detail="in body",
+        )
 
 
 def test_dispatches_primitive_without_params() -> None:

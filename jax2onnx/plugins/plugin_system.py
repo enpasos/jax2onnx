@@ -40,7 +40,10 @@ from jax.interpreters import batching
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
-from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
+from jax2onnx.converter.lowering_dispatch import (
+    dispatch_plugin_lowering,
+    get_registered_lowering_plugin,
+)
 from jax2onnx.converter.output_binding import (
     finalize_eqn_lowering_outputs,
 )
@@ -1088,11 +1091,12 @@ class FunctionPlugin(PrimitivePlugin):
             # Walk inner equations and dispatch plugins in CHILD ctx
             for inner_eqn_index, inner_eqn in enumerate(jpr_f.eqns):
                 prim = inner_eqn.primitive.name
-                plugin = PLUGIN_REGISTRY.get(prim)
-                if plugin is None:
-                    raise NotImplementedError(
-                        f"[onnx_function] No plugin for '{prim}' in function body"
-                    )
+                plugin = get_registered_lowering_plugin(
+                    PLUGIN_REGISTRY,
+                    prim,
+                    source="onnx_function",
+                    detail="in function body",
+                )
                 lowering_result = dispatch_plugin_lowering(
                     plugin,
                     ctx=fscope.ctx,

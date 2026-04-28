@@ -14,7 +14,10 @@ from jax import core
 from jax2onnx.converter.output_binding import (
     finalize_eqn_lowering_outputs,
 )
-from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
+from jax2onnx.converter.lowering_dispatch import (
+    dispatch_plugin_lowering,
+    get_registered_lowering_plugin,
+)
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
@@ -98,11 +101,11 @@ def lower_jaxpr_eqns(
     """Lower every equation in ``jaxpr`` using the registered plugins."""
     for inner_eqn_index, inner_eqn in enumerate(getattr(jaxpr, "eqns", ())):
         prim = inner_eqn.primitive.name
-        plugin = PLUGIN_REGISTRY.get(prim)
-        if plugin is None:
-            raise NotImplementedError(
-                f"[{source}] No plugins registered for primitive '{prim}'"
-            )
+        plugin = get_registered_lowering_plugin(
+            PLUGIN_REGISTRY,
+            prim,
+            source=source,
+        )
         lowering_result = dispatch_plugin_lowering(
             plugin,
             ctx=ctx,

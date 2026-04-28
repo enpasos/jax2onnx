@@ -50,7 +50,10 @@ from .ir_context import IRContext
 from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
-from .lowering_dispatch import dispatch_plugin_lowering
+from .lowering_dispatch import (
+    dispatch_plugin_lowering,
+    get_registered_lowering_plugin,
+)
 from .output_binding import (
     finalize_eqn_lowering_outputs,
     get_bound_value,
@@ -907,11 +910,11 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
     try:
         for eqn_index, eqn in enumerate(jpr.eqns):
             prim_name = eqn.primitive.name
-            plugin_ref = PLUGIN_REGISTRY.get(prim_name)
-            if plugin_ref is None:
-                raise NotImplementedError(
-                    f"[converter] No plugins registered for primitive '{prim_name}'"
-                )
+            plugin_ref = get_registered_lowering_plugin(
+                PLUGIN_REGISTRY,
+                prim_name,
+                source="converter",
+            )
             ctx._current_eqn = eqn
             builder = ctx.builder
             prev_jax_trace = builder.current_jax_traceback

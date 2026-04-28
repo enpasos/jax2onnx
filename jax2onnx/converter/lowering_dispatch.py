@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,6 +23,25 @@ def _lower_accepts_params(lower: Any) -> bool:
 
 def _default_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
     return SimpleNamespace(builder=getattr(ctx, "builder", None), ctx=ctx)
+
+
+def get_registered_lowering_plugin(
+    registry: Mapping[str, object],
+    primitive_name: str,
+    *,
+    source: str,
+    detail: str | None = None,
+) -> object:
+    """Return the registered plugin for ``primitive_name`` or raise a source label."""
+    plugin = registry.get(primitive_name)
+    if plugin is not None:
+        return plugin
+
+    detail_text = f" {detail}" if detail else ""
+    raise NotImplementedError(
+        f"[{source}] No plugins registered for primitive "
+        f"'{primitive_name}'{detail_text}"
+    )
 
 
 def dispatch_plugin_lowering(
