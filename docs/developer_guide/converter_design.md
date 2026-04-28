@@ -272,6 +272,10 @@ Two public-looking surfaces are currently misleading:
 Either wire these features end-to-end with tests, or mark/remove them so callers
 do not assume they are active diagnostics.
 
+Status: in progress. `record_primitive_calls_file` now writes a JSON lowering
+record for each successfully lowered primitive. `run_optional_shape_inference`
+is still reserved as an explicit no-op.
+
 ### 6. Centralize dtype and shape coercion helpers
 
 `conversion_api.py`, `ir_context.py`, and `ir_builder.py` each contain local
