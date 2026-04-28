@@ -21,7 +21,8 @@ def _lower_accepts_params(lower: Any) -> bool:
         return False
 
 
-def _default_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
+def make_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
+    """Build the minimal converter facade expected by function lowerings."""
     return SimpleNamespace(builder=getattr(ctx, "builder", None), ctx=ctx)
 
 
@@ -95,7 +96,7 @@ def dispatch_plugin_lowering(
         return lower(ctx, eqn)
 
     if isinstance(plugin, FunctionLowering):
-        converter_facade = converter or _default_converter_facade(ctx)
+        converter_facade = converter or make_converter_facade(ctx)
         handler = plugin.get_handler(converter_facade)
         return handler(
             converter_facade,

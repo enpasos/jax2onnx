@@ -43,6 +43,7 @@ from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
+    make_converter_facade,
 )
 from jax2onnx.converter.output_binding import (
     finalize_eqn_lowering_outputs,
@@ -1060,8 +1061,6 @@ class FunctionPlugin(PrimitivePlugin):
                     kw[entry["name"]] = dyn_val
                 return callee(*core_args, **kw)
 
-            from types import SimpleNamespace
-
             active = set(_IN_FUNCTION_BUILD.get())
             _IN_FUNCTION_BUILD.set(active | {self.name})
             try:
@@ -1087,7 +1086,7 @@ class FunctionPlugin(PrimitivePlugin):
                 fscope.ctx.bind_value_for_var(v_var, v_val)
 
             # Create a child converter facade
-            child_conv = SimpleNamespace(builder=fscope.ctx.builder, ctx=fscope.ctx)
+            child_conv = make_converter_facade(fscope.ctx)
             # Walk inner equations and dispatch plugins in CHILD ctx
             for inner_eqn_index, inner_eqn in enumerate(jpr_f.eqns):
                 prim = inner_eqn.primitive.name

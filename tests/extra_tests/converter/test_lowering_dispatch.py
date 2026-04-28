@@ -11,6 +11,7 @@ from jax2onnx.converter.lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
+    make_converter_facade,
 )
 
 
@@ -76,6 +77,15 @@ def test_identify_lowering_plugin_falls_back_to_primitive_name() -> None:
 
     assert identifier == "sample"
     assert line is None
+
+
+def test_make_converter_facade_exposes_builder_and_context() -> None:
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+
+    converter = make_converter_facade(ctx)
+
+    assert converter.builder is ctx.builder
+    assert converter.ctx is ctx
 
 
 def test_dispatches_primitive_without_params() -> None:

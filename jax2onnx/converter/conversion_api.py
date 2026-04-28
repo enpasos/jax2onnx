@@ -46,13 +46,14 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
-from .ir_builder import IRBuilder, _dtype_to_ir
+from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
+    make_converter_facade,
 )
 from .output_binding import (
     finalize_eqn_lowering_outputs,
@@ -965,17 +966,8 @@ def _trace_to_jaxpr(
     )
 
 
-class _ConverterFacade:
-    builder: IRBuilder
-    ctx: IRContext
-
-    def __init__(self, ctx: IRContext) -> None:
-        self.builder = ctx.builder
-        self.ctx = ctx
-
-
 def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
-    converter = _ConverterFacade(ctx)
+    converter = make_converter_facade(ctx)
     ctx._const_folder.install_producers(jpr)
     primitive_call_records: list[RecordedPrimitiveCallLog] = []
 
