@@ -420,6 +420,16 @@ def _staged_lowering_metadata(
         builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
 
 
+@contextmanager
+def _current_eqn_scope(ctx: IRContext, eqn: object) -> Iterator[None]:
+    previous_eqn = ctx._current_eqn
+    ctx._current_eqn = eqn
+    try:
+        yield
+    finally:
+        ctx._current_eqn = previous_eqn
+
+
 # Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
 _IRBuildContext = LoweringContextProtocol
 
@@ -977,13 +987,15 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                 prim_name,
                 source="converter",
             )
-            ctx._current_eqn = eqn
             builder = ctx.builder
-            with _staged_lowering_metadata(
-                builder,
-                eqn=eqn,
-                plugin_ref=plugin_ref,
-                primitive_name=prim_name,
+            with (
+                _current_eqn_scope(ctx, eqn),
+                _staged_lowering_metadata(
+                    builder,
+                    eqn=eqn,
+                    plugin_ref=plugin_ref,
+                    primitive_name=prim_name,
+                ),
             ):
                 lowering_result = dispatch_plugin_lowering(
                     plugin_ref,
@@ -1009,7 +1021,6 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                     plugin_ref=plugin_ref,
                 )
     finally:
-        ctx._current_eqn = None
         if ctx.record_primitive_calls_file:
             save_primitive_calls_log(
                 primitive_call_records, ctx.record_primitive_calls_file

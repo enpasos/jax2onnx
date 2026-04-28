@@ -14,6 +14,7 @@ from jax2onnx.converter.conversion_api import (
     _bind_closed_jaxpr_constants,
     _bind_jaxpr_inputs,
     _create_ir_context,
+    _current_eqn_scope,
     _lower_jaxpr_equations,
     _staged_lowering_metadata,
     _trace_to_jaxpr,
@@ -105,6 +106,18 @@ def test_lower_jaxpr_equations_reports_missing_plugin(monkeypatch) -> None:
         match=f"No plugins registered for primitive '{primitive_name}'",
     ):
         _lower_jaxpr_equations(ctx, trace.jaxpr)
+
+
+def test_current_eqn_scope_restores_previous_value() -> None:
+    _, ctx = _prepare_add_context()
+    previous_eqn = object()
+    active_eqn = object()
+    ctx._current_eqn = previous_eqn
+
+    with _current_eqn_scope(ctx, active_eqn):
+        assert ctx._current_eqn is active_eqn
+
+    assert ctx._current_eqn is previous_eqn
 
 
 def test_staged_lowering_metadata_sets_and_restores_builder_state() -> None:
