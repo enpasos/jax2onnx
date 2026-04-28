@@ -471,7 +471,7 @@ class FunctionPlugin(PrimitivePlugin):
         self.namespace = _normalize_namespace(namespace)
         # Optional human-readable override for the function base name/op_type.
         # When unset, we fall back to the underlying callable name.
-        self.display_name = None  # type: ignore[assignment]
+        self.display_name: str | None = None
         self._qualified_target = _qualname_of_target(target)
         self.primitive = Primitive(primitive_name)
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
