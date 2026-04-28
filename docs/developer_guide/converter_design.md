@@ -257,6 +257,10 @@ helpers with direct tests.
 consistently, and owns rank/permutation validation. This keeps the core loop
 focused on JAXPR lowering.
 
+Status: implemented. NCHW input/output handling now runs through a dedicated
+layout adapter backed by public `IRContext` methods for graph I/O values,
+var binding, and symbolic-origin recording.
+
 ### 5. Remove or implement no-op configuration surfaces
 
 Two public-looking surfaces are currently misleading:
