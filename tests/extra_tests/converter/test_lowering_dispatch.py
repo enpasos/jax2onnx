@@ -229,6 +229,32 @@ def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
     assert ctx.builder._var2val[outvars[1]] is input_value
 
 
+def test_lower_jaxpr_with_plugins_reports_missing_plugin_detail() -> None:
+    jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="missing_inner"),
+                outvars=[object()],
+            )
+        ]
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match=(
+            r"\[onnx_function\] No plugins registered for primitive "
+            r"'missing_inner' in function body"
+        ),
+    ):
+        lower_jaxpr_with_plugins(
+            ctx=SimpleNamespace(builder=SimpleNamespace()),
+            jaxpr=jaxpr,
+            registry={},
+            source="onnx_function",
+            missing_plugin_detail="in function body",
+        )
+
+
 def test_reports_unsupported_plugin_type() -> None:
     with pytest.raises(
         NotImplementedError,
