@@ -11,12 +11,9 @@ from onnx_ir import Shape as IRShape
 
 from jax import core
 
-from jax2onnx.converter.output_binding import (
-    finalize_eqn_lowering_outputs,
-)
 from jax2onnx.converter.lowering_dispatch import (
-    dispatch_plugin_lowering,
     get_registered_lowering_plugin,
+    lower_equation_with_plugin,
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -106,19 +103,13 @@ def lower_jaxpr_eqns(
             prim,
             source=source,
         )
-        lowering_result = dispatch_plugin_lowering(
+        lower_equation_with_plugin(
             plugin,
             ctx=ctx,
             eqn=inner_eqn,
             primitive_name=prim,
-            source=source,
-        )
-        finalize_eqn_lowering_outputs(
-            ctx,
-            inner_eqn,
-            lowering_result,
-            primitive_name=prim,
             eqn_index=inner_eqn_index,
+            source=source,
         )
 
 

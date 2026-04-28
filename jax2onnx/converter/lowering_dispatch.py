@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
+from .output_binding import finalize_eqn_lowering_outputs
 from .typing_support import (
     FunctionLowering,
     LoweringContextProtocol,
@@ -107,3 +108,32 @@ def dispatch_plugin_lowering(
     raise NotImplementedError(
         f"[{source}] Unsupported plugin type for primitive '{primitive_name}'"
     )
+
+
+def lower_equation_with_plugin(
+    plugin: object,
+    *,
+    ctx: LoweringContextProtocol,
+    eqn: object,
+    primitive_name: str,
+    eqn_index: int,
+    source: str,
+    converter: object | None = None,
+) -> object:
+    """Dispatch a plugin and verify the equation output contract."""
+    lowering_result = dispatch_plugin_lowering(
+        plugin,
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name=primitive_name,
+        source=source,
+        converter=converter,
+    )
+    finalize_eqn_lowering_outputs(
+        ctx,
+        eqn,
+        lowering_result,
+        primitive_name=primitive_name,
+        eqn_index=eqn_index,
+    )
+    return lowering_result

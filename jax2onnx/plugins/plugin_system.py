@@ -41,12 +41,9 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patche
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
-    dispatch_plugin_lowering,
     get_registered_lowering_plugin,
+    lower_equation_with_plugin,
     make_converter_facade,
-)
-from jax2onnx.converter.output_binding import (
-    finalize_eqn_lowering_outputs,
 )
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
@@ -1096,20 +1093,14 @@ class FunctionPlugin(PrimitivePlugin):
                     source="onnx_function",
                     detail="in function body",
                 )
-                lowering_result = dispatch_plugin_lowering(
+                lower_equation_with_plugin(
                     plugin,
                     ctx=fscope.ctx,
                     eqn=inner_eqn,
                     primitive_name=prim,
+                    eqn_index=inner_eqn_index,
                     source="onnx_function",
                     converter=child_conv,
-                )
-                finalize_eqn_lowering_outputs(
-                    fscope.ctx,
-                    inner_eqn,
-                    lowering_result,
-                    primitive_name=prim,
-                    eqn_index=inner_eqn_index,
                 )
 
             if dynamic_entries:

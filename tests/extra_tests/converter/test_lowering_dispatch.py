@@ -5,12 +5,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import onnx_ir as ir
 import pytest
 
 from jax2onnx.converter.lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
+    lower_equation_with_plugin,
     make_converter_facade,
 )
 
@@ -23,6 +25,11 @@ class _PrimitiveNoParams:
 class _PrimitiveWithParams:
     def lower(self, ctx: Any, eqn: Any, params: Any) -> tuple[str, Any, Any, Any]:
         return ("primitive_params", ctx, eqn, params)
+
+
+class _ReturnGraphInputPlugin:
+    def lower(self, ctx: Any, eqn: Any) -> ir.Value:
+        return ctx.builder.inputs[0]
 
 
 class _FunctionStylePlugin:
@@ -152,6 +159,35 @@ def test_dispatches_function_plugin_with_default_converter_facade() -> None:
     assert converter.ctx is ctx
     assert handled_eqn is eqn
     assert params == {}
+
+
+def test_lower_equation_with_plugin_dispatches_and_finalizes_outputs() -> None:
+    outvar = object()
+    input_value = ir.Value(name="input")
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        )
+    )
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    eqn = SimpleNamespace(outvars=[outvar])
+
+    result = lower_equation_with_plugin(
+        _ReturnGraphInputPlugin(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="return_input",
+        eqn_index=0,
+        source="test",
+    )
+
+    assert result is input_value
+    assert ctx.builder._var2val[outvar] is input_value
 
 
 def test_reports_unsupported_plugin_type() -> None:

@@ -50,15 +50,12 @@ from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .lowering_dispatch import (
-    dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
+    lower_equation_with_plugin,
     make_converter_facade,
 )
-from .output_binding import (
-    finalize_eqn_lowering_outputs,
-    get_bound_value,
-)
+from .output_binding import get_bound_value
 from .typing_support import LoweringContextProtocol
 
 from jax.extend import core as jcore_ext
@@ -989,20 +986,14 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                     primitive_name=prim_name,
                 ),
             ):
-                lowering_result = dispatch_plugin_lowering(
+                lower_equation_with_plugin(
                     plugin_ref,
                     ctx=ctx,
                     eqn=eqn,
                     primitive_name=prim_name,
+                    eqn_index=eqn_index,
                     source="converter",
                     converter=converter,
-                )
-                finalize_eqn_lowering_outputs(
-                    ctx,
-                    eqn,
-                    lowering_result,
-                    primitive_name=prim_name,
-                    eqn_index=eqn_index,
                 )
                 _append_primitive_call_record(
                     primitive_call_records,
