@@ -63,6 +63,7 @@ InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 _ORT_SAFE_IR_VERSION: int = 10
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+_STRICT_OPTIMIZER_FAILURES_ENV: str = "JAX2ONNX_STRICT_OPTIMIZER_FAILURES"
 _NHWC_TO_NCHW_PERM: tuple[int, int, int, int] = (0, 3, 1, 2)
 _NCHW_TO_NHWC_PERM: tuple[int, int, int, int] = (0, 2, 3, 1)
 
@@ -244,6 +245,34 @@ def _validate_layout_indices(
 def _log_nonfatal_stage_failure(stage: str, exc: BaseException) -> None:
     _LOGGER.warning("%s skipped after %s: %s", stage, type(exc).__name__, exc)
     _LOGGER.debug("Nonfatal export failure in %s", stage, exc_info=exc)
+
+
+def _env_flag_enabled(name: str) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def _resolve_strict_optimizer_failures(
+    strict_optimizer_failures: Optional[bool],
+) -> bool:
+    if strict_optimizer_failures is not None:
+        return strict_optimizer_failures
+    return _env_flag_enabled(_STRICT_OPTIMIZER_FAILURES_ENV)
+
+
+def _optimize_graph_with_failure_policy(
+    model: ir.Model,
+    *,
+    strict_optimizer_failures: Optional[bool],
+) -> None:
+    try:
+        optimize_graph(model)
+    except Exception as exc:
+        if _resolve_strict_optimizer_failures(strict_optimizer_failures):
+            raise
+        _log_nonfatal_stage_failure("optimize_graph", exc)
 
 
 def _is_drop_var(var: object) -> bool:
@@ -666,6 +695,7 @@ def _build_and_finalize_ir_model(
     *,
     model_name: str,
     protective_clone: bool,
+    strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
     ir_model = ctx.builder.to_ir_model(
         name=model_name,
@@ -675,10 +705,10 @@ def _build_and_finalize_ir_model(
 
     _attach_ir_functions(ir_model, ctx)
 
-    try:
-        optimize_graph(ir_model)
-    except Exception as exc:
-        _log_nonfatal_stage_failure("optimize_graph", exc)
+    _optimize_graph_with_failure_policy(
+        ir_model,
+        strict_optimizer_failures=strict_optimizer_failures,
+    )
 
     _apply_late_ir_attr_overrides(ir_model, ctx)
     _consume_onnx_function_hits()
@@ -1123,6 +1153,7 @@ def to_onnx(
     outputs_as_nchw: Optional[Sequence[int]] = None,
     input_names: Optional[Sequence[str]] = None,
     output_names: Optional[Sequence[str]] = None,
+    strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -1177,4 +1208,5 @@ def to_onnx(
             ctx,
             model_name=model_name,
             protective_clone=protective_clone,
+            strict_optimizer_failures=strict_optimizer_failures,
         )

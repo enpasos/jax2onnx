@@ -57,9 +57,11 @@ serialization; that remains in `jax2onnx/user_interface.py`.
    NHWC-to-NCHW `Transpose` and appends that value as the graph output.
 8. It builds an `onnx_ir.Model`, attaches collected `onnx_ir.Function` objects,
    and ensures function domains appear in model opset imports.
-9. It runs `optimize_graph` in a non-fatal wrapper, applies late attribute
-   overrides, fixes missing `Concat(axis)` attributes, consumes function-hit
-   bookkeeping, and normalizes symbolic shape labels to `ir.SymbolicDim`.
+9. It runs `optimize_graph` in a non-fatal wrapper by default, applies late
+   attribute overrides, fixes missing `Concat(axis)` attributes, consumes
+   function-hit bookkeeping, and normalizes symbolic shape labels to
+   `ir.SymbolicDim`. Set `JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` to re-raise
+   optimizer failures during debugging or CI.
 10. The public API then calls `postprocess_ir_model`, materializes dynamic
     `input_params` as graph inputs when needed, applies final custom I/O names,
     and either returns IR, returns protobuf, or writes a file.
@@ -296,6 +298,11 @@ for exports but risky for CI and development because structural regressions can
 hide behind a warning. Add a strict mode, for example an environment flag or
 internal parameter, that re-raises optimizer failures in tests and debugging
 sessions.
+
+Status: implemented. Optimizer failures remain non-fatal by default, but
+`JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` or the internal
+`strict_optimizer_failures` parameter makes converter assembly re-raise the
+original optimizer exception.
 
 ### 8. Make the optimizer pipeline declarative
 
