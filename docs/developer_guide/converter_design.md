@@ -26,7 +26,7 @@ serialization; that remains in `jax2onnx/user_interface.py`.
 | `ir_context.py` | Plugin-facing lowering context. Owns the JAX var to IR value map, constant binding, symbolic dimension origins, function-mode behavior, and small graph input helpers. |
 | `ir_builder.py` | Thin wrapper around `onnx_ir._tape.Builder` plus graph-owned live lists, initializer deduplication, deterministic names, and optional stacktrace metadata. |
 | `function_scope.py` | Builds ONNX Function bodies in child `IRContext` instances and snapshots them into `onnx_ir.Function` definitions. |
-| `lowering_dispatch.py` | Shared primitive/function plugin invocation helper used by top-level, ONNX Function body, and nested JAXPR lowering paths. |
+| `lowering_dispatch.py` | Shared plugin lookup, metadata identification, and primitive/function invocation helpers used by top-level, ONNX Function body, and nested JAXPR lowering paths. |
 | `output_binding.py` | Shared post-dispatch guardrails that bind returned `ir.Value` objects and verify every non-drop equation output is graph-connected. |
 | `lower_dimexpr.py` | Lowers JAX symbolic dimension expressions to runtime ONNX shape arithmetic using registered dimension origins. |
 | `ir_constants.py` | Minimal recursive constant evaluator used by plugins that can fold primitive outputs from known inputs. |
@@ -51,12 +51,12 @@ serialization; that remains in `jax2onnx/user_interface.py`.
    then binds positional JAXPR inputs as graph inputs. `inputs_as_nchw` is
    handled by declaring an external NCHW input and inserting an NCHW-to-NHWC
    `Transpose` before binding the JAX variable.
-6. It iterates over `jaxpr.eqns`. For each equation it resolves
-   `PLUGIN_REGISTRY[eqn.primitive.name]` and uses the shared lowering dispatcher
-   to call either `PrimitiveLowering.lower(...)` or a `FunctionLowering`
-   handler. Optional stacktrace metadata is staged on the builder while the
-   plugin emits nodes, then shared output-binding guardrails verify the plugin
-   contract.
+6. It iterates over `jaxpr.eqns`. For each equation it uses shared lowering
+   helpers to resolve `PLUGIN_REGISTRY[eqn.primitive.name]`, identify plugin
+   metadata, and call either `PrimitiveLowering.lower(...)` or a
+   `FunctionLowering` handler. Optional stacktrace metadata is staged on the
+   builder while the plugin emits nodes, then shared output-binding guardrails
+   verify the plugin contract.
 7. It binds graph outputs from JAXPR outvars. `outputs_as_nchw` inserts a final
    NHWC-to-NCHW `Transpose` and appends that value as the graph output.
 8. It builds an `onnx_ir.Model`, attaches collected `onnx_ir.Function` objects,
