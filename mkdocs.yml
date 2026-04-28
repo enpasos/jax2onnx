@@ -77,6 +77,7 @@ nav:
               - Flax/NNX Exports: user_guide/sota_examples/dinov3/nnx_exports.md
   - Developer Guide:
       - Architecture: developer_guide/architecture.md
+      - Converter Design Review: developer_guide/converter_design.md
       - Plugin System: developer_guide/plugin_system.md
       - Advanced Topics:
           - Complex Numbers: developer_guide/advanced_topics/complex_numbers.md
