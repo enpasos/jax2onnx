@@ -705,10 +705,8 @@ def onnx_function(
         >>>         return self.activation(self.dense(x))
     """
 
-    # Prefer the explicit `type` override; fall back to `name` for BC.
-    display = type if isinstance(type, str) and type else name
     return onnx_function_impl(
-        target, unique=unique, namespace=namespace, name=display, type=display
+        target, unique=unique, namespace=namespace, name=name, type=type
     )
 
 
