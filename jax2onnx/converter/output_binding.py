@@ -100,6 +100,29 @@ def bind_returned_lowering_values(
     )
 
 
+def finalize_eqn_lowering_outputs(
+    ctx: Any,
+    eqn: object,
+    lowering_result: object,
+    *,
+    primitive_name: str,
+    eqn_index: int,
+) -> None:
+    """Bind returned values, then verify the equation output contract."""
+    bind_returned_lowering_values(
+        ctx,
+        eqn,
+        lowering_result,
+        primitive_name=primitive_name,
+    )
+    assert_eqn_outputs_bound(
+        ctx,
+        eqn,
+        primitive_name=primitive_name,
+        eqn_index=eqn_index,
+    )
+
+
 def assert_eqn_outputs_bound(
     ctx: Any,
     eqn: object,
