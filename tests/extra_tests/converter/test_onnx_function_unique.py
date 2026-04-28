@@ -69,8 +69,17 @@ def _DecoratorNameTypePrecedenceTarget(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.square(x)
 
 
-def _clear_onnx_function_registration(target) -> None:
+def _DecoratorRegistrySyncTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _onnx_function_qual(target) -> str:
     qual = f"{target.__module__}.{target.__name__}"
+    return qual
+
+
+def _clear_onnx_function_registration(target) -> None:
+    qual = _onnx_function_qual(target)
     PLUGIN_REGISTRY.pop(f"onnx_fn::{qual}", None)
     ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qual, None)
 
@@ -207,3 +216,18 @@ def test_onnx_function_type_override_takes_precedence_over_name():
         )
     finally:
         _clear_onnx_function_registration(_DecoratorNameTypePrecedenceTarget)
+
+
+def test_onnx_function_reregistration_repairs_function_registry():
+    _clear_onnx_function_registration(_DecoratorRegistrySyncTarget)
+    try:
+        qual = _onnx_function_qual(_DecoratorRegistrySyncTarget)
+        onnx_function(type="RegistrySyncTarget")(_DecoratorRegistrySyncTarget)
+        plugin = PLUGIN_REGISTRY[f"onnx_fn::{qual}"]
+        ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qual)
+
+        onnx_function(type="RegistrySyncTarget")(_DecoratorRegistrySyncTarget)
+
+        assert ONNX_FUNCTION_PLUGIN_REGISTRY[qual] is plugin
+    finally:
+        _clear_onnx_function_registration(_DecoratorRegistrySyncTarget)

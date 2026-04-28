@@ -1221,6 +1221,7 @@ def _register_onnx_function_plugin(
                 )
         if unique:
             plugin.unique = True
+        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = plugin
         return qual, plugin
 
     return qual, cast(FunctionPlugin, plugin)
