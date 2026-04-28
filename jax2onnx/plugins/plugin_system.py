@@ -1175,6 +1175,57 @@ class FunctionPlugin(PrimitivePlugin):
 # ------------------------------------------------------------------------------
 
 
+def _onnx_function_override_name(name: str | None, type_name: str | None) -> str | None:
+    # Prefer `type` override; fall back to `name` for backwards compatibility.
+    return type_name if isinstance(type_name, str) and type_name else name
+
+
+def _register_onnx_function_plugin(
+    actual_target: Any,
+    *,
+    unique: bool,
+    normalized_namespace: str,
+    override_name: str | None,
+) -> tuple[str, FunctionPlugin]:
+    qual = _qualname_of_target(actual_target)
+    prim_name = f"onnx_fn::{qual}"
+    plugin = PLUGIN_REGISTRY.get(prim_name)
+
+    if plugin is None:
+        fp = FunctionPlugin(
+            prim_name,
+            actual_target,
+            unique=unique,
+            namespace=normalized_namespace,
+        )
+        if isinstance(override_name, str) and override_name:
+            fp.display_name = override_name
+        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
+        PLUGIN_REGISTRY[prim_name] = fp
+        return qual, fp
+
+    if isinstance(plugin, FunctionPlugin):
+        if normalized_namespace and plugin.namespace != normalized_namespace:
+            raise ValueError(
+                f"@onnx_function namespace mismatch for {qual}: "
+                f"{plugin.namespace} vs {normalized_namespace}"
+            )
+        if isinstance(override_name, str) and override_name:
+            current = getattr(plugin, "display_name", None)
+            if current is None or current == "":
+                plugin.display_name = override_name
+            elif current != override_name:
+                raise ValueError(
+                    f"@onnx_function name/type mismatch for {qual}: "
+                    f"{current} vs {override_name}"
+                )
+        if unique:
+            plugin.unique = True
+        return qual, plugin
+
+    return qual, cast(FunctionPlugin, plugin)
+
+
 def onnx_function(
     target: Any | None = None,
     *,
@@ -1192,42 +1243,14 @@ def onnx_function(
     """
 
     def _decorate(actual_target: Any):
-        qual = _qualname_of_target(actual_target)
-        prim_name = f"onnx_fn::{qual}"
-        plugin = PLUGIN_REGISTRY.get(prim_name)
         normalized_ns = _normalize_namespace(namespace)
-        # Prefer `type` override; fall back to `name` for backwards compatibility.
-        override_name = type if isinstance(type, str) and type else name
-        if plugin is None:
-            fp = FunctionPlugin(
-                prim_name,
-                actual_target,
-                unique=unique,
-                namespace=normalized_ns,
-            )
-            if isinstance(override_name, str) and override_name:
-                fp.display_name = override_name
-            ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
-            PLUGIN_REGISTRY[prim_name] = fp
-            plugin = fp
-        elif isinstance(plugin, FunctionPlugin):
-            if normalized_ns and plugin.namespace != normalized_ns:
-                raise ValueError(
-                    f"@onnx_function namespace mismatch for {qual}: "
-                    f"{plugin.namespace} vs {normalized_ns}"
-                )
-            # Allow a late name/type override if none was set; otherwise reject conflicts.
-            if isinstance(override_name, str) and override_name:
-                current = getattr(plugin, "display_name", None)
-                if current is None or current == "":
-                    plugin.display_name = override_name
-                elif current != override_name:
-                    raise ValueError(
-                        f"@onnx_function name/type mismatch for {qual}: "
-                        f"{current} vs {override_name}"
-                    )
-            if unique:
-                plugin.unique = True
+        override_name = _onnx_function_override_name(name, type)
+        _register_onnx_function_plugin(
+            actual_target,
+            unique=unique,
+            normalized_namespace=normalized_ns,
+            override_name=override_name,
+        )
         try:
             setattr(actual_target, "__j2o_onnx_function__", True)
             if unique:
