@@ -9,15 +9,18 @@ The optimizer runs as **Step 2** in the conversion pipeline (see [architecture.m
 1. Build raw IR (`to_onnx`)
 2. **`optimize_graph`** ← runs here
 3. Late attribute overrides
-4. Shape inference (no-op currently)
-5. Finalize shapes
-6. Return from `conversion_api`
-7. Post-process (shape loosening, export prep)
+4. Finalize shapes
+5. Return from `conversion_api`
+6. Post-process (shape loosening, export prep)
 
 This placement ensures:
 - Optimization sees the raw, unpatched graph for maximum benefit.
 - Late overrides only patch nodes that survived optimization.
 - Shape finalization operates on an already-optimized graph.
+
+Optimizer failures are logged and skipped by default so ordinary exports can
+continue. Set `JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` when debugging or in CI to
+re-raise the original optimizer exception.
 
 ---
 

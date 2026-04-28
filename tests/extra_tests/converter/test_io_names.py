@@ -189,3 +189,14 @@ def test_nonfatal_optimize_graph_failure_is_logged(monkeypatch, caplog):
 
     assert model is not None
     assert "optimize_graph skipped after RuntimeError: optimizer boom" in caplog.text
+
+
+def test_strict_optimize_graph_failure_env_reraises(monkeypatch):
+    def _boom(_model):
+        raise RuntimeError("optimizer boom")
+
+    monkeypatch.setattr(conversion_api, "optimize_graph", _boom)
+    monkeypatch.setenv("JAX2ONNX_STRICT_OPTIMIZER_FAILURES", "1")
+
+    with pytest.raises(RuntimeError, match="optimizer boom"):
+        to_onnx(_identity, inputs=[(2,)], return_mode="ir")
