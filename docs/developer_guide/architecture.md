@@ -125,17 +125,16 @@ The full conversion pipeline spans two modules: [Conversion API](https://github.
 | 1 | `conversion_api` | `to_onnx` | Build raw IR: trace JAXPR, lower equations to nodes |
 | 2 | `conversion_api` | `optimize_graph` | **Structural optimization**: dead node removal, CSE, constant lifting, reshape folding |
 | 3 | `conversion_api` | Late overrides | Apply user attribute patches to **surviving** nodes; fix Concat axis |
-| 4 | `conversion_api` | `run_optional_shape_inference` | (Reserved for future shape inference; currently no-op) |
-| 5 | `conversion_api` | `_finalize_model_value_shapes` | Normalize symbolic dims to `ir.SymbolicDim` objects |
-| 6 | `conversion_api` | Return | Model has **precise shapes** preserved |
-| 7 | `user_interface` | `postprocess_ir_model` | **Shape loosening**: replace intermediate value shapes with dynamic dims for ORT flexibility |
-| 8 | `user_interface` | `_materialize_input_params_on_ir` | Expose `input_params` as explicit graph inputs |
-| 9 | `user_interface` | Serialize | Convert to proto / save to file |
+| 4 | `conversion_api` | `_finalize_model_value_shapes` | Normalize symbolic dims to `ir.SymbolicDim` objects |
+| 5 | `conversion_api` | Return | Model has **precise shapes** preserved |
+| 6 | `user_interface` | `postprocess_ir_model` | **Shape loosening**: replace intermediate value shapes with dynamic dims for ORT flexibility |
+| 7 | `user_interface` | `_materialize_input_params_on_ir` | Expose `input_params` as explicit graph inputs |
+| 8 | `user_interface` | Serialize | Convert to proto / save to file |
 
 ### Why this order?
 
 1. **Optimize before patching**: Dead node removal runs first so we don't waste time patching nodes that will be deleted.
-2. **Finalize before loosening**: `conversion_api` normalizes shapes while they are precise. Loosening (Step 7) is intentionally AFTER to preserve accuracy for shape inference and finalization.
+2. **Finalize before loosening**: `conversion_api` normalizes shapes while they are precise. Loosening (Step 6) is intentionally AFTER to preserve accuracy for finalization.
 3. **Loosening is export-only**: `postprocess_ir_model` is called only by the user-facing `to_onnx` function, not by internal pipelines.
 
 ### Module responsibilities
