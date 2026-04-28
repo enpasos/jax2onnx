@@ -246,7 +246,14 @@ share a single function body, while shape/config changes trigger new entries.
 
 # IR optimizer (plugin-agnostic)
 
-Before serialization we run a tiny, structure-only optimization sweep. The canonical rules and implementation notes live in [IR Optimizer Guide](advanced_topics/ir_optimizer.md). Today the only pass folds redundant `Transpose → [elementwise]* → Transpose` pairs when their permutations compose to identity; future passes must follow the same IR-only, backend-agnostic constraints.
+Before serialization we run a structure-only optimization sweep. The canonical
+rules, pass order, and implementation notes live in
+[IR Optimizer Guide](advanced_topics/ir_optimizer.md). Current passes cover
+name normalization, redundant cast/transpose/reshape cleanup, common
+subexpression elimination, constant lifting, selected algebraic rewrites,
+shape propagation, dead-node removal, orphan transpose cleanup, and unused
+top-level graph input pruning. Future passes must follow the same IR-only,
+backend-agnostic constraints.
 
 ---
 
