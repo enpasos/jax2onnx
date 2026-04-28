@@ -40,6 +40,7 @@ from jax.interpreters import batching
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
 from jax2onnx.converter.output_binding import (
     assert_eqn_outputs_bound,
     bind_returned_lowering_values,
@@ -1093,28 +1094,14 @@ class FunctionPlugin(PrimitivePlugin):
                     raise NotImplementedError(
                         f"[onnx_function] No plugin for '{prim}' in function body"
                     )
-                lowering_result = None
-                if hasattr(plugin, "lower"):
-                    # new/old leaf plugin shape
-                    try:
-                        import inspect as _ins
-
-                        has_params = "params" in _ins.signature(plugin.lower).parameters
-                    except Exception:
-                        has_params = False
-                    if has_params:
-                        lowering_result = plugin.lower(
-                            fscope.ctx, inner_eqn, getattr(inner_eqn, "params", None)
-                        )
-                    else:
-                        lowering_result = plugin.lower(fscope.ctx, inner_eqn)
-                elif hasattr(plugin, "get_handler"):
-                    handler = plugin.get_handler(child_conv)
-                    lowering_result = handler(child_conv, inner_eqn, inner_eqn.params)
-                else:
-                    raise NotImplementedError(
-                        f"[onnx_function] Unsupported plugin type for '{prim}'"
-                    )
+                lowering_result = dispatch_plugin_lowering(
+                    plugin,
+                    ctx=fscope.ctx,
+                    eqn=inner_eqn,
+                    primitive_name=prim,
+                    source="onnx_function",
+                    converter=child_conv,
+                )
                 bind_returned_lowering_values(
                     fscope.ctx,
                     inner_eqn,

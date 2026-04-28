@@ -7,6 +7,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import onnx_ir as ir
 import pytest
 
 from jax2onnx.converter import conversion_api
@@ -65,6 +66,16 @@ class _DisconnectedOutputAddPlugin:
         ctx.get_value_for_var(eqn.outvars[0], name_hint="dangling_add")
 
 
+class _FunctionStyleNestedPlugin:
+    def get_handler(self, converter: Any) -> Any:
+        def handler(conv: Any, eqn: Any, params: Any) -> None:
+            assert conv is converter
+            assert params == {"marker": "nested"}
+            conv.ctx.bind_value_for_var(eqn.outvars[0], conv.ctx.builder.inputs[0])
+
+        return handler
+
+
 def test_returned_lowering_value_binds_unbound_outvar(monkeypatch) -> None:
     import_all_plugins()
     monkeypatch.setitem(PLUGIN_REGISTRY, "add", _ReturnOnlyAddPlugin())
@@ -120,3 +131,37 @@ def test_nested_lowering_source_labels_missing_plugin_errors() -> None:
         match=r"\[jit\] No plugins registered for primitive 'missing_nested_primitive'",
     ):
         lower_jaxpr_eqns(SimpleNamespace(), jaxpr, source="jit")
+
+
+def test_nested_lowering_dispatches_function_plugins(monkeypatch) -> None:
+    outvar = object()
+    input_value = ir.Value(name="nested_input")
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        ),
+        bind_value_for_var=lambda var, value: ctx.builder._var2val.__setitem__(
+            var, value
+        ),
+    )
+    jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="function_style_nested"),
+                outvars=[outvar],
+                params={"marker": "nested"},
+            )
+        ]
+    )
+    monkeypatch.setitem(
+        PLUGIN_REGISTRY,
+        "function_style_nested",
+        _FunctionStyleNestedPlugin(),
+    )
+
+    lower_jaxpr_eqns(ctx, jaxpr, source="jit")
+
+    assert ctx.builder._var2val[outvar] is input_value
