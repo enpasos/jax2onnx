@@ -44,6 +44,40 @@ def get_registered_lowering_plugin(
     )
 
 
+def identify_lowering_plugin(
+    plugin: object, primitive_name: str
+) -> tuple[str, str | None]:
+    """Return a stable plugin identifier and optional source line for metadata."""
+    if plugin is None:
+        return primitive_name, None
+
+    try:
+        if isinstance(plugin, PrimitiveLowering):
+            lower = plugin.lower
+            func_name = getattr(lower, "__name__", "lower")
+            identifier = (
+                f"{type(plugin).__module__}.{type(plugin).__name__}.{func_name}"
+            )
+            try:
+                _, start_line = inspect.getsourcelines(lower)
+            except (OSError, TypeError):
+                return identifier, None
+            return identifier, str(start_line)
+
+        if isinstance(plugin, FunctionLowering):
+            return (
+                f"{type(plugin).__module__}.{type(plugin).__name__}.get_handler",
+                None,
+            )
+
+        if hasattr(plugin, "__class__"):
+            return f"{type(plugin).__module__}.{type(plugin).__name__}", None
+    except Exception:
+        pass
+
+    return primitive_name, None
+
+
 def dispatch_plugin_lowering(
     plugin: object,
     *,

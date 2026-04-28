@@ -10,6 +10,7 @@ import pytest
 from jax2onnx.converter.lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
+    identify_lowering_plugin,
 )
 
 
@@ -54,6 +55,27 @@ def test_get_registered_lowering_plugin_reports_missing_plugin() -> None:
             source="test",
             detail="in body",
         )
+
+
+def test_identify_lowering_plugin_reports_primitive_lowering_metadata() -> None:
+    identifier, line = identify_lowering_plugin(_PrimitiveNoParams(), "sample")
+
+    assert identifier.endswith("._PrimitiveNoParams.lower")
+    assert line is None or line.isdigit()
+
+
+def test_identify_lowering_plugin_reports_function_lowering_metadata() -> None:
+    identifier, line = identify_lowering_plugin(_FunctionStylePlugin(), "sample")
+
+    assert identifier.endswith("._FunctionStylePlugin.get_handler")
+    assert line is None
+
+
+def test_identify_lowering_plugin_falls_back_to_primitive_name() -> None:
+    identifier, line = identify_lowering_plugin(None, "sample")
+
+    assert identifier == "sample"
+    assert line is None
 
 
 def test_dispatches_primitive_without_params() -> None:

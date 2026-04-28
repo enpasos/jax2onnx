@@ -18,7 +18,6 @@ from typing import (
 )
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
-import inspect as _ins
 import logging
 import os
 import jax
@@ -53,16 +52,13 @@ from .function_scope import FunctionRegistry
 from .lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
+    identify_lowering_plugin,
 )
 from .output_binding import (
     finalize_eqn_lowering_outputs,
     get_bound_value,
 )
-from .typing_support import (
-    FunctionLowering,
-    LoweringContextProtocol,
-    PrimitiveLowering,
-)
+from .typing_support import LoweringContextProtocol
 
 from jax.extend import core as jcore_ext
 
@@ -939,36 +935,10 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                             jax_trace = str(tb)
                         except Exception:
                             jax_trace = None
-                try:
-                    if isinstance(plugin_ref, PrimitiveLowering):
-                        lower_fn = plugin_ref.lower
-                        try:
-                            func_name = lower_fn.__name__
-                        except AttributeError:
-                            func_name = "lower"
-
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
-                            f"{func_name}"
-                        )
-                        try:
-                            _, start_line = _ins.getsourcelines(lower_fn)
-                            plugin_line = str(start_line)
-                        except (OSError, TypeError):
-                            plugin_line = None
-                    elif isinstance(plugin_ref, FunctionLowering):
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}."
-                            f"{type(plugin_ref).__name__}.get_handler"
-                        )
-                    elif hasattr(plugin_ref, "__class__"):
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
-                        )
-                    else:
-                        plugin_identifier = prim_name
-                except Exception:
-                    plugin_identifier = prim_name
+                plugin_identifier, plugin_line = identify_lowering_plugin(
+                    plugin_ref,
+                    prim_name,
+                )
             builder.set_current_jax_traceback(jax_trace)
             builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
             lowering_result: object = None
