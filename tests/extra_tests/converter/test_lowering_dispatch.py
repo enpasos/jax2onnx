@@ -1,0 +1,108 @@
+# tests/extra_tests/converter/test_lowering_dispatch.py
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
+
+
+class _PrimitiveNoParams:
+    def lower(self, ctx: Any, eqn: Any) -> tuple[str, Any, Any]:
+        return ("primitive", ctx, eqn)
+
+
+class _PrimitiveWithParams:
+    def lower(self, ctx: Any, eqn: Any, params: Any) -> tuple[str, Any, Any, Any]:
+        return ("primitive_params", ctx, eqn, params)
+
+
+class _FunctionStylePlugin:
+    def get_handler(self, converter: Any) -> Any:
+        def handler(conv: Any, eqn: Any, params: Any) -> tuple[Any, Any, Any, Any]:
+            return (converter, conv, eqn, params)
+
+        return handler
+
+
+def test_dispatches_primitive_without_params() -> None:
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+    eqn = SimpleNamespace(params={"ignored": True})
+
+    result = dispatch_plugin_lowering(
+        _PrimitiveNoParams(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample",
+        source="test",
+    )
+
+    assert result == ("primitive", ctx, eqn)
+
+
+def test_dispatches_primitive_with_params() -> None:
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+    eqn = SimpleNamespace(params={"axis": 1})
+
+    result = dispatch_plugin_lowering(
+        _PrimitiveWithParams(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample",
+        source="test",
+    )
+
+    assert result == ("primitive_params", ctx, eqn, {"axis": 1})
+
+
+def test_dispatches_function_plugin_with_supplied_converter() -> None:
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+    converter = SimpleNamespace(builder=ctx.builder, ctx=ctx)
+    eqn = SimpleNamespace(params={"marker": "function"})
+
+    result = dispatch_plugin_lowering(
+        _FunctionStylePlugin(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample_function",
+        source="test",
+        converter=converter,
+    )
+
+    assert result == (converter, converter, eqn, {"marker": "function"})
+
+
+def test_dispatches_function_plugin_with_default_converter_facade() -> None:
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+    eqn = SimpleNamespace()
+
+    converter, conv, handled_eqn, params = dispatch_plugin_lowering(
+        _FunctionStylePlugin(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample_function",
+        source="test",
+    )
+
+    assert converter is conv
+    assert converter.builder is ctx.builder
+    assert converter.ctx is ctx
+    assert handled_eqn is eqn
+    assert params == {}
+
+
+def test_reports_unsupported_plugin_type() -> None:
+    with pytest.raises(
+        NotImplementedError,
+        match=r"\[test\] Unsupported plugin type for primitive 'missing'",
+    ):
+        dispatch_plugin_lowering(
+            object(),
+            ctx=SimpleNamespace(builder=SimpleNamespace()),
+            eqn=SimpleNamespace(),
+            primitive_name="missing",
+            source="test",
+        )
