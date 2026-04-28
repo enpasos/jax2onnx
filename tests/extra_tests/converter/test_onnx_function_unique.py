@@ -65,6 +65,10 @@ def _DecoratorMarkerTarget(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.square(x)
 
 
+def _DecoratorNameTypePrecedenceTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
 def _clear_onnx_function_registration(target) -> None:
     qual = f"{target.__module__}.{target.__name__}"
     PLUGIN_REGISTRY.pop(f"onnx_fn::{qual}", None)
@@ -184,3 +188,22 @@ def test_onnx_function_sets_marker_attributes():
         assert _DecoratorMarkerTarget.__j2o_onnx_function_type__ == "MarkerName"
     finally:
         _clear_onnx_function_registration(_DecoratorMarkerTarget)
+
+
+def test_onnx_function_type_override_takes_precedence_over_name():
+    _clear_onnx_function_registration(_DecoratorNameTypePrecedenceTarget)
+    try:
+        onnx_function(name="NameOverride", type="TypeOverride")(
+            _DecoratorNameTypePrecedenceTarget
+        )
+
+        assert (
+            _DecoratorNameTypePrecedenceTarget.__j2o_onnx_function_name__
+            == "TypeOverride"
+        )
+        assert (
+            _DecoratorNameTypePrecedenceTarget.__j2o_onnx_function_type__
+            == "TypeOverride"
+        )
+    finally:
+        _clear_onnx_function_registration(_DecoratorNameTypePrecedenceTarget)
