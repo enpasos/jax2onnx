@@ -285,6 +285,10 @@ module and keep only policy-specific wrappers near their call sites. This would
 reduce drift around float promotion, symbolic label handling, and integer
 normalization.
 
+Status: implemented. Shared dtype and shape coercion now lives in
+`jax2onnx.ir_utils`; converter modules either call those helpers directly or keep
+thin policy wrappers for compatibility with plugin imports.
+
 ### 7. Make optimizer failures optionally strict
 
 `conversion_api.to_onnx` logs optimizer failures and continues. That is friendly
