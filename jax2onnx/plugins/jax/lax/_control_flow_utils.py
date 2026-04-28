@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import types
 from collections.abc import Iterable
 from typing import Any, cast
@@ -16,6 +15,7 @@ from jax2onnx.converter.output_binding import (
     assert_eqn_outputs_bound,
     bind_returned_lowering_values,
 )
+from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
@@ -90,22 +90,6 @@ def builder_loop(
     return loop_result
 
 
-def _call_plugin_lower(
-    plugin: Any, ctx: LoweringContextProtocol, eqn: core.JaxprEqn
-) -> object:
-    """Invoke a plugin's lowering helper, forwarding params when supported."""
-    lower_fn = getattr(plugin, "lower", None)
-    if lower_fn is None:
-        raise NotImplementedError(f"Plugin for '{plugin}' lacks a lower() method.")
-    try:
-        sig = inspect.signature(lower_fn)
-        if "params" in sig.parameters:
-            return lower_fn(ctx, eqn, getattr(eqn, "params", None))
-    except (ValueError, TypeError):
-        pass
-    return lower_fn(ctx, eqn)
-
-
 def lower_jaxpr_eqns(
     ctx: LoweringContextProtocol,
     jaxpr: core.Jaxpr,
@@ -120,7 +104,13 @@ def lower_jaxpr_eqns(
             raise NotImplementedError(
                 f"[{source}] No plugins registered for primitive '{prim}'"
             )
-        lowering_result = _call_plugin_lower(plugin, ctx, inner_eqn)
+        lowering_result = dispatch_plugin_lowering(
+            plugin,
+            ctx=ctx,
+            eqn=inner_eqn,
+            primitive_name=prim,
+            source=source,
+        )
         bind_returned_lowering_values(
             ctx,
             inner_eqn,

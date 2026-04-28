@@ -50,6 +50,7 @@ from .ir_context import IRContext
 from .ir_builder import IRBuilder, _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
+from .lowering_dispatch import dispatch_plugin_lowering
 from .output_binding import (
     assert_eqn_outputs_bound,
     bind_returned_lowering_values,
@@ -970,23 +971,14 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
             builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
             lowering_result: object = None
             try:
-                if isinstance(plugin_ref, PrimitiveLowering):
-                    lower = plugin_ref.lower
-                    try:
-                        has_params = "params" in _ins.signature(lower).parameters
-                    except Exception:
-                        has_params = False
-                    if has_params:
-                        lowering_result = lower(ctx, eqn, eqn.params)
-                    else:
-                        lowering_result = lower(ctx, eqn)
-                elif isinstance(plugin_ref, FunctionLowering):
-                    handler = plugin_ref.get_handler(converter)
-                    lowering_result = handler(converter, eqn, eqn.params)
-                else:
-                    raise NotImplementedError(
-                        f"[converter] Unsupported plugin type for '{prim_name}'"
-                    )
+                lowering_result = dispatch_plugin_lowering(
+                    plugin_ref,
+                    ctx=ctx,
+                    eqn=eqn,
+                    primitive_name=prim_name,
+                    source="converter",
+                    converter=converter,
+                )
                 bind_returned_lowering_values(
                     ctx,
                     eqn,
