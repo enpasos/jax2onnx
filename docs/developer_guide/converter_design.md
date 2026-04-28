@@ -212,11 +212,12 @@ unbound value. Add a small helper after plugin dispatch:
 This would turn late graph-shape failures into immediate plugin-contract
 failures.
 
-Status: implemented for the top-level `conversion_api.to_onnx` equation loop.
-The guard also accepts returned `ir.Value` objects and binds them generically
-when a plugin returns values instead of calling `ctx.bind_value_for_var(...)`.
-A useful follow-up is reusing the same guard in plugins that lower nested JAXPRs
-manually, such as JIT/custom-call style wrappers.
+Status: implemented. The shared output-binding helper is used by the top-level
+`conversion_api.to_onnx` equation loop, ONNX function body lowering, control-flow
+subgraph lowering, and direct nested-JAXPR wrappers such as JIT, PJIT,
+`custom_jvp`, `custom_vjp`, `shard_map`, and `custom_linear_solve`. The guard
+also accepts returned `ir.Value` objects and binds them generically when a
+plugin returns values instead of calling `ctx.bind_value_for_var(...)`.
 
 ### 2. Consolidate legacy context shims
 
@@ -341,9 +342,6 @@ function passes, and IR postprocessing share that helper.
 
 ## Suggested Next Steps
 
-1. Reuse the output-binding guardrail in nested-JAXPR lowering paths that
-   currently run their own equation loops.
-2. Extract late finalization helpers from `conversion_api.to_onnx` before making
-   broader behavior changes.
-3. Consolidate context typing and dtype/shape helpers once the guardrail has
-   tests; those refactors touch wider plugin-facing surfaces.
+The review items above are implemented. New follow-up work should be based on
+fresh failures, CI feedback, or a new converter design review rather than this
+completed checklist.

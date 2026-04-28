@@ -40,6 +40,10 @@ from jax.interpreters import batching
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.output_binding import (
+    assert_eqn_outputs_bound,
+    bind_returned_lowering_values,
+)
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     PrimitiveLowering,
@@ -1082,13 +1086,14 @@ class FunctionPlugin(PrimitivePlugin):
             # Create a child converter facade
             child_conv = SimpleNamespace(builder=fscope.ctx.builder, ctx=fscope.ctx)
             # Walk inner equations and dispatch plugins in CHILD ctx
-            for inner_eqn in jpr_f.eqns:
+            for inner_eqn_index, inner_eqn in enumerate(jpr_f.eqns):
                 prim = inner_eqn.primitive.name
                 plugin = PLUGIN_REGISTRY.get(prim)
                 if plugin is None:
                     raise NotImplementedError(
                         f"[onnx_function] No plugin for '{prim}' in function body"
                     )
+                lowering_result = None
                 if hasattr(plugin, "lower"):
                     # new/old leaf plugin shape
                     try:
@@ -1098,18 +1103,30 @@ class FunctionPlugin(PrimitivePlugin):
                     except Exception:
                         has_params = False
                     if has_params:
-                        plugin.lower(
+                        lowering_result = plugin.lower(
                             fscope.ctx, inner_eqn, getattr(inner_eqn, "params", None)
                         )
                     else:
-                        plugin.lower(fscope.ctx, inner_eqn)
+                        lowering_result = plugin.lower(fscope.ctx, inner_eqn)
                 elif hasattr(plugin, "get_handler"):
                     handler = plugin.get_handler(child_conv)
-                    handler(child_conv, inner_eqn, inner_eqn.params)
+                    lowering_result = handler(child_conv, inner_eqn, inner_eqn.params)
                 else:
                     raise NotImplementedError(
                         f"[onnx_function] Unsupported plugin type for '{prim}'"
                     )
+                bind_returned_lowering_values(
+                    fscope.ctx,
+                    inner_eqn,
+                    lowering_result,
+                    primitive_name=prim,
+                )
+                assert_eqn_outputs_bound(
+                    fscope.ctx,
+                    inner_eqn,
+                    primitive_name=prim,
+                    eqn_index=inner_eqn_index,
+                )
 
             if dynamic_entries:
                 nodes = list(getattr(fscope.ctx.builder, "nodes", []) or [])

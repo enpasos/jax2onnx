@@ -12,6 +12,10 @@ from onnx_ir import Shape as IRShape
 
 from jax import core
 
+from jax2onnx.converter.output_binding import (
+    assert_eqn_outputs_bound,
+    bind_returned_lowering_values,
+)
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
@@ -88,7 +92,7 @@ def builder_loop(
 
 def _call_plugin_lower(
     plugin: Any, ctx: LoweringContextProtocol, eqn: core.JaxprEqn
-) -> None:
+) -> object:
     """Invoke a plugin's lowering helper, forwarding params when supported."""
     lower_fn = getattr(plugin, "lower", None)
     if lower_fn is None:
@@ -96,24 +100,34 @@ def _call_plugin_lower(
     try:
         sig = inspect.signature(lower_fn)
         if "params" in sig.parameters:
-            lower_fn(ctx, eqn, getattr(eqn, "params", None))
-            return None
+            return lower_fn(ctx, eqn, getattr(eqn, "params", None))
     except (ValueError, TypeError):
         pass
-    lower_fn(ctx, eqn)
-    return None
+    return lower_fn(ctx, eqn)
 
 
 def lower_jaxpr_eqns(ctx: LoweringContextProtocol, jaxpr: core.Jaxpr) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
-    for inner_eqn in getattr(jaxpr, "eqns", ()):
+    for inner_eqn_index, inner_eqn in enumerate(getattr(jaxpr, "eqns", ())):
         prim = inner_eqn.primitive.name
         plugin = PLUGIN_REGISTRY.get(prim)
         if plugin is None:
             raise NotImplementedError(
                 f"[control_flow] No plugins registered for primitive '{prim}'"
             )
-        _call_plugin_lower(plugin, ctx, inner_eqn)
+        lowering_result = _call_plugin_lower(plugin, ctx, inner_eqn)
+        bind_returned_lowering_values(
+            ctx,
+            inner_eqn,
+            lowering_result,
+            primitive_name=prim,
+        )
+        assert_eqn_outputs_bound(
+            ctx,
+            inner_eqn,
+            primitive_name=prim,
+            eqn_index=inner_eqn_index,
+        )
 
 
 def make_subgraph_context(

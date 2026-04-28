@@ -8,6 +8,10 @@ import numpy as np
 import jax
 from jax.sharding import Mesh, PartitionSpec as P
 
+from jax2onnx.converter.output_binding import (
+    assert_eqn_outputs_bound,
+    bind_returned_lowering_values,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -74,14 +78,26 @@ class ShardMapPlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
-        for inner_eqn in inner_jaxpr.eqns:
+        for inner_eqn_index, inner_eqn in enumerate(inner_jaxpr.eqns):
             prim = inner_eqn.primitive.name
             plugin = PLUGIN_REGISTRY.get(prim)
             if plugin is None:
                 raise NotImplementedError(
                     f"[shard_map] No plugins registered for primitive '{prim}' inside shard_map body"
                 )
-            plugin.lower(ctx, inner_eqn)
+            lowering_result = plugin.lower(ctx, inner_eqn)
+            bind_returned_lowering_values(
+                ctx,
+                inner_eqn,
+                lowering_result,
+                primitive_name=prim,
+            )
+            assert_eqn_outputs_bound(
+                ctx,
+                inner_eqn,
+                primitive_name=prim,
+                eqn_index=inner_eqn_index,
+            )
 
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
             ctx.bind_value_for_var(outer_var, ctx.get_value_for_var(inner_var))
