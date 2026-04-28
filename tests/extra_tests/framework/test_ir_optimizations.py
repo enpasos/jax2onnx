@@ -11,12 +11,53 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_optimizations import (
     _get_perm_attr,
     _has_input_name_or_obj,
+    _OPTIMIZER_PASSES,
     _to_numpy_from_any,
     _as_scalar_bool,
     optimize_graph,
 )
 
 from onnx_ir import AttributeType as IRAttrType
+
+
+def test_optimizer_pass_registry_declares_order_and_function_scope():
+    assert [opt_pass.name for opt_pass in _OPTIMIZER_PASSES] == [
+        "name_fix",
+        "remove_redundant_casts",
+        "remove_redundant_transpose_reduce",
+        "remove_redundant_transpose_add_forests",
+        "remove_redundant_transpose_pairs",
+        "remove_redundant_reshape_pairs",
+        "remove_identity_reshapes",
+        "common_subexpression_elimination",
+        "lift_constants_to_initializers",
+        "rewrite_mul_rsqrt_as_div",
+        "inline_dropout_training_mode_constants",
+        "propagate_elementwise_shapes",
+        "propagate_unary_shapes",
+        "remove_redundant_casts_after_propagation",
+        "remove_dead_nodes",
+        "remove_orphan_transposes",
+        "prune_unused_graph_inputs",
+    ]
+    assert [
+        opt_pass.name
+        for opt_pass in _OPTIMIZER_PASSES
+        if opt_pass.function_graph_runner is not None
+    ] == [
+        "remove_redundant_casts",
+        "remove_redundant_transpose_reduce",
+        "remove_redundant_transpose_add_forests",
+        "remove_redundant_transpose_pairs",
+        "remove_redundant_reshape_pairs",
+        "remove_identity_reshapes",
+        "rewrite_mul_rsqrt_as_div",
+        "inline_dropout_training_mode_constants",
+        "propagate_elementwise_shapes",
+        "propagate_unary_shapes",
+        "remove_redundant_casts_after_propagation",
+        "remove_orphan_transposes",
+    ]
 
 
 def test_get_perm_attr_and_identity():

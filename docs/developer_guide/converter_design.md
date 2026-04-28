@@ -311,6 +311,10 @@ graph/function applicability, and debug flags would improve documentation,
 testing, and traceability. It would also help keep
 `advanced_topics/ir_optimizer.md` synchronized with the implemented pass list.
 
+Status: implemented. `optimize_graph` now executes a named `_OPTIMIZER_PASSES`
+registry that declares top-level and function-body applicability, with a
+structural test and optimizer guide section covering the pass order.
+
 ### 9. Extend constant folding for multi-output primitives
 
 `ConstantFolder.install_producers` maps each outvar to its producing equation,
