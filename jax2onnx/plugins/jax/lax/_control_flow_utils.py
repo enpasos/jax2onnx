@@ -106,14 +106,19 @@ def _call_plugin_lower(
     return lower_fn(ctx, eqn)
 
 
-def lower_jaxpr_eqns(ctx: LoweringContextProtocol, jaxpr: core.Jaxpr) -> None:
+def lower_jaxpr_eqns(
+    ctx: LoweringContextProtocol,
+    jaxpr: core.Jaxpr,
+    *,
+    source: str = "control_flow",
+) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
     for inner_eqn_index, inner_eqn in enumerate(getattr(jaxpr, "eqns", ())):
         prim = inner_eqn.primitive.name
         plugin = PLUGIN_REGISTRY.get(prim)
         if plugin is None:
             raise NotImplementedError(
-                f"[control_flow] No plugins registered for primitive '{prim}'"
+                f"[{source}] No plugins registered for primitive '{prim}'"
             )
         lowering_result = _call_plugin_lower(plugin, ctx, inner_eqn)
         bind_returned_lowering_values(

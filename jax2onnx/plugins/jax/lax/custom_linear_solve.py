@@ -138,7 +138,7 @@ class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(solve_inputs, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
-        lower_jaxpr_eqns(ctx, inner_jaxpr)
+        lower_jaxpr_eqns(ctx, inner_jaxpr, source="custom_linear_solve")
 
         if len(eqn.outvars) != len(inner_jaxpr.outvars):
             raise ValueError(

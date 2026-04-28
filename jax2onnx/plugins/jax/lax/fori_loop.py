@@ -168,7 +168,7 @@ def _build_body_graph(
             axis_hints.append(override_vec)
 
     # Lower body equations inside the nested context.
-    lower_jaxpr_eqns(body_ctx, jaxpr)
+    lower_jaxpr_eqns(body_ctx, jaxpr, source="fori_loop")
 
     # Collect loop-carried outputs from the body jaxpr.
     loop_outputs: list[ir.Value] = []

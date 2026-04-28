@@ -325,7 +325,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             branch_ctx.bind_value_for_var(inner_var, capture)
             branch_inputs.append(capture)
 
-        lower_jaxpr_eqns(branch_ctx, branch_jaxpr)
+        lower_jaxpr_eqns(branch_ctx, branch_jaxpr, source="cond")
 
         input_names = {val.name for val in branch_inputs}
         branch_outputs: list[ir.Value] = []

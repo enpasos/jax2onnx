@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -14,6 +15,7 @@ from jax2onnx.plugins.plugin_system import (
     import_all_plugins,
     onnx_function,
 )
+from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.user_interface import to_onnx
 
 
@@ -104,3 +106,17 @@ def test_disconnected_outvar_binding_fails_at_primitive(monkeypatch) -> None:
         match="Primitive 'add'.*bound output 0 to disconnected value 'dangling_add'",
     ):
         _convert_add_one()
+
+
+def test_nested_lowering_source_labels_missing_plugin_errors() -> None:
+    jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(primitive=SimpleNamespace(name="missing_nested_primitive"))
+        ]
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"\[jit\] No plugins registered for primitive 'missing_nested_primitive'",
+    ):
+        lower_jaxpr_eqns(SimpleNamespace(), jaxpr, source="jit")
