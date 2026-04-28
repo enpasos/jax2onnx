@@ -20,8 +20,13 @@ from collections.abc import MutableSequence
 import os
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.ir_utils import tensor_attr
-from .ir_builder import IRBuilder, _dtype_to_ir
+from jax2onnx.ir_utils import (
+    ir_shape_from_dims,
+    maybe_numpy_dtype,
+    numpy_dtype_to_ir_with_float_policy as _dtype_to_ir,
+    tensor_attr,
+)
+from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import SymbolicDimOrigin
@@ -118,16 +123,7 @@ _LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 # ---- shape coercion: int stays int; otherwise stringify (safe for onnx_ir) --------
 def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
-    out: list[int | str] = []
-    for d in dims:
-        if isinstance(d, (int, np.integer)):
-            out.append(int(d))
-        else:
-            try:
-                out.append(int(d))
-            except Exception:
-                out.append(str(d))
-    return ir.Shape(tuple(out))
+    return ir_shape_from_dims(dims)
 
 
 def _maybe_attr(obj: Any, attr: str) -> Any | None:
@@ -155,13 +151,7 @@ def _maybe_aval(obj: Any) -> Any | None:
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    dtype_obj = _maybe_attr(aval, "dtype")
-    if dtype_obj is None:
-        return None
-    try:
-        return cast(np.dtype[Any], np.dtype(dtype_obj))
-    except TypeError:
-        return None
+    return cast(Optional[np.dtype[Any]], maybe_numpy_dtype(_maybe_attr(aval, "dtype")))
 
 
 def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:

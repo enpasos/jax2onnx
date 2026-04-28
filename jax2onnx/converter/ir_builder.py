@@ -19,7 +19,12 @@ from typing import (
 import numpy as np
 import onnx_ir as ir
 from onnx_ir._tape import Builder as _TapeBuilder
-from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
+from jax2onnx.ir_utils import (
+    const_value_to_numpy,
+    ir_shape_from_dims,
+    numpy_dtype_to_ir_with_float_policy,
+    tensor_attr,
+)
 from .typing_support import SymbolicDimOrigin
 
 
@@ -39,21 +44,7 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     Map numpy dtype to onnx_ir.DataType.
     Floats are normalized by enable_double flag.
     """
-    if dtype is None:
-        return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
-    key = np.dtype(dtype)
-    if np.issubdtype(key, np.floating):
-        if key == np.float16:
-            return ir.DataType.FLOAT16
-        if key == np.float32:
-            return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
-        if key == np.float64:
-            return ir.DataType.DOUBLE
-        return ir.DataType.DOUBLE if enable_double else ir.DataType.FLOAT
-    try:
-        return ir.DataType.from_numpy(key)
-    except Exception as e:
-        raise TypeError(f"Unsupported dtype: {dtype}") from e
+    return numpy_dtype_to_ir_with_float_policy(dtype, enable_double)
 
 
 class _InitializerList(MutableSequence[ir.Value]):
@@ -346,7 +337,9 @@ class IRBuilder:
     ) -> ir.Value:
         dtype_enum = _dtype_to_ir(np_dtype, self.enable_double_precision)
         return ir.Value(
-            name=name, shape=ir.Shape(shape), type=ir.TensorType(dtype_enum)
+            name=name,
+            shape=ir_shape_from_dims(shape),
+            type=ir.TensorType(dtype_enum),
         )
 
     # public helpers for initializers (used by FunctionPlugin)

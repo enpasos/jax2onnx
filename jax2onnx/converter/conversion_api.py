@@ -29,7 +29,11 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir.traversal import RecursiveGraphIterator
 
-from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.ir_utils import (
+    ir_shape_from_dims,
+    maybe_numpy_dtype,
+    numpy_dtype_to_ir,
+)
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog, save_primitive_calls_log
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
@@ -107,10 +111,10 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
 
 
 def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
-    dims: Tuple[Union[int, str], ...] = tuple(
-        int(d) if isinstance(d, (int, np.integer)) else str(d) for d in shape_tuple
+    return ir_shape_from_dims(
+        shape_tuple,
+        parse_integer_like=False,
     )
-    return ir.Shape(dims)
 
 
 def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
@@ -206,13 +210,9 @@ def _as_sds_list(
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    dt = getattr(aval, "dtype", None)
-    if dt is None:
-        return None
-    try:
-        return cast("np.dtype[Any]", np.dtype(dt))
-    except TypeError:
-        return None
+    return cast(
+        Optional[np.dtype[Any]], maybe_numpy_dtype(getattr(aval, "dtype", None))
+    )
 
 
 def _validate_layout_indices(
