@@ -231,25 +231,14 @@ def _consumer_nodes(
     if target_name is None and isinstance(value_or_name, ir.Value):
         target_name = _v_name(value_or_name)
 
+    obj_arg = ref_value
+    if obj_arg is None and isinstance(value_or_name, ir.Value):
+        obj_arg = value_or_name
+
     found: List[ir.Node] = []
     for node in nodes:
-        if _has_input_name_or_obj(
-            node,
-            target_name,
-            (
-                ref_value
-                if ref_value is not None
-                else (value_or_name if isinstance(value_or_name, ir.Value) else None)
-            ),
-        ):
-            # Wait, value_or_name could be str.
-            # _has_input_name_or_obj takes (node, name, obj: Optional[ir.Value])
-            obj_arg = ref_value
-            if obj_arg is None and isinstance(value_or_name, ir.Value):
-                obj_arg = value_or_name
-
-            if _has_input_name_or_obj(node, target_name, obj_arg):
-                found.append(node)
+        if _has_input_name_or_obj(node, target_name, obj_arg):
+            found.append(node)
     return found
 
 
