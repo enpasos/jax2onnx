@@ -7,14 +7,10 @@ from typing import TYPE_CHECKING, Any, Iterable
 import jax
 import numpy as np
 
-from jax2onnx.converter.output_binding import (
-    assert_eqn_outputs_bound,
-    bind_returned_lowering_values,
-)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.core.jit import JitPlugin
+from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     register_primitive,
 )
@@ -142,26 +138,7 @@ class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(solve_inputs, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
-        for inner_eqn_index, inner_eqn in enumerate(inner_jaxpr.eqns):
-            prim_name = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY.get(prim_name)
-            if plugin is None:
-                raise NotImplementedError(
-                    f"[custom_linear_solve] No plugin registered for primitive '{prim_name}' in solve body"
-                )
-            lowering_result = plugin.lower(ctx, inner_eqn)
-            bind_returned_lowering_values(
-                ctx,
-                inner_eqn,
-                lowering_result,
-                primitive_name=prim_name,
-            )
-            assert_eqn_outputs_bound(
-                ctx,
-                inner_eqn,
-                primitive_name=prim_name,
-                eqn_index=inner_eqn_index,
-            )
+        lower_jaxpr_eqns(ctx, inner_jaxpr)
 
         if len(eqn.outvars) != len(inner_jaxpr.outvars):
             raise ValueError(
