@@ -323,6 +323,10 @@ handler returns multiple outputs, each outvar could see the whole handler result
 instead of its corresponding element. Store `(eqn, output_index)` and cache each
 output independently.
 
+Status: implemented. Constant producer tracking now stores each output index,
+multi-output handler results are validated against outvar arity, and each output
+array is cached under the matching outvar.
+
 ### 10. Normalize function container handling
 
 Some converter paths handle model functions as either dictionaries or sequences,
