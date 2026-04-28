@@ -9,11 +9,25 @@ import jax.numpy as jnp
 import pytest
 
 from jax2onnx.converter import conversion_api
-from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY, import_all_plugins
+from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
+    import_all_plugins,
+    onnx_function,
+)
+from jax2onnx.user_interface import to_onnx
 
 
 def _add_one(x):
     return x + 1
+
+
+@onnx_function
+def _function_body_add_one(x):
+    return x + 1
+
+
+def _call_function_body_add_one(x):
+    return _function_body_add_one(x)
 
 
 def _convert_add_one() -> object:
@@ -67,6 +81,18 @@ def test_missing_outvar_binding_fails_at_primitive(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="Primitive 'add'.*did not bind output 0"):
         _convert_add_one()
+
+
+def test_missing_outvar_binding_fails_in_function_body(monkeypatch) -> None:
+    import_all_plugins()
+    monkeypatch.setitem(PLUGIN_REGISTRY, "add", _NoBindAddPlugin())
+
+    with pytest.raises(RuntimeError, match="Primitive 'add'.*did not bind output 0"):
+        to_onnx(
+            _call_function_body_add_one,
+            inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
+            return_mode="ir",
+        )
 
 
 def test_disconnected_outvar_binding_fails_at_primitive(monkeypatch) -> None:
