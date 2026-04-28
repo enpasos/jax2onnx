@@ -61,6 +61,10 @@ def _DecoratorNameConflictTarget(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.square(x)
 
 
+def _DecoratorMarkerTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
 def _clear_onnx_function_registration(target) -> None:
     qual = f"{target.__module__}.{target.__name__}"
     PLUGIN_REGISTRY.pop(f"onnx_fn::{qual}", None)
@@ -160,3 +164,23 @@ def test_onnx_function_rejects_name_type_conflict():
             onnx_function(type="SecondName")(_DecoratorNameConflictTarget)
     finally:
         _clear_onnx_function_registration(_DecoratorNameConflictTarget)
+
+
+def test_onnx_function_sets_marker_attributes():
+    _clear_onnx_function_registration(_DecoratorMarkerTarget)
+    try:
+        onnx_function(
+            unique=True,
+            namespace="marker.namespace",
+            type="MarkerName",
+        )(_DecoratorMarkerTarget)
+
+        assert _DecoratorMarkerTarget.__j2o_onnx_function__ is True
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_unique__ is True
+        assert (
+            _DecoratorMarkerTarget.__j2o_onnx_function_namespace__ == "marker.namespace"
+        )
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_name__ == "MarkerName"
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_type__ == "MarkerName"
+    finally:
+        _clear_onnx_function_registration(_DecoratorMarkerTarget)

@@ -1226,6 +1226,25 @@ def _register_onnx_function_plugin(
     return qual, cast(FunctionPlugin, plugin)
 
 
+def _mark_onnx_function_target(
+    actual_target: Any,
+    *,
+    unique: bool,
+    normalized_namespace: str,
+    override_name: str | None,
+) -> None:
+    try:
+        setattr(actual_target, "__j2o_onnx_function__", True)
+        if unique:
+            setattr(actual_target, "__j2o_onnx_function_unique__", True)
+        setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_namespace)
+        if isinstance(override_name, str) and override_name:
+            setattr(actual_target, "__j2o_onnx_function_name__", override_name)
+            setattr(actual_target, "__j2o_onnx_function_type__", override_name)
+    except Exception:
+        pass
+
+
 def onnx_function(
     target: Any | None = None,
     *,
@@ -1251,16 +1270,12 @@ def onnx_function(
             normalized_namespace=normalized_ns,
             override_name=override_name,
         )
-        try:
-            setattr(actual_target, "__j2o_onnx_function__", True)
-            if unique:
-                setattr(actual_target, "__j2o_onnx_function_unique__", True)
-            setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_ns)
-            if isinstance(override_name, str) and override_name:
-                setattr(actual_target, "__j2o_onnx_function_name__", override_name)
-                setattr(actual_target, "__j2o_onnx_function_type__", override_name)
-        except Exception:
-            pass
+        _mark_onnx_function_target(
+            actual_target,
+            unique=unique,
+            normalized_namespace=normalized_ns,
+            override_name=override_name,
+        )
         return actual_target
 
     if target is None:
