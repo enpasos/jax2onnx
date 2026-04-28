@@ -197,7 +197,7 @@ def _evaluate_closed_jaxpr(
     _bind_closed_jaxpr_consts(ctx, jaxpr, consts)
     for var, val in zip(jaxpr.invars, inputs):
         ctx.bind_value_for_var(var, val)
-    lower_jaxpr_eqns(ctx, jaxpr)
+    lower_jaxpr_eqns(ctx, jaxpr, source="while_loop")
     outputs: list[ir.Value] = []
     for out_var in jaxpr.outvars:
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(prefix))
@@ -270,7 +270,7 @@ def _build_loop_body_graph(
     else:  # pragma: no cover - defensive programming
         raise ValueError("while_loop body_jaxpr has more invars than expected")
 
-    lower_jaxpr_eqns(body_ctx, body_jaxpr)
+    lower_jaxpr_eqns(body_ctx, body_jaxpr, source="while_loop_body")
 
     state_outputs = [
         body_ctx.get_value_for_var(
@@ -293,7 +293,7 @@ def _build_loop_body_graph(
     for var, val in zip(cond_jaxpr.invars, state_outputs):
         body_ctx.bind_value_for_var(var, val)
 
-    lower_jaxpr_eqns(body_ctx, cond_jaxpr)
+    lower_jaxpr_eqns(body_ctx, cond_jaxpr, source="while_loop_cond")
     cond_out = body_ctx.get_value_for_var(
         cond_jaxpr.outvars[0], name_hint=body_ctx.fresh_name("loop_cond_out")
     )

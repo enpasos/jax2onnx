@@ -74,7 +74,7 @@ class ShardMapPlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
-        lower_jaxpr_eqns(ctx, inner_jaxpr)
+        lower_jaxpr_eqns(ctx, inner_jaxpr, source="shard_map")
 
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
             ctx.bind_value_for_var(outer_var, ctx.get_value_for_var(inner_var))

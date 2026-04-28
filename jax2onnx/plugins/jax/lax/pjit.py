@@ -112,7 +112,7 @@ class PJITPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
         # Lower the inner equations using existing plugins
-        lower_jaxpr_eqns(ctx, inner_jaxpr)
+        lower_jaxpr_eqns(ctx, inner_jaxpr, source="pjit")
 
         # Map inner outputs back to the outer graph
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
