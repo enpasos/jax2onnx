@@ -354,6 +354,28 @@ def _primitive_call_record(
     )
 
 
+def _append_primitive_call_record(
+    records: list[RecordedPrimitiveCallLog],
+    ctx: IRContext,
+    eqn: object,
+    *,
+    eqn_index: int,
+    primitive_name: str,
+    plugin_ref: object,
+) -> None:
+    if not ctx.record_primitive_calls_file:
+        return
+    records.append(
+        _primitive_call_record(
+            ctx,
+            eqn,
+            eqn_index=eqn_index,
+            primitive_name=primitive_name,
+            plugin_ref=plugin_ref,
+        )
+    )
+
+
 # Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
 _IRBuildContext = LoweringContextProtocol
 
@@ -958,16 +980,14 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                     primitive_name=prim_name,
                     eqn_index=eqn_index,
                 )
-                if ctx.record_primitive_calls_file:
-                    primitive_call_records.append(
-                        _primitive_call_record(
-                            ctx,
-                            eqn,
-                            eqn_index=eqn_index,
-                            primitive_name=prim_name,
-                            plugin_ref=plugin_ref,
-                        )
-                    )
+                _append_primitive_call_record(
+                    primitive_call_records,
+                    ctx,
+                    eqn,
+                    eqn_index=eqn_index,
+                    primitive_name=prim_name,
+                    plugin_ref=plugin_ref,
+                )
             finally:
                 builder.set_current_jax_traceback(prev_jax_trace)
                 builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
