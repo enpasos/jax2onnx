@@ -376,6 +376,50 @@ def _append_primitive_call_record(
     )
 
 
+def _eqn_jax_traceback(eqn: object) -> str | None:
+    source_info = getattr(eqn, "source_info", None)
+    if source_info is None:
+        return None
+    traceback = getattr(source_info, "traceback", None)
+    if traceback is None:
+        return None
+    try:
+        return str(traceback)
+    except Exception:
+        return None
+
+
+@contextmanager
+def _staged_lowering_metadata(
+    builder: Any,
+    *,
+    eqn: object,
+    plugin_ref: object,
+    primitive_name: str,
+) -> Iterator[None]:
+    prev_jax_trace = builder.current_jax_traceback
+    prev_plugin_id = builder.current_plugin_identifier
+    prev_plugin_line = builder.current_plugin_line
+    jax_trace: Optional[str] = None
+    plugin_identifier: Optional[str] = None
+    plugin_line: Optional[str] = None
+
+    if builder.stacktrace_metadata_enabled:
+        jax_trace = _eqn_jax_traceback(eqn)
+        plugin_identifier, plugin_line = identify_lowering_plugin(
+            plugin_ref,
+            primitive_name,
+        )
+
+    builder.set_current_jax_traceback(jax_trace)
+    builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
+    try:
+        yield
+    finally:
+        builder.set_current_jax_traceback(prev_jax_trace)
+        builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
+
+
 # Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
 _IRBuildContext = LoweringContextProtocol
 
@@ -935,36 +979,12 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
             )
             ctx._current_eqn = eqn
             builder = ctx.builder
-            prev_jax_trace = builder.current_jax_traceback
-            prev_plugin_id = builder.current_plugin_identifier
-            prev_plugin_line = builder.current_plugin_line
-            jax_trace: Optional[str] = None
-            plugin_identifier: Optional[str] = None
-            plugin_line: Optional[str] = None
-            if builder.stacktrace_metadata_enabled:
-                try:
-                    source_info = eqn.source_info
-                except AttributeError:
-                    source_info = None
-
-                if source_info is not None:
-                    try:
-                        tb = source_info.traceback
-                    except AttributeError:
-                        tb = None
-                    if tb is not None:
-                        try:
-                            jax_trace = str(tb)
-                        except Exception:
-                            jax_trace = None
-                plugin_identifier, plugin_line = identify_lowering_plugin(
-                    plugin_ref,
-                    prim_name,
-                )
-            builder.set_current_jax_traceback(jax_trace)
-            builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
-            lowering_result: object = None
-            try:
+            with _staged_lowering_metadata(
+                builder,
+                eqn=eqn,
+                plugin_ref=plugin_ref,
+                primitive_name=prim_name,
+            ):
                 lowering_result = dispatch_plugin_lowering(
                     plugin_ref,
                     ctx=ctx,
@@ -988,9 +1008,6 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                     primitive_name=prim_name,
                     plugin_ref=plugin_ref,
                 )
-            finally:
-                builder.set_current_jax_traceback(prev_jax_trace)
-                builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
     finally:
         ctx._current_eqn = None
         if ctx.record_primitive_calls_file:

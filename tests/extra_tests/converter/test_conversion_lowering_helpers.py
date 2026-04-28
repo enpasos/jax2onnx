@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -14,6 +15,7 @@ from jax2onnx.converter.conversion_api import (
     _bind_jaxpr_inputs,
     _create_ir_context,
     _lower_jaxpr_equations,
+    _staged_lowering_metadata,
     _trace_to_jaxpr,
 )
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
@@ -31,6 +33,24 @@ class _ReturnOnlyAddPlugin:
         out.type = lhs.type
         out.shape = lhs.shape
         return out
+
+
+class _FakeMetadataBuilder:
+    stacktrace_metadata_enabled = True
+
+    def __init__(self) -> None:
+        self.current_jax_traceback = "previous-trace"
+        self.current_plugin_identifier = "previous-plugin"
+        self.current_plugin_line = "7"
+
+    def set_current_jax_traceback(self, trace: str | None) -> None:
+        self.current_jax_traceback = trace
+
+    def set_current_plugin_identifier(
+        self, identifier: str | None, line: str | None = None
+    ) -> None:
+        self.current_plugin_identifier = identifier
+        self.current_plugin_line = line
 
 
 def _prepare_add_context():
@@ -85,3 +105,24 @@ def test_lower_jaxpr_equations_reports_missing_plugin(monkeypatch) -> None:
         match=f"No plugins registered for primitive '{primitive_name}'",
     ):
         _lower_jaxpr_equations(ctx, trace.jaxpr)
+
+
+def test_staged_lowering_metadata_sets_and_restores_builder_state() -> None:
+    builder = _FakeMetadataBuilder()
+    eqn = SimpleNamespace(source_info=SimpleNamespace(traceback="jax traceback text"))
+
+    with _staged_lowering_metadata(
+        builder,
+        eqn=eqn,
+        plugin_ref=_ReturnOnlyAddPlugin(),
+        primitive_name="add",
+    ):
+        assert builder.current_jax_traceback == "jax traceback text"
+        assert builder.current_plugin_identifier.endswith("._ReturnOnlyAddPlugin.lower")
+        assert (
+            builder.current_plugin_line is None or builder.current_plugin_line.isdigit()
+        )
+
+    assert builder.current_jax_traceback == "previous-trace"
+    assert builder.current_plugin_identifier == "previous-plugin"
+    assert builder.current_plugin_line == "7"
