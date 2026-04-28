@@ -24,6 +24,36 @@ re-raise the original optimizer exception.
 
 ---
 
+## Pass Registry
+
+`optimize_graph` executes the `_OPTIMIZER_PASSES` registry in order. Each entry
+declares its name plus whether it runs on the top-level model, the top-level
+graph, and/or function body graphs. Function bodies deliberately skip
+model-wide passes and `prune_unused_graph_inputs` so function signatures remain
+stable.
+
+Current order:
+
+1. `name_fix`
+2. `remove_redundant_casts`
+3. `remove_redundant_transpose_reduce`
+4. `remove_redundant_transpose_add_forests`
+5. `remove_redundant_transpose_pairs`
+6. `remove_redundant_reshape_pairs`
+7. `remove_identity_reshapes`
+8. `common_subexpression_elimination`
+9. `lift_constants_to_initializers`
+10. `rewrite_mul_rsqrt_as_div`
+11. `inline_dropout_training_mode_constants`
+12. `propagate_elementwise_shapes`
+13. `propagate_unary_shapes`
+14. `remove_redundant_casts_after_propagation`
+15. `remove_dead_nodes`
+16. `remove_orphan_transposes`
+17. `prune_unused_graph_inputs`
+
+---
+
 ## Transpose Pair Folding
 
 **Pattern**

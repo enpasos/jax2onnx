@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import (
+    Callable,
     Dict,
     List,
     Optional,
@@ -111,6 +113,16 @@ NodeSeq: TypeAlias = Sequence[ir.Node]
 ValueList: TypeAlias = List[ir.Value]
 ValueSeq: TypeAlias = Sequence[ir.Value]
 ArrayND = np.ndarray[Any, np.dtype[Any]]
+GraphOptimizer: TypeAlias = Callable[[ir.Graph], None]
+ModelOptimizer: TypeAlias = Callable[[ir.Model], None]
+
+
+@dataclass(frozen=True)
+class _OptimizerPass:
+    name: str
+    model_runner: ModelOptimizer | None = None
+    graph_runner: GraphOptimizer | None = None
+    function_graph_runner: GraphOptimizer | None = None
 
 
 def _as_ndarray(value: object, *, dtype: np.dtype[Any] | None = None) -> ArrayND:
@@ -2271,44 +2283,104 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_name_fix_pass(model: ir.Model) -> None:
+    common_passes.NameFixPass()(model)
+
+
+def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
+    common_passes.CommonSubexpressionEliminationPass()(model)
+
+
+def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
+    common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
+
+
+def _model_pass(name: str, runner: ModelOptimizer) -> _OptimizerPass:
+    return _OptimizerPass(name=name, model_runner=runner)
+
+
+def _graph_pass(
+    name: str,
+    runner: GraphOptimizer,
+    *,
+    function_bodies: bool = True,
+) -> _OptimizerPass:
+    return _OptimizerPass(
+        name=name,
+        graph_runner=runner,
+        function_graph_runner=runner if function_bodies else None,
+    )
+
+
+_OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
+    _model_pass("name_fix", _run_name_fix_pass),
+    _graph_pass("remove_redundant_casts", remove_redundant_casts_ir),
+    _graph_pass(
+        "remove_redundant_transpose_reduce",
+        remove_redundant_transpose_reduce_ir,
+    ),
+    _graph_pass(
+        "remove_redundant_transpose_add_forests",
+        remove_redundant_transpose_add_forests_ir,
+    ),
+    _graph_pass(
+        "remove_redundant_transpose_pairs", remove_redundant_transpose_pairs_ir
+    ),
+    _graph_pass("remove_redundant_reshape_pairs", remove_redundant_reshape_pairs_ir),
+    _graph_pass("remove_identity_reshapes", remove_identity_reshapes_ir),
+    _model_pass(
+        "common_subexpression_elimination",
+        _run_common_subexpression_elimination_pass,
+    ),
+    _model_pass(
+        "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
+    ),
+    _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
+    _graph_pass(
+        "inline_dropout_training_mode_constants",
+        inline_dropout_training_mode_constants_ir,
+    ),
+    _graph_pass("propagate_elementwise_shapes", propagate_elementwise_shapes_ir),
+    _graph_pass("propagate_unary_shapes", propagate_unary_shapes_ir),
+    _graph_pass("remove_redundant_casts_after_propagation", remove_redundant_casts_ir),
+    _model_pass("remove_dead_nodes", remove_dead_nodes_ir),
+    _graph_pass("remove_orphan_transposes", remove_orphan_transposes_ir),
+    _graph_pass(
+        "prune_unused_graph_inputs",
+        prune_unused_graph_inputs_ir,
+        function_bodies=False,
+    ),
+)
+
+
+def _run_top_level_optimizer_pass(opt_pass: _OptimizerPass, model: ir.Model) -> None:
+    if DEBUG:
+        _dbg("running pass", opt_pass.name, "on top graph")
+    if opt_pass.model_runner is not None:
+        opt_pass.model_runner(model)
+    if opt_pass.graph_runner is not None:
+        opt_pass.graph_runner(model.graph)
+
+
+def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> None:
+    if opt_pass.function_graph_runner is None:
+        return
+    if DEBUG:
+        _dbg("running pass", opt_pass.name, "on function graph")
+    opt_pass.function_graph_runner(graph)
+
+
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
-    # Top graph
-    gr = ir_model.graph
-    common_passes.NameFixPass()(ir_model)
-    remove_redundant_casts_ir(gr)
-    remove_redundant_transpose_reduce_ir(gr)
-    remove_redundant_transpose_add_forests_ir(gr)
-    remove_redundant_transpose_pairs_ir(gr)
-    remove_redundant_reshape_pairs_ir(gr)
-    remove_identity_reshapes_ir(gr)
-    common_passes.CommonSubexpressionEliminationPass()(ir_model)
-    common_passes.LiftConstantsToInitializersPass(size_limit=0)(ir_model)
-    rewrite_mul_rsqrt_as_div_ir(gr)
-    inline_dropout_training_mode_constants_ir(gr)
-    propagate_elementwise_shapes_ir(gr)
-    propagate_unary_shapes_ir(gr)
-    remove_redundant_casts_ir(gr)
-    remove_dead_nodes_ir(ir_model)
-    remove_orphan_transposes_ir(gr)
-    prune_unused_graph_inputs_ir(gr)
+    for opt_pass in _OPTIMIZER_PASSES:
+        _run_top_level_optimizer_pass(opt_pass, ir_model)
 
     # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
     for fn in ir_model.functions.values():
         fgr = fn.graph
-        remove_redundant_casts_ir(fgr)
-        remove_redundant_transpose_reduce_ir(fgr)
-        remove_redundant_transpose_add_forests_ir(fgr)
-        remove_redundant_transpose_pairs_ir(fgr)
-        remove_redundant_reshape_pairs_ir(fgr)
-        remove_identity_reshapes_ir(fgr)
-        rewrite_mul_rsqrt_as_div_ir(fgr)
-        inline_dropout_training_mode_constants_ir(fgr)
-        propagate_elementwise_shapes_ir(fgr)
-        propagate_unary_shapes_ir(fgr)
-        remove_redundant_casts_ir(fgr)
-        remove_orphan_transposes_ir(fgr)
+        for opt_pass in _OPTIMIZER_PASSES:
+            _run_function_optimizer_pass(opt_pass, fgr)
 
     return ir_model
