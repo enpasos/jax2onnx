@@ -52,8 +52,7 @@ from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .lowering_dispatch import dispatch_plugin_lowering
 from .output_binding import (
-    assert_eqn_outputs_bound,
-    bind_returned_lowering_values,
+    finalize_eqn_lowering_outputs,
     get_bound_value,
 )
 from .typing_support import (
@@ -979,15 +978,10 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
                     source="converter",
                     converter=converter,
                 )
-                bind_returned_lowering_values(
+                finalize_eqn_lowering_outputs(
                     ctx,
                     eqn,
                     lowering_result,
-                    primitive_name=prim_name,
-                )
-                assert_eqn_outputs_bound(
-                    ctx,
-                    eqn,
                     primitive_name=prim_name,
                     eqn_index=eqn_index,
                 )

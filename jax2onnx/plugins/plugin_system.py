@@ -42,8 +42,7 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import dispatch_plugin_lowering
 from jax2onnx.converter.output_binding import (
-    assert_eqn_outputs_bound,
-    bind_returned_lowering_values,
+    finalize_eqn_lowering_outputs,
 )
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
@@ -1102,15 +1101,10 @@ class FunctionPlugin(PrimitivePlugin):
                     source="onnx_function",
                     converter=child_conv,
                 )
-                bind_returned_lowering_values(
+                finalize_eqn_lowering_outputs(
                     fscope.ctx,
                     inner_eqn,
                     lowering_result,
-                    primitive_name=prim,
-                )
-                assert_eqn_outputs_bound(
-                    fscope.ctx,
-                    inner_eqn,
                     primitive_name=prim,
                     eqn_index=inner_eqn_index,
                 )
