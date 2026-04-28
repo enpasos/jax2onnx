@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable as IterableABC, Mapping, Sequence as SequenceABC
+from collections.abc import Iterable as IterableABC, Sequence as SequenceABC
 from itertools import chain
 from typing import Iterable, TypeAlias, Union, cast
 
 import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType
-from jax2onnx.ir_utils import tensor_attr, tensor_to_numpy
+from jax2onnx.ir_utils import iter_ir_functions, tensor_attr, tensor_to_numpy
 
 DimValue: TypeAlias = Union[int, ir.SymbolicDim, None]
 
@@ -210,21 +210,8 @@ def _process_graph(
 
 
 def _process_functions(model: ir.Model, *, loosen: bool, promote: bool) -> None:
-    funcs_obj: object | None = model.functions
-    if funcs_obj is None:
-        return
-    if isinstance(funcs_obj, Mapping):
-        iterable = cast(
-            Iterable[ir.Function | ir.Graph],
-            funcs_obj.values(),
-        )
-    else:
-        iterable = cast(Iterable[ir.Function | ir.Graph], funcs_obj)
-    for fn_obj in iterable:
-        if isinstance(fn_obj, ir.Function):
-            graph_obj: ir.Graph = fn_obj.graph
-        else:
-            graph_obj = fn_obj
+    for fn_obj in iter_ir_functions(model.functions):
+        graph_obj = cast(ir.Graph, getattr(fn_obj, "graph", fn_obj))
         if loosen:
             _loosen_graph_value_shapes(graph_obj, force_rank_only=False)
         _process_graph(graph_obj, loosen=loosen, promote=promote, force_rank_only=False)

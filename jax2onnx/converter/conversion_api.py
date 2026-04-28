@@ -31,6 +31,7 @@ from onnx_ir.traversal import RecursiveGraphIterator
 
 from jax2onnx.ir_utils import (
     ir_shape_from_dims,
+    iter_ir_functions,
     maybe_numpy_dtype,
     numpy_dtype_to_ir,
 )
@@ -497,14 +498,6 @@ def _function_store_identifier(fn_ir: ir.Function) -> object:
     return identifier
 
 
-def _iter_function_values(function_container: object) -> Iterable[ir.Function]:
-    if isinstance(function_container, dict):
-        return cast(Iterable[ir.Function], function_container.values())
-    if isinstance(function_container, Sequence):
-        return cast(Iterable[ir.Function], function_container)
-    return ()
-
-
 def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
     ir_funcs = list(ctx.ir_functions)
     if not ir_funcs:
@@ -622,7 +615,7 @@ def _finalize_model_value_shapes(model_proto: ir.Model) -> None:
     for value in _iter_graph_values(model_proto.graph):
         _normalize_value_shape(value)
 
-    for fn in _iter_function_values(model_proto.functions):
+    for fn in iter_ir_functions(model_proto.functions):
         try:
             fn_graph = fn.graph
         except AttributeError:
@@ -663,7 +656,7 @@ def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
     _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
     _fix_concat_axis_in_graph(ir_model.graph)
 
-    for fn in _iter_function_values(ir_model.functions):
+    for fn in iter_ir_functions(ir_model.functions):
         try:
             graph_obj = getattr(fn, "graph", None)
             if graph_obj is None:

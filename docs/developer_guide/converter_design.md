@@ -335,6 +335,10 @@ surface variants differ, this becomes a portability hazard. Add one helper that
 iterates functions safely and use it across conversion, optimization, and
 postprocessing.
 
+Status: implemented. `jax2onnx.ir_utils.iter_ir_functions` now handles mapping,
+sequence, and `.values()` containers, and conversion finalization, optimizer
+function passes, and IR postprocessing share that helper.
+
 ## Suggested Next Steps
 
 1. Reuse the output-binding guardrail in nested-JAXPR lowering paths that

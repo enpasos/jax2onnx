@@ -7,6 +7,7 @@ from jax2onnx.ir_utils import (
     const_value_to_numpy,
     ir_shape_from_dims,
     ir_dtype_to_numpy,
+    iter_ir_functions,
     maybe_numpy_dtype,
     numpy_dtype_to_ir,
     numpy_dtype_to_ir_with_float_policy,
@@ -137,3 +138,20 @@ def test_ir_shape_from_dims_can_preserve_symbolic_numeric_strings() -> None:
     shape = ir_shape_from_dims(("3", np.int64(4)), parse_integer_like=False)
 
     assert shape.dims == ("3", 4)
+
+
+def test_iter_ir_functions_handles_common_container_shapes() -> None:
+    first = object()
+    second = object()
+
+    class _ValuesContainer:
+        def values(self) -> tuple[object, object]:
+            return (first, second)
+
+    assert list(iter_ir_functions(None)) == []
+    assert list(iter_ir_functions({"first": first, "second": second})) == [
+        first,
+        second,
+    ]
+    assert list(iter_ir_functions([first, second])) == [first, second]
+    assert list(iter_ir_functions(_ValuesContainer())) == [first, second]
