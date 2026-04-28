@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+import pytest
 from flax import nnx
 
 from jax2onnx import onnx_function
+from jax2onnx.plugins.plugin_system import (
+    ONNX_FUNCTION_PLUGIN_REGISTRY,
+    PLUGIN_REGISTRY,
+)
 from jax2onnx.user_interface import to_onnx
 
 
@@ -46,6 +51,20 @@ def _collect_function_nodes(model, name: str):
 
 def _collect_function_defs(model, name: str):
     return [fn for fn in getattr(model, "functions", []) if fn.name == name]
+
+
+def _DecoratorNamespaceConflictTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorNameConflictTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _clear_onnx_function_registration(target) -> None:
+    qual = f"{target.__module__}.{target.__name__}"
+    PLUGIN_REGISTRY.pop(f"onnx_fn::{qual}", None)
+    ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qual, None)
 
 
 def test_unique_decorator_reuses_matching_blocks_ir():
@@ -117,3 +136,27 @@ def test_unique_with_custom_namespace_ir():
     call_nodes = _collect_function_nodes(model, "_NamespacedSquare")
     assert len(call_nodes) == 2
     assert {node.domain for node in call_nodes} == {"my.model._NamespacedSquare.unique"}
+
+
+def test_onnx_function_rejects_namespace_conflict():
+    _clear_onnx_function_registration(_DecoratorNamespaceConflictTarget)
+    try:
+        onnx_function(namespace="first.namespace")(_DecoratorNamespaceConflictTarget)
+
+        with pytest.raises(ValueError, match="@onnx_function namespace mismatch"):
+            onnx_function(namespace="second.namespace")(
+                _DecoratorNamespaceConflictTarget
+            )
+    finally:
+        _clear_onnx_function_registration(_DecoratorNamespaceConflictTarget)
+
+
+def test_onnx_function_rejects_name_type_conflict():
+    _clear_onnx_function_registration(_DecoratorNameConflictTarget)
+    try:
+        onnx_function(name="FirstName")(_DecoratorNameConflictTarget)
+
+        with pytest.raises(ValueError, match="@onnx_function name/type mismatch"):
+            onnx_function(type="SecondName")(_DecoratorNameConflictTarget)
+    finally:
+        _clear_onnx_function_registration(_DecoratorNameConflictTarget)
