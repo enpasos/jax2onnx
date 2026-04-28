@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from jax2onnx.converter.conversion_api import (
+    _LayoutAdapter,
     _bind_closed_jaxpr_constants,
     _bind_jaxpr_inputs,
     _create_ir_context,
@@ -106,4 +107,33 @@ def test_bind_jaxpr_inputs_creates_nchw_bridge_and_symbol_origin() -> None:
     origin = ctx.get_symbolic_dim_origin("B")
     assert origin is not None
     assert origin.value is graph_input
+    assert origin.axis == 0
+
+
+def test_layout_adapter_uses_context_symbol_origin_methods() -> None:
+    trace = _trace_to_jaxpr(
+        fn=_identity,
+        inputs=[jax.ShapeDtypeStruct(("B", 2, 3, 4), jnp.float32)],
+        input_params=None,
+        enable_double_precision=False,
+        inputs_as_nchw=[0],
+        outputs_as_nchw=None,
+        input_names=["x"],
+        output_names=["y"],
+    )
+    ctx = _create_ir_context(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=trace.sds_list,
+        frozen_params=trace.frozen_params,
+        record_primitive_calls_file=None,
+    )
+
+    _LayoutAdapter(ctx, enable_double_precision=False).bind_inputs(
+        trace.jaxpr, inputs_as_nchw=trace.inputs_as_nchw
+    )
+
+    origin = ctx.get_symbolic_dim_origin("B")
+    assert origin is not None
+    assert origin.value is ctx.builder.inputs[0]
     assert origin.axis == 0

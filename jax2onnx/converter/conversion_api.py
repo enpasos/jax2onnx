@@ -48,7 +48,6 @@ from .typing_support import (
     FunctionLowering,
     LoweringContextProtocol,
     PrimitiveLowering,
-    SymbolicDimOrigin,
 )
 
 from jax.extend import core as jcore_ext
@@ -728,35 +727,98 @@ def _bind_closed_jaxpr_constants(
         ctx.bind_const_for_var(cv, np_c)
 
 
-def _bind_nchw_input_for_invar(ctx: IRContext, var: Any, index: int) -> None:
-    aval_shape = tuple(var.aval.shape)
-    if len(aval_shape) != 4:
+class _LayoutAdapter:
+    def __init__(self, ctx: IRContext, *, enable_double_precision: bool) -> None:
+        self.ctx = ctx
+        self.enable_double_precision = enable_double_precision
+
+    @staticmethod
+    def _require_4d(shape: Sequence[object], *, kind: str, index: int) -> None:
+        if len(shape) == 4:
+            return
+        if kind == "input":
+            raise ValueError(
+                f"inputs_as_nchw: input {index} has rank {len(shape)}, expected 4 for NCHW handling."
+            )
         raise ValueError(
-            f"inputs_as_nchw: input {index} has rank {len(aval_shape)}, expected 4 for NCHW handling."
+            f"outputs_as_nchw: output {index} has rank {len(shape)}, expected 4."
         )
 
-    nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
-    nchw_input_val = ir.Value(
-        name=f"in_{index}_nchw",
-        type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(var.aval.dtype))),
-        shape=_to_ir_shape(nchw_shape),
-    )
-    ctx._inputs.append(nchw_input_val)
+    def bind_input(self, var: Any, index: int) -> None:
+        aval_shape = tuple(var.aval.shape)
+        self._require_4d(aval_shape, kind="input", index=index)
 
-    transposed = ctx.builder.Transpose(
-        nchw_input_val,
-        perm=list(_NCHW_TO_NHWC_PERM),
-        _outputs=[f"in_{index}_nhwc_restored"],
-    )
-    transposed.type = nchw_input_val.type
-    transposed.shape = _to_ir_shape(aval_shape)
-    ctx._var2val[var] = transposed
+        nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
+        nchw_input_val = ir.Value(
+            name=f"in_{index}_nchw",
+            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(var.aval.dtype))),
+            shape=_to_ir_shape(nchw_shape),
+        )
+        self.ctx.add_graph_input_value(nchw_input_val)
 
-    for nchw_idx, dim in enumerate(nchw_shape):
-        if not isinstance(dim, (int, np.integer)):
-            origin = SymbolicDimOrigin(value=nchw_input_val, axis=nchw_idx)
-            ctx._sym_origin[dim] = origin
-            ctx._sym_origin_str[str(dim)] = origin
+        transposed = self.ctx.builder.Transpose(
+            nchw_input_val,
+            perm=list(_NCHW_TO_NHWC_PERM),
+            _outputs=[f"in_{index}_nhwc_restored"],
+        )
+        transposed.type = nchw_input_val.type
+        transposed.shape = _to_ir_shape(aval_shape)
+        self.ctx.bind_value_for_var_without_origins(var, transposed)
+        self.ctx.record_symbolic_dim_origins(nchw_shape, nchw_input_val)
+
+    def bind_inputs(self, jpr: Any, *, inputs_as_nchw: Sequence[int]) -> None:
+        nchw_inputs_indices = set(inputs_as_nchw)
+        for index, var in enumerate(jpr.invars):
+            if index in nchw_inputs_indices:
+                self.bind_input(var, index)
+            else:
+                self.ctx.add_input_for_invar(var, index)
+
+    def bind_output(self, out_var: Any, index: int) -> None:
+        val = self.ctx.get_value_for_var(out_var)
+        aval_shape = tuple(out_var.aval.shape)
+        self._require_4d(aval_shape, kind="output", index=index)
+
+        output_type = val.type
+        if output_type is None:
+            aval_dtype = _maybe_dtype(out_var.aval)
+            if aval_dtype is not None:
+                ir_dtype = _dtype_to_ir(aval_dtype, self.enable_double_precision)
+                output_type = ir.TensorType(ir_dtype)
+
+        transposed_out = self.ctx.builder.Transpose(
+            val,
+            perm=list(_NHWC_TO_NCHW_PERM),
+            _outputs=[f"out_{index}_nchw_converted"],
+        )
+        if output_type is not None:
+            transposed_out.type = output_type
+
+        if isinstance(val.shape, ir.Shape):
+            src_dims = val.shape.dims
+            transposed_out.shape = ir.Shape(
+                tuple(src_dims[p] for p in _NHWC_TO_NCHW_PERM)
+            )
+
+        self.ctx.add_graph_output_value(transposed_out)
+
+    def bind_outputs(self, jpr: Any, *, outputs_as_nchw: Sequence[int]) -> None:
+        if not outputs_as_nchw:
+            self.ctx.add_outputs_from_vars(jpr.outvars)
+            return
+
+        nchw_outputs_indices = set(outputs_as_nchw)
+        for index, out_var in enumerate(jpr.outvars):
+            if index in nchw_outputs_indices:
+                self.bind_output(out_var, index)
+            else:
+                self.ctx.add_outputs_from_vars([out_var])
+
+
+def _bind_nchw_input_for_invar(ctx: IRContext, var: Any, index: int) -> None:
+    _LayoutAdapter(ctx, enable_double_precision=ctx.enable_double_precision).bind_input(
+        var, index
+    )
 
 
 def _bind_jaxpr_inputs(
@@ -765,12 +827,9 @@ def _bind_jaxpr_inputs(
     *,
     inputs_as_nchw: Sequence[int],
 ) -> None:
-    nchw_inputs_indices = set(inputs_as_nchw)
-    for index, var in enumerate(jpr.invars):
-        if index in nchw_inputs_indices:
-            _bind_nchw_input_for_invar(ctx, var, index)
-        else:
-            ctx.add_input_for_invar(var, index)
+    _LayoutAdapter(
+        ctx, enable_double_precision=ctx.enable_double_precision
+    ).bind_inputs(jpr, inputs_as_nchw=inputs_as_nchw)
 
 
 def _bind_nchw_output_for_outvar(
@@ -780,33 +839,9 @@ def _bind_nchw_output_for_outvar(
     *,
     enable_double_precision: bool,
 ) -> None:
-    val = ctx.get_value_for_var(out_var)
-    aval_shape = tuple(out_var.aval.shape)
-    if len(aval_shape) != 4:
-        raise ValueError(
-            f"outputs_as_nchw: output {index} has rank {len(aval_shape)}, expected 4."
-        )
-
-    output_type = val.type
-    if output_type is None:
-        aval_dtype = _maybe_dtype(out_var.aval)
-        if aval_dtype is not None:
-            ir_dtype = _dtype_to_ir(aval_dtype, enable_double_precision)
-            output_type = ir.TensorType(ir_dtype)
-
-    transposed_out = ctx.builder.Transpose(
-        val,
-        perm=list(_NHWC_TO_NCHW_PERM),
-        _outputs=[f"out_{index}_nchw_converted"],
+    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_output(
+        out_var, index
     )
-    if output_type is not None:
-        transposed_out.type = output_type
-
-    if isinstance(val.shape, ir.Shape):
-        src_dims = val.shape.dims
-        transposed_out.shape = ir.Shape(tuple(src_dims[p] for p in _NHWC_TO_NCHW_PERM))
-
-    ctx.builder.outputs.append(transposed_out)
 
 
 def _bind_jaxpr_outputs(
@@ -816,21 +851,9 @@ def _bind_jaxpr_outputs(
     outputs_as_nchw: Sequence[int],
     enable_double_precision: bool,
 ) -> None:
-    if not outputs_as_nchw:
-        ctx.add_outputs_from_vars(jpr.outvars)
-        return
-
-    nchw_outputs_indices = set(outputs_as_nchw)
-    for index, out_var in enumerate(jpr.outvars):
-        if index in nchw_outputs_indices:
-            _bind_nchw_output_for_outvar(
-                ctx,
-                out_var,
-                index,
-                enable_double_precision=enable_double_precision,
-            )
-        else:
-            ctx.add_outputs_from_vars([out_var])
+    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
+        jpr, outputs_as_nchw=outputs_as_nchw
+    )
 
 
 def _trace_to_jaxpr(

@@ -520,27 +520,65 @@ class IRContext:
             # Some JAX Literal objects are unhashable; skip caching in that case.
             pass
 
+        self.record_var_symbolic_dim_origins(var, value)
+
+    def bind_value_for_var_without_origins(self, var: object, value: ir.Value) -> None:
+        try:
+            self.builder._var2val[var] = value
+        except TypeError:
+            pass
+
+    def record_symbolic_dim_origin(
+        self, dim: object, value: ir.Value, axis: int
+    ) -> None:
+        if isinstance(dim, (int, np.integer)):
+            return
+        origin = SymbolicDimOrigin(value=value, axis=axis)
+        try:
+            self._sym_origin[dim] = origin
+        except TypeError:
+            pass
+        self._sym_origin_str[str(dim)] = origin
+
+        record_symbol_origin = getattr(self.builder, "record_symbol_origin", None)
+        if callable(record_symbol_origin):
+            try:
+                record_symbol_origin(str(dim), value, axis)
+            except Exception:
+                pass
+
+    def record_symbolic_dim_origins(
+        self,
+        dims: Sequence[Any],
+        value: ir.Value,
+        *,
+        axes: Sequence[int] | None = None,
+    ) -> None:
+        dims_tuple = tuple(dims)
+        axes_tuple = (
+            tuple(range(len(dims_tuple)))
+            if axes is None
+            else tuple(int(ax) for ax in axes)
+        )
+        if len(dims_tuple) != len(axes_tuple):
+            raise ValueError("dims and axes must have the same length")
+        for dim, axis in zip(dims_tuple, axes_tuple):
+            self.record_symbolic_dim_origin(dim, value, axis)
+
+    def record_var_symbolic_dim_origins(self, var: object, value: ir.Value) -> None:
         aval = _maybe_aval(var)
         shp = _maybe_shape(aval)
         if shp is None:
             return
+        self.record_symbolic_dim_origins(shp, value)
 
-        for axis, dim in enumerate(shp):
-            if isinstance(dim, (int, np.integer)):
-                continue
-            origin = SymbolicDimOrigin(value=value, axis=axis)
-            try:
-                self._sym_origin[dim] = origin
-            except TypeError:
-                pass
-            self._sym_origin_str[str(dim)] = origin
+    def add_graph_input_value(self, value: ir.Value) -> ir.Value:
+        self.builder.inputs.append(value)
+        return value
 
-            record_symbol_origin = getattr(self.builder, "record_symbol_origin", None)
-            if callable(record_symbol_origin):
-                try:
-                    record_symbol_origin(str(dim), value, axis)
-                except Exception:
-                    pass
+    def add_graph_output_value(self, value: ir.Value) -> ir.Value:
+        self.builder.outputs.append(value)
+        return value
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = _maybe_aval(var)
@@ -566,15 +604,8 @@ class IRContext:
             shape=_to_ir_shape(shp),
         )
         self.builder._var2val[var] = val
-        self.builder.inputs.append(val)
-        # Remember which input/axis supplies each symbolic dim
-        for ax, d in enumerate(shp):
-            if not isinstance(d, (int, np.integer)):
-                try:
-                    self._sym_origin[d] = SymbolicDimOrigin(value=val, axis=ax)
-                except TypeError:
-                    pass
-                self._sym_origin_str[str(d)] = SymbolicDimOrigin(value=val, axis=ax)
+        self.add_graph_input_value(val)
+        self.record_symbolic_dim_origins(shp, val)
         return val
 
     def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
