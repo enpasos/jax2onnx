@@ -22,7 +22,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
-from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, iter_ir_functions, tensor_to_numpy
 
 # ---------------- Config ----------------
 
@@ -2378,8 +2378,11 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
     # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
-    for fn in ir_model.functions.values():
-        fgr = fn.graph
+    for fn in iter_ir_functions(ir_model.functions):
+        graph_obj = getattr(fn, "graph", None)
+        if graph_obj is None:
+            continue
+        fgr = cast(ir.Graph, graph_obj)
         for opt_pass in _OPTIMIZER_PASSES:
             _run_function_optimizer_pass(opt_pass, fgr)
 

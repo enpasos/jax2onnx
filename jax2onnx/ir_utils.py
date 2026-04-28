@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, cast
 
 import numpy as np
@@ -149,3 +149,24 @@ def ir_shape_from_dims(
     parse_integer_like: bool = True,
 ) -> ir.Shape:
     return ir.Shape(coerce_ir_shape_dims(dims, parse_integer_like=parse_integer_like))
+
+
+def iter_ir_functions(function_container: object) -> Iterator[ir.Function]:
+    if function_container is None:
+        return
+
+    values_method = getattr(function_container, "values", None)
+    if callable(values_method):
+        try:
+            values_iterable = values_method()
+        except Exception:
+            return
+    elif isinstance(function_container, Iterable) and not isinstance(
+        function_container, (str, bytes)
+    ):
+        values_iterable = function_container
+    else:
+        return
+
+    for fn in values_iterable:
+        yield cast(ir.Function, fn)
