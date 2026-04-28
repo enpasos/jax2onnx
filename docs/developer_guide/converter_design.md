@@ -272,9 +272,10 @@ Two public-looking surfaces are currently misleading:
 Either wire these features end-to-end with tests, or mark/remove them so callers
 do not assume they are active diagnostics.
 
-Status: in progress. `record_primitive_calls_file` now writes a JSON lowering
-record for each successfully lowered primitive. `run_optional_shape_inference`
-is still reserved as an explicit no-op.
+Status: implemented. `record_primitive_calls_file` writes a JSON lowering record
+for each successfully lowered primitive, and the unused
+`run_optional_shape_inference` placeholder has been removed from the converter
+pipeline.
 
 ### 6. Centralize dtype and shape coercion helpers
 

@@ -73,11 +73,6 @@ class _TraceResult:
     outputs_as_nchw: tuple[int, ...]
 
 
-def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
-    """Placeholder for optional shape inference; returns the model unchanged."""
-    return model
-
-
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -687,8 +682,6 @@ def _build_and_finalize_ir_model(
 
     _apply_late_ir_attr_overrides(ir_model, ctx)
     _consume_onnx_function_hits()
-
-    ir_model = run_optional_shape_inference(ir_model)
 
     try:
         _finalize_model_value_shapes(ir_model)

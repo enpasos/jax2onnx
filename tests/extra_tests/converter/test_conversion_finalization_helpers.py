@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter import conversion_api
 from jax2onnx.converter.conversion_api import (
     _apply_late_ir_attr_overrides,
     _attach_ir_functions,
@@ -133,3 +134,7 @@ def test_build_and_finalize_ir_model_returns_named_finalized_model() -> None:
     dims = model.graph.inputs[0].shape.dims
     assert dims[0] == 2
     assert isinstance(dims[1], ir.SymbolicDim)
+
+
+def test_optional_shape_inference_placeholder_removed() -> None:
+    assert not hasattr(conversion_api, "run_optional_shape_inference")
