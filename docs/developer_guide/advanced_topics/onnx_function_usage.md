@@ -26,7 +26,7 @@ def my_fn(...):
 - `namespace` overrides the domain prefix. When omitted, it defaults to `"custom"`.
 - `type` (preferred) or `name` (alias) overrides the human-readable base
   name/op_type used for the function. When omitted, the callable’s Python name
-  is used.
+  is used. If both are supplied, `type` takes precedence.
 
 ### Domain Naming Rules
 
@@ -83,3 +83,6 @@ Produces `domain="my.model.square.unique"` for all reused call-sites.
   prefix (e.g. `"custom.MyFn.1"` matches `"custom.MyFn.1:MyFn"`).
 - When migrating existing decorators, ensure no conflicting namespace choices are
   applied to the same target; the decorator raises if mixed namespacing is detected.
+- Keep display-name overrides stable on repeated decoration. The decorator accepts
+  identical `type`/`name` overrides but raises when the same target is registered
+  with conflicting display names.

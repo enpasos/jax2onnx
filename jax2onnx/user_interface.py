@@ -674,7 +674,12 @@ def onnx_function(
             this overrides the callable's Python name for the function `op_type`
             and FunctionProto name; the domain still derives from ``namespace``.
         type: Alias for ``name``; preferred keyword for setting the function
-            `op_type`/display name in ONNX.
+            `op_type`/display name in ONNX. If both ``name`` and ``type`` are
+            supplied, ``type`` takes precedence.
+
+    Raises:
+        ValueError: If the same target is decorated again with a conflicting
+            namespace or display-name override.
 
     Returns:
         The decorated function or class with ONNX function capabilities.
