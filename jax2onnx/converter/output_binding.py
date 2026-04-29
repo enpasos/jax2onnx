@@ -23,13 +23,33 @@ def get_bound_value(ctx: Any, var: object) -> ir.Value | None:
     return value if isinstance(value, ir.Value) else None
 
 
-def _value_is_graph_connected(ctx: Any, value: ir.Value) -> bool:
-    if any(existing is value for existing in ctx.builder.inputs):
+def _value_name(value: ir.Value | None) -> str | None:
+    if value is None:
+        return None
+    return value.name or None
+
+
+def _value_matches_reference(existing: object, reference: ir.Value) -> bool:
+    if existing is reference:
         return True
-    if any(existing is value for existing in ctx.builder.initializers):
+    if not isinstance(existing, ir.Value):
+        return False
+    reference_name = _value_name(reference)
+    return reference_name is not None and _value_name(existing) == reference_name
+
+
+def _value_is_graph_connected(ctx: Any, value: ir.Value) -> bool:
+    if any(
+        _value_matches_reference(existing, value) for existing in ctx.builder.inputs
+    ):
+        return True
+    if any(
+        _value_matches_reference(existing, value)
+        for existing in ctx.builder.initializers
+    ):
         return True
     for node in ctx.builder.nodes:
-        if any(output is value for output in node.outputs):
+        if any(_value_matches_reference(output, value) for output in node.outputs):
             return True
     return False
 
