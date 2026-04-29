@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -17,9 +18,6 @@ from jax2onnx.plugins.jax.lax.reduce_window_sum import (
     _normalize_int_tuple,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def reduce_window_max(
@@ -95,7 +93,7 @@ class ReduceWindowMaxPrimitivePlugin(PrimitiveLeafPlugin):
     if hasattr(np, "bfloat16"):
         _MAXPOOL_DTYPES.add(np.dtype(np.bfloat16))
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         window_dims = _normalize_int_tuple(
             params.get("window_dimensions", ()), "window_dimensions"
@@ -149,19 +147,25 @@ class ReduceWindowMaxPrimitivePlugin(PrimitiveLeafPlugin):
 
         axes0 = _const_i64(ctx, np.asarray([0], dtype=np.int64), "rwm_axes0")
         axes1 = _const_i64(ctx, np.asarray([1], dtype=np.int64), "rwm_axes1")
-        unsq0 = ctx.builder.Unsqueeze(
-            operand_val,
-            axes0,
-            _outputs=[ctx.fresh_name("reduce_window_max_unsq0")],
+        unsq0 = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                operand_val,
+                axes0,
+                _outputs=[ctx.fresh_name("reduce_window_max_unsq0")],
+            ),
         )
         unsq0.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(unsq0, (1,) + operand_shape)
         _ensure_value_metadata(ctx, unsq0)
 
-        unsq1 = ctx.builder.Unsqueeze(
-            unsq0,
-            axes1,
-            _outputs=[ctx.fresh_name("reduce_window_max_unsq1")],
+        unsq1 = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                unsq0,
+                axes1,
+                _outputs=[ctx.fresh_name("reduce_window_max_unsq1")],
+            ),
         )
         unsq1.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(unsq1, (1, 1) + operand_shape)
@@ -177,10 +181,13 @@ class ReduceWindowMaxPrimitivePlugin(PrimitiveLeafPlugin):
         if any(d != 1 for d in window_dilation):
             maxpool_kwargs["dilations"] = tuple(window_dilation)
 
-        pooled = ctx.builder.MaxPool(
-            unsq1,
-            _outputs=[ctx.fresh_name("reduce_window_max_pool")],
-            **maxpool_kwargs,
+        pooled = cast(
+            ir.Value,
+            ctx.builder.MaxPool(
+                unsq1,
+                _outputs=[ctx.fresh_name("reduce_window_max_pool")],
+                **maxpool_kwargs,
+            ),
         )
         pooled.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(pooled, (1, 1) + out_shape)
@@ -192,10 +199,13 @@ class ReduceWindowMaxPrimitivePlugin(PrimitiveLeafPlugin):
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
             "reduce_window_max"
         )
-        result = ctx.builder.Squeeze(
-            pooled,
-            squeeze_axes,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Squeeze(
+                pooled,
+                squeeze_axes,
+                _outputs=[desired_name],
+            ),
         )
         result.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(result, out_shape)
