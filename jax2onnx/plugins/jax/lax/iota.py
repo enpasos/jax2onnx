@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _ensure_value_metadata
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -17,9 +22,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _scalar_i64,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
@@ -94,12 +96,8 @@ _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
 class IotaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.iota`` (and broadcasted variants) with pure IR ops."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for lax.iota lowering"
-            )
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        builder = ctx.builder
 
         params = eqn.params
         dtype = np.dtype(params["dtype"])
@@ -112,7 +110,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             # scalar iota is treated as vector of length size param (when provided as int)
             shape_param = (params.get("size", 0),)
 
-        shape = tuple(shape_param)
+        shape = cast(tuple[DimInput, ...], tuple(shape_param))
 
         rank = len(shape)
         if dimension < 0 or dimension >= rank:
@@ -125,10 +123,13 @@ class IotaPlugin(PrimitiveLeafPlugin):
         squeeze_axes = _const_i64(
             ctx, np.asarray([0], dtype=np.int64), "iota_limit_squeeze_axes"
         )
-        limit = builder.Squeeze(
-            limit_vec,
-            squeeze_axes,
-            _outputs=[ctx.fresh_name("iota_limit")],
+        limit = cast(
+            ir.Value,
+            builder.Squeeze(
+                limit_vec,
+                squeeze_axes,
+                _outputs=[ctx.fresh_name("iota_limit")],
+            ),
         )
         limit.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(limit, ())
@@ -138,11 +139,14 @@ class IotaPlugin(PrimitiveLeafPlugin):
         start = _scalar_i64(ctx, 0, "iota_start")
         delta = _scalar_i64(ctx, 1, "iota_delta")
 
-        range_out = builder.Range(
-            start,
-            limit,
-            delta,
-            _outputs=[ctx.fresh_name("iota_range")],
+        range_out = cast(
+            ir.Value,
+            builder.Range(
+                start,
+                limit,
+                delta,
+                _outputs=[ctx.fresh_name("iota_range")],
+            ),
         )
         range_out.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(range_out, (dim_extent,))
@@ -157,12 +161,15 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 else None
             )
             if axes_tensor is not None:
-                unsq_shape = [1] * rank
+                unsq_shape: list[DimInput] = [1] * rank
                 unsq_shape[dimension] = dim_extent
-                current_unsq = builder.Unsqueeze(
-                    current,
-                    axes_tensor,
-                    _outputs=[ctx.fresh_name("iota_unsq")],
+                current_unsq = cast(
+                    ir.Value,
+                    builder.Unsqueeze(
+                        current,
+                        axes_tensor,
+                        _outputs=[ctx.fresh_name("iota_unsq")],
+                    ),
                 )
                 current_unsq.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(current_unsq, tuple(unsq_shape))
@@ -170,10 +177,13 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 current = current_unsq
 
             expand_shape = _lower_i64_vector(ctx, shape, "iota_expand_shape")
-            expanded = builder.Expand(
-                current,
-                expand_shape,
-                _outputs=[ctx.fresh_name("iota_expanded")],
+            expanded = cast(
+                ir.Value,
+                builder.Expand(
+                    current,
+                    expand_shape,
+                    _outputs=[ctx.fresh_name("iota_expanded")],
+                ),
             )
             expanded.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(expanded, tuple(shape))
@@ -185,19 +195,25 @@ class IotaPlugin(PrimitiveLeafPlugin):
         target_dtype = numpy_dtype_to_ir(dtype)
 
         if target_dtype != ir.DataType.INT64:
-            cast_out = builder.Cast(
-                current,
-                _outputs=[ctx.fresh_name("iota_cast")],
-                to=int(target_dtype.value),
+            cast_out = cast(
+                ir.Value,
+                builder.Cast(
+                    current,
+                    _outputs=[ctx.fresh_name("iota_cast")],
+                    to=int(target_dtype.value),
+                ),
             )
             cast_out.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(cast_out, tuple(shape))
             _ensure_value_metadata(ctx, cast_out)
             ctx.bind_value_for_var(out_var, cast_out)
         else:
-            identity_out = builder.Identity(
-                current,
-                _outputs=[ctx.fresh_name("iota_out")],
+            identity_out = cast(
+                ir.Value,
+                builder.Identity(
+                    current,
+                    _outputs=[ctx.fresh_name("iota_out")],
+                ),
             )
             identity_out.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(identity_out, tuple(shape))

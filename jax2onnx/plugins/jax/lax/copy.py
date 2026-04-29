@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 from jax import lax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -68,7 +66,7 @@ class CopyPlugin(PrimitiveLeafPlugin):
     ) -> Any:  # pragma: no cover - JAX hook
         return operand_aval
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         if len(eqn.invars) != 1 or len(eqn.outvars) != 1:
             raise ValueError("lax.copy_p expects exactly one input and one output")
 
@@ -83,7 +81,7 @@ class CopyPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Identity")
 
-        result = ctx.builder.Identity(in_val, _outputs=[desired_name])
+        result = cast(ir.Value, ctx.builder.Identity(in_val, _outputs=[desired_name]))
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         if getattr(out_spec, "type", None) is not None:
