@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -50,7 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class OptimizationBarrierPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.optimization_barrier`` as one-to-one ``Identity`` nodes."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         if len(eqn.invars) != len(eqn.outvars):
             raise ValueError(
                 "optimization_barrier expects equal numbers of inputs and outputs"
@@ -67,7 +66,9 @@ class OptimizationBarrierPlugin(PrimitiveLeafPlugin):
                 "optimization_barrier"
             )
 
-            result = ctx.builder.Identity(in_val, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(in_val, _outputs=[desired_name])
+            )
             if getattr(out_spec, "type", None) is not None:
                 result.type = out_spec.type
             elif getattr(in_val, "type", None) is not None:
