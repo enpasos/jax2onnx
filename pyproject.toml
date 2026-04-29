@@ -265,6 +265,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/prod.py",
     "jax2onnx/plugins/jax/numpy/reshape.py",
     "jax2onnx/plugins/jax/numpy/right_shift.py",
+    "jax2onnx/plugins/jax/numpy/roots.py",
     "jax2onnx/plugins/jax/numpy/searchsorted.py",
     "jax2onnx/plugins/jax/numpy/select.py",
     "jax2onnx/plugins/jax/numpy/shape.py",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import cast_real_tensor, pack_real_imag_pair
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -119,7 +119,10 @@ def _equal_zero(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    out = ctx.builder.Equal(value, zero, _outputs=[ctx.fresh_name(name_hint)])
+    out = cast(
+        ir.Value,
+        ctx.builder.Equal(value, zero, _outputs=[ctx.fresh_name(name_hint)]),
+    )
     out.type = ir.TensorType(ir.DataType.BOOL)
     out.dtype = ir.DataType.BOOL
     _stamp_type_and_shape(out, shape)
@@ -135,7 +138,10 @@ def _less_than_zero(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    out = ctx.builder.Less(value, zero, _outputs=[ctx.fresh_name(name_hint)])
+    out = cast(
+        ir.Value,
+        ctx.builder.Less(value, zero, _outputs=[ctx.fresh_name(name_hint)]),
+    )
     out.type = ir.TensorType(ir.DataType.BOOL)
     out.dtype = ir.DataType.BOOL
     _stamp_type_and_shape(out, shape)
@@ -152,10 +158,13 @@ def _bool_binary(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    out = getattr(ctx.builder, op_type)(
-        lhs,
-        rhs,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = cast(
+        ir.Value,
+        getattr(ctx.builder, op_type)(
+            lhs,
+            rhs,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     out.type = ir.TensorType(ir.DataType.BOOL)
     out.dtype = ir.DataType.BOOL
@@ -846,7 +855,7 @@ class JnpRootsPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(
