@@ -171,6 +171,7 @@ files = [
     "jax2onnx/plugins/jax/lax/asin.py",
     "jax2onnx/plugins/jax/lax/atan.py",
     "jax2onnx/plugins/jax/lax/atan2.py",
+    "jax2onnx/plugins/jax/lax/betainc.py",
     "jax2onnx/plugins/jax/lax/bessel_i0e.py",
     "jax2onnx/plugins/jax/lax/bessel_i1e.py",
     "jax2onnx/plugins/jax/lax/bitcast_convert_type.py",
