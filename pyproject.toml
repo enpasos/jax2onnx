@@ -180,6 +180,7 @@ files = [
     "jax2onnx/plugins/jax/lax/tan.py",
     "jax2onnx/plugins/jax/lax/tanh.py",
     "jax2onnx/plugins/jax/lax/xor.py",
+    "jax2onnx/plugins/jax/numpy/__init__.py",
     "jax2onnx/plugins/jax/numpy/_common.py",
     "jax2onnx/plugins/jax/numpy/_reduction_utils.py",
     "jax2onnx/plugins/jax/numpy/_unary_utils.py",
