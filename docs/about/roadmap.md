@@ -29,8 +29,9 @@
   unused optional shape-inference placeholder.
 * **Harden the IR optimizer:** Add an opt-in strict optimizer failure mode,
   replace the hard-coded optimizer sequence with a named pass registry that
-  declares top-level/function-body applicability, and fix constant folding for
-  multi-output primitives by tracking each produced output independently.
+  declares top-level/function-body applicability, fix constant folding for
+  multi-output primitives by tracking each produced output independently, and
+  simplify consumer lookup fallbacks for wrapped or renamed IR values.
 * **Improve layout and function-body robustness:** Route NCHW input/output
   adaptation through a dedicated layout adapter, share output-binding guardrails
   with control-flow and nested lowering helpers, and preserve function signatures
@@ -46,7 +47,8 @@
   iteration, nested JAXPR error reporting, and `@onnx_function` conflict cases.
 * **Document the converter design changes:** Add the converter design review,
   update the IR optimizer guide with the declarative pass list and strict failure
-  mode, document shared lowering-dispatch responsibilities, and clarify
+  mode, link the review from the architecture guide and docs navigation,
+  document shared lowering-dispatch responsibilities, and clarify
   `@onnx_function` override and conflict rules.
 
 
