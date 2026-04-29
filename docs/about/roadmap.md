@@ -22,11 +22,14 @@
 * **Strengthen lowering guardrails:** Verify every non-drop equation output is
   bound immediately after lowering, preserve the current equation scope while
   plugin metadata is staged, report nested JAXPR missing-plugin errors with
-  source context, and keep primitive-call recording on the shared lowering path.
+  source context, accept name-matched graph-connected outputs across `onnx_ir`
+  value wrappers, scope constant-folder producer maps during nested lowering,
+  and keep primitive-call recording on the shared lowering path.
 * **Tighten converter utility surfaces:** Consolidate legacy context typing onto
   `LoweringContextProtocol`, centralize IR dtype/shape coercion in shared
-  utilities, normalize `onnx_ir` function-container iteration, and remove the
-  unused optional shape-inference placeholder.
+  utilities, normalize `onnx_ir` function-container iteration, route manually
+  constructed nodes through the IR builder metadata path, and remove the unused
+  optional shape-inference placeholder.
 * **Harden the IR optimizer:** Add an opt-in strict optimizer failure mode,
   replace the hard-coded optimizer sequence with a named pass registry that
   declares top-level/function-body applicability, fix constant folding for
@@ -35,7 +38,8 @@
 * **Improve layout and function-body robustness:** Route NCHW input/output
   adaptation through a dedicated layout adapter, share output-binding guardrails
   with control-flow and nested lowering helpers, and preserve function signatures
-  while optimizing function body graphs.
+  while optimizing function body graphs; keep function-body attribute overrides
+  isolated from same-named top-level overrides.
 * **Harden `@onnx_function` registration:** Extract registration and marker
   helpers, support stable display-name overrides, prefer `type` over `name` when
   both are provided, reject conflicting namespace/name re-decoration, keep the
@@ -44,7 +48,9 @@
 * **Expand regression coverage:** Add focused tests for converter phase helpers,
   output binding, lowering dispatch, primitive-call recording, IR constants,
   strict optimizer failures, optimizer pass ordering, function-container
-  iteration, nested JAXPR error reporting, and `@onnx_function` conflict cases.
+  iteration, nested JAXPR error reporting, function override isolation,
+  builder-routed node insertion, constant-folder scoping, and `@onnx_function`
+  conflict cases.
 * **Document the converter design changes:** Add the converter design review,
   update the IR optimizer guide with the declarative pass list and strict failure
   mode, link the review from the architecture guide and docs navigation,
