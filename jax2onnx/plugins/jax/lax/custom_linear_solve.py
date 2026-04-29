@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import Any, Iterable
 
 import jax
 import numpy as np
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.core.jit import JitPlugin
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
@@ -14,9 +15,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _flatten_length_info(obj: Any) -> tuple[int, int, int, int]:
@@ -86,7 +84,7 @@ def _slice_vars(seq: Iterable[Any], start: int, length: int) -> list[Any]:
 class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
     """Inline the `solve` branch of ``lax.custom_linear_solve`` for inference graphs."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         const_lengths = _flatten_length_info(params.get("const_lengths"))
         matvec_nconsts, vecmat_nconsts, solve_nconsts, transpose_nconsts = const_lengths

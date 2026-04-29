@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Iterable, Tuple, cast
+from typing import Any, Final, Iterable, Tuple, cast
 
 import jax
 import jax.numpy as jnp
 from jax import lax
 import numpy as np
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
@@ -106,7 +104,7 @@ def _remat2_tuple_passthrough(
 class Remat2Plugin(PrimitiveLeafPlugin):
     """Inline the inner jaxpr of ``lax.remat2`` into the surrounding context."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         jaxpr_like = eqn.params.get("jaxpr")
         if jaxpr_like is None:
             raise ValueError("remat2 lowering requires 'jaxpr' in params")
