@@ -251,6 +251,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/linalg_det.py",
     "jax2onnx/plugins/jax/numpy/linalg_inv.py",
     "jax2onnx/plugins/jax/numpy/linalg_norm.py",
+    "jax2onnx/plugins/jax/numpy/linalg_solve.py",
     "jax2onnx/plugins/jax/numpy/linspace.py",
     "jax2onnx/plugins/jax/numpy/log.py",
     "jax2onnx/plugins/jax/numpy/matmul.py",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -14,7 +14,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -70,10 +70,13 @@ def _cast_to_output_dtype(
         _stamp_type_and_shape(val, shape)
         _ensure_value_metadata(ctx, val)
         return val
-    result = ctx.builder.Cast(
-        val,
-        to=int(dtype_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(dtype_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
@@ -92,11 +95,14 @@ def _gather_rhs_row(
 ) -> ir.Value:
     row_axis = len(rhs_shape) - 2 if len(rhs_shape) >= 2 else len(rhs_shape) - 1
     idx = _const_i64(ctx, np.asarray(row, dtype=np.int64), f"{name_hint}_idx")
-    result = ctx.builder.Gather(
-        rhs,
-        idx,
-        axis=row_axis,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            rhs,
+            idx,
+            axis=row_axis,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     out_shape = rhs_shape[:row_axis] + rhs_shape[row_axis + 1 :]
@@ -139,11 +145,14 @@ def _concat_two(
     name_hint: str,
     output_name: str | None = None,
 ) -> ir.Value:
-    result = ctx.builder.Concat(
-        lhs,
-        rhs,
-        axis=axis,
-        _outputs=[output_name or ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Concat(
+            lhs,
+            rhs,
+            axis=axis,
+            _outputs=[output_name or ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
@@ -503,7 +512,9 @@ class JnpLinalgSolvePlugin(PrimitiveLeafPlugin):
         )
         rhs_row_shape = tuple(getattr(rhs0, "shape", ()))
         if isinstance(rhs0.shape, ir.Shape):
-            rhs_row_shape = tuple(int(dim) for dim in rhs0.shape.dims)
+            if not all(isinstance(dim, int) for dim in rhs0.shape.dims):
+                raise TypeError("jnp.linalg.solve requires static RHS row shape")
+            rhs_row_shape = cast(tuple[int, ...], tuple(rhs0.shape.dims))
 
         d_rhs0 = _mul_coeff_rhs(
             ctx,
@@ -599,7 +610,7 @@ class JnpLinalgSolvePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(
