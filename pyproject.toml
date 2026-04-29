@@ -249,6 +249,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/less.py",
     "jax2onnx/plugins/jax/numpy/less_equal.py",
     "jax2onnx/plugins/jax/numpy/linalg_det.py",
+    "jax2onnx/plugins/jax/numpy/linalg_inv.py",
     "jax2onnx/plugins/jax/numpy/linalg_norm.py",
     "jax2onnx/plugins/jax/numpy/linspace.py",
     "jax2onnx/plugins/jax/numpy/log.py",
