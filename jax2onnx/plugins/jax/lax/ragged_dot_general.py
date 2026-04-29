@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax.dot_general import DotGeneralPlugin
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _adjust_axes(
@@ -31,25 +33,28 @@ def _adjust_axes(
 
 
 def _gather_group_zero(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     axis: int,
     name_hint: str,
-    shape: list[object],
-) -> tuple[ir.Value, list[object]]:
+    shape: list[DimInput],
+) -> tuple[ir.Value, list[DimInput]]:
     idx = _const_i64(ctx, np.asarray(0, dtype=np.int64), name_hint=f"{name_hint}_idx")
-    out = ctx.builder.Gather(
-        value,
-        idx,
-        axis=axis,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            value,
+            idx,
+            axis=axis,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     dtype = getattr(getattr(value, "type", None), "dtype", None)
     if dtype is not None:
         out.type = ir.TensorType(dtype)
         out.dtype = dtype
     if shape:
-        new_shape = shape[:axis] + shape[axis + 1 :]
+        new_shape: list[DimInput] = shape[:axis] + shape[axis + 1 :]
         _stamp_type_and_shape(out, tuple(new_shape))
         _ensure_value_metadata(ctx, out)
         return out, new_shape
@@ -70,7 +75,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[object | None] = None
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         if len(eqn.invars) < 3:
             raise ValueError("ragged_dot_general expects lhs, rhs, group_sizes inputs")
         lhs_var, rhs_var, group_sizes_var = eqn.invars[:3]
@@ -137,8 +142,9 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
         rhs_shape = tuple(rhs_shape_list)
 
         dot_plugin = DotGeneralPlugin()
+        dot_ctx = cast(Any, ctx)
         if dot_plugin._maybe_lower_complex(
-            ctx,
+            dot_ctx,
             lhs_var,
             rhs_var,
             out_var,
@@ -156,7 +162,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
             return
 
         if dot_plugin._try_lower_matmul(
-            ctx,
+            dot_ctx,
             lhs_var,
             rhs_var,
             out_var,
@@ -174,7 +180,7 @@ class RaggedDotGeneralPlugin(PrimitiveLeafPlugin):
             return
 
         dot_plugin._lower_via_einsum(
-            ctx,
+            dot_ctx,
             lhs_var,
             rhs_var,
             out_var,
