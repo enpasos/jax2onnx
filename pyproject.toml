@@ -191,6 +191,7 @@ files = [
     "jax2onnx/plugins/jax/lax/cumsum.py",
     "jax2onnx/plugins/jax/lax/custom_linear_solve.py",
     "jax2onnx/plugins/jax/lax/device_put.py",
+    "jax2onnx/plugins/jax/lax/digamma.py",
     "jax2onnx/plugins/jax/lax/div.py",
     "jax2onnx/plugins/jax/lax/dynamic_update_slice.py",
     "jax2onnx/plugins/jax/lax/eq.py",
