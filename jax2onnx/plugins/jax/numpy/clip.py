@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ClassVar, Final, TypeAlias
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.extend.core as jax_core_ext
@@ -60,10 +60,13 @@ def _cast_value(
         return src_val
 
     dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-    cast_val = ctx.builder.Cast(
-        src_val,
-        _outputs=[ctx.fresh_name(f"clip_{tag}_cast")],
-        to=int(dtype_enum.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            src_val,
+            _outputs=[ctx.fresh_name(f"clip_{tag}_cast")],
+            to=int(dtype_enum.value),
+        ),
     )
     cast_val.type = ir.TensorType(dtype_enum)
     cast_shape = tuple(getattr(getattr(src_var, "aval", None), "shape", ()))

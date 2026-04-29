@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 import jax.extend.core as jax_core_ext
@@ -313,7 +313,10 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
         result_dims = coerce_dim_values(out_shape)
 
         def _matmul(lhs: ir.Value, rhs: ir.Value, name: str) -> ir.Value:
-            value = ctx.builder.MatMul(lhs, rhs, _outputs=[ctx.fresh_name(name)])
+            value = cast(
+                ir.Value,
+                ctx.builder.MatMul(lhs, rhs, _outputs=[ctx.fresh_name(name)]),
+            )
             value.type = ir.TensorType(target_dtype)
             value.dtype = target_dtype
             _stamp_type_and_shape(value, result_dims)

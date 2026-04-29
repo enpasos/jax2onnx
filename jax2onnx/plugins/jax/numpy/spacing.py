@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -74,10 +74,13 @@ def _cast_to_dtype(
     dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
-    cast_val = ctx.builder.Cast(
-        val,
-        to=int(dtype_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(dtype_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     cast_val.type = ir.TensorType(dtype_enum)
     cast_val.shape = getattr(val, "shape", None)
