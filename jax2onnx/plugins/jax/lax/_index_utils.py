@@ -60,7 +60,11 @@ def _const_i64(
             name=ctx.fresh_name("Constant"),
             attributes=attributes,
         )
-        builder.nodes.append(node)
+        add_node_obj = getattr(builder, "add_node_obj", None)
+        if callable(add_node_obj):
+            add_node_obj(node)
+        else:
+            builder.nodes.append(node)
         _ensure_value_metadata(ctx, val)
         return val
 

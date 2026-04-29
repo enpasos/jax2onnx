@@ -402,7 +402,7 @@ class IRContext:
         inputs: Optional[Sequence[ir.Value]] = None,
         outputs: Optional[Sequence[ir.Value]] = None,
     ) -> ir.Node:
-        self.builder.nodes.append(node)
+        self.builder.add_node_obj(node)
         return node
 
     # ---------- initializer management ----------
