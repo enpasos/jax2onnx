@@ -6,8 +6,9 @@ import numpy as np
 import onnx_ir as ir
 import jax
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     conjugate_packed_tensor,
@@ -17,9 +18,6 @@ from jax2onnx.plugins._complex_utils import (
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -64,7 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ConjPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.conj`` to ONNX ops."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -106,9 +104,14 @@ class ConjPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, conj_val)
             return
 
-        identity_val = ctx.builder.Identity(
-            x_val,
-            _outputs=[getattr(out_spec, "name", None) or ctx.fresh_name("conj_out")],
+        identity_val = cast(
+            ir.Value,
+            ctx.builder.Identity(
+                x_val,
+                _outputs=[
+                    getattr(out_spec, "name", None) or ctx.fresh_name("conj_out")
+                ],
+            ),
         )
         identity_val.type = getattr(out_spec, "type", None) or getattr(
             x_val, "type", None
