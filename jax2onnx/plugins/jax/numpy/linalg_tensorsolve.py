@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -57,10 +57,13 @@ def _reshape(
         np.asarray(shape, dtype=np.int64),
         f"{name_hint}_shape",
     )
-    result = ctx.builder.Reshape(
-        val,
-        shape_val,
-        _outputs=[output_name or ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            val,
+            shape_val,
+            _outputs=[output_name or ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
@@ -104,8 +107,10 @@ def _normalise_shapes(
 ) -> tuple[tuple[int, ...], tuple[int, ...], int, tuple[int, ...]]:
     if not _all_static_ints(a_shape_raw) or not _all_static_ints(b_shape_raw):
         raise TypeError("jnp.linalg.tensorsolve lowering requires static shapes")
-    a_shape = tuple(int(dim) for dim in a_shape_raw)
-    b_shape = tuple(int(dim) for dim in b_shape_raw)
+    static_a_shape = cast(tuple[int | np.integer[Any], ...], a_shape_raw)
+    static_b_shape = cast(tuple[int | np.integer[Any], ...], b_shape_raw)
+    a_shape = tuple(int(dim) for dim in static_a_shape)
+    b_shape = tuple(int(dim) for dim in static_b_shape)
     split = len(b_shape)
     if split <= 0 or len(a_shape) <= split:
         raise ValueError("jnp.linalg.tensorsolve requires 0 < b.ndim < a.ndim")
@@ -494,7 +499,7 @@ class JnpLinalgTensorSolvePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, solved)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(
