@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ClassVar, Final, TypeAlias
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,7 +16,11 @@ from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -61,7 +65,7 @@ def _canonical_axis(axis: int, rank: int) -> int:
 def _as_int64(
     ctx: LoweringContextProtocol,
     value: ir.Value,
-    shape: tuple[int | object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     current_type = getattr(value, "type", None)
@@ -71,10 +75,13 @@ def _as_int64(
         _ensure_value_metadata(ctx, value)
         return value
 
-    cast_val = ctx.builder.Cast(
-        value,
-        _outputs=[ctx.fresh_name(name_hint)],
-        to=int(ir.DataType.INT64.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(name_hint)],
+            to=int(ir.DataType.INT64.value),
+        ),
     )
     cast_val.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(cast_val, shape)
@@ -183,7 +190,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         indices_val = ctx.get_value_for_var(
             indices_var,
             name_hint=ctx.fresh_name("take_indices"),
-            prefer_np_dtype=np.int64,
+            prefer_np_dtype=np.dtype(np.int64),
         )
         indices_dtype: np.dtype[Any] = np.dtype(
             getattr(indices_var.aval, "dtype", np.int64)
@@ -191,7 +198,9 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         if not np.issubdtype(indices_dtype, np.integer):
             raise TypeError("jnp.take indices must be integer typed")
 
-        indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
+        indices_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(indices_var.aval, "shape", ()))
+        )
         indices_val = _as_int64(ctx, indices_val, indices_shape, "take_indices_int64")
 
         arr_shape = tuple(getattr(arr_var.aval, "shape", ()))
@@ -204,7 +213,9 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("Gather")],
         )
 
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
+        )
         result.type = ir.TensorType(getattr(arr_val.type, "dtype", ir.DataType.FLOAT))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

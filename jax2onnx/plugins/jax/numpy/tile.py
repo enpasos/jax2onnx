@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, ClassVar, Final, TypeAlias
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 from jax import core, lax
@@ -24,7 +24,11 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -256,7 +260,9 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tile_out"))
 
-        input_shape = tuple(getattr(input_var.aval, "shape", ()))
+        input_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(input_var.aval, "shape", ()))
+        )
         input_dtype: np.dtype[Any] = np.dtype(
             getattr(input_var.aval, "dtype", np.float32)
         )
@@ -371,7 +377,10 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         if cached is not None:
             return cached
         rank = len(getattr(getattr(src, "shape", None), "dims", ()) or ())
-        shape_val = ctx.builder.Shape(src, _outputs=[ctx.fresh_name("tile_shape")])
+        shape_val = cast(
+            ir.Value,
+            ctx.builder.Shape(src, _outputs=[ctx.fresh_name("tile_shape")]),
+        )
         shape_val.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_val, (rank,))
         _ensure_value_metadata(ctx, shape_val)
@@ -436,7 +445,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         ctx: LoweringContextProtocol,
         input_val: ir.Value,
         repeats_val: ir.Value,
-        input_shape: tuple[object, ...],
+        input_shape: tuple[DimInput, ...],
         input_np_dtype: np.dtype[Any],
         repeats_rank: int,
     ) -> tuple[ir.Value, ir.Value]:
@@ -486,7 +495,9 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             dtype_enum = _dtype_to_ir(
                 input_np_dtype, ctx.builder.enable_double_precision
             )
-            new_shape = tuple([1] * num_new + list(current_shape))
+            new_shape = cast(
+                tuple[DimInput, ...], tuple([1] * num_new + list(current_shape))
+            )
             reshaped = ctx.builder.Reshape(
                 input_val,
                 target_shape,
