@@ -67,8 +67,70 @@ class SymbolicDimTracker(Protocol):
 
 
 @runtime_checkable
+class IRBuilderProtocol(Protocol):
+    @property
+    def opset(self) -> int: ...
+
+    @property
+    def enable_double_precision(self) -> bool: ...
+
+    @property
+    def graph(self) -> ir.Graph: ...
+
+    @property
+    def inputs(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def outputs(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def initializers(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def nodes(self) -> Sequence[ir.Node]: ...
+
+    def fresh_name(self, base: str) -> str: ...
+
+    def add_initializer_from_scalar(self, name: str, value: object) -> ir.Value: ...
+
+    def add_initializer_from_array(
+        self,
+        name: str,
+        array: np.ndarray[Any, np.dtype[Any]],
+    ) -> ir.Value: ...
+
+    def const_i64(self, name: str, values: Sequence[int]) -> ir.Value: ...
+
+    def add_node_obj(self, node: ir.Node) -> None: ...
+
+    def add_node(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value],
+        outputs: Sequence[ir.Value],
+        attributes: Mapping[str, Any] | Sequence[ir.Attr] | None = None,
+        name: str | None = None,
+    ) -> ir.Node: ...
+
+    def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None: ...
+
+    def get_symbolic_dim_origin(self, sym: str) -> SymbolicDimOrigin | None: ...
+
+    def to_ir_model(
+        self,
+        *,
+        name: str,
+        ir_version: int = 11,
+        protective_clone: bool = True,
+    ) -> ir.Model: ...
+
+    def __getattr__(self, name: str) -> Any: ...
+
+
+@runtime_checkable
 class LoweringContextProtocol(SymbolicDimTracker, Protocol):
-    builder: Any
+    @property
+    def builder(self) -> IRBuilderProtocol: ...
 
     @property
     def opset(self) -> int: ...
