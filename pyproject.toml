@@ -238,6 +238,7 @@ files = [
     "jax2onnx/plugins/jax/lax/reduce_precision.py",
     "jax2onnx/plugins/jax/lax/reduce_sum.py",
     "jax2onnx/plugins/jax/lax/reduce_window.py",
+    "jax2onnx/plugins/jax/lax/reduce_window_sum.py",
     "jax2onnx/plugins/jax/lax/reduce_window_max.py",
     "jax2onnx/plugins/jax/lax/reduce_xor.py",
     "jax2onnx/plugins/jax/lax/real.py",
