@@ -1,17 +1,18 @@
 # jax2onnx/plugins/_utils.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Sequence
+
+from typing import Sequence, cast
+
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy
 
 
 def cast_param_like(
-    ctx: "IRBuildContext",
+    ctx: LoweringContextProtocol,
     param: ir.Value,
     like: ir.Value,
     name_hint: str = "param_cast",
@@ -39,15 +40,14 @@ def cast_param_like(
                 param.shape = ir.Shape(tuple(int(d) for d in np_arr.shape))
             return param
 
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        return ctx.cast_like(param, exemplar=like, name_hint=name_hint)
-
     cast_name = ctx.fresh_name(name_hint)
-    out = builder.CastLike(
-        param,
-        like,
-        _outputs=[cast_name],
+    out = cast(
+        ir.Value,
+        ctx.builder.CastLike(
+            param,
+            like,
+            _outputs=[cast_name],
+        ),
     )
     out.type = ir.TensorType(l_dt)
     out.shape = param.shape
@@ -55,7 +55,10 @@ def cast_param_like(
 
 
 def inline_reshape_initializer(
-    ctx, val: ir.Value, new_shape: tuple[int, ...], name_hint: str
+    ctx: LoweringContextProtocol,
+    val: ir.Value,
+    new_shape: tuple[int, ...],
+    name_hint: str,
 ) -> ir.Value:
     """
     If `val` is a constant initializer, create a new initializer with the data

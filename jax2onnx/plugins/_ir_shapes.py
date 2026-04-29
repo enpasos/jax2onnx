@@ -9,9 +9,10 @@ import onnx_ir as ir
 
 
 DimValue = Union[int, ir.SymbolicDim, None]
+DimInput = Union[DimValue, str]
 
 
-def _stamp_type_and_shape(v: ir.Value, dims: SequenceABC[DimValue]) -> None:
+def _stamp_type_and_shape(v: ir.Value, dims: SequenceABC[DimInput]) -> None:
     """Ensure both meta and tensor-type shape carry symbolic names like 'B'."""
     ir_dims_list: list[DimValue] = [_to_ir_dim_for_shape(d) for d in dims]
     sh = ir.Shape(ir_dims_list)
@@ -42,12 +43,7 @@ def _as_ir_dim_label(dim: object) -> Union[str, int, None]:
         return int(dim)
     if isinstance(dim, ir.SymbolicDim):
         value = dim.value
-        if isinstance(value, str):
-            return value if value not in {"", "?", "None"} else None
-        if value is None:
-            return None
-        text = str(dim)
-        return text if text and text not in {"?", "None"} else None
+        return value if value not in {"", "?", "None"} else None
     if isinstance(dim, str):
         return dim if dim not in {"", "?", "None"} else None
     for attr in ("value", "param", "name", "symbol"):
