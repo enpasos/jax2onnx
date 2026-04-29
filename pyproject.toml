@@ -129,12 +129,20 @@ warn_unreachable = true
 incremental = false
 files = [
     "jax2onnx/converter",
+    "jax2onnx/ir_utils.py",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
 disallow_untyped_defs = true
 disallow_any_generics = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "onnx_ir",
+    "onnx_ir.*",
+]
+follow_imports = "normal"
 
 [[tool.mypy.overrides]]
 module = [

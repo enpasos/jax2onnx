@@ -124,8 +124,6 @@ class FunctionScope:
             dims = tuple(vin_shape.dims) if vin_shape is not None else ()
             for axis, dim in enumerate(dims):
                 origin = parent_origin(dim)
-                if origin is None and isinstance(dim, str):
-                    origin = parent_origin(str(dim))
                 if origin is not None:
                     sym_key = str(dim)
                     self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
@@ -185,13 +183,7 @@ class FunctionScope:
         fn_domain = (self.domain or "").strip()
         if fn_domain:
             opset_imports.setdefault(fn_domain, body_opset)
-        try:
-            nodes_iter = list(body_graph.all_nodes())
-        except AttributeError:
-            try:
-                nodes_iter = list(body_graph.node)
-            except AttributeError:
-                nodes_iter = []
+        nodes_iter = list(body_graph.all_nodes())
         for node in nodes_iter:
             dom = getattr(node, "domain", "") or ""
             if dom:
