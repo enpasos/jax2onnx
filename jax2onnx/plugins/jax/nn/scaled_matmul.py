@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax.extend.core import Primitive
@@ -252,10 +252,13 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
         def _cast_to_target(
             val: ir.Value, name: str, shape: tuple[int, int, int]
         ) -> ir.Value:
-            casted = ctx.builder.Cast(
-                val,
-                _outputs=[ctx.fresh_name(name)],
-                to=int(target_dtype_enum.value),
+            casted = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    val,
+                    _outputs=[ctx.fresh_name(name)],
+                    to=int(target_dtype_enum.value),
+                ),
             )
             casted.type = ir.TensorType(target_dtype_enum)
             _stamp_type_and_shape(casted, shape)
@@ -308,10 +311,13 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
                 np.asarray(list(out_shape3), dtype=np.int64),
                 f"{base}_reshape_shape",
             )
-            reshaped = ctx.builder.Reshape(
-                tiled,
-                reshape_shape,
-                _outputs=[ctx.fresh_name(f"{base}_expanded")],
+            reshaped = cast(
+                ir.Value,
+                ctx.builder.Reshape(
+                    tiled,
+                    reshape_shape,
+                    _outputs=[ctx.fresh_name(f"{base}_expanded")],
+                ),
             )
             reshaped.type = ir.TensorType(target_dtype_enum)
             _stamp_type_and_shape(reshaped, out_shape3)

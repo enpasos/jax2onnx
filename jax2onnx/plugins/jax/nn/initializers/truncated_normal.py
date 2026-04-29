@@ -13,7 +13,7 @@ import numpy as np
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -206,7 +206,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         return _patched
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="jax.random",
