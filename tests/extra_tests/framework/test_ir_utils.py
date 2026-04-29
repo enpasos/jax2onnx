@@ -5,11 +5,20 @@ import onnx_ir as ir
 
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
+    ir_shape_from_dims,
     ir_dtype_to_numpy,
+    iter_ir_functions,
+    maybe_numpy_dtype,
     numpy_dtype_to_ir,
+    numpy_dtype_to_ir_with_float_policy,
     tensor_attr,
     tensor_to_numpy,
 )
+
+
+class _SymbolicDim:
+    def __str__(self) -> str:
+        return "batch"
 
 
 def test_tensor_to_numpy_reads_onnx_ir_tensor() -> None:
@@ -90,3 +99,59 @@ def test_numpy_dtype_to_ir_uses_onnx_ir_dtype_mapping() -> None:
         )
         == ir.DataType.INT64
     )
+
+
+def test_numpy_dtype_to_ir_with_float_policy_matches_converter_rules() -> None:
+    assert numpy_dtype_to_ir_with_float_policy(None, False) == ir.DataType.FLOAT
+    assert numpy_dtype_to_ir_with_float_policy(None, True) == ir.DataType.DOUBLE
+    assert (
+        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float16), True)
+        == ir.DataType.FLOAT16
+    )
+    assert (
+        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float32), False)
+        == ir.DataType.FLOAT
+    )
+    assert (
+        numpy_dtype_to_ir_with_float_policy(np.dtype(np.float32), True)
+        == ir.DataType.DOUBLE
+    )
+    assert (
+        numpy_dtype_to_ir_with_float_policy(np.dtype(np.int16), True)
+        == ir.DataType.INT16
+    )
+
+
+def test_maybe_numpy_dtype_normalizes_or_returns_none() -> None:
+    assert maybe_numpy_dtype(np.float32) == np.dtype(np.float32)
+    assert maybe_numpy_dtype("float64") == np.dtype(np.float64)
+    assert maybe_numpy_dtype(object()) is None
+
+
+def test_ir_shape_from_dims_coerces_dims_for_ir_values() -> None:
+    shape = ir_shape_from_dims((np.int64(2), "3", _SymbolicDim()))
+
+    assert shape.dims == (2, 3, "batch")
+
+
+def test_ir_shape_from_dims_can_preserve_symbolic_numeric_strings() -> None:
+    shape = ir_shape_from_dims(("3", np.int64(4)), parse_integer_like=False)
+
+    assert shape.dims == ("3", 4)
+
+
+def test_iter_ir_functions_handles_common_container_shapes() -> None:
+    first = object()
+    second = object()
+
+    class _ValuesContainer:
+        def values(self) -> tuple[object, object]:
+            return (first, second)
+
+    assert list(iter_ir_functions(None)) == []
+    assert list(iter_ir_functions({"first": first, "second": second})) == [
+        first,
+        second,
+    ]
+    assert list(iter_ir_functions([first, second])) == [first, second]
+    assert list(iter_ir_functions(_ValuesContainer())) == [first, second]

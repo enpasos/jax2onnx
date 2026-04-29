@@ -20,8 +20,13 @@ from collections.abc import MutableSequence
 import os
 import numpy as np
 import onnx_ir as ir
-from jax2onnx.ir_utils import tensor_attr
-from .ir_builder import IRBuilder, _dtype_to_ir
+from jax2onnx.ir_utils import (
+    ir_shape_from_dims,
+    maybe_numpy_dtype,
+    numpy_dtype_to_ir_with_float_policy as _dtype_to_ir,
+    tensor_attr,
+)
+from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import SymbolicDimOrigin
@@ -118,16 +123,7 @@ _LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 # ---- shape coercion: int stays int; otherwise stringify (safe for onnx_ir) --------
 def _to_ir_shape(dims: Sequence[Any]) -> ir.Shape:
-    out: list[int | str] = []
-    for d in dims:
-        if isinstance(d, (int, np.integer)):
-            out.append(int(d))
-        else:
-            try:
-                out.append(int(d))
-            except Exception:
-                out.append(str(d))
-    return ir.Shape(tuple(out))
+    return ir_shape_from_dims(dims)
 
 
 def _maybe_attr(obj: Any, attr: str) -> Any | None:
@@ -155,13 +151,7 @@ def _maybe_aval(obj: Any) -> Any | None:
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    dtype_obj = _maybe_attr(aval, "dtype")
-    if dtype_obj is None:
-        return None
-    try:
-        return cast(np.dtype[Any], np.dtype(dtype_obj))
-    except TypeError:
-        return None
+    return cast(Optional[np.dtype[Any]], maybe_numpy_dtype(_maybe_attr(aval, "dtype")))
 
 
 def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:
@@ -240,6 +230,9 @@ class IRContext:
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
         self._current_eqn: Any = None
+        self._primitive_call_records: list[Any] = []
+        self._lowering_record_depth: int = 0
+        self._lowering_record_owner: Any = self
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None
@@ -412,7 +405,7 @@ class IRContext:
         inputs: Optional[Sequence[ir.Value]] = None,
         outputs: Optional[Sequence[ir.Value]] = None,
     ) -> ir.Node:
-        self.builder.nodes.append(node)
+        self.builder.add_node_obj(node)
         return node
 
     # ---------- initializer management ----------
@@ -520,27 +513,65 @@ class IRContext:
             # Some JAX Literal objects are unhashable; skip caching in that case.
             pass
 
+        self.record_var_symbolic_dim_origins(var, value)
+
+    def bind_value_for_var_without_origins(self, var: object, value: ir.Value) -> None:
+        try:
+            self.builder._var2val[var] = value
+        except TypeError:
+            pass
+
+    def record_symbolic_dim_origin(
+        self, dim: object, value: ir.Value, axis: int
+    ) -> None:
+        if isinstance(dim, (int, np.integer)):
+            return
+        origin = SymbolicDimOrigin(value=value, axis=axis)
+        try:
+            self._sym_origin[dim] = origin
+        except TypeError:
+            pass
+        self._sym_origin_str[str(dim)] = origin
+
+        record_symbol_origin = getattr(self.builder, "record_symbol_origin", None)
+        if callable(record_symbol_origin):
+            try:
+                record_symbol_origin(str(dim), value, axis)
+            except Exception:
+                pass
+
+    def record_symbolic_dim_origins(
+        self,
+        dims: Sequence[Any],
+        value: ir.Value,
+        *,
+        axes: Sequence[int] | None = None,
+    ) -> None:
+        dims_tuple = tuple(dims)
+        axes_tuple = (
+            tuple(range(len(dims_tuple)))
+            if axes is None
+            else tuple(int(ax) for ax in axes)
+        )
+        if len(dims_tuple) != len(axes_tuple):
+            raise ValueError("dims and axes must have the same length")
+        for dim, axis in zip(dims_tuple, axes_tuple):
+            self.record_symbolic_dim_origin(dim, value, axis)
+
+    def record_var_symbolic_dim_origins(self, var: object, value: ir.Value) -> None:
         aval = _maybe_aval(var)
         shp = _maybe_shape(aval)
         if shp is None:
             return
+        self.record_symbolic_dim_origins(shp, value)
 
-        for axis, dim in enumerate(shp):
-            if isinstance(dim, (int, np.integer)):
-                continue
-            origin = SymbolicDimOrigin(value=value, axis=axis)
-            try:
-                self._sym_origin[dim] = origin
-            except TypeError:
-                pass
-            self._sym_origin_str[str(dim)] = origin
+    def add_graph_input_value(self, value: ir.Value) -> ir.Value:
+        self.builder.inputs.append(value)
+        return value
 
-            record_symbol_origin = getattr(self.builder, "record_symbol_origin", None)
-            if callable(record_symbol_origin):
-                try:
-                    record_symbol_origin(str(dim), value, axis)
-                except Exception:
-                    pass
+    def add_graph_output_value(self, value: ir.Value) -> ir.Value:
+        self.builder.outputs.append(value)
+        return value
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
         aval = _maybe_aval(var)
@@ -566,15 +597,8 @@ class IRContext:
             shape=_to_ir_shape(shp),
         )
         self.builder._var2val[var] = val
-        self.builder.inputs.append(val)
-        # Remember which input/axis supplies each symbolic dim
-        for ax, d in enumerate(shp):
-            if not isinstance(d, (int, np.integer)):
-                try:
-                    self._sym_origin[d] = SymbolicDimOrigin(value=val, axis=ax)
-                except TypeError:
-                    pass
-                self._sym_origin_str[str(d)] = SymbolicDimOrigin(value=val, axis=ax)
+        self.add_graph_input_value(val)
+        self.record_symbolic_dim_origins(shp, val)
         return val
 
     def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
@@ -582,42 +606,66 @@ class IRContext:
             return self._sym_origin[dim]
         return self._sym_origin_str.get(str(dim))
 
-    def get_value_for_var(
+    def _bind_literal_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        literal_val = _maybe_literal_value(var)
+        if literal_val is None:
+            raise TypeError("Literal missing value")
+        arr = np.asarray(literal_val)
+        aval = _maybe_aval(var)
+        literal_dtype = _maybe_dtype(aval)
+        if literal_dtype is None:
+            try:
+                literal_dtype = np.dtype(arr.dtype)
+            except TypeError:
+                literal_dtype = None
+        if prefer_np_dtype is not None:
+            try:
+                prefer_dtype = np.dtype(prefer_np_dtype)
+                literal_dtype = prefer_dtype
+            except TypeError:
+                pass
+
+        if np.issubdtype(arr.dtype, np.floating):
+            tgt = literal_dtype or np.dtype(self._default_float_dtype)
+            arr = arr.astype(tgt, copy=False)
+        elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
+            arr = arr.astype(literal_dtype, copy=False)
+        return self.bind_const_for_var(var, arr)
+
+    def require_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        """Return an already-bound input value, binding JAX literals as constants."""
+        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
+            return self._bind_literal_value_for_var(
+                var,
+                prefer_np_dtype=prefer_np_dtype,
+            )
+        if var in self.builder._var2val:
+            return self.builder._var2val[var]
+        raise KeyError(f"No IR value is bound for JAX var {var!r}")
+
+    def allocate_value_for_var(
         self,
         var: Any,
         *,
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        # Literals show up directly in eqn.invars for things like add_const
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            literal_val = _maybe_literal_value(var)
-            if literal_val is None:
-                raise TypeError("Literal missing value")
-            arr = np.asarray(literal_val)
-            aval = _maybe_aval(var)
-            literal_dtype = _maybe_dtype(aval)
-            if literal_dtype is None:
-                try:
-                    literal_dtype = np.dtype(arr.dtype)
-                except TypeError:
-                    literal_dtype = None
-            if prefer_np_dtype is not None:
-                try:
-                    prefer_dtype = np.dtype(prefer_np_dtype)
-                    literal_dtype = prefer_dtype
-                except TypeError:
-                    pass
+        """Return a bound value, allocating an output placeholder when needed."""
+        try:
+            return self.require_value_for_var(var, prefer_np_dtype=prefer_np_dtype)
+        except KeyError:
+            pass
 
-            if np.issubdtype(arr.dtype, np.floating):
-                tgt = literal_dtype or np.dtype(self._default_float_dtype)
-                arr = arr.astype(tgt, copy=False)
-            elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
-                arr = arr.astype(literal_dtype, copy=False)
-            return self.bind_const_for_var(var, arr)
-
-        if var in self.builder._var2val:
-            return self.builder._var2val[var]
         aval = _maybe_aval(var)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
@@ -649,6 +697,19 @@ class IRContext:
         )
         self.builder._var2val[var] = v
         return v
+
+    def get_value_for_var(
+        self,
+        var: Any,
+        *,
+        name_hint: Optional[str] = None,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        return self.allocate_value_for_var(
+            var,
+            name_hint=name_hint,
+            prefer_np_dtype=prefer_np_dtype,
+        )
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):

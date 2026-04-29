@@ -17,7 +17,7 @@ from typing import (
     cast,
 )
 from contextlib import contextmanager, ExitStack
-import inspect as _ins
+from dataclasses import dataclass
 import logging
 import os
 import jax
@@ -28,7 +28,12 @@ import onnx_ir as ir
 from onnx_ir import Attr, AttributeType
 from onnx_ir.traversal import RecursiveGraphIterator
 
-from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.ir_utils import (
+    ir_shape_from_dims,
+    iter_ir_functions,
+    maybe_numpy_dtype,
+    numpy_dtype_to_ir,
+)
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -40,18 +45,13 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx.plugins._ir_shapes import _as_ir_dim_label
 
 from .ir_context import IRContext
-from .ir_builder import IRBuilder, _dtype_to_ir
+from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
-from .typing_support import (
-    FunctionLowering,
-    PrimitiveLowering,
-    SymbolicDimOrigin,
-)
+from . import lowering_dispatch as _lowering_dispatch
+from .typing_support import LoweringContextProtocol
 
 from jax.extend import core as jcore_ext
-
-_LITERAL_TYPES: tuple[type[jcore_ext.Literal], ...] = (jcore_ext.Literal,)
 
 ShapeDimSpec = Union[int, str]
 ShapeTupleSpec = Tuple[ShapeDimSpec, ...]
@@ -59,11 +59,23 @@ InputSpec = Union[jax.ShapeDtypeStruct, ShapeTupleSpec]
 
 _ORT_SAFE_IR_VERSION: int = 10
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+_STRICT_OPTIMIZER_FAILURES_ENV: str = "JAX2ONNX_STRICT_OPTIMIZER_FAILURES"
+_NHWC_TO_NCHW_PERM: tuple[int, int, int, int] = (0, 3, 1, 2)
+_NCHW_TO_NHWC_PERM: tuple[int, int, int, int] = (0, 2, 3, 1)
+_current_eqn_scope: Callable[..., object] = _lowering_dispatch.current_eqn_scope
+_staged_lowering_metadata: Callable[..., object] = (
+    _lowering_dispatch.staged_lowering_metadata
+)
 
 
-def run_optional_shape_inference(model: "ir.Model") -> "ir.Model":
-    """Placeholder for optional shape inference; returns the model unchanged."""
-    return model
+@dataclass(frozen=True)
+class _TraceResult:
+    closed_jaxpr: Any
+    jaxpr: Any
+    sds_list: list[jax.ShapeDtypeStruct]
+    frozen_params: dict[str, object]
+    inputs_as_nchw: tuple[int, ...]
+    outputs_as_nchw: tuple[int, ...]
 
 
 # ---------------------------
@@ -100,10 +112,10 @@ def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
 
 
 def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
-    dims: Tuple[Union[int, str], ...] = tuple(
-        int(d) if isinstance(d, (int, np.integer)) else str(d) for d in shape_tuple
+    return ir_shape_from_dims(
+        shape_tuple,
+        parse_integer_like=False,
     )
-    return ir.Shape(dims)
 
 
 def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
@@ -199,13 +211,9 @@ def _as_sds_list(
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    dt = getattr(aval, "dtype", None)
-    if dt is None:
-        return None
-    try:
-        return cast("np.dtype[Any]", np.dtype(dt))
-    except TypeError:
-        return None
+    return cast(
+        Optional[np.dtype[Any]], maybe_numpy_dtype(getattr(aval, "dtype", None))
+    )
 
 
 def _validate_layout_indices(
@@ -239,129 +247,285 @@ def _log_nonfatal_stage_failure(stage: str, exc: BaseException) -> None:
     _LOGGER.debug("Nonfatal export failure in %s", stage, exc_info=exc)
 
 
-# ---------------------------
-# Minimal IR Build Context facade (for plugins)
-# ---------------------------
+def _env_flag_enabled(name: str) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
-class _IRBuildContext:
-    def __init__(self, *, opset: int, default_float_dtype: np.dtype):
-        self.opset = opset
-        self._default_float_dtype = np.dtype(default_float_dtype)
-        self._var2val: Dict[Any, ir.Value] = {}
-        self._inputs: List[ir.Value] = []
-        self._initializers: List[ir.Value] = []
-        self._nodes: List[ir.Node] = []
-        self._name_counter = 0
-        self._symdim_origin: dict[object, SymbolicDimOrigin] = {}
-        self._symdim_origin_str: dict[str, SymbolicDimOrigin] = {}
+def _resolve_strict_optimizer_failures(
+    strict_optimizer_failures: Optional[bool],
+) -> bool:
+    if strict_optimizer_failures is not None:
+        return strict_optimizer_failures
+    return _env_flag_enabled(_STRICT_OPTIMIZER_FAILURES_ENV)
 
-    def fresh_name(self, prefix: str) -> str:
-        self._name_counter += 1
-        return f"{prefix}_{self._name_counter}"
 
-    def add_node(
-        self,
-        node: ir.Node,
-        inputs: Sequence[ir.Value] | None = None,
-        outputs: Sequence[ir.Value] | None = None,
-    ) -> ir.Node:
-        if inputs is not None:
-            node.inputs = list(inputs)
-        if outputs is not None:
-            node.outputs = list(outputs)
-        self._nodes.append(node)
-        return node
+def _optimize_graph_with_failure_policy(
+    model: ir.Model,
+    *,
+    strict_optimizer_failures: Optional[bool],
+) -> None:
+    try:
+        optimize_graph(model)
+    except Exception as exc:
+        if _resolve_strict_optimizer_failures(strict_optimizer_failures):
+            raise
+        _log_nonfatal_stage_failure("optimize_graph", exc)
 
-    def get_value_for_var(
-        self,
-        var: Any,
-        *,
-        name_hint: Optional[str] = None,
-        prefer_np_dtype: Optional[np.dtype] = None,
-    ) -> "ir.Value":
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            arr = np.asarray(var.val)
-            if np.issubdtype(arr.dtype, np.floating):
-                if prefer_np_dtype is not None:
-                    prefer_dt = np.dtype(prefer_np_dtype)
-                    if np.issubdtype(prefer_dt, np.floating):
-                        target = (
-                            self._default_float_dtype
-                            if self._default_float_dtype == np.float64
-                            else prefer_dt
-                        )
-                    else:
-                        target = prefer_dt
-                else:
-                    target = self._default_float_dtype
-                arr = np.asarray(var.val, dtype=target)
-            c_ir = ir.Value(
-                name=name_hint or self.fresh_name("const"),
-                type=ir.TensorType(_to_ir_dtype_from_np(arr.dtype)),
-                shape=_to_ir_shape(arr.shape),
-                const_value=ir.tensor(arr),
-            )
-            self._initializers.append(c_ir)
-            return c_ir
 
-        if var in self._var2val:
-            return self._var2val[var]
+# Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
+_IRBuildContext = LoweringContextProtocol
 
-        if not hasattr(var, "aval"):
-            raise TypeError(f"Unsupported var type: {type(var)}")
-        aval = var.aval
-        aval_dtype = aval.dtype
-        aval_shape = tuple(aval.shape)
-        v = ir.Value(
-            name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_to_ir_dtype_from_np(aval_dtype)),
-            shape=_to_ir_shape(aval_shape),
-        )
-        self._var2val[var] = v
-        return v
 
-    def add_input_for_invar(self, var: Any, index: int) -> ir.Value:
-        aval = var.aval
-        val = ir.Value(
-            name=f"in_{index}",
-            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(aval.dtype))),
-            shape=_to_ir_shape(tuple(aval.shape)),
-        )
-        self._var2val[var] = val
-        self._inputs.append(val)
+def _function_id(func: ir.Function) -> tuple[str, str, str]:
+    return (
+        (func.domain or ""),
+        (func.name or ""),
+        (func.overload or ""),
+    )
 
-        # Track symbolic dim origins
-        for ax, d in enumerate(tuple(aval.shape)):
-            if not isinstance(d, (int, np.integer)):
-                origin = SymbolicDimOrigin(value=val, axis=ax)
-                self._symdim_origin[d] = origin
-                self._symdim_origin_str[str(d)] = origin
-        return val
 
-    def get_symbolic_dim_origin(self, dim: object) -> Optional[SymbolicDimOrigin]:
-        if dim in self._symdim_origin:
-            return self._symdim_origin[dim]
-        return self._symdim_origin_str.get(str(dim))
+def _function_store_identifier(fn_ir: ir.Function) -> object:
+    identifier: object | None = None
+    try:
+        identifier_fn = fn_ir.identifier
+    except AttributeError:
+        identifier_fn = None
 
-    def cast_like(
-        self, tensor: ir.Value, exemplar: ir.Value, *, name_hint: Optional[str] = None
-    ) -> ir.Value:
-        out = ir.Value(
-            name=self.fresh_name(name_hint or f"{tensor.name}_cast"),
-            type=exemplar.type,
-            shape=tensor.shape,
-        )
-        self.add_node(
-            ir.Node(
-                op_type="CastLike",
-                domain="",
-                inputs=[tensor, exemplar],
-                outputs=[out],
-                name=self.fresh_name("CastLike"),
-            )
-        )
-        return out
+    if callable(identifier_fn):
+        try:
+            identifier = identifier_fn()
+        except Exception:
+            identifier = None
+    if not identifier and hasattr(fn_ir, "id"):
+        identifier = object.__getattribute__(fn_ir, "id")
+    if not identifier:
+        identifier = _function_id(fn_ir)
+    return identifier
+
+
+def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
+    ir_funcs = list(ctx.ir_functions)
+    if not ir_funcs:
+        return
+
+    functions_store = ir_model.functions
+    if functions_store is None:
+        try:
+            ir_model.functions = {}
+            functions_store = ir_model.functions
+        except Exception:
+            ir_model.functions = []
+            functions_store = ir_model.functions
+
+    if isinstance(functions_store, dict):
+        for fn_ir in ir_funcs:
+            functions_store[_function_store_identifier(fn_ir)] = fn_ir
+    elif isinstance(functions_store, list):
+        existing = {_function_id(func) for func in functions_store}
+        for fn_ir in ir_funcs:
+            func_id = _function_id(fn_ir)
+            if func_id not in existing:
+                functions_store.append(fn_ir)
+                existing.add(func_id)
+    else:
+        ir_model.functions = list(ir_funcs)
+
+    model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
+    model_imports.setdefault("", int(ctx.builder.opset) or 23)
+    for fn_ir in ir_funcs:
+        dom = (fn_ir.domain or "").strip()
+        if dom and dom not in model_imports:
+            model_imports[dom] = 1
+    try:
+        ir_model.opset_imports = model_imports
+    except Exception:
+        try:
+            existing_imports = ir_model.opset_imports
+            if hasattr(existing_imports, "update"):
+                existing_imports.update(model_imports)
+        except Exception:
+            pass
+
+
+def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
+    seen: set[int] = set()
+    staged: list[ir.Value] = []
+
+    def _queue(values: Iterable[ir.Value]) -> None:
+        for val in values:
+            if val is None:
+                continue
+            if not isinstance(val, ir.Value):
+                continue
+            vid = id(val)
+            if vid in seen:
+                continue
+            seen.add(vid)
+            staged.append(val)
+
+    def _on_enter(graph_like: object) -> None:
+        try:
+            _queue(graph_like.inputs)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        try:
+            _queue(graph_like.outputs)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        try:
+            _queue(graph_like.initializers)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+
+    for node in RecursiveGraphIterator(gr, enter_graph=_on_enter):
+        _queue(node.inputs)
+        _queue(node.outputs)
+
+    for value in staged:
+        yield value
+
+
+def _normalize_value_shape(val: ir.Value) -> None:
+    shape_obj = val.shape
+    if shape_obj is None:
+        return
+    if isinstance(shape_obj, ir.Shape):
+        dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
+    elif isinstance(shape_obj, Iterable):
+        dims_source = tuple(shape_obj)
+    else:
+        return
+
+    normalized_dims: List[object] = []
+    dirty = False
+    for dim in dims_source:
+        normalized_dim: object = dim
+        if isinstance(dim, (int, np.integer)):
+            normalized_dim = int(dim)
+        else:
+            label = _as_ir_dim_label(dim)
+            if isinstance(label, int):
+                normalized_dim = int(label)
+            elif isinstance(label, str):
+                normalized_dim = ir.SymbolicDim(label)
+        if normalized_dim is not dim:
+            dirty = True
+        normalized_dims.append(normalized_dim)
+
+    if dirty:
+        val.shape = ir.Shape(tuple(normalized_dims))
+
+
+def _finalize_model_value_shapes(model_proto: ir.Model) -> None:
+    for value in _iter_graph_values(model_proto.graph):
+        _normalize_value_shape(value)
+
+    for fn in iter_ir_functions(model_proto.functions):
+        try:
+            fn_graph = fn.graph
+        except AttributeError:
+            continue
+        for value in _iter_graph_values(fn_graph):
+            _normalize_value_shape(value)
+
+
+def _apply_ir_attr_overrides_to_graph(
+    gr: ir.Graph, overrides: dict[str, dict[str, object]]
+) -> None:
+    if not overrides:
+        return
+    name2node: Dict[str, ir.Node] = {
+        node.name: node for node in gr.all_nodes() if node.name
+    }
+
+    for nm, kv in (overrides or {}).items():
+        node = name2node.get(nm)
+        if node is None or kv is None:
+            continue
+        for attr_name, attr_value in kv.items():
+            attr_obj = _convert_ir_attr(attr_name, attr_value)
+            if attr_obj is not None:
+                node.attributes[attr_name] = attr_obj
+
+
+def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
+    for node in gr.all_nodes():
+        if node.op_type != "Concat":
+            continue
+        if "axis" in node.attributes:
+            continue
+        node.attributes["axis"] = ir.convenience.convert_attribute("axis", 0)
+
+
+def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
+    _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
+    _fix_concat_axis_in_graph(ir_model.graph)
+
+    missing_overrides = object()
+    for fn in iter_ir_functions(ir_model.functions):
+        try:
+            graph_obj = getattr(fn, "graph", None)
+            if graph_obj is None:
+                continue
+            raw_overrides: object = missing_overrides
+            if hasattr(fn, "_attr_overrides"):
+                raw_overrides = object.__getattribute__(fn, "_attr_overrides")
+            if raw_overrides is missing_overrides:
+                fn_overrides = dict(ctx.attr_overrides or {})
+            elif isinstance(raw_overrides, Mapping):
+                fn_overrides = dict(
+                    cast(Mapping[str, dict[str, object]], raw_overrides)
+                )
+            else:
+                fn_overrides = {}
+            _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
+            _fix_concat_axis_in_graph(graph_obj)
+        except Exception as exc:
+            fn_name = getattr(fn, "name", "<unnamed function>")
+            _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
+
+
+def _consume_onnx_function_hits() -> None:
+    try:
+        ps2._consume_onnx_function_hits()
+    except AttributeError:
+        pass
+    except Exception:
+        pass
+
+
+def _build_and_finalize_ir_model(
+    ctx: IRContext,
+    *,
+    model_name: str,
+    protective_clone: bool,
+    strict_optimizer_failures: Optional[bool] = None,
+) -> ir.Model:
+    ir_model = ctx.builder.to_ir_model(
+        name=model_name,
+        ir_version=_ORT_SAFE_IR_VERSION,
+        protective_clone=protective_clone,
+    )
+
+    _attach_ir_functions(ir_model, ctx)
+
+    _optimize_graph_with_failure_policy(
+        ir_model,
+        strict_optimizer_failures=strict_optimizer_failures,
+    )
+
+    _apply_late_ir_attr_overrides(ir_model, ctx)
+    _consume_onnx_function_hits()
+
+    try:
+        _finalize_model_value_shapes(ir_model)
+    except Exception as exc:
+        _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
+
+    return ir_model
 
 
 @contextmanager
@@ -404,6 +568,263 @@ def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
             jax.config.update("jax_enable_x64", previous)
 
 
+def _create_ir_context(
+    *,
+    opset: int,
+    enable_double_precision: bool,
+    input_specs: Sequence[Any],
+    frozen_params: Mapping[str, object],
+    record_primitive_calls_file: Optional[str],
+) -> IRContext:
+    ctx = IRContext(
+        opset=opset,
+        enable_double_precision=enable_double_precision,
+        input_specs=input_specs,
+    )
+    ctx._call_input_param_names = set(frozen_params.keys())
+    ctx._call_input_param_literals = dict(frozen_params)
+
+    if record_primitive_calls_file:
+        ctx.record_primitive_calls_file = str(record_primitive_calls_file)
+
+    if ctx.get_function_registry() is None:
+        ctx.set_function_registry(FunctionRegistry())
+
+    return ctx
+
+
+def _bind_closed_jaxpr_constants(
+    ctx: IRContext,
+    jpr: Any,
+    consts: Sequence[object],
+    *,
+    default_float: np.dtype[Any],
+    enable_double_precision: bool,
+) -> None:
+    for cv, cval in zip(jpr.constvars, consts):
+        np_c = np.asarray(cval)
+        target_dtype = None
+        try:
+            target_dtype = np.dtype(cv.aval.dtype)
+        except AttributeError:
+            target_dtype = None
+        except TypeError:
+            target_dtype = None
+        desired_dtype = None
+        if target_dtype is not None and target_dtype != np_c.dtype:
+            desired_dtype = target_dtype
+        elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
+            desired_dtype = default_float
+
+        if (
+            not enable_double_precision
+            and desired_dtype is not None
+            and np.issubdtype(desired_dtype, np.floating)
+            and desired_dtype != np.float32
+            and np_c.dtype != np.float64
+        ):
+            desired_dtype = np.float32
+
+        if desired_dtype is not None and np_c.dtype != desired_dtype:
+            np_c = np_c.astype(desired_dtype, copy=False)
+
+        np_c = _maybe_promote_float_array(np_c, enable_double_precision)
+        ctx.bind_const_for_var(cv, np_c)
+
+
+class _LayoutAdapter:
+    def __init__(self, ctx: IRContext, *, enable_double_precision: bool) -> None:
+        self.ctx = ctx
+        self.enable_double_precision = enable_double_precision
+
+    @staticmethod
+    def _require_4d(shape: Sequence[object], *, kind: str, index: int) -> None:
+        if len(shape) == 4:
+            return
+        if kind == "input":
+            raise ValueError(
+                f"inputs_as_nchw: input {index} has rank {len(shape)}, expected 4 for NCHW handling."
+            )
+        raise ValueError(
+            f"outputs_as_nchw: output {index} has rank {len(shape)}, expected 4."
+        )
+
+    def bind_input(self, var: Any, index: int) -> None:
+        aval_shape = tuple(var.aval.shape)
+        self._require_4d(aval_shape, kind="input", index=index)
+
+        nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
+        nchw_input_val = ir.Value(
+            name=f"in_{index}_nchw",
+            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(var.aval.dtype))),
+            shape=_to_ir_shape(nchw_shape),
+        )
+        self.ctx.add_graph_input_value(nchw_input_val)
+
+        transposed = self.ctx.builder.Transpose(
+            nchw_input_val,
+            perm=list(_NCHW_TO_NHWC_PERM),
+            _outputs=[f"in_{index}_nhwc_restored"],
+        )
+        transposed.type = nchw_input_val.type
+        transposed.shape = _to_ir_shape(aval_shape)
+        self.ctx.bind_value_for_var_without_origins(var, transposed)
+        self.ctx.record_symbolic_dim_origins(nchw_shape, nchw_input_val)
+
+    def bind_inputs(self, jpr: Any, *, inputs_as_nchw: Sequence[int]) -> None:
+        nchw_inputs_indices = set(inputs_as_nchw)
+        for index, var in enumerate(jpr.invars):
+            if index in nchw_inputs_indices:
+                self.bind_input(var, index)
+            else:
+                self.ctx.add_input_for_invar(var, index)
+
+    def bind_output(self, out_var: Any, index: int) -> None:
+        val = self.ctx.get_value_for_var(out_var)
+        aval_shape = tuple(out_var.aval.shape)
+        self._require_4d(aval_shape, kind="output", index=index)
+
+        output_type = val.type
+        if output_type is None:
+            aval_dtype = _maybe_dtype(out_var.aval)
+            if aval_dtype is not None:
+                ir_dtype = _dtype_to_ir(aval_dtype, self.enable_double_precision)
+                output_type = ir.TensorType(ir_dtype)
+
+        transposed_out = self.ctx.builder.Transpose(
+            val,
+            perm=list(_NHWC_TO_NCHW_PERM),
+            _outputs=[f"out_{index}_nchw_converted"],
+        )
+        if output_type is not None:
+            transposed_out.type = output_type
+
+        if isinstance(val.shape, ir.Shape):
+            src_dims = val.shape.dims
+            transposed_out.shape = ir.Shape(
+                tuple(src_dims[p] for p in _NHWC_TO_NCHW_PERM)
+            )
+
+        self.ctx.add_graph_output_value(transposed_out)
+
+    def bind_outputs(self, jpr: Any, *, outputs_as_nchw: Sequence[int]) -> None:
+        if not outputs_as_nchw:
+            self.ctx.add_outputs_from_vars(jpr.outvars)
+            return
+
+        nchw_outputs_indices = set(outputs_as_nchw)
+        for index, out_var in enumerate(jpr.outvars):
+            if index in nchw_outputs_indices:
+                self.bind_output(out_var, index)
+            else:
+                self.ctx.add_outputs_from_vars([out_var])
+
+
+def _bind_nchw_input_for_invar(ctx: IRContext, var: Any, index: int) -> None:
+    _LayoutAdapter(ctx, enable_double_precision=ctx.enable_double_precision).bind_input(
+        var, index
+    )
+
+
+def _bind_jaxpr_inputs(
+    ctx: IRContext,
+    jpr: Any,
+    *,
+    inputs_as_nchw: Sequence[int],
+) -> None:
+    _LayoutAdapter(
+        ctx, enable_double_precision=ctx.enable_double_precision
+    ).bind_inputs(jpr, inputs_as_nchw=inputs_as_nchw)
+
+
+def _bind_nchw_output_for_outvar(
+    ctx: IRContext,
+    out_var: Any,
+    index: int,
+    *,
+    enable_double_precision: bool,
+) -> None:
+    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_output(
+        out_var, index
+    )
+
+
+def _bind_jaxpr_outputs(
+    ctx: IRContext,
+    jpr: Any,
+    *,
+    outputs_as_nchw: Sequence[int],
+    enable_double_precision: bool,
+) -> None:
+    _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
+        jpr, outputs_as_nchw=outputs_as_nchw
+    )
+
+
+def _trace_to_jaxpr(
+    *,
+    fn: Callable[..., Any],
+    inputs: Sequence[InputSpec],
+    input_params: Optional[Mapping[str, object]],
+    enable_double_precision: bool,
+    inputs_as_nchw: Optional[Sequence[int]],
+    outputs_as_nchw: Optional[Sequence[int]],
+    input_names: Optional[Sequence[str]],
+    output_names: Optional[Sequence[str]],
+) -> _TraceResult:
+    sds_list = _as_sds_list(inputs, enable_double_precision)
+    frozen_params: Dict[str, object] = dict(input_params or {})
+
+    def _wrapped(*xs: Any) -> Any:
+        return fn(*xs, **frozen_params)
+
+    with _activate_plugin_worlds():
+        closed = jax.make_jaxpr(_wrapped)(*sds_list)
+    if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
+        try:
+            print(f"JAXPR: {closed.jaxpr.pretty_print()}")
+        except Exception:
+            pass
+    jpr = closed.jaxpr
+
+    if input_names is not None and len(input_names) != len(jpr.invars):
+        raise ValueError(
+            f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
+        )
+    if output_names is not None and len(output_names) != len(jpr.outvars):
+        raise ValueError(
+            f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
+        )
+    validated_inputs_as_nchw = _validate_layout_indices(
+        inputs_as_nchw,
+        kind="inputs_as_nchw",
+        upper_bound=len(jpr.invars),
+    )
+    validated_outputs_as_nchw = _validate_layout_indices(
+        outputs_as_nchw,
+        kind="outputs_as_nchw",
+        upper_bound=len(jpr.outvars),
+    )
+
+    return _TraceResult(
+        closed_jaxpr=closed,
+        jaxpr=jpr,
+        sds_list=sds_list,
+        frozen_params=frozen_params,
+        inputs_as_nchw=validated_inputs_as_nchw,
+        outputs_as_nchw=validated_outputs_as_nchw,
+    )
+
+
+def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
+    _lowering_dispatch.lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jpr,
+        registry=PLUGIN_REGISTRY,
+        source="converter",
+    )
+
+
 def to_onnx(
     *,
     fn: Callable[..., Any],
@@ -418,6 +839,7 @@ def to_onnx(
     outputs_as_nchw: Optional[Sequence[int]] = None,
     input_names: Optional[Sequence[str]] = None,
     output_names: Optional[Sequence[str]] = None,
+    strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
     """
     Build an ONNX-IR model in three phases:
@@ -426,554 +848,51 @@ def to_onnx(
     3) Run a single IR-wide optimization pass (cross-node cleanups).
     """
     with _force_jax_x64(enable_double_precision):
-        # 1) Abstract inputs
         default_float = _np_float_dtype(enable_double_precision)
-        sds_list = _as_sds_list(inputs, enable_double_precision)
-
-        # 2) JAXPR (optionally print for debugging)
-        frozen_params: Dict[str, object] = dict(input_params or {})
-
-        def _wrapped(*xs: Any) -> Any:
-            return fn(*xs, **frozen_params)
-
-        with _activate_plugin_worlds():
-            closed = jax.make_jaxpr(_wrapped)(*sds_list)
-        if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
-            try:
-                print(f"JAXPR: {closed.jaxpr.pretty_print()}")
-            except Exception:
-                pass
-        jpr = closed.jaxpr
-
-        if input_names is not None and len(input_names) != len(jpr.invars):
-            raise ValueError(
-                f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
-            )
-        if output_names is not None and len(output_names) != len(jpr.outvars):
-            raise ValueError(
-                f"output_names length ({len(output_names)}) must match traced outputs ({len(jpr.outvars)})."
-            )
-        validated_inputs_as_nchw = _validate_layout_indices(
-            inputs_as_nchw,
-            kind="inputs_as_nchw",
-            upper_bound=len(jpr.invars),
+        trace = _trace_to_jaxpr(
+            fn=fn,
+            inputs=inputs,
+            input_params=input_params,
+            enable_double_precision=enable_double_precision,
+            inputs_as_nchw=inputs_as_nchw,
+            outputs_as_nchw=outputs_as_nchw,
+            input_names=input_names,
+            output_names=output_names,
         )
-        validated_outputs_as_nchw = _validate_layout_indices(
-            outputs_as_nchw,
-            kind="outputs_as_nchw",
-            upper_bound=len(jpr.outvars),
-        )
+        closed = trace.closed_jaxpr
+        jpr = trace.jaxpr
+        sds_list = trace.sds_list
+        frozen_params = trace.frozen_params
+        validated_inputs_as_nchw = trace.inputs_as_nchw
+        validated_outputs_as_nchw = trace.outputs_as_nchw
 
-        # 3) IR context & inputs/consts
-        ctx: IRContext = IRContext(
+        ctx = _create_ir_context(
             opset=opset,
             enable_double_precision=enable_double_precision,
             input_specs=sds_list,
+            frozen_params=frozen_params,
+            record_primitive_calls_file=record_primitive_calls_file,
         )
-        call_param_names = set(frozen_params.keys())
-        ctx._call_input_param_names = call_param_names
-        ctx._call_input_param_literals = dict(frozen_params)
-        # Expose knobs for downstream (optional)
+        _bind_closed_jaxpr_constants(
+            ctx,
+            jpr,
+            closed.consts,
+            default_float=default_float,
+            enable_double_precision=enable_double_precision,
+        )
+        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
 
-        if record_primitive_calls_file:
-            ctx.record_primitive_calls_file = str(record_primitive_calls_file)
+        _lower_jaxpr_equations(ctx, jpr)
+        _bind_jaxpr_outputs(
+            ctx,
+            jpr,
+            outputs_as_nchw=validated_outputs_as_nchw,
+            enable_double_precision=enable_double_precision,
+        )
 
-        if ctx.get_function_registry() is None:
-            ctx.set_function_registry(FunctionRegistry())
-
-        # Map constvars
-        for cv, cval in zip(jpr.constvars, closed.consts):
-            np_c = np.asarray(cval)
-            target_dtype = None
-            try:
-                target_dtype = np.dtype(cv.aval.dtype)
-            except AttributeError:
-                target_dtype = None
-            except TypeError:
-                target_dtype = None
-            desired_dtype = None
-            if target_dtype is not None and target_dtype != np_c.dtype:
-                desired_dtype = target_dtype
-            elif target_dtype is None and np.issubdtype(np_c.dtype, np.floating):
-                desired_dtype = default_float
-
-            if (
-                not enable_double_precision
-                and desired_dtype is not None
-                and np.issubdtype(desired_dtype, np.floating)
-                and desired_dtype != np.float32
-                and np_c.dtype != np.float64
-            ):
-                desired_dtype = np.float32
-
-            if desired_dtype is not None and np_c.dtype != desired_dtype:
-                np_c = np_c.astype(desired_dtype, copy=False)
-
-            np_c = _maybe_promote_float_array(np_c, enable_double_precision)
-            ctx.bind_const_for_var(cv, np_c)
-
-        # Inputs
-        nchw_inputs_indices = set(validated_inputs_as_nchw)
-        for i, v in enumerate(jpr.invars):
-            if i in nchw_inputs_indices:
-                # User says this specific input is NCHW in the external world.
-                # JAX uses NHWC by default for images, so to bridge mismatch:
-                # 1. We declare the ONNX graph input as NCHW (permuted shape).
-                # 2. We Transpose it to NHWC.
-                # 3. We bind the variable 'v' to the result of that Transpose.
-
-                # We assume 4D standard layout for now:
-                # NCHW -> NHWC is [0, 2, 3, 1]
-
-                # Check rank is 4
-                aval_shape = tuple(v.aval.shape)
-                if len(aval_shape) != 4:
-                    raise ValueError(
-                        f"inputs_as_nchw: input {i} has rank {len(aval_shape)}, expected 4 for NCHW handling."
-                    )
-
-                # Create the NCHW input
-                # aval_shape is NHWC (JAX view).
-                # We want NCHW input: (N, C, H, W) -> (N, H, W, C) so
-                # if JAX says (N, H, W, C), the NCHW input shape should appear as (N, C, H, W)
-                # But wait, JAX usually tracks (N, H, W, C).
-                # To get NCHW shape from NHWC shape: permute (0, 3, 1, 2) on the JAX shape.
-
-                perm_to_nchw = [0, 3, 1, 2]
-                nchw_shape = tuple(aval_shape[p] for p in perm_to_nchw)
-
-                nchw_input_val = ir.Value(
-                    name=f"in_{i}_nchw",
-                    type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(v.aval.dtype))),
-                    shape=_to_ir_shape(nchw_shape),
-                )
-                ctx._inputs.append(nchw_input_val)
-
-                # Transpose NCHW -> NHWC to match JAX expectation
-                # Permutation: [0, 2, 3, 1]
-                perm_to_nhwc = [0, 2, 3, 1]
-                transposed = ctx.builder.Transpose(
-                    nchw_input_val,
-                    perm=perm_to_nhwc,
-                    _outputs=[f"in_{i}_nhwc_restored"],
-                )
-                transposed.type = nchw_input_val.type
-                transposed.shape = _to_ir_shape(aval_shape)
-                # This 'transposed' value has shape aval_shape (NHWC) and is what the graph uses.
-                ctx._var2val[v] = transposed
-
-                # Symbolic dim origin tracking (tricky with transpose, but we try)
-                # The input value 'nchw_input_val' has dims.
-                # The transposed value has different dims.
-                # We probably want to map symbolic dims to the NCHW input actually?
-                # The current system maps JAX invar dims to the declared input.
-                # Here declared input corresponds to 'nchw_shape'.
-                # So if JAX dim 0 is 'N', it maps to nchw_input_val dim 0.
-                # JAX dim 3 is 'C' (in NHWC), it maps to nchw_input_val dim 1.
-                # ...
-                # Track symbolic dim origins on the graph input (nchw_input_val)
-                for nchw_idx, d_dim in enumerate(nchw_shape):
-                    if not isinstance(d_dim, (int, np.integer)):
-                        origin = SymbolicDimOrigin(value=nchw_input_val, axis=nchw_idx)
-                        ctx._sym_origin[d_dim] = origin
-                        ctx._sym_origin_str[str(d_dim)] = origin
-            else:
-                ctx.add_input_for_invar(v, i)
-
-        # Lower equations
-        class _ConverterFacade:
-            builder: IRBuilder
-            ctx: IRContext
-
-        converter = _ConverterFacade()
-        converter.builder = ctx.builder
-        converter.ctx = ctx
-
-        ctx._const_folder.install_producers(jpr)
-
-        for eqn in jpr.eqns:
-            prim_name = eqn.primitive.name
-            plugin_ref = PLUGIN_REGISTRY.get(prim_name)
-            if plugin_ref is None:
-                raise NotImplementedError(
-                    f"[converter] No plugins registered for primitive '{prim_name}'"
-                )
-            ctx._current_eqn = eqn
-            builder = ctx.builder
-            prev_jax_trace = builder.current_jax_traceback
-            prev_plugin_id = builder.current_plugin_identifier
-            prev_plugin_line = builder.current_plugin_line
-            jax_trace: Optional[str] = None
-            plugin_identifier: Optional[str] = None
-            plugin_line: Optional[str] = None
-            if builder.stacktrace_metadata_enabled:
-                try:
-                    source_info = eqn.source_info
-                except AttributeError:
-                    source_info = None
-
-                if source_info is not None:
-                    try:
-                        tb = source_info.traceback
-                    except AttributeError:
-                        tb = None
-                    if tb is not None:
-                        try:
-                            jax_trace = str(tb)
-                        except Exception:
-                            jax_trace = None
-                try:
-                    if isinstance(plugin_ref, PrimitiveLowering):
-                        lower_fn = plugin_ref.lower
-                        try:
-                            func_name = lower_fn.__name__
-                        except AttributeError:
-                            func_name = "lower"
-
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}."
-                            f"{func_name}"
-                        )
-                        try:
-                            _, start_line = _ins.getsourcelines(lower_fn)
-                            plugin_line = str(start_line)
-                        except (OSError, TypeError):
-                            plugin_line = None
-                    elif isinstance(plugin_ref, FunctionLowering):
-                        plugin_identifier = f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}.get_handler"
-                    elif hasattr(plugin_ref, "__class__"):
-                        plugin_identifier = (
-                            f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
-                        )
-                    else:
-                        plugin_identifier = prim_name
-                except Exception:
-                    plugin_identifier = prim_name
-            builder.set_current_jax_traceback(jax_trace)
-            builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
-            try:
-                if isinstance(plugin_ref, PrimitiveLowering):
-                    lower = plugin_ref.lower
-                    try:
-                        has_params = "params" in _ins.signature(lower).parameters
-                    except Exception:
-                        has_params = False
-                    if has_params:
-                        lower(ctx, eqn, eqn.params)
-                    else:
-                        lower(ctx, eqn)
-                elif isinstance(plugin_ref, FunctionLowering):
-                    handler = plugin_ref.get_handler(converter)
-                    handler(converter, eqn, eqn.params)
-                else:
-                    raise NotImplementedError(
-                        f"[converter] Unsupported plugin type for '{prim_name}'"
-                    )
-            finally:
-                builder.set_current_jax_traceback(prev_jax_trace)
-                builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
-        ctx._current_eqn = None
-
-        # Outputs
-        if not validated_outputs_as_nchw:
-            ctx.add_outputs_from_vars(jpr.outvars)
-        else:
-            # Customized output handling
-            nchw_outputs_indices = set(validated_outputs_as_nchw)
-            for i, out_var in enumerate(jpr.outvars):
-                val = ctx.get_value_for_var(out_var)
-                if i in nchw_outputs_indices:
-                    # User want this output to be NCHW.
-                    # We assume the graph produces NHWC (JAX standard).
-                    # So we insert Transpose (NHWC -> NCHW).
-
-                    # Check rank is 4
-                    # Note: val.shape might be None or symbolic, checking might be hard if shape is missing.
-                    # We'll rely on JAX aval if available, or just proceed if dynamic?
-                    # Let's assume JAX aval is truth.
-                    aval_shape = tuple(out_var.aval.shape)
-                    if len(aval_shape) != 4:
-                        raise ValueError(
-                            f"outputs_as_nchw: output {i} has rank {len(aval_shape)}, expected 4."
-                        )
-
-                    param_type_to_match = val.type
-                    if param_type_to_match is None:
-                        # Infer from JAX aval if IR type is missing
-                        aval_dtype = _maybe_dtype(out_var.aval)
-                        if aval_dtype is not None:
-                            ir_dtype = _dtype_to_ir(aval_dtype, enable_double_precision)
-                            param_type_to_match = ir.TensorType(ir_dtype)
-
-                    perm_nhwc_to_nchw = [0, 3, 1, 2]
-                    transposed_out = ctx.builder.Transpose(
-                        val,
-                        perm=perm_nhwc_to_nchw,
-                        _outputs=[f"out_{i}_nchw_converted"],
-                    )
-                    if param_type_to_match is not None:
-                        transposed_out.type = param_type_to_match
-
-                    # We add *transposed* value as graph output
-                    # The name of graph output usually comes from user or is auto-generated in `add_outputs_from_vars`.
-                    # We'll manually add it.
-
-                    # Ensure shape/dtype is stamped
-                    if val.shape is not None:
-                        # Permute shape
-                        if isinstance(val.shape, ir.Shape):
-                            src_dims = val.shape.dims
-                            new_dims = tuple(src_dims[p] for p in perm_nhwc_to_nchw)
-                            transposed_out.shape = ir.Shape(new_dims)
-
-                    # Add to graph outputs
-                    ctx.builder.outputs.append(transposed_out)
-
-                else:
-                    # Standard handling
-                    ctx.add_outputs_from_vars([out_var])
-
-        # Build IR model
-        ir_model = ctx.builder.to_ir_model(
-            name=model_name,
-            ir_version=_ORT_SAFE_IR_VERSION,
+        return _build_and_finalize_ir_model(
+            ctx,
+            model_name=model_name,
             protective_clone=protective_clone,
+            strict_optimizer_failures=strict_optimizer_failures,
         )
-
-        # Attach any native ir.Functions collected on ctx
-        ir_funcs = list(ctx.ir_functions)
-        if ir_funcs:
-            functions_store = ir_model.functions
-            if functions_store is None:
-                try:
-                    ir_model.functions = {}
-                    functions_store = ir_model.functions
-                except Exception:
-                    ir_model.functions = []
-                    functions_store = ir_model.functions
-
-            if isinstance(functions_store, dict):
-                for fn_ir in ir_funcs:
-                    identifier: object | None = None
-                    try:
-                        identifier_fn = fn_ir.identifier
-                    except AttributeError:
-                        identifier_fn = None
-
-                    if callable(identifier_fn):
-                        try:
-                            identifier = identifier_fn()
-                        except Exception:
-                            identifier = None
-                    if not identifier and hasattr(fn_ir, "id"):
-                        identifier = object.__getattribute__(fn_ir, "id")
-                    if not identifier:
-                        identifier = (
-                            (fn_ir.domain or ""),
-                            (fn_ir.name or ""),
-                            (fn_ir.overload or ""),
-                        )
-                    functions_store[identifier] = fn_ir
-            elif isinstance(functions_store, list):
-
-                def _fid(func: ir.Function) -> tuple[str, str, str]:
-                    return (
-                        (func.domain or ""),
-                        (func.name or ""),
-                        (func.overload or ""),
-                    )
-
-                existing = {_fid(func) for func in functions_store}
-                for fn_ir in ir_funcs:
-                    func_id = _fid(fn_ir)
-                    if func_id not in existing:
-                        functions_store.append(fn_ir)
-                        existing.add(func_id)
-            else:
-                ir_model.functions = list(ir_funcs)
-
-            # Ensure model-level opset imports cover default "" and each function domain
-            model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
-            model_imports.setdefault("", int(ctx.builder.opset) or 23)
-            for fn_ir in ir_funcs:
-                dom = (fn_ir.domain or "").strip()
-                if dom and dom not in model_imports:
-                    model_imports[dom] = 1
-            try:
-                ir_model.opset_imports = model_imports
-            except Exception:
-                try:
-                    existing_imports = ir_model.opset_imports
-                    if hasattr(existing_imports, "update"):
-                        existing_imports.update(model_imports)
-                except Exception:
-                    pass
-
-        # ---- Single IR-wide optimization pass (centralized cleanups) ----
-        try:
-            optimize_graph(ir_model)
-        except Exception as exc:
-            _log_nonfatal_stage_failure("optimize_graph", exc)
-
-        # ---- Late attribute overrides (polish; not structural rewrites) ----
-
-        def _finalize_model_value_shapes(
-            model_proto: ir.Model, _ctx: IRContext
-        ) -> None:
-            def _normalize_value_shape(val: ir.Value) -> None:
-                shape_obj = val.shape
-                if shape_obj is None:
-                    return
-                if isinstance(shape_obj, ir.Shape):
-                    dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
-                elif isinstance(shape_obj, Iterable):
-                    dims_source = tuple(shape_obj)
-                else:
-                    return
-
-                normalized_dims: List[object] = []
-                dirty = False
-                for dim in dims_source:
-                    normalized_dim: object = dim
-                    if isinstance(dim, (int, np.integer)):
-                        normalized_dim = int(dim)
-                    else:
-                        label = _as_ir_dim_label(dim)
-                        if isinstance(label, int):
-                            normalized_dim = int(label)
-                        elif isinstance(label, str):
-                            normalized_dim = ir.SymbolicDim(label)
-                    if normalized_dim is not dim:
-                        dirty = True
-                    normalized_dims.append(normalized_dim)
-
-                if dirty:
-                    val.shape = ir.Shape(tuple(normalized_dims))
-
-            def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
-                seen: set[int] = set()
-                staged: list[ir.Value] = []
-
-                def _queue(values: Iterable[ir.Value]) -> None:
-                    for val in values:
-                        if val is None:
-                            continue
-                        if not isinstance(val, ir.Value):
-                            continue
-                        vid = id(val)
-                        if vid in seen:
-                            continue
-                        seen.add(vid)
-                        staged.append(val)
-
-                def _on_enter(graph_like: object) -> None:
-                    try:
-                        _queue(graph_like.inputs)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-                    try:
-                        _queue(graph_like.outputs)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-                    try:
-                        _queue(graph_like.initializers)  # type: ignore[attr-defined]
-                    except (AttributeError, TypeError):
-                        pass
-
-                for node in RecursiveGraphIterator(gr, enter_graph=_on_enter):
-                    _queue(node.inputs)
-                    _queue(node.outputs)
-
-                for value in staged:
-                    yield value
-
-            for value in _iter_graph_values(model_proto.graph):
-                _normalize_value_shape(value)
-
-            function_container = model_proto.functions
-            graph_values: Iterable[object]
-            if isinstance(function_container, dict):
-                graph_values = function_container.values()
-            elif isinstance(function_container, Sequence):
-                graph_values = function_container
-            else:
-                graph_values = ()
-
-            for fn in graph_values:
-                try:
-                    fn_graph = fn.graph
-                except AttributeError:
-                    continue
-                for value in _iter_graph_values(fn_graph):
-                    _normalize_value_shape(value)
-
-        def _apply_ir_attr_overrides_to_graph(
-            gr: ir.Graph, overrides: dict[str, dict[str, object]]
-        ) -> None:
-            if not overrides:
-                return
-            name2node: Dict[str, ir.Node] = {
-                node.name: node for node in gr.nodes if node.name
-            }
-
-            for nm, kv in (overrides or {}).items():
-                node = name2node.get(nm)
-                if node is None or kv is None:
-                    continue
-                for attr_name, attr_value in kv.items():
-                    attr_obj = _convert_ir_attr(attr_name, attr_value)
-                    if attr_obj is not None:
-                        node.attributes[attr_name] = attr_obj
-
-        def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
-            for node in gr.all_nodes():
-                if node.op_type != "Concat":
-                    continue
-                if "axis" in node.attributes:
-                    continue
-                node.attributes["axis"] = ir.convenience.convert_attribute("axis", 0)
-
-        # Apply overrides/fixes to top graph
-        _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
-        _fix_concat_axis_in_graph(ir_model.graph)
-        # …and to all function bodies (if any)
-        function_container = ir_model.functions
-        if isinstance(function_container, dict):
-            function_values: Iterable[ir.Function] = function_container.values()
-        elif isinstance(function_container, Sequence):
-            function_values = function_container
-        else:
-            function_values = []
-        for fn in function_values:
-            try:
-                graph_obj = getattr(fn, "graph", None)
-                if graph_obj is None:
-                    continue
-                overrides_attr: dict[str, dict[str, object]] = {}
-                if hasattr(fn, "_attr_overrides"):
-                    raw_overrides = object.__getattribute__(fn, "_attr_overrides")
-                    if raw_overrides:
-                        overrides_attr = dict(raw_overrides)
-                fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
-                _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
-                _fix_concat_axis_in_graph(graph_obj)
-            except Exception as exc:
-                fn_name = getattr(fn, "name", "<unnamed function>")
-                _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
-
-        # Avoid emitting placeholders for onnx_function hits across runs
-        try:
-            ps2._consume_onnx_function_hits()
-        except AttributeError:
-            pass
-        except Exception:
-            pass
-
-        ir_model = run_optional_shape_inference(ir_model)
-
-        try:
-            _finalize_model_value_shapes(ir_model, ctx)
-        except Exception as exc:
-            _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
-
-        return ir_model

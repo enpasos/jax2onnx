@@ -25,7 +25,6 @@ from typing import (
     Mapping,
     Optional,
     Set,
-    TYPE_CHECKING,
     Union,
     cast,
 )
@@ -41,7 +40,12 @@ from jax.interpreters import batching
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.lowering_dispatch import (
+    lower_jaxpr_with_plugins,
+    make_converter_facade,
+)
 from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
     PrimitiveLowering,
     RngTrace,
     SymbolicDimOrigin,
@@ -53,9 +57,8 @@ logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 # Registries and state
 # ------------------------------------------------------------------------------
 
-# mypy/ruff-only import (avoid runtime cycles)
-if TYPE_CHECKING:
-    pass
+# Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
+_IRBuildContext = LoweringContextProtocol
 
 # Use a small private domain for ONNX functions. Netron shows the "f"
 # marker only when it can resolve a FunctionProto in a domain; ORT also
@@ -468,7 +471,7 @@ class FunctionPlugin(PrimitivePlugin):
         self.namespace = _normalize_namespace(namespace)
         # Optional human-readable override for the function base name/op_type.
         # When unset, we fall back to the underlying callable name.
-        self.display_name = None  # type: ignore[assignment]
+        self.display_name: str | None = None
         self._qualified_target = _qualname_of_target(target)
         self.primitive = Primitive(primitive_name)
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
@@ -1054,8 +1057,6 @@ class FunctionPlugin(PrimitivePlugin):
                     kw[entry["name"]] = dyn_val
                 return callee(*core_args, **kw)
 
-            from types import SimpleNamespace
-
             active = set(_IN_FUNCTION_BUILD.get())
             _IN_FUNCTION_BUILD.set(active | {self.name})
             try:
@@ -1064,12 +1065,6 @@ class FunctionPlugin(PrimitivePlugin):
                         *(tuple(sds) + tuple(dynamic_sds))
                     )
                 jpr_f = closed.jaxpr
-                # Allow plugins inside the function body to fold constants by
-                # giving the child context visibility into producer equations.
-                try:
-                    fscope.ctx._const_folder.install_producers(jpr_f)
-                except AttributeError:
-                    pass
             finally:
                 _IN_FUNCTION_BUILD.set(active)
 
@@ -1081,36 +1076,16 @@ class FunctionPlugin(PrimitivePlugin):
                 fscope.ctx.bind_value_for_var(v_var, v_val)
 
             # Create a child converter facade
-            child_conv = SimpleNamespace(builder=fscope.ctx.builder, ctx=fscope.ctx)
+            child_conv = make_converter_facade(fscope.ctx)
             # Walk inner equations and dispatch plugins in CHILD ctx
-            for inner_eqn in jpr_f.eqns:
-                prim = inner_eqn.primitive.name
-                plugin = PLUGIN_REGISTRY.get(prim)
-                if plugin is None:
-                    raise NotImplementedError(
-                        f"[onnx_function] No plugin for '{prim}' in function body"
-                    )
-                if hasattr(plugin, "lower"):
-                    # new/old leaf plugin shape
-                    try:
-                        import inspect as _ins
-
-                        has_params = "params" in _ins.signature(plugin.lower).parameters
-                    except Exception:
-                        has_params = False
-                    if has_params:
-                        plugin.lower(
-                            fscope.ctx, inner_eqn, getattr(inner_eqn, "params", None)
-                        )
-                    else:
-                        plugin.lower(fscope.ctx, inner_eqn)
-                elif hasattr(plugin, "get_handler"):
-                    handler = plugin.get_handler(child_conv)
-                    handler(child_conv, inner_eqn, inner_eqn.params)
-                else:
-                    raise NotImplementedError(
-                        f"[onnx_function] Unsupported plugin type for '{prim}'"
-                    )
+            lower_jaxpr_with_plugins(
+                ctx=fscope.ctx,
+                jaxpr=jpr_f,
+                registry=PLUGIN_REGISTRY,
+                source="onnx_function",
+                converter=child_conv,
+                missing_plugin_detail="in function body",
+            )
 
             if dynamic_entries:
                 nodes = list(getattr(fscope.ctx.builder, "nodes", []) or [])
@@ -1194,6 +1169,80 @@ class FunctionPlugin(PrimitivePlugin):
 # ------------------------------------------------------------------------------
 
 
+def _onnx_function_override_name(name: str | None, type_name: str | None) -> str | None:
+    # Prefer `type` override; fall back to `name` for backwards compatibility.
+    return type_name if isinstance(type_name, str) and type_name else name
+
+
+def _register_onnx_function_plugin(
+    actual_target: Any,
+    *,
+    unique: bool,
+    normalized_namespace: str,
+    override_name: str | None,
+) -> tuple[str, FunctionPlugin]:
+    qual = _qualname_of_target(actual_target)
+    prim_name = f"onnx_fn::{qual}"
+    plugin = PLUGIN_REGISTRY.get(prim_name)
+
+    if plugin is None:
+        fp = FunctionPlugin(
+            prim_name,
+            actual_target,
+            unique=unique,
+            namespace=normalized_namespace,
+        )
+        if isinstance(override_name, str) and override_name:
+            fp.display_name = override_name
+        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
+        PLUGIN_REGISTRY[prim_name] = fp
+        return qual, fp
+
+    if isinstance(plugin, FunctionPlugin):
+        if normalized_namespace and plugin.namespace != normalized_namespace:
+            raise ValueError(
+                f"@onnx_function namespace mismatch for {qual}: "
+                f"{plugin.namespace} vs {normalized_namespace}"
+            )
+        if isinstance(override_name, str) and override_name:
+            current = getattr(plugin, "display_name", None)
+            if current is None or current == "":
+                plugin.display_name = override_name
+            elif current != override_name:
+                raise ValueError(
+                    f"@onnx_function name/type mismatch for {qual}: "
+                    f"{current} vs {override_name}"
+                )
+        if unique:
+            plugin.unique = True
+        ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = plugin
+        return qual, plugin
+
+    raise ValueError(
+        f"@onnx_function registry collision for {qual}: "
+        f"{plugin.__class__.__name__} already owns {prim_name}"
+    )
+
+
+def _mark_onnx_function_target(
+    actual_target: Any,
+    *,
+    unique: bool,
+    normalized_namespace: str,
+    override_name: str | None,
+) -> None:
+    try:
+        setattr(actual_target, "__j2o_onnx_function__", True)
+        if unique:
+            setattr(actual_target, "__j2o_onnx_function_unique__", True)
+        setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_namespace)
+        if isinstance(override_name, str) and override_name:
+            setattr(actual_target, "__j2o_onnx_function_name__", override_name)
+            setattr(actual_target, "__j2o_onnx_function_type__", override_name)
+    except Exception:
+        pass
+
+
 def onnx_function(
     target: Any | None = None,
     *,
@@ -1211,52 +1260,20 @@ def onnx_function(
     """
 
     def _decorate(actual_target: Any):
-        qual = _qualname_of_target(actual_target)
-        prim_name = f"onnx_fn::{qual}"
-        plugin = PLUGIN_REGISTRY.get(prim_name)
         normalized_ns = _normalize_namespace(namespace)
-        # Prefer `type` override; fall back to `name` for backwards compatibility.
-        override_name = type if isinstance(type, str) and type else name
-        if plugin is None:
-            fp = FunctionPlugin(
-                prim_name,
-                actual_target,
-                unique=unique,
-                namespace=normalized_ns,
-            )
-            if isinstance(override_name, str) and override_name:
-                fp.display_name = override_name
-            ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
-            PLUGIN_REGISTRY[prim_name] = fp
-            plugin = fp
-        elif isinstance(plugin, FunctionPlugin):
-            if normalized_ns and plugin.namespace != normalized_ns:
-                raise ValueError(
-                    f"@onnx_function namespace mismatch for {qual}: "
-                    f"{plugin.namespace} vs {normalized_ns}"
-                )
-            # Allow a late name/type override if none was set; otherwise reject conflicts.
-            if isinstance(override_name, str) and override_name:
-                current = getattr(plugin, "display_name", None)
-                if current is None or current == "":
-                    plugin.display_name = override_name
-                elif current != override_name:
-                    raise ValueError(
-                        f"@onnx_function name/type mismatch for {qual}: "
-                        f"{current} vs {override_name}"
-                    )
-            if unique:
-                plugin.unique = True
-        try:
-            setattr(actual_target, "__j2o_onnx_function__", True)
-            if unique:
-                setattr(actual_target, "__j2o_onnx_function_unique__", True)
-            setattr(actual_target, "__j2o_onnx_function_namespace__", normalized_ns)
-            if isinstance(override_name, str) and override_name:
-                setattr(actual_target, "__j2o_onnx_function_name__", override_name)
-                setattr(actual_target, "__j2o_onnx_function_type__", override_name)
-        except Exception:
-            pass
+        override_name = _onnx_function_override_name(name, type)
+        _register_onnx_function_plugin(
+            actual_target,
+            unique=unique,
+            normalized_namespace=normalized_ns,
+            override_name=override_name,
+        )
+        _mark_onnx_function_target(
+            actual_target,
+            unique=unique,
+            normalized_namespace=normalized_ns,
+            override_name=override_name,
+        )
         return actual_target
 
     if target is None:

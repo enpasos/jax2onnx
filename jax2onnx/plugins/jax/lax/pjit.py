@@ -11,8 +11,8 @@ from jax.experimental import mesh_utils, pjit
 from jax.sharding import Mesh, PartitionSpec as P
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     register_primitive,
 )
@@ -112,14 +112,7 @@ class PJITPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
         # Lower the inner equations using existing plugins
-        for inner_eqn in inner_jaxpr.eqns:
-            prim = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY.get(prim)
-            if plugin is None:
-                raise NotImplementedError(
-                    f"[pjit] No plugins registered for primitive '{prim}' inside pjit body"
-                )
-            plugin.lower(ctx, inner_eqn)
+        lower_jaxpr_eqns(ctx, inner_jaxpr, source="pjit")
 
         # Map inner outputs back to the outer graph
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):

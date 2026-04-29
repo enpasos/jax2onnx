@@ -35,10 +35,10 @@ def test_inputs_outputs_as_nchw_depth_to_space_resnet():
         record_primitive_calls_file=None,
     )
 
-    # 3. Convert NCHW version (NCHW input/output)
-    # The user promises to provide NCHW input, and expects NCHW output.
-    # Internally jax2onnx converts NCHW->NHWC, runs model, then NHWC->NCHW.
-    # Hopefully these cancel out with the internal LayoutOptimizer or model structure.
+    # 3. Convert NCHW version (NCHW input/output).
+    # The public boundary accepts NCHW while the JAX model still runs NHWC.
+    # The layout adapter inserts boundary transposes, and the IR optimizer should
+    # remove any immediately redundant pairs introduced around NCHW-native ONNX ops.
     onnx_model_nchw = jax2onnx.to_onnx(
         fn=model,
         inputs=[jax.ShapeDtypeStruct(input_shape_nhwc, jnp.float32)],
@@ -65,22 +65,9 @@ def test_inputs_outputs_as_nchw_depth_to_space_resnet():
     print(f"Transpose count (Default): {t_count_default}")
     print(f"Transpose count (NCHW): {t_count_nchw}")
 
-    # We expect NCHW version to have FEWER transposes because the internal Conv
-    # is NCHW-native (in ONNX) and we are removing the boundary transposes
-    # that usually convert NHWC->NCHW and back.
-    # Note: DepthToSpace logic might still introduce some, but the Conv layers should be cleaner.
-    # Actually, the depth_to_space plugin itself might be doing transposes.
-    # But generally we expect significant reduction or at least difference.
-    # Let's verify we didn't EXPLODE the count.
-
-    # Ideally: count should be lower.
-    # Example: Conv requires NCHW.
-    # Default: Input(NHWC) -> T(NCHW) -> Conv -> T(NHWC) -> Output
-    # NCHW-mode: Input(NCHW) -> T(NHWC) [inserted by us] -> T(NCHW) [inserted by plugin?] -> Conv -> ...
-    # Wait, if plugin inserts T(NHWC->NCHW), and we insert T(NCHW->NHWC) at input...
-    # Then T(NHWC->NCHW) * T(NCHW->NHWC) = Identity.
-    # IR optimization (remove_redundant_transpose_pairs_ir) should kill them.
-    # So we expect NO transposes around Conv input.
+    # DepthToSpace can still require layout transposes, but NCHW boundary mode
+    # should not cause the graph to accumulate redundant NHWC<->NCHW pairs around
+    # NCHW-native ONNX ops such as Conv.
 
     # 5. Numerical Verification
     # Run Default with NHWC
@@ -105,9 +92,8 @@ def test_inputs_outputs_as_nchw_depth_to_space_resnet():
     sess_nchw = ort.InferenceSession(
         onnx_model_nchw.SerializeToString(), providers=["CPUExecutionProvider"]
     )
-    # Note: input name might have changed to 'in_0_nchw' or similar if logic dictates,
-    # but currently our logic appends to _inputs list.
-    # Let's check the input name from the model.
+    # Read the boundary input name from the exported graph so this test stays
+    # independent of the layout adapter's naming policy.
     input_name_nchw = onnx_model_nchw.graph.input[0].name
     res_nchw = sess_nchw.run(None, {input_name_nchw: x_nchw})[0]
 

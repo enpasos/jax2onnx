@@ -72,6 +72,18 @@ class FunctionScope:
             opset=parent_opset,
             enable_double_precision=parent_x64,
             input_specs=[],  # set on begin()
+            stacktrace_metadata=getattr(parent, "_stacktrace_metadata_enabled", None),
+        )
+        self.ctx.record_primitive_calls_file = parent.record_primitive_calls_file
+        self.ctx._lowering_record_owner = getattr(
+            parent,
+            "_lowering_record_owner",
+            parent,
+        )
+        self.ctx._primitive_call_records = getattr(
+            self.ctx._lowering_record_owner,
+            "_primitive_call_records",
+            [],
         )
         self.ctx._function_mode = True  # tell constant binder to emit Constant nodes
         self.ctx.builder._function_mode = True

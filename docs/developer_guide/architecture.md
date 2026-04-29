@@ -18,7 +18,7 @@ The converter is a tiny, generic **JAXPR → IR** engine. It knows nothing about
 3. **Trace** your function to a **ClosedJaxpr**,
 4. **Lower** each equation by handing it to a plugin that claimed that primitive,
 5. **Assemble** an IR graph,
-6. **Optimize** the IR graph with a small, safe, plugin-agnostic pass,
+6. **Optimize** the IR graph with a safe, plugin-agnostic pass suite,
 7. **Finalize** a valid ONNX model (stamp shapes/dtypes, prune, serialize).
 
 Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW, etc. — stays in plugins.
@@ -28,6 +28,7 @@ Everything op-specific — layouts, padding math, attribute shapes, NHWC↔NCHW,
 # Related documentation
 
 * [Plugin System Guide](plugin_system.md) – detailed guide on writing plugins.
+* [Converter Design Review](converter_design.md) – source-level map of the converter package and implemented design improvements.
 * [ONNX IR Builder Guide](advanced_topics/onnx_ir_builder.md) – canonical builder guardrails and examples.
 * [Expect Graph Reference](advanced_topics/expect_graph_reference.md) – structural test patterns for `expect_graph`.
 * [Subgraph Input Handling](advanced_topics/subgraph_input_handling.md) – control-flow body wiring (If/Loop/Scan).
@@ -123,24 +124,23 @@ The full conversion pipeline spans two modules: [Conversion API](https://github.
 | 1 | `conversion_api` | `to_onnx` | Build raw IR: trace JAXPR, lower equations to nodes |
 | 2 | `conversion_api` | `optimize_graph` | **Structural optimization**: dead node removal, CSE, constant lifting, reshape folding |
 | 3 | `conversion_api` | Late overrides | Apply user attribute patches to **surviving** nodes; fix Concat axis |
-| 4 | `conversion_api` | `run_optional_shape_inference` | (Reserved for future shape inference; currently no-op) |
-| 5 | `conversion_api` | `_finalize_model_value_shapes` | Normalize symbolic dims to `ir.SymbolicDim` objects |
-| 6 | `conversion_api` | Return | Model has **precise shapes** preserved |
-| 7 | `user_interface` | `postprocess_ir_model` | **Shape loosening**: replace intermediate value shapes with dynamic dims for ORT flexibility |
-| 8 | `user_interface` | `_materialize_input_params_on_ir` | Expose `input_params` as explicit graph inputs |
-| 9 | `user_interface` | Serialize | Convert to proto / save to file |
+| 4 | `conversion_api` | `_finalize_model_value_shapes` | Normalize symbolic dims to `ir.SymbolicDim` objects |
+| 5 | `conversion_api` | Return | Model has **precise shapes** preserved |
+| 6 | `user_interface` | `postprocess_ir_model` | **Shape loosening**: replace intermediate value shapes with dynamic dims for ORT flexibility |
+| 7 | `user_interface` | `_materialize_input_params_on_ir` | Expose `input_params` as explicit graph inputs |
+| 8 | `user_interface` | Serialize | Convert to proto / save to file |
 
 ### Why this order?
 
 1. **Optimize before patching**: Dead node removal runs first so we don't waste time patching nodes that will be deleted.
-2. **Finalize before loosening**: `conversion_api` normalizes shapes while they are precise. Loosening (Step 7) is intentionally AFTER to preserve accuracy for shape inference and finalization.
+2. **Finalize before loosening**: `conversion_api` normalizes shapes while they are precise. Loosening (Step 6) is intentionally AFTER to preserve accuracy for finalization.
 3. **Loosening is export-only**: `postprocess_ir_model` is called only by the user-facing `to_onnx` function, not by internal pipelines.
 
 ### Module responsibilities
 
 | Module | Responsibility |
 |--------|----------------|
-| [IR Optimizer](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_optimizations.py) | Pure optimization passes (DCE, CSE, constant lifting, reshape folding) |
+| [IR Optimizer](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_optimizations.py) | Declarative, IR-only pass suite for graph cleanup, CSE, constant lifting, shape propagation, and pruning |
 | [Conversion API](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/conversion_api.py) | Core conversion + optimization + finalization (returns precise-shape model) |
 | [IR Postprocess](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/converter/ir_postprocess.py) | Export preparation: shape loosening for runtime flexibility |
 | [User Interface](https://github.com/enpasos/jax2onnx/blob/main/jax2onnx/user_interface.py) | Public API facade: orchestrates conversion → postprocess → serialize |
@@ -247,7 +247,14 @@ share a single function body, while shape/config changes trigger new entries.
 
 # IR optimizer (plugin-agnostic)
 
-Before serialization we run a tiny, structure-only optimization sweep. The canonical rules and implementation notes live in [IR Optimizer Guide](advanced_topics/ir_optimizer.md). Today the only pass folds redundant `Transpose → [elementwise]* → Transpose` pairs when their permutations compose to identity; future passes must follow the same IR-only, backend-agnostic constraints.
+Before serialization we run a structure-only optimization sweep. The canonical
+rules, pass order, and implementation notes live in
+[IR Optimizer Guide](advanced_topics/ir_optimizer.md). Current passes cover
+name normalization, redundant cast/transpose/reshape cleanup, common
+subexpression elimination, constant lifting, selected algebraic rewrites,
+shape propagation, dead-node removal, orphan transpose cleanup, and unused
+top-level graph input pruning. Future passes must follow the same IR-only,
+backend-agnostic constraints.
 
 ---
 

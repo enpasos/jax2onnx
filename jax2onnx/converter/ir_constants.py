@@ -1,7 +1,8 @@
 # jax2onnx/converter/ir_constants.py
 
 from __future__ import annotations
-from typing import Any, Callable, Dict, Optional, cast
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, Iterator, Optional, cast
 import numpy as np
 from numpy.typing import NDArray
 
@@ -9,7 +10,7 @@ from numpy.typing import NDArray
 class ConstantFolder:
     def __init__(self) -> None:
         self._known: Dict[int, NDArray[np.generic]] = {}
-        self._producer: Dict[int, Any] = {}
+        self._producer: Dict[int, tuple[Any, int]] = {}
         self._handlers: Dict[str, Callable[..., Any]] = {}
 
     def register_const(self, var: Any, value: np.ndarray) -> None:
@@ -19,8 +20,18 @@ class ConstantFolder:
     def install_producers(self, jaxpr: Any) -> None:
         self._producer.clear()
         for eqn in jaxpr.eqns:
-            for out in eqn.outvars:
-                self._producer[id(out)] = eqn
+            for output_index, out in enumerate(eqn.outvars):
+                self._producer[id(out)] = (eqn, output_index)
+
+    @contextmanager
+    def producer_scope(self, jaxpr: Any) -> Iterator[None]:
+        previous_producers = dict(self._producer)
+        self.install_producers(jaxpr)
+        try:
+            yield
+        finally:
+            self._producer.clear()
+            self._producer.update(previous_producers)
 
     def register_handler(
         self, primitive_name: str, handler: Callable[..., Any]
@@ -39,9 +50,10 @@ class ConstantFolder:
             self._known[vid] = cast_arr
             return cast_arr
 
-        eqn = self._producer.get(vid)
-        if eqn is None:
+        producer = self._producer.get(vid)
+        if producer is None:
             return None
+        eqn, output_index = producer
 
         handler = self._handlers.get(eqn.primitive.name)
         if handler is None:
@@ -59,7 +71,17 @@ class ConstantFolder:
         except Exception:
             return None
 
-        arr = np.asarray(out)
-        cast_arr = cast(NDArray[np.generic], arr)
-        self._known[vid] = cast_arr
-        return cast_arr
+        output_count = len(eqn.outvars)
+        if output_count == 1:
+            outputs = (out,)
+        elif isinstance(out, (tuple, list)):
+            outputs = tuple(out)
+            if len(outputs) != output_count:
+                return None
+        else:
+            return None
+
+        for outvar, raw_output in zip(eqn.outvars, outputs):
+            arr = np.asarray(raw_output)
+            self._known[id(outvar)] = cast(NDArray[np.generic], arr)
+        return self._known.get(id(eqn.outvars[output_index]))

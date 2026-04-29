@@ -936,7 +936,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
         keep_float32 = function_keep_float32
         allow_double_outputs = ctx.builder.enable_double_precision and not keep_float32
 
-        lower_jaxpr_eqns(loop_ctx, jaxpr)
+        lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
 
         body_outputs: list[ir.Value] = []
 
@@ -1526,7 +1526,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     _ensure_value_metadata(loop_ctx, expanded)
                     loop_ctx.bind_value_for_var(per_step_var, expanded)
 
-        lower_jaxpr_eqns(loop_ctx, jaxpr)
+        lower_jaxpr_eqns(loop_ctx, jaxpr, source="scan")
 
         body_outputs: list[ir.Value] = []
 

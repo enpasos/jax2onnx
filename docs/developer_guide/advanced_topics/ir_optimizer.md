@@ -9,15 +9,48 @@ The optimizer runs as **Step 2** in the conversion pipeline (see [architecture.m
 1. Build raw IR (`to_onnx`)
 2. **`optimize_graph`** ← runs here
 3. Late attribute overrides
-4. Shape inference (no-op currently)
-5. Finalize shapes
-6. Return from `conversion_api`
-7. Post-process (shape loosening, export prep)
+4. Finalize shapes
+5. Return from `conversion_api`
+6. Post-process (shape loosening, export prep)
 
 This placement ensures:
 - Optimization sees the raw, unpatched graph for maximum benefit.
 - Late overrides only patch nodes that survived optimization.
 - Shape finalization operates on an already-optimized graph.
+
+Optimizer failures are logged and skipped by default so ordinary exports can
+continue. Set `JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1` when debugging or in CI to
+re-raise the original optimizer exception.
+
+---
+
+## Pass Registry
+
+`optimize_graph` executes the `_OPTIMIZER_PASSES` registry in order. Each entry
+declares its name plus whether it runs on the top-level model, the top-level
+graph, and/or function body graphs. Function bodies deliberately skip
+model-wide passes and `prune_unused_graph_inputs` so function signatures remain
+stable.
+
+Current order:
+
+1. `name_fix`
+2. `remove_redundant_casts`
+3. `remove_redundant_transpose_reduce`
+4. `remove_redundant_transpose_add_forests`
+5. `remove_redundant_transpose_pairs`
+6. `remove_redundant_reshape_pairs`
+7. `remove_identity_reshapes`
+8. `common_subexpression_elimination`
+9. `lift_constants_to_initializers`
+10. `rewrite_mul_rsqrt_as_div`
+11. `inline_dropout_training_mode_constants`
+12. `propagate_elementwise_shapes`
+13. `propagate_unary_shapes`
+14. `remove_redundant_casts_after_propagation`
+15. `remove_dead_nodes`
+16. `remove_orphan_transposes`
+17. `prune_unused_graph_inputs`
 
 ---
 

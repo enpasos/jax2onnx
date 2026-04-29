@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import jax.numpy as jnp
+import pytest
 from flax import nnx
 
 from jax2onnx import onnx_function
+from jax2onnx.plugins.plugin_system import (
+    ONNX_FUNCTION_PLUGIN_REGISTRY,
+    PLUGIN_REGISTRY,
+    PrimitivePlugin,
+)
 from jax2onnx.user_interface import to_onnx
 
 
@@ -46,6 +55,46 @@ def _collect_function_nodes(model, name: str):
 
 def _collect_function_defs(model, name: str):
     return [fn for fn in getattr(model, "functions", []) if fn.name == name]
+
+
+def _DecoratorNamespaceConflictTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorNameConflictTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorMarkerTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorNameTypePrecedenceTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorRegistrySyncTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+def _DecoratorRegistryCollisionTarget(x: jnp.ndarray) -> jnp.ndarray:
+    return jnp.square(x)
+
+
+class _DecoratorCollisionPlugin(PrimitivePlugin):
+    def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
+        return []
+
+
+def _onnx_function_qual(target) -> str:
+    qual = f"{target.__module__}.{target.__name__}"
+    return qual
+
+
+def _clear_onnx_function_registration(target) -> None:
+    qual = _onnx_function_qual(target)
+    PLUGIN_REGISTRY.pop(f"onnx_fn::{qual}", None)
+    ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qual, None)
 
 
 def test_unique_decorator_reuses_matching_blocks_ir():
@@ -117,3 +166,95 @@ def test_unique_with_custom_namespace_ir():
     call_nodes = _collect_function_nodes(model, "_NamespacedSquare")
     assert len(call_nodes) == 2
     assert {node.domain for node in call_nodes} == {"my.model._NamespacedSquare.unique"}
+
+
+def test_onnx_function_rejects_namespace_conflict():
+    _clear_onnx_function_registration(_DecoratorNamespaceConflictTarget)
+    try:
+        onnx_function(namespace="first.namespace")(_DecoratorNamespaceConflictTarget)
+
+        with pytest.raises(ValueError, match="@onnx_function namespace mismatch"):
+            onnx_function(namespace="second.namespace")(
+                _DecoratorNamespaceConflictTarget
+            )
+    finally:
+        _clear_onnx_function_registration(_DecoratorNamespaceConflictTarget)
+
+
+def test_onnx_function_rejects_name_type_conflict():
+    _clear_onnx_function_registration(_DecoratorNameConflictTarget)
+    try:
+        onnx_function(name="FirstName")(_DecoratorNameConflictTarget)
+
+        with pytest.raises(ValueError, match="@onnx_function name/type mismatch"):
+            onnx_function(type="SecondName")(_DecoratorNameConflictTarget)
+    finally:
+        _clear_onnx_function_registration(_DecoratorNameConflictTarget)
+
+
+def test_onnx_function_sets_marker_attributes():
+    _clear_onnx_function_registration(_DecoratorMarkerTarget)
+    try:
+        onnx_function(
+            unique=True,
+            namespace="marker.namespace",
+            type="MarkerName",
+        )(_DecoratorMarkerTarget)
+
+        assert _DecoratorMarkerTarget.__j2o_onnx_function__ is True
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_unique__ is True
+        assert (
+            _DecoratorMarkerTarget.__j2o_onnx_function_namespace__ == "marker.namespace"
+        )
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_name__ == "MarkerName"
+        assert _DecoratorMarkerTarget.__j2o_onnx_function_type__ == "MarkerName"
+    finally:
+        _clear_onnx_function_registration(_DecoratorMarkerTarget)
+
+
+def test_onnx_function_type_override_takes_precedence_over_name():
+    _clear_onnx_function_registration(_DecoratorNameTypePrecedenceTarget)
+    try:
+        onnx_function(name="NameOverride", type="TypeOverride")(
+            _DecoratorNameTypePrecedenceTarget
+        )
+
+        assert (
+            _DecoratorNameTypePrecedenceTarget.__j2o_onnx_function_name__
+            == "TypeOverride"
+        )
+        assert (
+            _DecoratorNameTypePrecedenceTarget.__j2o_onnx_function_type__
+            == "TypeOverride"
+        )
+    finally:
+        _clear_onnx_function_registration(_DecoratorNameTypePrecedenceTarget)
+
+
+def test_onnx_function_reregistration_repairs_function_registry():
+    _clear_onnx_function_registration(_DecoratorRegistrySyncTarget)
+    try:
+        qual = _onnx_function_qual(_DecoratorRegistrySyncTarget)
+        onnx_function(type="RegistrySyncTarget")(_DecoratorRegistrySyncTarget)
+        plugin = PLUGIN_REGISTRY[f"onnx_fn::{qual}"]
+        ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qual)
+
+        onnx_function(type="RegistrySyncTarget")(_DecoratorRegistrySyncTarget)
+
+        assert ONNX_FUNCTION_PLUGIN_REGISTRY[qual] is plugin
+    finally:
+        _clear_onnx_function_registration(_DecoratorRegistrySyncTarget)
+
+
+def test_onnx_function_rejects_non_function_registry_collision():
+    _clear_onnx_function_registration(_DecoratorRegistryCollisionTarget)
+    try:
+        qual = _onnx_function_qual(_DecoratorRegistryCollisionTarget)
+        PLUGIN_REGISTRY[f"onnx_fn::{qual}"] = _DecoratorCollisionPlugin()
+
+        with pytest.raises(ValueError, match="@onnx_function registry collision"):
+            onnx_function(_DecoratorRegistryCollisionTarget)
+
+        assert qual not in ONNX_FUNCTION_PLUGIN_REGISTRY
+    finally:
+        _clear_onnx_function_registration(_DecoratorRegistryCollisionTarget)

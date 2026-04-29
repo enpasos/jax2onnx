@@ -9,8 +9,8 @@ import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.core.jit import JitPlugin
+from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
-    PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
     register_primitive,
 )
@@ -138,14 +138,7 @@ class CustomLinearSolvePlugin(PrimitiveLeafPlugin):
         for outer_var, inner_var in zip(solve_inputs, inner_jaxpr.invars):
             ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
 
-        for inner_eqn in inner_jaxpr.eqns:
-            prim_name = inner_eqn.primitive.name
-            plugin = PLUGIN_REGISTRY.get(prim_name)
-            if plugin is None:
-                raise NotImplementedError(
-                    f"[custom_linear_solve] No plugin registered for primitive '{prim_name}' in solve body"
-                )
-            plugin.lower(ctx, inner_eqn)
+        lower_jaxpr_eqns(ctx, inner_jaxpr, source="custom_linear_solve")
 
         if len(eqn.outvars) != len(inner_jaxpr.outvars):
             raise ValueError(

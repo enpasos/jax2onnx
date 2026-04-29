@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import types
 from collections.abc import Iterable
 from typing import Any, cast
@@ -12,6 +11,9 @@ from onnx_ir import Shape as IRShape
 
 from jax import core
 
+from jax2onnx.converter.lowering_dispatch import (
+    lower_jaxpr_with_plugins,
+)
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
@@ -86,46 +88,54 @@ def builder_loop(
     return loop_result
 
 
-def _call_plugin_lower(
-    plugin: Any, ctx: LoweringContextProtocol, eqn: core.JaxprEqn
+def lower_jaxpr_eqns(
+    ctx: LoweringContextProtocol,
+    jaxpr: core.Jaxpr,
+    *,
+    source: str = "control_flow",
 ) -> None:
-    """Invoke a plugin's lowering helper, forwarding params when supported."""
-    lower_fn = getattr(plugin, "lower", None)
-    if lower_fn is None:
-        raise NotImplementedError(f"Plugin for '{plugin}' lacks a lower() method.")
-    try:
-        sig = inspect.signature(lower_fn)
-        if "params" in sig.parameters:
-            lower_fn(ctx, eqn, getattr(eqn, "params", None))
-            return None
-    except (ValueError, TypeError):
-        pass
-    lower_fn(ctx, eqn)
-    return None
-
-
-def lower_jaxpr_eqns(ctx: LoweringContextProtocol, jaxpr: core.Jaxpr) -> None:
     """Lower every equation in ``jaxpr`` using the registered plugins."""
-    for inner_eqn in getattr(jaxpr, "eqns", ()):
-        prim = inner_eqn.primitive.name
-        plugin = PLUGIN_REGISTRY.get(prim)
-        if plugin is None:
-            raise NotImplementedError(
-                f"[control_flow] No plugins registered for primitive '{prim}'"
-            )
-        _call_plugin_lower(plugin, ctx, inner_eqn)
+    lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jaxpr,
+        registry=PLUGIN_REGISTRY,
+        source=source,
+    )
 
 
 def make_subgraph_context(
     parent_ctx: LoweringContextProtocol, *, prefix: str
 ) -> LoweringContextProtocol:
     """Create a child IR context suitable for Loop/If subgraphs."""
-    child_ctx = type(parent_ctx)(
-        opset=getattr(parent_ctx.builder, "opset", 21),
-        enable_double_precision=getattr(
+    child_kwargs: dict[str, Any] = {
+        "opset": getattr(parent_ctx.builder, "opset", 21),
+        "enable_double_precision": getattr(
             parent_ctx.builder, "enable_double_precision", False
         ),
-        input_specs=[],
+        "input_specs": [],
+    }
+    stacktrace_metadata = getattr(parent_ctx, "_stacktrace_metadata_enabled", None)
+    if stacktrace_metadata is not None:
+        child_kwargs["stacktrace_metadata"] = bool(stacktrace_metadata)
+    try:
+        child_ctx = type(parent_ctx)(**child_kwargs)
+    except TypeError:
+        child_kwargs.pop("stacktrace_metadata", None)
+        child_ctx = type(parent_ctx)(**child_kwargs)
+    child_ctx.record_primitive_calls_file = getattr(
+        parent_ctx,
+        "record_primitive_calls_file",
+        None,
+    )
+    child_ctx._lowering_record_owner = getattr(
+        parent_ctx,
+        "_lowering_record_owner",
+        parent_ctx,
+    )
+    child_ctx._primitive_call_records = getattr(
+        child_ctx._lowering_record_owner,
+        "_primitive_call_records",
+        [],
     )
     child_ctx._function_mode = True
     child_ctx._inside_function_scope = True

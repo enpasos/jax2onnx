@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import (
+    Callable,
     Dict,
     List,
     Optional,
@@ -20,7 +22,18 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
-from jax2onnx.ir_utils import const_value_to_numpy, tensor_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, iter_ir_functions, tensor_to_numpy
+from .optimizer_graph_utils import (
+    NodeSeq,
+    _consumer_nodes,
+    _has_input_name_or_obj as _optimizer_has_input_name_or_obj,
+    _node_inputs,
+    _node_output,
+    _node_outputs,
+    _producer_node,
+    _set_node_inputs,
+    _v_name,
+)
 
 # ---------------- Config ----------------
 
@@ -106,11 +119,21 @@ TM_DEBUG: bool = bool(int(os.getenv("JAX2ONNX_TM_DEBUG", "0")))
 
 # ---------------- Type aliases ----------------
 
-NodeList: TypeAlias = List[ir.Node]
-NodeSeq: TypeAlias = Sequence[ir.Node]
-ValueList: TypeAlias = List[ir.Value]
-ValueSeq: TypeAlias = Sequence[ir.Value]
 ArrayND = np.ndarray[Any, np.dtype[Any]]
+GraphOptimizer: TypeAlias = Callable[[ir.Graph], None]
+ModelOptimizer: TypeAlias = Callable[[ir.Model], None]
+_has_input_name_or_obj: Callable[
+    [ir.Node, Optional[str], Optional[ir.Value]],
+    bool,
+] = _optimizer_has_input_name_or_obj
+
+
+@dataclass(frozen=True)
+class _OptimizerPass:
+    name: str
+    model_runner: ModelOptimizer | None = None
+    graph_runner: GraphOptimizer | None = None
+    function_graph_runner: GraphOptimizer | None = None
 
 
 def _as_ndarray(value: object, *, dtype: np.dtype[Any] | None = None) -> ArrayND:
@@ -152,135 +175,7 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
     return None
 
 
-def _value_identity(
-    value_or_name: Union[ir.Value, str, None],
-) -> Tuple[Optional[ir.Value], Optional[str]]:
-    if value_or_name is None:
-        return None, None
-    if isinstance(value_or_name, ir.Value):
-        return value_or_name, _v_name(value_or_name)
-    if isinstance(value_or_name, str):
-        return None, value_or_name or None
-    return None, None
-
-
-def _has_input_name_or_obj(
-    node: ir.Node, name: Optional[str], obj: Optional[ir.Value]
-) -> bool:
-    """
-    Return True if 'node' has an input that matches either the given name
-    (by .name on Value or string equality) or the given object identity.
-    """
-    if not isinstance(node, ir.Node):
-        return False
-
-    ins = _node_inputs(node)
-    if obj is not None:
-        for iv in ins:
-            if iv is obj:
-                return True
-
-    ref_value, ref_name = _value_identity(obj)
-    target_name = name or ref_name
-
-    for iv in ins:
-        if ref_value is not None and iv is ref_value:
-            return True
-        if target_name:
-            ivn = _v_name(iv)
-            if ivn == target_name:
-                return True
-    return False
-
-
-def _consumer_nodes(
-    nodes: Sequence[ir.Node], value_or_name: Union[ir.Value, str, None]
-) -> List[ir.Node]:
-    """
-    Return consumer nodes for a value, preferring IR APIs with name-based fallback.
-    """
-    if value_or_name is None:
-        return []
-    current_node_ids: Set[int] = {id(node) for node in nodes}
-    if isinstance(value_or_name, ir.Value):
-        consumers = value_or_name.consumers()
-        if consumers:
-            try:
-                if all(isinstance(c, ir.Node) for c in consumers):
-                    filtered = [c for c in consumers if id(c) in current_node_ids]
-                    if filtered:
-                        return list(filtered)
-            except Exception:
-                # Fall back to name-based scan below.
-                pass
-
-    ref_value, ref_name = _value_identity(value_or_name)
-    target_name = ref_name
-    if target_name is None and isinstance(value_or_name, ir.Value):
-        target_name = _v_name(value_or_name)
-
-    found: List[ir.Node] = []
-    for node in nodes:
-        if _has_input_name_or_obj(
-            node,
-            target_name,
-            (
-                ref_value
-                if ref_value is not None
-                else (value_or_name if isinstance(value_or_name, ir.Value) else None)
-            ),
-        ):
-            # Wait, value_or_name could be str.
-            # _has_input_name_or_obj takes (node, name, obj: Optional[ir.Value])
-            obj_arg = ref_value
-            if obj_arg is None and isinstance(value_or_name, ir.Value):
-                obj_arg = value_or_name
-
-            if _has_input_name_or_obj(node, target_name, obj_arg):
-                found.append(node)
-    return found
-
-
-def _producer_node(
-    nodes: Sequence[ir.Node], value_or_name: Union[ir.Value, str, None]
-) -> Optional[ir.Node]:
-    """
-    Return the producer node for a value/name, preferring IR APIs with fallback scans.
-    """
-    if value_or_name is None:
-        return None
-    current_node_ids: Set[int] = {id(node) for node in nodes}
-    if isinstance(value_or_name, ir.Value):
-        prod = value_or_name.producer()
-        if isinstance(prod, ir.Node) and id(prod) in current_node_ids:
-            return prod
-
-    ref_value, ref_name = _value_identity(value_or_name)
-    target_name = ref_name
-    if target_name is None and isinstance(value_or_name, ir.Value):
-        target_name = _v_name(value_or_name)
-
-    for node in nodes:
-        for ov in _node_outputs(node):
-            if ref_value is not None and ov is ref_value:
-                return node
-            if target_name and _v_name(ov) == target_name:
-                return node
-    return None
-
-
 # ---------------- IR helpers ----------------
-
-
-def _v_name(v: Union[ir.Value, str, None]) -> Optional[str]:
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return v or None
-    if isinstance(v, ir.Value):
-        name = v.name
-        return name or None
-    return None
 
 
 def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
@@ -300,24 +195,6 @@ def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
         if isinstance(elem_dtype, (int, np.integer)):
             return int(elem_dtype)
     return None
-
-
-def _node_outputs(n: ir.Node) -> ValueList:
-    return list(cast(ValueSeq, n.outputs))
-
-
-def _node_output(n: ir.Node) -> Optional[ir.Value]:
-    outs = _node_outputs(n)
-    return outs[0] if outs else None
-
-
-def _node_inputs(n: ir.Node) -> ValueList:
-    return list(cast(ValueSeq, n.inputs))
-
-
-def _set_node_inputs(n: ir.Node, new_ins: Sequence[ir.Value]) -> None:
-    for idx, val in enumerate(new_ins):
-        n.replace_input_with(idx, val)
 
 
 def _shape_dims_seq(
@@ -2271,44 +2148,107 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_name_fix_pass(model: ir.Model) -> None:
+    common_passes.NameFixPass()(model)
+
+
+def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
+    common_passes.CommonSubexpressionEliminationPass()(model)
+
+
+def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
+    common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
+
+
+def _model_pass(name: str, runner: ModelOptimizer) -> _OptimizerPass:
+    return _OptimizerPass(name=name, model_runner=runner)
+
+
+def _graph_pass(
+    name: str,
+    runner: GraphOptimizer,
+    *,
+    function_bodies: bool = True,
+) -> _OptimizerPass:
+    return _OptimizerPass(
+        name=name,
+        graph_runner=runner,
+        function_graph_runner=runner if function_bodies else None,
+    )
+
+
+_OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
+    _model_pass("name_fix", _run_name_fix_pass),
+    _graph_pass("remove_redundant_casts", remove_redundant_casts_ir),
+    _graph_pass(
+        "remove_redundant_transpose_reduce",
+        remove_redundant_transpose_reduce_ir,
+    ),
+    _graph_pass(
+        "remove_redundant_transpose_add_forests",
+        remove_redundant_transpose_add_forests_ir,
+    ),
+    _graph_pass(
+        "remove_redundant_transpose_pairs", remove_redundant_transpose_pairs_ir
+    ),
+    _graph_pass("remove_redundant_reshape_pairs", remove_redundant_reshape_pairs_ir),
+    _graph_pass("remove_identity_reshapes", remove_identity_reshapes_ir),
+    _model_pass(
+        "common_subexpression_elimination",
+        _run_common_subexpression_elimination_pass,
+    ),
+    _model_pass(
+        "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
+    ),
+    _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
+    _graph_pass(
+        "inline_dropout_training_mode_constants",
+        inline_dropout_training_mode_constants_ir,
+    ),
+    _graph_pass("propagate_elementwise_shapes", propagate_elementwise_shapes_ir),
+    _graph_pass("propagate_unary_shapes", propagate_unary_shapes_ir),
+    _graph_pass("remove_redundant_casts_after_propagation", remove_redundant_casts_ir),
+    _model_pass("remove_dead_nodes", remove_dead_nodes_ir),
+    _graph_pass("remove_orphan_transposes", remove_orphan_transposes_ir),
+    _graph_pass(
+        "prune_unused_graph_inputs",
+        prune_unused_graph_inputs_ir,
+        function_bodies=False,
+    ),
+)
+
+
+def _run_top_level_optimizer_pass(opt_pass: _OptimizerPass, model: ir.Model) -> None:
+    if DEBUG:
+        _dbg("running pass", opt_pass.name, "on top graph")
+    if opt_pass.model_runner is not None:
+        opt_pass.model_runner(model)
+    if opt_pass.graph_runner is not None:
+        opt_pass.graph_runner(model.graph)
+
+
+def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> None:
+    if opt_pass.function_graph_runner is None:
+        return
+    if DEBUG:
+        _dbg("running pass", opt_pass.name, "on function graph")
+    opt_pass.function_graph_runner(graph)
+
+
 def optimize_graph(ir_model: ir.Model) -> ir.Model:
     _dbg("optimize_graph invoked")
-    # Top graph
-    gr = ir_model.graph
-    common_passes.NameFixPass()(ir_model)
-    remove_redundant_casts_ir(gr)
-    remove_redundant_transpose_reduce_ir(gr)
-    remove_redundant_transpose_add_forests_ir(gr)
-    remove_redundant_transpose_pairs_ir(gr)
-    remove_redundant_reshape_pairs_ir(gr)
-    remove_identity_reshapes_ir(gr)
-    common_passes.CommonSubexpressionEliminationPass()(ir_model)
-    common_passes.LiftConstantsToInitializersPass(size_limit=0)(ir_model)
-    rewrite_mul_rsqrt_as_div_ir(gr)
-    inline_dropout_training_mode_constants_ir(gr)
-    propagate_elementwise_shapes_ir(gr)
-    propagate_unary_shapes_ir(gr)
-    remove_redundant_casts_ir(gr)
-    remove_dead_nodes_ir(ir_model)
-    remove_orphan_transposes_ir(gr)
-    prune_unused_graph_inputs_ir(gr)
+    for opt_pass in _OPTIMIZER_PASSES:
+        _run_top_level_optimizer_pass(opt_pass, ir_model)
 
     # The passes are destructive; might as well raise exceptions if they occur.
 
     # Function bodies – do NOT prune function inputs (signature!)
-    for fn in ir_model.functions.values():
-        fgr = fn.graph
-        remove_redundant_casts_ir(fgr)
-        remove_redundant_transpose_reduce_ir(fgr)
-        remove_redundant_transpose_add_forests_ir(fgr)
-        remove_redundant_transpose_pairs_ir(fgr)
-        remove_redundant_reshape_pairs_ir(fgr)
-        remove_identity_reshapes_ir(fgr)
-        rewrite_mul_rsqrt_as_div_ir(fgr)
-        inline_dropout_training_mode_constants_ir(fgr)
-        propagate_elementwise_shapes_ir(fgr)
-        propagate_unary_shapes_ir(fgr)
-        remove_redundant_casts_ir(fgr)
-        remove_orphan_transposes_ir(fgr)
+    for fn in iter_ir_functions(ir_model.functions):
+        graph_obj = getattr(fn, "graph", None)
+        if graph_obj is None:
+            continue
+        fgr = cast(ir.Graph, graph_obj)
+        for opt_pass in _OPTIMIZER_PASSES:
+            _run_function_optimizer_pass(opt_pass, fgr)
 
     return ir_model

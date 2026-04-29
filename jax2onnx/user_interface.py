@@ -68,6 +68,8 @@ _VALID_RETURN_MODES = {"proto", "ir", "file"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
+OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
+OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
 
 @contextmanager
@@ -648,14 +650,36 @@ def to_onnx(
     return model_proto
 
 
+@overload
 def onnx_function(
-    target: Optional[Union[Callable, type]] = None,
+    target: None = ...,
+    *,
+    unique: bool = ...,
+    namespace: Optional[str] = ...,
+    name: Optional[str] = ...,
+    type: Optional[str] = ...,  # noqa: A002 - user-facing keyword
+) -> OnnxFunctionDecorator: ...
+
+
+@overload
+def onnx_function(
+    target: OnnxFunctionTarget,
+    *,
+    unique: bool = ...,
+    namespace: Optional[str] = ...,
+    name: Optional[str] = ...,
+    type: Optional[str] = ...,  # noqa: A002 - user-facing keyword
+) -> OnnxFunctionTarget: ...
+
+
+def onnx_function(
+    target: Optional[OnnxFunctionTarget] = None,
     *,
     unique: bool = False,
     namespace: Optional[str] = None,
     name: Optional[str] = None,
     type: Optional[str] = None,  # noqa: A002 - user-facing keyword
-) -> Union[Callable, type]:
+) -> Union[OnnxFunctionTarget, OnnxFunctionDecorator]:
     """
     Decorator to mark a function or class as an ONNX function.
 
@@ -674,7 +698,12 @@ def onnx_function(
             this overrides the callable's Python name for the function `op_type`
             and FunctionProto name; the domain still derives from ``namespace``.
         type: Alias for ``name``; preferred keyword for setting the function
-            `op_type`/display name in ONNX.
+            `op_type`/display name in ONNX. If both ``name`` and ``type`` are
+            supplied, ``type`` takes precedence.
+
+    Raises:
+        ValueError: If the same target is decorated again with a conflicting
+            namespace or display-name override.
 
     Returns:
         The decorated function or class with ONNX function capabilities.
@@ -700,10 +729,11 @@ def onnx_function(
         >>>         return self.activation(self.dense(x))
     """
 
-    # Prefer the explicit `type` override; fall back to `name` for BC.
-    display = type if isinstance(type, str) and type else name
-    return onnx_function_impl(
-        target, unique=unique, namespace=namespace, name=display, type=display
+    return cast(
+        Union[OnnxFunctionTarget, OnnxFunctionDecorator],
+        onnx_function_impl(
+            target, unique=unique, namespace=namespace, name=name, type=type
+        ),
     )
 
 

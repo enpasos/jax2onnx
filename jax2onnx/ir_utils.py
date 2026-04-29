@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, cast
 
 import numpy as np
@@ -76,3 +77,96 @@ def numpy_dtype_to_ir(
         return ir.DataType.from_numpy(np.dtype(dtype))
     except Exception:
         return default
+
+
+def numpy_dtype_to_ir_with_float_policy(
+    dtype: object | None,
+    enable_double_precision: bool,
+) -> ir.DataType:
+    """
+    Map a numpy dtype to an IR dtype using the converter's float precision policy.
+
+    Float32 and unknown floating dtypes follow ``enable_double_precision``;
+    float16 and float64 keep their exact ONNX IR dtype.
+    """
+    if dtype is None:
+        return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
+    try:
+        key = np.dtype(dtype)
+    except Exception as exc:
+        raise TypeError(f"Unsupported dtype: {dtype}") from exc
+    if np.issubdtype(key, np.floating):
+        if key == np.float16:
+            return ir.DataType.FLOAT16
+        if key == np.float32:
+            return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
+        if key == np.float64:
+            return ir.DataType.DOUBLE
+        return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
+    try:
+        return ir.DataType.from_numpy(key)
+    except Exception as exc:
+        raise TypeError(f"Unsupported dtype: {dtype}") from exc
+
+
+def maybe_numpy_dtype(dtype: object | None) -> np.dtype[Any] | None:
+    if dtype is None:
+        return None
+    try:
+        return cast(np.dtype[Any], np.dtype(dtype))
+    except TypeError:
+        return None
+
+
+def coerce_ir_shape_dim(
+    dim: object,
+    *,
+    parse_integer_like: bool = True,
+) -> int | str:
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    if parse_integer_like:
+        try:
+            return int(cast(Any, dim))
+        except Exception:
+            pass
+    return str(dim)
+
+
+def coerce_ir_shape_dims(
+    dims: Sequence[object],
+    *,
+    parse_integer_like: bool = True,
+) -> tuple[int | str, ...]:
+    return tuple(
+        coerce_ir_shape_dim(dim, parse_integer_like=parse_integer_like) for dim in dims
+    )
+
+
+def ir_shape_from_dims(
+    dims: Sequence[object],
+    *,
+    parse_integer_like: bool = True,
+) -> ir.Shape:
+    return ir.Shape(coerce_ir_shape_dims(dims, parse_integer_like=parse_integer_like))
+
+
+def iter_ir_functions(function_container: object) -> Iterator[ir.Function]:
+    if function_container is None:
+        return
+
+    values_method = getattr(function_container, "values", None)
+    if callable(values_method):
+        try:
+            values_iterable = values_method()
+        except Exception:
+            return
+    elif isinstance(function_container, Iterable) and not isinstance(
+        function_container, (str, bytes)
+    ):
+        values_iterable = function_container
+    else:
+        return
+
+    for fn in values_iterable:
+        yield cast(ir.Function, fn)

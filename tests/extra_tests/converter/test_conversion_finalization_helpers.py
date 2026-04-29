@@ -1,0 +1,175 @@
+# tests/extra_tests/converter/test_conversion_finalization_helpers.py
+
+from __future__ import annotations
+
+import numpy as np
+import onnx_ir as ir
+
+from jax2onnx.converter import conversion_api
+from jax2onnx.converter.conversion_api import (
+    _apply_late_ir_attr_overrides,
+    _attach_ir_functions,
+    _build_and_finalize_ir_model,
+    _finalize_model_value_shapes,
+)
+from jax2onnx.converter.ir_context import IRContext
+
+
+def _value(name: str, shape: tuple[object, ...] = (1,)) -> ir.Value:
+    return ir.Value(
+        name=name,
+        type=ir.TensorType(ir.DataType.FLOAT),
+        shape=ir.Shape(shape),
+    )
+
+
+def _model_with_node(node: ir.Node, inputs: list[ir.Value], outputs: list[ir.Value]):
+    graph = ir.Graph(
+        inputs,
+        outputs,
+        nodes=[node],
+        opset_imports={"": 21},
+        name="test_graph",
+    )
+    return ir.Model(graph, ir_version=10)
+
+
+def test_attach_ir_functions_adds_functions_and_opset_imports() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    fn_input = _value("fn_x")
+    fn_output = _value("fn_y")
+    fn_graph = ir.Graph(
+        [fn_input],
+        [fn_output],
+        nodes=[],
+        opset_imports={"": 21},
+        name="fn_graph",
+    )
+    fn = ir.Function("custom", "Body", graph=fn_graph, attributes={})
+    ctx.ir_functions.append(fn)
+
+    model_input = _value("x")
+    model_output = _value("y")
+    model = ir.Model(
+        ir.Graph(
+            [model_input],
+            [model_output],
+            nodes=[],
+            opset_imports={"": 21},
+            name="main",
+        ),
+        ir_version=10,
+    )
+
+    _attach_ir_functions(model, ctx)
+
+    functions = model.functions
+    if isinstance(functions, dict):
+        attached_functions = list(functions.values())
+    else:
+        attached_functions = list(functions)
+
+    assert attached_functions == [fn]
+    assert model.opset_imports[""] == 21
+    assert model.opset_imports["custom"] == 1
+
+
+def test_apply_late_ir_attr_overrides_updates_attrs_and_concat_axis() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    lhs = _value("lhs")
+    rhs = _value("rhs")
+    out = _value("out")
+    concat = ir.Node("", "Concat", [lhs, rhs], outputs=[out], name="concat")
+    model = _model_with_node(concat, [lhs, rhs], [out])
+
+    ctx.add_node_attr_override("concat", {"axis": np.int64(2)})
+
+    _apply_late_ir_attr_overrides(model, ctx)
+
+    assert concat.attributes["axis"].as_int() == 2
+
+
+def test_apply_late_ir_attr_overrides_fills_missing_concat_axis() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    lhs = _value("lhs")
+    rhs = _value("rhs")
+    out = _value("out")
+    concat = ir.Node("", "Concat", [lhs, rhs], outputs=[out], name="concat")
+    model = _model_with_node(concat, [lhs, rhs], [out])
+
+    _apply_late_ir_attr_overrides(model, ctx)
+
+    assert concat.attributes["axis"].as_int() == 0
+
+
+def test_function_attr_overrides_do_not_fall_back_to_global_overrides() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx.add_node_attr_override("concat", {"axis": np.int64(2)})
+
+    main_input = _value("main_input")
+    main_output = _value("main_output")
+    main_node = ir.Node(
+        "",
+        "Identity",
+        [main_input],
+        outputs=[main_output],
+        name="main_identity",
+    )
+    model = _model_with_node(main_node, [main_input], [main_output])
+
+    lhs = _value("fn_lhs")
+    rhs = _value("fn_rhs")
+    out = _value("fn_out")
+    fn_concat = ir.Node("", "Concat", [lhs, rhs], outputs=[out], name="concat")
+    fn_graph = ir.Graph(
+        [lhs],
+        [out],
+        nodes=[fn_concat],
+        opset_imports={"": 21},
+        name="fn_graph",
+    )
+    fn = ir.Function("custom", "Body", graph=fn_graph, attributes={})
+    setattr(fn, "_attr_overrides", {})
+    model.functions[fn.identifier()] = fn
+
+    _apply_late_ir_attr_overrides(model, ctx)
+
+    assert fn_concat.attributes["axis"].as_int() == 0
+
+
+def test_finalize_model_value_shapes_normalizes_symbolic_dims() -> None:
+    value = _value("x", (np.int64(2), "B"))
+    model = ir.Model(
+        ir.Graph([value], [value], nodes=[], opset_imports={"": 21}, name="main"),
+        ir_version=10,
+    )
+
+    _finalize_model_value_shapes(model)
+
+    dims = model.graph.inputs[0].shape.dims
+    assert dims[0] == 2
+    assert isinstance(dims[0], int)
+    assert isinstance(dims[1], ir.SymbolicDim)
+    assert str(dims[1]) == "B"
+
+
+def test_build_and_finalize_ir_model_returns_named_finalized_model() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    value = _value("x", (np.int64(2), "B"))
+    ctx.builder.inputs.append(value)
+    ctx.builder.outputs.append(value)
+
+    model = _build_and_finalize_ir_model(
+        ctx,
+        model_name="assembled",
+        protective_clone=False,
+    )
+
+    assert model.graph.name == "assembled"
+    dims = model.graph.inputs[0].shape.dims
+    assert dims[0] == 2
+    assert isinstance(dims[1], ir.SymbolicDim)
+
+
+def test_optional_shape_inference_placeholder_removed() -> None:
+    assert not hasattr(conversion_api, "run_optional_shape_inference")

@@ -9,6 +9,7 @@ from typing import (
     Collection,
     Mapping,
     Protocol,
+    Sequence,
     runtime_checkable,
 )
 
@@ -69,7 +70,32 @@ class SymbolicDimTracker(Protocol):
 class LoweringContextProtocol(SymbolicDimTracker, Protocol):
     builder: Any
 
+    @property
+    def opset(self) -> int: ...
+
+    @property
+    def enable_double_precision(self) -> bool: ...
+
+    @property
+    def _var2val(self) -> dict[Any, ir.Value]: ...
+
+    @property
+    def _inputs(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def _initializers(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def _nodes(self) -> Sequence[ir.Node]: ...
+
     def fresh_name(self, base: str) -> str: ...
+
+    def add_node(
+        self,
+        node: ir.Node,
+        inputs: Sequence[ir.Value] | None = None,
+        outputs: Sequence[ir.Value] | None = None,
+    ) -> ir.Node: ...
 
     def get_value_for_var(
         self,
@@ -79,7 +105,32 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
         prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
 
+    def require_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
+    def allocate_value_for_var(
+        self,
+        var: Any,
+        *,
+        name_hint: str | None = None,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
+
+    def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
+
+    def cast_like(
+        self,
+        tensor: ir.Value,
+        exemplar: ir.Value,
+        *,
+        name_hint: str | None = None,
+    ) -> ir.Value: ...
 
 
 @dataclass(frozen=True)
