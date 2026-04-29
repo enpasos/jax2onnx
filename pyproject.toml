@@ -317,6 +317,7 @@ files = [
     "jax2onnx/plugins/jax/nn/__init__.py",
     "jax2onnx/plugins/jax/nn/_builder_utils.py",
     "jax2onnx/plugins/jax/nn/celu.py",
+    "jax2onnx/plugins/jax/nn/dot_product_attention.py",
     "jax2onnx/plugins/jax/nn/elu.py",
     "jax2onnx/plugins/jax/nn/gelu.py",
     "jax2onnx/plugins/jax/nn/glu.py",

@@ -11,7 +11,11 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import SymbolicDimOrigin
 from jax2onnx.ir_utils import tensor_attr
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
 
@@ -157,7 +161,7 @@ def _builder_op(
     *,
     name_hint: str,
     dtype: ir.DataType | None = None,
-    shape: Sequence[int | None] | None = None,
+    shape: Sequence[DimInput] | None = None,
     attributes: Dict[str, Any] | None = None,
     output: ir.Value | None = None,
 ) -> ir.Value:
