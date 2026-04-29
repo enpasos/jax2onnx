@@ -222,7 +222,9 @@ Status: implemented. The shared output-binding helper is used by the top-level
 subgraph lowering, and direct nested-JAXPR wrappers such as JIT, PJIT,
 `custom_jvp`, `custom_vjp`, `shard_map`, and `custom_linear_solve`. The guard
 also accepts returned `ir.Value` objects and binds them generically when a
-plugin returns values instead of calling `ctx.bind_value_for_var(...)`.
+plugin returns values instead of calling `ctx.bind_value_for_var(...)`. It also
+recognizes graph-connected values by stable IR value name when `onnx_ir` has
+wrapped or rematerialized the `Value` object.
 
 ### 2. Consolidate legacy context shims
 
@@ -331,7 +333,9 @@ output independently.
 
 Status: implemented. Constant producer tracking now stores each output index,
 multi-output handler results are validated against outvar arity, and each output
-array is cached under the matching outvar.
+array is cached under the matching outvar. Nested lowering uses a scoped producer
+map so entering an inner JAXPR does not permanently discard the parent JAXPR's
+constant-producer state.
 
 ### 10. Normalize function container handling
 
