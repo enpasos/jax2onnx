@@ -226,6 +226,7 @@ files = [
     "jax2onnx/plugins/jax/lax/pad.py",
     "jax2onnx/plugins/jax/lax/pjit.py",
     "jax2onnx/plugins/jax/lax/pow.py",
+    "jax2onnx/plugins/jax/lax/qr.py",
     "jax2onnx/plugins/jax/lax/ragged_dot_general.py",
     "jax2onnx/plugins/jax/lax/reduce.py",
     "jax2onnx/plugins/jax/lax/reduce_and.py",

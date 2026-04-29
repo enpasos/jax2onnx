@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -24,7 +22,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _slice_matrix(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     *,
     row_start: int,
@@ -45,12 +43,15 @@ def _slice_matrix(
         f"{name}_ends",
     )
     axes = _const_i64(ctx, np.asarray([0, 1], dtype=np.int64), f"{name}_axes")
-    out = ctx.builder.Slice(
-        mat,
-        starts,
-        ends,
-        axes,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Slice(
+            mat,
+            starts,
+            ends,
+            axes,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         out.type = mat.type
@@ -59,24 +60,30 @@ def _slice_matrix(
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -85,7 +92,7 @@ def _gather_mat_elem(
 
 
 def _scatter_mat_elem(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -97,13 +104,16 @@ def _scatter_mat_elem(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _scatter_block(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     base: ir.Value,
     block: ir.Value,
     *,
@@ -124,14 +134,20 @@ def _scatter_block(
         np.asarray([rows * cols], dtype=np.int64),
         f"{name}_flat_shape",
     )
-    flat = ctx.builder.Reshape(
-        block, flat_shape, _outputs=[ctx.fresh_name(f"{name}_flat")]
+    flat = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            block, flat_shape, _outputs=[ctx.fresh_name(f"{name}_flat")]
+        ),
     )
     if getattr(block, "type", None) is not None:
         flat.type = block.type
     flat.shape = ir.Shape((rows * cols,))
 
-    out = ctx.builder.ScatterND(base, idx, flat, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(base, idx, flat, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, base)
     return out
 
@@ -243,7 +259,7 @@ def _scatter_block(
 class QrPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.qr`` for ``pivoting=False`` (both reduced/full modes)."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         pivoting = bool(params.get("pivoting", False))
         full_matrices = bool(params.get("full_matrices", True))
@@ -309,57 +325,78 @@ class QrPlugin(PrimitiveLeafPlugin):
                 name=f"qr_x_col_{j}",
             )
 
-            x_col_t = ctx.builder.Transpose(
-                x_col,
-                perm=[1, 0],
-                _outputs=[ctx.fresh_name(f"qr_x_col_t_{j}")],
+            x_col_t = cast(
+                ir.Value,
+                ctx.builder.Transpose(
+                    x_col,
+                    perm=[1, 0],
+                    _outputs=[ctx.fresh_name(f"qr_x_col_t_{j}")],
+                ),
             )
             if getattr(x_col, "type", None) is not None:
                 x_col_t.type = x_col.type
             x_col_t.shape = ir.Shape((1, sub_rows))
 
-            norm_sq = ctx.builder.MatMul(
-                x_col_t,
-                x_col,
-                _outputs=[ctx.fresh_name(f"qr_norm_sq_{j}")],
+            norm_sq = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    x_col_t,
+                    x_col,
+                    _outputs=[ctx.fresh_name(f"qr_norm_sq_{j}")],
+                ),
             )
             if getattr(x_col, "type", None) is not None:
                 norm_sq.type = x_col.type
             norm_sq.shape = ir.Shape((1, 1))
-            norm = ctx.builder.Sqrt(norm_sq, _outputs=[ctx.fresh_name(f"qr_norm_{j}")])
+            norm = cast(
+                ir.Value,
+                ctx.builder.Sqrt(norm_sq, _outputs=[ctx.fresh_name(f"qr_norm_{j}")]),
+            )
             if getattr(norm_sq, "type", None) is not None:
                 norm.type = norm_sq.type
             norm.shape = ir.Shape((1, 1))
 
             x0 = _gather_mat_elem(ctx, r_cur, j, j, f"qr_x0_{j}")
-            less_zero = ctx.builder.Less(
-                x0,
-                zero,
-                _outputs=[ctx.fresh_name(f"qr_less_zero_{j}")],
+            less_zero = cast(
+                ir.Value,
+                ctx.builder.Less(
+                    x0,
+                    zero,
+                    _outputs=[ctx.fresh_name(f"qr_less_zero_{j}")],
+                ),
             )
             less_zero.type = ir.TensorType(ir.DataType.BOOL)
             less_zero.shape = ir.Shape((1, 1))
 
-            alpha_sign = ctx.builder.Where(
-                less_zero,
-                one,
-                neg_one,
-                _outputs=[ctx.fresh_name(f"qr_alpha_sign_{j}")],
+            alpha_sign = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    less_zero,
+                    one,
+                    neg_one,
+                    _outputs=[ctx.fresh_name(f"qr_alpha_sign_{j}")],
+                ),
             )
             if getattr(x, "type", None) is not None:
                 alpha_sign.type = x.type
             alpha_sign.shape = ir.Shape((1, 1))
 
-            alpha = ctx.builder.Mul(
-                alpha_sign,
-                norm,
-                _outputs=[ctx.fresh_name(f"qr_alpha_{j}")],
+            alpha = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    alpha_sign,
+                    norm,
+                    _outputs=[ctx.fresh_name(f"qr_alpha_{j}")],
+                ),
             )
             if getattr(norm, "type", None) is not None:
                 alpha.type = norm.type
             alpha.shape = ir.Shape((1, 1))
 
-            v0 = ctx.builder.Sub(x0, alpha, _outputs=[ctx.fresh_name(f"qr_v0_{j}")])
+            v0 = cast(
+                ir.Value,
+                ctx.builder.Sub(x0, alpha, _outputs=[ctx.fresh_name(f"qr_v0_{j}")]),
+            )
             if getattr(x0, "type", None) is not None:
                 v0.type = x0.type
             v0.shape = ir.Shape((1, 1))
@@ -367,41 +404,56 @@ class QrPlugin(PrimitiveLeafPlugin):
             v = _scatter_mat_elem(ctx, x_col, 0, 0, v0, f"qr_set_v0_{j}")
             v.shape = ir.Shape((sub_rows, 1))
 
-            v_t = ctx.builder.Transpose(
-                v,
-                perm=[1, 0],
-                _outputs=[ctx.fresh_name(f"qr_v_t_{j}")],
+            v_t = cast(
+                ir.Value,
+                ctx.builder.Transpose(
+                    v,
+                    perm=[1, 0],
+                    _outputs=[ctx.fresh_name(f"qr_v_t_{j}")],
+                ),
             )
             if getattr(v, "type", None) is not None:
                 v_t.type = v.type
             v_t.shape = ir.Shape((1, sub_rows))
 
-            beta = ctx.builder.MatMul(v_t, v, _outputs=[ctx.fresh_name(f"qr_beta_{j}")])
+            beta = cast(
+                ir.Value,
+                ctx.builder.MatMul(v_t, v, _outputs=[ctx.fresh_name(f"qr_beta_{j}")]),
+            )
             if getattr(v, "type", None) is not None:
                 beta.type = v.type
             beta.shape = ir.Shape((1, 1))
 
-            tau_raw = ctx.builder.Div(
-                two,
-                beta,
-                _outputs=[ctx.fresh_name(f"qr_tau_raw_{j}")],
+            tau_raw = cast(
+                ir.Value,
+                ctx.builder.Div(
+                    two,
+                    beta,
+                    _outputs=[ctx.fresh_name(f"qr_tau_raw_{j}")],
+                ),
             )
             if getattr(beta, "type", None) is not None:
                 tau_raw.type = beta.type
             tau_raw.shape = ir.Shape((1, 1))
 
-            beta_zero = ctx.builder.Equal(
-                beta,
-                zero,
-                _outputs=[ctx.fresh_name(f"qr_beta_zero_{j}")],
+            beta_zero = cast(
+                ir.Value,
+                ctx.builder.Equal(
+                    beta,
+                    zero,
+                    _outputs=[ctx.fresh_name(f"qr_beta_zero_{j}")],
+                ),
             )
             beta_zero.type = ir.TensorType(ir.DataType.BOOL)
             beta_zero.shape = ir.Shape((1, 1))
-            tau = ctx.builder.Where(
-                beta_zero,
-                zero,
-                tau_raw,
-                _outputs=[ctx.fresh_name(f"qr_tau_{j}")],
+            tau = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    beta_zero,
+                    zero,
+                    tau_raw,
+                    _outputs=[ctx.fresh_name(f"qr_tau_{j}")],
+                ),
             )
             if getattr(beta, "type", None) is not None:
                 tau.type = beta.type
@@ -417,26 +469,38 @@ class QrPlugin(PrimitiveLeafPlugin):
                 out_shape=(sub_rows, sub_cols_r),
                 name=f"qr_r_sub_{j}",
             )
-            vt_r = ctx.builder.MatMul(
-                v_t,
-                r_sub,
-                _outputs=[ctx.fresh_name(f"qr_vt_r_{j}")],
+            vt_r = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    v_t,
+                    r_sub,
+                    _outputs=[ctx.fresh_name(f"qr_vt_r_{j}")],
+                ),
             )
             if getattr(r_sub, "type", None) is not None:
                 vt_r.type = r_sub.type
             vt_r.shape = ir.Shape((1, sub_cols_r))
-            w = ctx.builder.Mul(tau, vt_r, _outputs=[ctx.fresh_name(f"qr_w_{j}")])
+            w = cast(
+                ir.Value,
+                ctx.builder.Mul(tau, vt_r, _outputs=[ctx.fresh_name(f"qr_w_{j}")]),
+            )
             if getattr(vt_r, "type", None) is not None:
                 w.type = vt_r.type
             w.shape = ir.Shape((1, sub_cols_r))
-            vw = ctx.builder.MatMul(v, w, _outputs=[ctx.fresh_name(f"qr_vw_{j}")])
+            vw = cast(
+                ir.Value,
+                ctx.builder.MatMul(v, w, _outputs=[ctx.fresh_name(f"qr_vw_{j}")]),
+            )
             if getattr(r_sub, "type", None) is not None:
                 vw.type = r_sub.type
             vw.shape = ir.Shape((sub_rows, sub_cols_r))
-            r_sub_new = ctx.builder.Sub(
-                r_sub,
-                vw,
-                _outputs=[ctx.fresh_name(f"qr_r_sub_new_{j}")],
+            r_sub_new = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    r_sub,
+                    vw,
+                    _outputs=[ctx.fresh_name(f"qr_r_sub_new_{j}")],
+                ),
             )
             if getattr(r_sub, "type", None) is not None:
                 r_sub_new.type = r_sub.type
@@ -462,34 +526,46 @@ class QrPlugin(PrimitiveLeafPlugin):
                 out_shape=(m, sub_cols_q),
                 name=f"qr_q_tail_{j}",
             )
-            qv = ctx.builder.MatMul(
-                q_tail,
-                v,
-                _outputs=[ctx.fresh_name(f"qr_qv_{j}")],
+            qv = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    q_tail,
+                    v,
+                    _outputs=[ctx.fresh_name(f"qr_qv_{j}")],
+                ),
             )
             if getattr(q_tail, "type", None) is not None:
                 qv.type = q_tail.type
             qv.shape = ir.Shape((m, 1))
-            tau_vt = ctx.builder.Mul(
-                tau,
-                v_t,
-                _outputs=[ctx.fresh_name(f"qr_tau_vt_{j}")],
+            tau_vt = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    tau,
+                    v_t,
+                    _outputs=[ctx.fresh_name(f"qr_tau_vt_{j}")],
+                ),
             )
             if getattr(v_t, "type", None) is not None:
                 tau_vt.type = v_t.type
             tau_vt.shape = ir.Shape((1, sub_cols_q))
-            q_delta = ctx.builder.MatMul(
-                qv,
-                tau_vt,
-                _outputs=[ctx.fresh_name(f"qr_q_delta_{j}")],
+            q_delta = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    qv,
+                    tau_vt,
+                    _outputs=[ctx.fresh_name(f"qr_q_delta_{j}")],
+                ),
             )
             if getattr(q_tail, "type", None) is not None:
                 q_delta.type = q_tail.type
             q_delta.shape = ir.Shape((m, sub_cols_q))
-            q_tail_new = ctx.builder.Sub(
-                q_tail,
-                q_delta,
-                _outputs=[ctx.fresh_name(f"qr_q_tail_new_{j}")],
+            q_tail_new = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    q_tail,
+                    q_delta,
+                    _outputs=[ctx.fresh_name(f"qr_q_tail_new_{j}")],
+                ),
             )
             if getattr(q_tail, "type", None) is not None:
                 q_tail_new.type = q_tail.type
@@ -533,7 +609,7 @@ class QrPlugin(PrimitiveLeafPlugin):
         q_name = getattr(q_spec, "name", None) or ctx.fresh_name("qr_q")
         q_out = q_final
         if getattr(q_out, "name", None) != q_name:
-            q_out = ctx.builder.Identity(q_final, _outputs=[q_name])
+            q_out = cast(ir.Value, ctx.builder.Identity(q_final, _outputs=[q_name]))
         _stamp_like(q_out, q_spec if getattr(q_spec, "type", None) else q_final)
         if getattr(q_spec, "shape", None) is not None:
             q_out.shape = q_spec.shape
@@ -541,7 +617,7 @@ class QrPlugin(PrimitiveLeafPlugin):
         r_name = getattr(r_spec, "name", None) or ctx.fresh_name("qr_r")
         r_out = r_final
         if getattr(r_out, "name", None) != r_name:
-            r_out = ctx.builder.Identity(r_final, _outputs=[r_name])
+            r_out = cast(ir.Value, ctx.builder.Identity(r_final, _outputs=[r_name]))
         _stamp_like(r_out, r_spec if getattr(r_spec, "type", None) else r_final)
         if getattr(r_spec, "shape", None) is not None:
             r_out.shape = r_spec.shape
