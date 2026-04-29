@@ -14,7 +14,11 @@ from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -64,7 +68,8 @@ def _validate_edges_shape(shape: tuple[object, ...], *, axis_name: str) -> int:
         raise TypeError(
             f"jnp.histogram2d lowering requires static {axis_name} edge length"
         )
-    edge_count = int(shape[0])
+    static_shape = cast(tuple[int | np.integer[Any]], shape)
+    edge_count = int(static_shape[0])
     if edge_count < 2:
         raise ValueError(
             f"jnp.histogram2d lowering requires at least two {axis_name} edges"
@@ -191,7 +196,9 @@ def _interval_membership(
     _stamp_type_and_shape(upper_closed, matrix_shape)
     _ensure_value_metadata(ctx, upper_closed)
 
-    last_bin_mask = np.zeros((bin_count, 1), dtype=np.bool_)
+    last_bin_mask: np.ndarray[Any, np.dtype[np.bool_]] = np.zeros(
+        (bin_count, 1), dtype=np.bool_
+    )
     last_bin_mask[-1, 0] = True
     last_bin = _bool_initializer(
         ctx,
@@ -216,7 +223,7 @@ def _interval_membership(
     _stamp_type_and_shape(upper_ok, matrix_shape)
     _ensure_value_metadata(ctx, upper_ok)
 
-    in_bin = ctx.builder.And(
+    in_bin: ir.Value = ctx.builder.And(
         lower_ok,
         upper_ok,
         _outputs=[ctx.fresh_name(f"{name_hint}_in_bin")],
@@ -583,7 +590,7 @@ class JnpHistogram2dPlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
             output_name = ctx.fresh_name(name_hint)
-        result = ctx.builder.Identity(value, _outputs=[output_name])
+        result: ir.Value = ctx.builder.Identity(value, _outputs=[output_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
@@ -593,7 +600,7 @@ class JnpHistogram2dPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:
-            _stamp_type_and_shape(result, output_shape)
+            _stamp_type_and_shape(result, cast(tuple[DimInput, ...], output_shape))
         _ensure_value_metadata(ctx, result)
         return result
 
