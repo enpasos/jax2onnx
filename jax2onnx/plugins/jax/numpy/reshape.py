@@ -434,11 +434,14 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             axis_const = _const_i64(
                 ctx, np.asarray(idx, dtype=np.int64), "reshape_axis"
             )
-            gather_val = builder.Gather(
-                shape_val,
-                axis_const,
-                axis=0,
-                _outputs=[ctx.fresh_name("reshape_dim")],
+            gather_val = cast(
+                ir.Value,
+                builder.Gather(
+                    shape_val,
+                    axis_const,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("reshape_dim")],
+                ),
             )
             gather_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(gather_val, ())
@@ -446,10 +449,13 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
             axes_const = _const_i64(
                 ctx, np.asarray([0], dtype=np.int64), "reshape_unsq_axes"
             )
-            unsqueezed = builder.Unsqueeze(
-                gather_val,
-                axes_const,
-                _outputs=[ctx.fresh_name("reshape_dim_unsq")],
+            unsqueezed = cast(
+                ir.Value,
+                builder.Unsqueeze(
+                    gather_val,
+                    axes_const,
+                    _outputs=[ctx.fresh_name("reshape_dim_unsq")],
+                ),
             )
             unsqueezed.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(unsqueezed, (1,))

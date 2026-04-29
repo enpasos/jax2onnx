@@ -240,12 +240,15 @@ def _maybe_cast_value(
     builder = getattr(ctx, "builder", None)
     if builder is None:
         raise AttributeError("IR build context missing builder for arange lowering")
-    cast = builder.Cast(
-        value,
-        _outputs=[ctx.fresh_name(name_hint)],
-        to=int(target_enum.value),
+    cast_val = cast(
+        ir.Value,
+        builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(name_hint)],
+            to=int(target_enum.value),
+        ),
     )
-    cast.type = ir.TensorType(target_enum)
+    cast_val.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)
     dims = None
     if shape_obj is not None:
@@ -255,9 +258,9 @@ def _maybe_cast_value(
                 dims = tuple(shape_obj)
             except TypeError:
                 dims = None
-    _stamp_type_and_shape(cast, tuple(dims) if dims is not None else ())
-    _ensure_value_metadata(ctx, cast)
-    return cast
+    _stamp_type_and_shape(cast_val, tuple(dims) if dims is not None else ())
+    _ensure_value_metadata(ctx, cast_val)
+    return cast_val
 
 
 def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
@@ -729,10 +732,15 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                     length_hint = None
 
         if length_hint is not None:
-            final_shape: tuple[object, ...] = (int(length_hint),)
+            final_shape: tuple[int | ir.SymbolicDim | None | str, ...] = (
+                int(length_hint),
+            )
         else:
             out_shape = tuple(getattr(out_var.aval, "shape", ()))
-            final_shape = _with_ir_shape_dims(out_shape)
+            final_shape = cast(
+                tuple[int | ir.SymbolicDim | None | str, ...],
+                _with_ir_shape_dims(out_shape),
+            )
 
         _stamp_type_and_shape(result, final_shape)
         _ensure_value_metadata(ctx, result)
