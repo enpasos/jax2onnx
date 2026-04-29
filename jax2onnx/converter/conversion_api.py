@@ -617,17 +617,23 @@ def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
     _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
     _fix_concat_axis_in_graph(ir_model.graph)
 
+    missing_overrides = object()
     for fn in iter_ir_functions(ir_model.functions):
         try:
             graph_obj = getattr(fn, "graph", None)
             if graph_obj is None:
                 continue
-            overrides_attr: dict[str, dict[str, object]] = {}
+            raw_overrides: object = missing_overrides
             if hasattr(fn, "_attr_overrides"):
                 raw_overrides = object.__getattribute__(fn, "_attr_overrides")
-                if raw_overrides:
-                    overrides_attr = dict(raw_overrides)
-            fn_overrides = overrides_attr or dict(ctx.attr_overrides or {})
+            if raw_overrides is missing_overrides:
+                fn_overrides = dict(ctx.attr_overrides or {})
+            elif isinstance(raw_overrides, Mapping):
+                fn_overrides = dict(
+                    cast(Mapping[str, dict[str, object]], raw_overrides)
+                )
+            else:
+                fn_overrides = {}
             _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
             _fix_concat_axis_in_graph(graph_obj)
         except Exception as exc:

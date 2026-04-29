@@ -102,6 +102,41 @@ def test_apply_late_ir_attr_overrides_fills_missing_concat_axis() -> None:
     assert concat.attributes["axis"].as_int() == 0
 
 
+def test_function_attr_overrides_do_not_fall_back_to_global_overrides() -> None:
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx.add_node_attr_override("concat", {"axis": np.int64(2)})
+
+    main_input = _value("main_input")
+    main_output = _value("main_output")
+    main_node = ir.Node(
+        "",
+        "Identity",
+        [main_input],
+        outputs=[main_output],
+        name="main_identity",
+    )
+    model = _model_with_node(main_node, [main_input], [main_output])
+
+    lhs = _value("fn_lhs")
+    rhs = _value("fn_rhs")
+    out = _value("fn_out")
+    fn_concat = ir.Node("", "Concat", [lhs, rhs], outputs=[out], name="concat")
+    fn_graph = ir.Graph(
+        [lhs],
+        [out],
+        nodes=[fn_concat],
+        opset_imports={"": 21},
+        name="fn_graph",
+    )
+    fn = ir.Function("custom", "Body", graph=fn_graph, attributes={})
+    setattr(fn, "_attr_overrides", {})
+    model.functions[fn.identifier()] = fn
+
+    _apply_late_ir_attr_overrides(model, ctx)
+
+    assert fn_concat.attributes["axis"].as_int() == 0
+
+
 def test_finalize_model_value_shapes_normalizes_symbolic_dims() -> None:
     value = _value("x", (np.int64(2), "B"))
     model = ir.Model(
