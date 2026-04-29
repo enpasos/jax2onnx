@@ -1,7 +1,8 @@
 # jax2onnx/converter/ir_constants.py
 
 from __future__ import annotations
-from typing import Any, Callable, Dict, Optional, cast
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, Iterator, Optional, cast
 import numpy as np
 from numpy.typing import NDArray
 
@@ -21,6 +22,16 @@ class ConstantFolder:
         for eqn in jaxpr.eqns:
             for output_index, out in enumerate(eqn.outvars):
                 self._producer[id(out)] = (eqn, output_index)
+
+    @contextmanager
+    def producer_scope(self, jaxpr: Any) -> Iterator[None]:
+        previous_producers = dict(self._producer)
+        self.install_producers(jaxpr)
+        try:
+            yield
+        finally:
+            self._producer.clear()
+            self._producer.update(previous_producers)
 
     def register_handler(
         self, primitive_name: str, handler: Callable[..., Any]

@@ -971,44 +971,44 @@ def _trace_to_jaxpr(
 
 def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
     converter = make_converter_facade(ctx)
-    ctx._const_folder.install_producers(jpr)
     primitive_call_records: list[RecordedPrimitiveCallLog] = []
 
     try:
-        for eqn_index, eqn in enumerate(jpr.eqns):
-            prim_name = eqn.primitive.name
-            plugin_ref = get_registered_lowering_plugin(
-                PLUGIN_REGISTRY,
-                prim_name,
-                source="converter",
-            )
-            builder = ctx.builder
-            with (
-                _current_eqn_scope(ctx, eqn),
-                _staged_lowering_metadata(
-                    builder,
-                    eqn=eqn,
-                    plugin_ref=plugin_ref,
-                    primitive_name=prim_name,
-                ),
-            ):
-                lower_equation_with_plugin(
-                    plugin_ref,
-                    ctx=ctx,
-                    eqn=eqn,
-                    primitive_name=prim_name,
-                    eqn_index=eqn_index,
+        with ctx._const_folder.producer_scope(jpr):
+            for eqn_index, eqn in enumerate(jpr.eqns):
+                prim_name = eqn.primitive.name
+                plugin_ref = get_registered_lowering_plugin(
+                    PLUGIN_REGISTRY,
+                    prim_name,
                     source="converter",
-                    converter=converter,
                 )
-                _append_primitive_call_record(
-                    primitive_call_records,
-                    ctx,
-                    eqn,
-                    eqn_index=eqn_index,
-                    primitive_name=prim_name,
-                    plugin_ref=plugin_ref,
-                )
+                builder = ctx.builder
+                with (
+                    _current_eqn_scope(ctx, eqn),
+                    _staged_lowering_metadata(
+                        builder,
+                        eqn=eqn,
+                        plugin_ref=plugin_ref,
+                        primitive_name=prim_name,
+                    ),
+                ):
+                    lower_equation_with_plugin(
+                        plugin_ref,
+                        ctx=ctx,
+                        eqn=eqn,
+                        primitive_name=prim_name,
+                        eqn_index=eqn_index,
+                        source="converter",
+                        converter=converter,
+                    )
+                    _append_primitive_call_record(
+                        primitive_call_records,
+                        ctx,
+                        eqn,
+                        eqn_index=eqn_index,
+                        primitive_name=prim_name,
+                        plugin_ref=plugin_ref,
+                    )
     finally:
         if ctx.record_primitive_calls_file:
             save_primitive_calls_log(

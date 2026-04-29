@@ -8,6 +8,7 @@ from typing import Any
 import onnx_ir as ir
 import pytest
 
+from jax2onnx.converter.ir_constants import ConstantFolder
 from jax2onnx.converter.lowering_dispatch import (
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
@@ -227,6 +228,53 @@ def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
 
     assert ctx.builder._var2val[outvars[0]] is input_value
     assert ctx.builder._var2val[outvars[1]] is input_value
+
+
+def test_lower_jaxpr_with_plugins_restores_existing_constant_producers() -> None:
+    outer_outvar = object()
+    inner_outvar = object()
+    input_value = ir.Value(name="input")
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        ),
+        _const_folder=ConstantFolder(),
+    )
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    outer_jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="outer"),
+                invars=[],
+                outvars=[outer_outvar],
+            )
+        ]
+    )
+    inner_jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="return_input"),
+                outvars=[inner_outvar],
+            )
+        ]
+    )
+    ctx._const_folder.install_producers(outer_jaxpr)
+
+    lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=inner_jaxpr,
+        registry={"return_input": _ReturnGraphInputPlugin()},
+        source="test",
+    )
+
+    assert ctx.builder._var2val[inner_outvar] is input_value
+    assert id(outer_outvar) in ctx._const_folder._producer
+    assert id(inner_outvar) not in ctx._const_folder._producer
 
 
 def test_lower_jaxpr_with_plugins_reports_missing_plugin_detail() -> None:

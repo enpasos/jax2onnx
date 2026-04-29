@@ -91,3 +91,40 @@ def test_constant_folder_rejects_multi_output_handler_arity_mismatch() -> None:
 
     assert folder.try_evaluate(second_out) is None
     assert folder.try_evaluate(first_out) is None
+
+
+def test_constant_folder_producer_scope_restores_previous_producers() -> None:
+    folder = ConstantFolder()
+    outer_out = object()
+    inner_out = object()
+    outer_jaxpr = SimpleNamespace(
+        eqns=[
+            _eqn(
+                primitive_name="outer",
+                invars=[],
+                outvars=[outer_out],
+            )
+        ]
+    )
+    inner_jaxpr = SimpleNamespace(
+        eqns=[
+            _eqn(
+                primitive_name="inner",
+                invars=[],
+                outvars=[inner_out],
+            )
+        ]
+    )
+
+    with folder.producer_scope(outer_jaxpr):
+        assert id(outer_out) in folder._producer
+        assert id(inner_out) not in folder._producer
+
+        with folder.producer_scope(inner_jaxpr):
+            assert id(inner_out) in folder._producer
+            assert id(outer_out) not in folder._producer
+
+        assert id(outer_out) in folder._producer
+        assert id(inner_out) not in folder._producer
+
+    assert folder._producer == {}

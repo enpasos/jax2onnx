@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import nullcontext
 from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
@@ -149,20 +150,24 @@ def lower_jaxpr_with_plugins(
     missing_plugin_detail: str | None = None,
 ) -> None:
     """Lower every equation in a JAXPR-like object with registered plugins."""
-    for eqn_index, eqn in enumerate(getattr(jaxpr, "eqns", ())):
-        primitive_name = eqn.primitive.name
-        plugin = get_registered_lowering_plugin(
-            registry,
-            primitive_name,
-            source=source,
-            detail=missing_plugin_detail,
-        )
-        lower_equation_with_plugin(
-            plugin,
-            ctx=ctx,
-            eqn=eqn,
-            primitive_name=primitive_name,
-            eqn_index=eqn_index,
-            source=source,
-            converter=converter,
-        )
+    const_folder = getattr(ctx, "_const_folder", None)
+    producer_scope = getattr(const_folder, "producer_scope", None)
+    scope = producer_scope(jaxpr) if callable(producer_scope) else nullcontext()
+    with scope:
+        for eqn_index, eqn in enumerate(getattr(jaxpr, "eqns", ())):
+            primitive_name = eqn.primitive.name
+            plugin = get_registered_lowering_plugin(
+                registry,
+                primitive_name,
+                source=source,
+                detail=missing_plugin_detail,
+            )
+            lower_equation_with_plugin(
+                plugin,
+                ctx=ctx,
+                eqn=eqn,
+                primitive_name=primitive_name,
+                eqn_index=eqn_index,
+                source=source,
+                converter=converter,
+            )
