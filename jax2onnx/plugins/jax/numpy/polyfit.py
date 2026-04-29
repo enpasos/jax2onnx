@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -14,7 +14,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -47,9 +47,9 @@ def _normalise_linear_shapes(
         or not _all_static_ints(out_shape_raw)
     ):
         raise TypeError("jnp.polyfit lowering requires static 1D x/y shapes")
-    x_shape = tuple(int(dim) for dim in x_shape_raw)
-    y_shape = tuple(int(dim) for dim in y_shape_raw)
-    out_shape = tuple(int(dim) for dim in out_shape_raw)
+    x_shape = tuple(int(cast(int | np.integer[Any], dim)) for dim in x_shape_raw)
+    y_shape = tuple(int(cast(int | np.integer[Any], dim)) for dim in y_shape_raw)
+    out_shape = tuple(int(cast(int | np.integer[Any], dim)) for dim in out_shape_raw)
     sample_count = x_shape[0]
     if y_shape[0] != sample_count:
         raise ValueError("jnp.polyfit lowering requires matching x/y lengths")
@@ -103,11 +103,14 @@ def _reduce_sum_1d(
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.ReduceSum(
-        value,
-        axes,
-        keepdims=0,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.ReduceSum(
+            value,
+            axes,
+            keepdims=0,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, ())
@@ -407,7 +410,7 @@ class JnpPolyfitPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(

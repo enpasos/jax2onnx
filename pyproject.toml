@@ -262,6 +262,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/ones.py",
     "jax2onnx/plugins/jax/numpy/outer.py",
     "jax2onnx/plugins/jax/numpy/pad.py",
+    "jax2onnx/plugins/jax/numpy/polyfit.py",
     "jax2onnx/plugins/jax/numpy/pow.py",
     "jax2onnx/plugins/jax/numpy/prod.py",
     "jax2onnx/plugins/jax/numpy/reshape.py",
