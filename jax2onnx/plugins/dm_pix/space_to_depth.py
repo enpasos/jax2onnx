@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import ModuleType
-from typing import Any, ClassVar, Final, cast
+from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -16,17 +16,22 @@ from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-pix: ModuleType | None
 try:
-    import dm_pix as pix
+    import dm_pix as _dm_pix
 except Exception:  # pragma: no cover - optional dependency
     pix = cast(ModuleType | None, None)
+else:
+    pix = cast(ModuleType | None, _dm_pix)
 
 
 def _make_dm_pix_primitive(name: str) -> Primitive:
@@ -152,19 +157,17 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_shape = tuple(getattr(x_var.aval, "shape", ()))
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
+        out_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
+        )
         rank = len(x_shape)
         if rank not in (3, 4):
             raise NotImplementedError(
                 f"dm_pix.space_to_depth lowering supports rank 3/4, received rank {rank}"
             )
 
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for dm_pix.space_to_depth lowering"
-            )
+        builder = ctx.builder
 
         x_val = ctx.get_value_for_var(
             x_var, name_hint=ctx.fresh_name("space_to_depth_in")
@@ -174,18 +177,21 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
         )
         x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
 
-        nhwc4 = x_val
-        nhwc4_shape: tuple[object, ...]
+        nhwc4: ir.Value = x_val
+        nhwc4_shape: tuple[DimInput, ...]
         if rank == 3:
             unsq_axes = _const_i64(
                 ctx,
                 np.asarray([0], dtype=np.int64),
                 "space_to_depth_unsqueeze_axes",
             )
-            nhwc4 = builder.Unsqueeze(
-                x_val,
-                unsq_axes,
-                _outputs=[ctx.fresh_name("space_to_depth_nhwc4")],
+            nhwc4 = cast(
+                ir.Value,
+                builder.Unsqueeze(
+                    x_val,
+                    unsq_axes,
+                    _outputs=[ctx.fresh_name("space_to_depth_nhwc4")],
+                ),
             )
             if x_dtype is not None:
                 nhwc4.type = ir.TensorType(x_dtype)
@@ -195,10 +201,13 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
         else:
             nhwc4_shape = x_shape
 
-        to_nchw = builder.Transpose(
-            nhwc4,
-            perm=[0, 3, 1, 2],
-            _outputs=[ctx.fresh_name("space_to_depth_to_nchw")],
+        to_nchw = cast(
+            ir.Value,
+            builder.Transpose(
+                nhwc4,
+                perm=[0, 3, 1, 2],
+                _outputs=[ctx.fresh_name("space_to_depth_to_nchw")],
+            ),
         )
         if x_dtype is not None:
             to_nchw.type = ir.TensorType(x_dtype)
@@ -213,10 +222,13 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
         )
         _ensure_value_metadata(ctx, to_nchw)
 
-        s2d_nchw = builder.SpaceToDepth(
-            to_nchw,
-            blocksize=int(block_size),
-            _outputs=[ctx.fresh_name("SpaceToDepth")],
+        s2d_nchw = cast(
+            ir.Value,
+            builder.SpaceToDepth(
+                to_nchw,
+                blocksize=int(block_size),
+                _outputs=[ctx.fresh_name("SpaceToDepth")],
+            ),
         )
         if x_dtype is not None:
             s2d_nchw.type = ir.TensorType(x_dtype)
@@ -232,10 +244,13 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
         )
         _ensure_value_metadata(ctx, s2d_nchw)
 
-        out_nhwc4 = builder.Transpose(
-            s2d_nchw,
-            perm=[0, 2, 3, 1],
-            _outputs=[ctx.fresh_name("space_to_depth_to_nhwc")],
+        out_nhwc4 = cast(
+            ir.Value,
+            builder.Transpose(
+                s2d_nchw,
+                perm=[0, 2, 3, 1],
+                _outputs=[ctx.fresh_name("space_to_depth_to_nhwc")],
+            ),
         )
         if x_dtype is not None:
             out_nhwc4.type = ir.TensorType(x_dtype)
@@ -248,13 +263,16 @@ class DmPixSpaceToDepthPlugin(PrimitiveLeafPlugin):
                 np.asarray([0], dtype=np.int64),
                 "space_to_depth_squeeze_axes",
             )
-            result = builder.Squeeze(
-                out_nhwc4,
-                sq_axes,
-                _outputs=[
-                    getattr(out_spec, "name", None)
-                    or ctx.fresh_name("space_to_depth_out_hwc")
-                ],
+            result = cast(
+                ir.Value,
+                builder.Squeeze(
+                    out_nhwc4,
+                    sq_axes,
+                    _outputs=[
+                        getattr(out_spec, "name", None)
+                        or ctx.fresh_name("space_to_depth_out_hwc")
+                    ],
+                ),
             )
         else:
             result = out_nhwc4
@@ -321,7 +339,7 @@ def _space_to_depth_prim_impl(inputs: ArrayLike, *, block_size: int) -> jax.Arra
 DmPixSpaceToDepthPlugin._PRIM.def_abstract_eval(DmPixSpaceToDepthPlugin.abstract_eval)
 
 
-BatchDim = int | type(batching.not_mapped)
+BatchDim: TypeAlias = int | None
 
 
 def _space_to_depth_batch_rule(
@@ -331,7 +349,7 @@ def _space_to_depth_batch_rule(
     block_size: int,
 ) -> tuple[jax.Array, BatchDim]:
     (inputs,), (bdim,) = batched_args, batch_dims
-    if bdim is batching.not_mapped:
+    if bdim is None:
         out = DmPixSpaceToDepthPlugin._PRIM.bind(inputs, block_size=block_size)
         return out, batching.not_mapped
 
