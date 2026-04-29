@@ -1,0 +1,3868 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/user_guide/flax_api_coverage/">
+      
+      
+        <link rel="prev" href="../jax_numpy_coverage/">
+      
+      
+        <link rel="next" href="../equinox_nn_coverage/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Flax API Coverage - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#flax-api-coverage-checklist" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Flax API Coverage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jax_lax_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX LAX Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jax_numpy_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX NumPy Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax API Coverage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax API Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../equinox_nn_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Equinox NN Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_12" id="__nav_2_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxdiffusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxDiffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_12_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_12_4" id="__nav_2_12_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_12_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_12_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs ONNX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax/NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/converter_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Converter Design Review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="flax-api-coverage-checklist">Flax API Coverage Checklist<a class="headerlink" href="#flax-api-coverage-checklist" title="Permanent link">&para;</a></h1>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Source list: code-annotated API entries linked from Flax API index: <code>https://flax.readthedocs.io/en/latest/api_reference/index.html</code></li>
+<li>Coverage signal: <code>jax_doc</code>, <code>jaxpr_primitive</code>, and <code>component</code> metadata in <code>jax2onnx/plugins/**/*.py</code>.</li>
+</ul>
+<h2 id="snapshot">Snapshot<a class="headerlink" href="#snapshot" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Total API entries discovered: <code>269</code></li>
+<li>In-scope neural entries (<code>flax.linen/*</code>, <code>flax.nnx/nn/*</code>): <code>79</code></li>
+<li>Covered (direct Flax plugin): <code>44</code></li>
+<li>Covered (indirect via lower-level plugins): <code>12</code></li>
+<li>Composite/helper entries: <code>23</code></li>
+<li>Out-of-scope entries: <code>190</code></li>
+<li>Missing dedicated Flax coverage: <code>0</code></li>
+</ul>
+<h2 id="full-checklist">Full Checklist<a class="headerlink" href="#full-checklist" title="Permanent link">&para;</a></h2>
+<p>Legend: <code>covered</code>, <code>covered_indirect</code>, <code>composite</code>, <code>out_of_scope</code>, <code>missing</code>.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Checklist</th>
+<th style="text-align: left;">Flax API Entry</th>
+<th style="text-align: left;">Status</th>
+<th style="text-align: left;">Modules (signals)</th>
+<th style="text-align: left;">Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.FrozenDict</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.FrozenDict.copy</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.FrozenDict.pop</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.FrozenDict.pretty_repr</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.FrozenDict.unfreeze</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.copy</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.freeze</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.pop</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.pretty_repr</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.core.frozen_dict.unfreeze</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.All</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Any</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.BatchNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/batch_norm, flax/nnx/batch_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.BatchStat</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Cache</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Carry</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Conv</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/conv, flax/nnx/conv</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.ConvTranspose</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/conv_transpose</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Data</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Dict</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Dropout</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/dropout, flax/nnx/dropout</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Einsum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/einsum, flax/nnx/einsum</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Embed</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/embed, flax/nnx/embed</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Everything</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.FlatState</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.GraphDef</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.GroupNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/group_norm, flax/nnx/group_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.InstanceNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/instance_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Intermediate</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.LayerNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/layer_norm, flax/nnx/layer_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Linear</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/linear</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.LinearGeneral</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/linear_general</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.List</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.List.append</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.List.insert</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.LoRA</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/lora</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.LoRALinear</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/lora</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.eval</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.iter_children</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.iter_modules</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.perturb</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.set_attributes</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.sow</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Module.train</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.MultiHeadAttention</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/multi_head_attention</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Not</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Nothing</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Object</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.OfType</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Param</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.PathContains</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Pytree</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RMSNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/rms_norm, flax/nnx/rms_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.ball</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.bernoulli</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.beta</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.binomial</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.bits</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.broadcast</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.categorical</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.cauchy</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.chisquare</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.choice</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.dirichlet</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.double_sided_maxwell</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.exponential</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.f</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.gamma</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.generalized_normal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.geometric</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.gumbel</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.laplace</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.loggamma</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.logistic</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.lognormal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.maxwell</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.multinomial</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.multivariate_normal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.normal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.orthogonal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.pareto</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.permutation</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.poisson</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.rademacher</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.randint</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.rayleigh</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.t</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.triangular</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.truncated_normal</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.uniform</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.wald</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.RngStream.weibull_min</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Rngs</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Rngs.__init__</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Sequential</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.SpectralNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/spectral_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.State</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Static</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.TrainState</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.TrainState.replace</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.UpdateContext</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable.del_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable.get_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable.has_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable.set_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.Variable.type</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.VariableMetadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.WeightNorm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/weight_norm</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.WithTag</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.avg_pool</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/avg_pool, flax/nnx/avg_pool</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.__call__</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.add_axis</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.get_partition_spec</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.remove_axis</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.replace</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.replace_boxed</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.to_nnx_variable</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.NNXMeta.unbox</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.ToLinen</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.ToLinen.__call__</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.ToNNX</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.ToNNX.__call__</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.ToNNX.lazy_init</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.bridge.to_linen</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.cached_partial</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.call</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.celu</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/celu</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.check_pytree</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.clone</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.combine_masks</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/combine_masks</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.cond</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.current_update_context</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.custom_vjp</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.data</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.display</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.dot_product_attention</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention, flax/nnx/dot_product_attention</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.elu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/elu</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.eval_shape</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.filter_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.filterlib.to_predicate</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.find_duplicates</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.flatten</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.fori_loop</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.fork_rngs</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.from_flat_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.gelu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/gelu</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.get_named_sharding</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.get_partition_spec</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.glu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/glu</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.grad</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.graph</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.graphdef</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.hard_sigmoid</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/hard_sigmoid</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.hard_silu</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/hard_swish</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.hard_swish</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/hard_swish</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.hard_tanh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/hard_tanh</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.identity</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>equinox/eqx/nn/identity, jax/nn/identity</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.constant</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.delta_orthogonal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.glorot_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.glorot_uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.he_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.he_uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.kaiming_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.kaiming_uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.lecun_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.lecun_uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.ones</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.ones_init</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.orthogonal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.truncated_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.variance_scaling</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.xavier_normal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.xavier_uniform</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.zeros</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.initializers.zeros_init</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.is_data</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.iter_children</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.iter_graph</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.iter_modules</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.jit</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.jvp</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.leaky_relu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/leaky_relu</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.log_sigmoid</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/log_sigmoid</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.log_softmax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/log_softmax</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.logsumexp</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/logsumexp</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.make_attention_mask</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.make_causal_mask</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/dot_product_attention</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.map_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.max_pool</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/max_pool, flax/nnx/max_pool</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.merge</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.merge_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.metrics.Accuracy</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.metrics.Average</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.metrics.Metric</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.metrics.MultiMetric</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.metrics.Welford</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.min_pool</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/min_pool</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.dtypes.canonicalize_dtype</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.dtypes.promote_dtype</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Helper/config API; no standalone ONNX plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.Bidirectional</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.GRUCell</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.LSTMCell</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.OptimizedLSTMCell</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.RNN</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.SimpleCell</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/recurrent</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.nn.recurrent.flip_sequences</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/flip_sequences</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.one_hot</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/one_hot</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.optimizer.Optimizer</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.pool</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/linen/pool</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.pop</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.prefix</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.pure</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.recursive_map</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.register_data_type</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.register_variable_name</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.relu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/relu</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.remat</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.replace_by_pure_dict</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.reseed</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.restore_int_paths</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.scan</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.selu</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/selu</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.set_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.shard_map</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.sigmoid</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/sigmoid</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.silu</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/silu</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.soft_sign</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/softsign</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.softmax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/softmax</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.softplus</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/softplus</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.split</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.split_rngs</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.split_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.standardize</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/standardize</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.static</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.swish</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/nn/silu</code></td>
+<td style="text-align: left;">Covered indirectly via lower-level JAX plugin signals.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.switch</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.tanh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>flax/nnx/tanh</code></td>
+<td style="text-align: left;">Direct Flax plugin signal (jax_doc/jaxpr/component).</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.to_flat_state</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.to_pure_dict</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.unflatten</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.unpack</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.update</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.update_context</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.value_and_grad</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.variable_name_from_type</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.variable_type_from_name</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.variables</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.view</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.view_info</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.vjp</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.vmap</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.while_loop</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.with_attributes</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.with_metadata</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.with_partitioning</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.nnx.with_rngs</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.struct.PyTreeNode</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.struct.dataclass</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.training.train_state.TrainState</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.training.train_state.TrainState.apply_gradients</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flax.training.train_state.TrainState.create</code></td>
+<td style="text-align: left;"><code>out_of_scope</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Outside neural-module surface; no dedicated converter plugin expected.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

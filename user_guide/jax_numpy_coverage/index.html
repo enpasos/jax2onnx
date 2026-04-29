@@ -1,0 +1,5057 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/user_guide/jax_numpy_coverage/">
+      
+      
+        <link rel="prev" href="../jax_lax_coverage/">
+      
+      
+        <link rel="next" href="../flax_api_coverage/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>JAX NumPy Coverage - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#jax-numpy-coverage-checklist" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              JAX NumPy Coverage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jax_lax_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX LAX Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX NumPy Coverage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX NumPy Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flax_api_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax API Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../equinox_nn_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Equinox NN Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_12" id="__nav_2_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/maxdiffusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxDiffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_12_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_12_4" id="__nav_2_12_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_12_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_12_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs ONNX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sota_examples/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax/NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/converter_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Converter Design Review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/linen_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linen Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_function_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer_guide/advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Improvements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="jax-numpy-coverage-checklist">JAX NumPy Coverage Checklist<a class="headerlink" href="#jax-numpy-coverage-checklist" title="Permanent link">&para;</a></h1>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Source list: all autosummary entries linked on the official <code>jax.numpy</code> page: <code>https://docs.jax.dev/en/latest/jax.numpy.html</code></li>
+<li>Coverage signal: <code>jax_doc</code>/<code>component</code> metadata + <code>jaxpr_primitive</code> registrations in <code>jax2onnx/plugins/**/*.py</code>.</li>
+</ul>
+<h2 id="snapshot">Snapshot<a class="headerlink" href="#snapshot" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Total docs entries: <code>439</code></li>
+<li>Covered (direct plugin): <code>201</code></li>
+<li>Covered (via alias/indirect signal): <code>78</code></li>
+<li>Composite/helper entries: <code>100</code></li>
+<li>Non-functional entries (dtype/type/constants): <code>60</code></li>
+<li>Missing dedicated plugin coverage: <code>0</code></li>
+</ul>
+<h2 id="full-checklist">Full Checklist<a class="headerlink" href="#full-checklist" title="Permanent link">&para;</a></h2>
+<p>Legend: <code>covered</code>, <code>covered_indirect</code>, <code>composite</code>, <code>non_functional</code>, <code>missing</code>.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Checklist</th>
+<th style="text-align: left;">jax.numpy Entry</th>
+<th style="text-align: left;">Status</th>
+<th style="text-align: left;">Modules (signals)</th>
+<th style="text-align: left;">Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ComplexWarning</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>abs</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/abs</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>absolute</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/abs, jax/numpy/abs</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>abs</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>acos</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/acos</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>acosh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/acosh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>add</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/add</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>all</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/all</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>allclose</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>amax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/amax</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>amin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/amin</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>angle</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/atan2, jax/numpy/atan2</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>atan2</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>any</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/any</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>append</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>apply_along_axis</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>apply_over_axes</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arange</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/arange</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arccos</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/acos, jax/numpy/acos</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>acos</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arccosh</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/acosh, jax/numpy/acosh</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>acosh</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arcsin</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/asin, jax/numpy/asin</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>asin</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arcsinh</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/asinh, jax/numpy/asinh</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>asinh</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arctan</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/atan, jax/numpy/atan</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>atan</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arctan2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/atan2, jax/numpy/atan2</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>atan2</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>arctanh</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/atanh, jax/numpy/atanh</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>atanh</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>argmax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/argmax</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>argmin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/argmin</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>argpartition</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>argsort</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/sort, jax/numpy/sort</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>sort</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>argwhere</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>around</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/round</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>round</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array_equal</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array_equiv</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array_repr</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array_split</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>array_str</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>asarray</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>asin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/asin</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>asinh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/asinh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>astype</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atan</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/atan</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atan2</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/atan2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atanh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/atanh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atleast_1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atleast_2d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>atleast_3d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>average</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bartlett</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bincount</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_and</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_and</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_count</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/population_count</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>population_count</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_invert</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_not</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>bitwise_not</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_left_shift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_left_shift</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_not</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_not</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_or</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_or</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_right_shift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_right_shift</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bitwise_xor</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/bitwise_xor</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>blackman</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>block</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>bool_</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>broadcast_arrays</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>broadcast_shapes</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>broadcast_to</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>c_</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>can_cast</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cbrt</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/cbrt</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>cbrt</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cdouble</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ceil</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/ceil</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>character</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>choose</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>clip</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/clip</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>column_stack</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>complex128</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>complex64</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>complex_</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>complexfloating</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>compress</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/compress</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>concat</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/concatenate, jax/numpy/concatenate</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>concatenate</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>concatenate</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/concatenate</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>conj</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/conj</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>conjugate</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/conj, jax/numpy/conj</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>conj</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>convolve</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>copy</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/copy</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>copy</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>copysign</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/copysign</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>corrcoef</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>correlate</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cos</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/cos</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cosh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/cosh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>count_nonzero</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cov</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cross</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>csingle</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cumprod</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/cumprod</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cumsum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/cumsum</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cumulative_prod</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/cumprod, jax/numpy/cumprod</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>cumprod</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>cumulative_sum</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/cumsum, jax/numpy/cumsum</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>cumsum</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>deg2rad</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>degrees</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>delete</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diag</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/diag</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diag_indices</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diag_indices_from</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diagflat</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diagonal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/diagonal</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>diff</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>digitize</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/digitize</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>divide</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/divide</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>divmod</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>dot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/dot</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>double</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>dsplit</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>dstack</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ediff1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>einsum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/einsum</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>einsum_path</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>empty</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/broadcast_in_dim</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>broadcast_in_dim</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>empty_like</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/broadcast_in_dim</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>broadcast_in_dim</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>equal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/equal</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>exp</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/exp</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>exp2</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/exp2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>expand_dims</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>expm1</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/expm1</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>extract</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>eye</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/eye</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fabs</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fabs</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.fft</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.fft2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/fft, jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>fft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.fftfreq</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.fftn</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/fft, jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>fft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.fftshift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.hfft</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>irfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.ifft</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.ifft2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>ifft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.ifftn</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>ifft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.ifftshift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.ihfft</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.irfft</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.irfft2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>irfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.irfftn</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>irfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.rfft</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.rfft2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.rfftfreq</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fft.rfftn</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/fft</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rfft</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fill_diagonal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>finfo</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flatnonzero</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flexible</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flip</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/rev</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rev</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fliplr</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>flipud</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>float16</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>float32</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>float64</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>float_</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>float_power</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/pow, jax/numpy/pow</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>pow</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>floating</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>floor</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/floor</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>floor_divide</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/floor_divide</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fmax</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fmin</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fmod</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/fmod</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>frexp</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/frexp</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>from_dlpack</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>frombuffer</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fromfile</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fromfunction</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fromiter</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>frompyfunc</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>fromstring</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>full</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/full</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>full_like</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/broadcast_in_dim</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>broadcast_in_dim</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>gcd</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>generic</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>geomspace</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>get_printoptions</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>gradient</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>greater</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/greater</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>greater_equal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/greater_equal</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>hamming</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>hanning</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/windows</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>heaviside</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>histogram</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/histogram</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>histogram2d</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/histogram2d</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>histogram_bin_edges</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>histogramdd</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/histogramdd</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>hsplit</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>hstack</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>hypot</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/sqrt, jax/numpy/sqrt</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>sqrt</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>i0</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>identity</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/iota</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>iota</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>iinfo</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>imag</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/imag</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>imag</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>index_exp</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>inexact</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>inner</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/dot_general</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>dot_general</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>insert</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>int16</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>int32</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>int8</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>int_</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>integer</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>interp</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/interp</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>intersect1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>invert</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/invert</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isclose</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>iscomplex</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/imag</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>imag</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>iscomplexobj</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isdtype</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isfinite</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/isfinite</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isin</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isinf</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/eq</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>eq</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isnan</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/ne</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>ne</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isneginf</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isposinf</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isreal</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/imag</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>imag</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isrealobj</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>isscalar</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>issubdtype</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>iterable</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ix_</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>kaiser</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>kron</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>lcm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ldexp</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/ldexp</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>left_shift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/left_shift</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>less</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/less</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>less_equal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/less_equal</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>lexsort</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.cholesky</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.cond</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.cross</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.det</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_det</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.diagonal</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/diagonal</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.eig</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.eigh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.eigvals</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.eigvalsh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.inv</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_inv</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.lstsq</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.matmul</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/matmul</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.matrix_norm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.matrix_power</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.matrix_rank</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.matrix_transpose</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/transpose, jax/numpy/transpose</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>transpose</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.multi_dot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.norm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_norm</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.outer</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/outer</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.pinv</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.qr</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.slogdet</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.solve</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_solve</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.svd</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch5</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.svdvals</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.tensordot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.tensorinv</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_tensorinv</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.tensorsolve</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linalg_tensorsolve</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.trace</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.vecdot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linalg.vector_norm</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>linspace</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/linspace</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>load</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>log</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/log</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>log10</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/log, jax/numpy/log</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>log</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>log1p</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/log1p</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>log1p</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>log2</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/log, jax/numpy/log</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>log</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logaddexp</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logaddexp2</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logical_and</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/and</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>and</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logical_not</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/bitwise_not</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>not</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logical_or</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/or</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>or</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logical_xor</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/xor</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>xor</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>logspace</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>mask_indices</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>matmul</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/matmul</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>matrix_transpose</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/transpose, jax/numpy/transpose</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>transpose</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>matvec</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>max</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/max</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>maximum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/maximum</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>mean</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/mean</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>median</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>meshgrid</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>mgrid</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>min</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/min</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>minimum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/minimum</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>mod</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/rem</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rem</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>modf</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>moveaxis</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/moveaxis</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>multiply</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nan_to_num</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanargmax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanargmin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nancumprod</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/nancumprod</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nancumsum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanmax</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanmean</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanmedian</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanmin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanpercentile</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanprod</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanquantile</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanstd</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nansum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nanvar</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ndarray</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ndarray.at</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ndim</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>negative</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/neg</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>neg</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nextafter</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/nextafter</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>nextafter</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>nonzero</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>not_equal</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/ne</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>ne</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>number</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>object_</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ogrid</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ones</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/ones</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ones_like</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/broadcast_in_dim</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>broadcast_in_dim</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>outer</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/outer</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>packbits</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>pad</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/pad</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>partition</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>percentile</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>permute_dims</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/transpose, jax/numpy/transpose</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>transpose</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>piecewise</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>place</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>poly</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polyadd</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polyder</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polydiv</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polyfit</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/polyfit</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polyint</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polymul</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polysub</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch4</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>polyval</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>positive</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>pow</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/pow</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>power</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/pow</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>printoptions</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>prod</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/prod</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>promote_types</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ptp</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/reduce_max</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>reduce_max</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>put</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>put_along_axis</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>quantile</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>r_</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>rad2deg</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>radians</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/mul</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>mul</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ravel</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/reshape, jax/numpy/reshape</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>reshape</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ravel_multi_index</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>real</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/real</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>real</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>reciprocal</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/integer_pow</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>integer_pow</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>remainder</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/rem</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>rem</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>repeat</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>reshape</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/reshape</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>resize</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>result_type</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>right_shift</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/right_shift</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>rint</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/round</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>round</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>roll</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>rollaxis</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>roots</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/roots</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>rot90</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>round</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/round</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>round</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>s_</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>save</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>savez</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>searchsorted</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/searchsorted</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>select</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/select</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>set_printoptions</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>setdiff1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>setxor1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>shape</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/shape</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sign</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sign</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>signbit</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/shift_right_arithmetic</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>shift_right_arithmetic</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>signedinteger</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sin</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sin</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sinc</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>single</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sinh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sinh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>size</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/size</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sort</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sort</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sort_complex</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/sort, jax/numpy/sort</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>sort</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>spacing</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/spacing</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>split</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/split</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sqrt</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sqrt</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>square</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/square</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>square</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>squeeze</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/squeeze</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>stack</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/stack</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>std</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>subtract</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/sub</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>sub</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>sum</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/sum</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>swapaxes</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/transpose, jax/numpy/transpose</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>transpose</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>take</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/take</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>take_along_axis</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tan</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/tan</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tanh</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/tanh</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tensordot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tile</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/tile</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>trace</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>transpose</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/transpose</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>trapezoid</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tri</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tril</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/numpy/trilu</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>triu</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tril_indices</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>tril_indices_from</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>trim_zeros</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>triu</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/trilu</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>triu_indices</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>triu_indices_from</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>true_divide</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/div</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>div</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>trunc</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>ufunc</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>uint</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>uint16</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>uint32</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>uint64</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>uint8</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>union1d</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unique</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/unique</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unique_all</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unique_counts</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unique_inverse</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unique_values</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unpackbits</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unravel_index</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unsignedinteger</code></td>
+<td style="text-align: left;"><code>non_functional</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Constant/dtype/type helper entry; no standalone plugin expected.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unstack</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/unstack</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>unwrap</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vander</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>var</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vdot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vecdot</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2, jax/numpy/composite_metadata_batch3</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vecmat</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch2</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vectorize</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/composite_metadata_batch6</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vsplit</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>vstack</code></td>
+<td style="text-align: left;"><code>composite</code></td>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">Composite/helper API; typically lowered through other primitives.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>where</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/where</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>zeros</code></td>
+<td style="text-align: left;"><code>covered</code></td>
+<td style="text-align: left;"><code>jax/numpy/zeros</code></td>
+<td style="text-align: left;">Direct plugin coverage via <code>jax_doc</code> or <code>component</code> metadata.</td>
+</tr>
+<tr>
+<td style="text-align: left;">[x]</td>
+<td style="text-align: left;"><code>zeros_like</code></td>
+<td style="text-align: left;"><code>covered_indirect</code></td>
+<td style="text-align: left;"><code>jax/lax/broadcast_in_dim</code></td>
+<td style="text-align: left;">Covered via alias or lower-level primitive <code>broadcast_in_dim</code>.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
