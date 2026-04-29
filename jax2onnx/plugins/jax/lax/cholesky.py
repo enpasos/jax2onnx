@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -24,16 +22,22 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat, i_idx, axis=0, _outputs=[ctx.fresh_name(f"{name}_row")]
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat, i_idx, axis=0, _outputs=[ctx.fresh_name(f"{name}_row")]
+        ),
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(row, j_idx, axis=1, _outputs=[ctx.fresh_name(name)])
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(row, j_idx, axis=1, _outputs=[ctx.fresh_name(name)]),
+    )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
     elem.shape = ir.Shape((1, 1))
@@ -41,7 +45,7 @@ def _gather_elem(
 
 
 def _scatter_set(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -53,13 +57,16 @@ def _scatter_set(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _lower_single_cholesky(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     x: ir.Value,
     *,
     n: int,
@@ -75,39 +82,54 @@ def _lower_single_cholesky(
             for k in range(j):
                 lik = _gather_elem(ctx, l_mat, i, k, f"{name_prefix}_lik_{i}_{j}_{k}")
                 ljk = _gather_elem(ctx, l_mat, j, k, f"{name_prefix}_ljk_{i}_{j}_{k}")
-                prod = ctx.builder.Mul(
-                    lik,
-                    ljk,
-                    _outputs=[ctx.fresh_name(f"{name_prefix}_prod_{i}_{j}_{k}")],
+                prod = cast(
+                    ir.Value,
+                    ctx.builder.Mul(
+                        lik,
+                        ljk,
+                        _outputs=[ctx.fresh_name(f"{name_prefix}_prod_{i}_{j}_{k}")],
+                    ),
                 )
                 _stamp_like(prod, lik)
-                s = ctx.builder.Add(
-                    s,
-                    prod,
-                    _outputs=[ctx.fresh_name(f"{name_prefix}_sum_{i}_{j}_{k}")],
+                s = cast(
+                    ir.Value,
+                    ctx.builder.Add(
+                        s,
+                        prod,
+                        _outputs=[ctx.fresh_name(f"{name_prefix}_sum_{i}_{j}_{k}")],
+                    ),
                 )
                 _stamp_like(s, prod)
 
             aij = _gather_elem(ctx, x, i, j, f"{name_prefix}_aij_{i}_{j}")
-            num = ctx.builder.Sub(
-                aij,
-                s,
-                _outputs=[ctx.fresh_name(f"{name_prefix}_num_{i}_{j}")],
+            num = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    aij,
+                    s,
+                    _outputs=[ctx.fresh_name(f"{name_prefix}_num_{i}_{j}")],
+                ),
             )
             _stamp_like(num, aij)
 
             if i == j:
-                val = ctx.builder.Sqrt(
-                    num,
-                    _outputs=[ctx.fresh_name(f"{name_prefix}_diag_{i}")],
+                val = cast(
+                    ir.Value,
+                    ctx.builder.Sqrt(
+                        num,
+                        _outputs=[ctx.fresh_name(f"{name_prefix}_diag_{i}")],
+                    ),
                 )
                 _stamp_like(val, num)
             else:
                 ljj = _gather_elem(ctx, l_mat, j, j, f"{name_prefix}_ljj_{i}_{j}")
-                val = ctx.builder.Div(
-                    num,
-                    ljj,
-                    _outputs=[ctx.fresh_name(f"{name_prefix}_offdiag_{i}_{j}")],
+                val = cast(
+                    ir.Value,
+                    ctx.builder.Div(
+                        num,
+                        ljj,
+                        _outputs=[ctx.fresh_name(f"{name_prefix}_offdiag_{i}_{j}")],
+                    ),
                 )
                 _stamp_like(val, num)
 
@@ -184,7 +206,7 @@ def _lower_single_cholesky(
 class CholeskyPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.cholesky`` with static unrolled factorization."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -224,7 +246,7 @@ class CholeskyPlugin(PrimitiveLeafPlugin):
         )
         if n == 0 or (batch is not None and batch == 0):
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("cholesky")
-            result = ctx.builder.Identity(x, _outputs=[desired_name])
+            result = cast(ir.Value, ctx.builder.Identity(x, _outputs=[desired_name]))
             _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
             if getattr(out_spec, "shape", None) is not None:
                 result.shape = out_spec.shape
@@ -247,18 +269,24 @@ class CholeskyPlugin(PrimitiveLeafPlugin):
                 b_idx = _const_i64(
                     ctx, np.asarray([b], dtype=np.int64), f"chol_batch_idx_{b}"
                 )
-                x_3d = ctx.builder.Gather(
-                    x,
-                    b_idx,
-                    axis=0,
-                    _outputs=[ctx.fresh_name(f"chol_batch_in3d_{b}")],
+                x_3d = cast(
+                    ir.Value,
+                    ctx.builder.Gather(
+                        x,
+                        b_idx,
+                        axis=0,
+                        _outputs=[ctx.fresh_name(f"chol_batch_in3d_{b}")],
+                    ),
                 )
                 _stamp_like(x_3d, x)
                 x_3d.shape = ir.Shape((1, n, n))
-                x_mat = ctx.builder.Squeeze(
-                    x_3d,
-                    squeeze_axes,
-                    _outputs=[ctx.fresh_name(f"chol_batch_in2d_{b}")],
+                x_mat = cast(
+                    ir.Value,
+                    ctx.builder.Squeeze(
+                        x_3d,
+                        squeeze_axes,
+                        _outputs=[ctx.fresh_name(f"chol_batch_in2d_{b}")],
+                    ),
                 )
                 _stamp_like(x_mat, x)
                 x_mat.shape = ir.Shape((n, n))
@@ -269,18 +297,24 @@ class CholeskyPlugin(PrimitiveLeafPlugin):
                     np_dtype=np_dtype,
                     name_prefix=f"chol_b{b}",
                 )
-                l_3d = ctx.builder.Unsqueeze(
-                    l_mat,
-                    unsqueeze_axes,
-                    _outputs=[ctx.fresh_name(f"chol_batch_out3d_{b}")],
+                l_3d = cast(
+                    ir.Value,
+                    ctx.builder.Unsqueeze(
+                        l_mat,
+                        unsqueeze_axes,
+                        _outputs=[ctx.fresh_name(f"chol_batch_out3d_{b}")],
+                    ),
                 )
                 _stamp_like(l_3d, x_3d)
                 l_3d.shape = ir.Shape((1, n, n))
                 rows.append(l_3d)
-            l_mat = ctx.builder.Concat(
-                *rows,
-                axis=0,
-                _outputs=[ctx.fresh_name("chol_batch_concat")],
+            l_mat = cast(
+                ir.Value,
+                ctx.builder.Concat(
+                    *rows,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("chol_batch_concat")],
+                ),
             )
             _stamp_like(l_mat, out_spec if getattr(out_spec, "type", None) else x)
             l_mat.shape = ir.Shape((batch, n, n))
@@ -288,7 +322,9 @@ class CholeskyPlugin(PrimitiveLeafPlugin):
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("cholesky")
         result = l_mat
         if getattr(result, "name", None) != desired_name:
-            result = ctx.builder.Identity(result, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(result, _outputs=[desired_name])
+            )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else l_mat)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape

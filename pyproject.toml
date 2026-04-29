@@ -177,6 +177,8 @@ files = [
     "jax2onnx/plugins/jax/lax/bitwise_not.py",
     "jax2onnx/plugins/jax/lax/cbrt.py",
     "jax2onnx/plugins/jax/lax/ceil.py",
+    "jax2onnx/plugins/jax/lax/cholesky.py",
+    "jax2onnx/plugins/jax/lax/cholesky_update.py",
     "jax2onnx/plugins/jax/lax/clamp.py",
     "jax2onnx/plugins/jax/lax/conj.py",
     "jax2onnx/plugins/jax/lax/concatenate.py",
