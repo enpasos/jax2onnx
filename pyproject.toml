@@ -229,6 +229,7 @@ files = [
     "jax2onnx/plugins/jax/lax/ormqr.py",
     "jax2onnx/plugins/jax/lax/pad.py",
     "jax2onnx/plugins/jax/lax/pjit.py",
+    "jax2onnx/plugins/jax/lax/polygamma.py",
     "jax2onnx/plugins/jax/lax/pow.py",
     "jax2onnx/plugins/jax/lax/qr.py",
     "jax2onnx/plugins/jax/lax/ragged_dot_general.py",

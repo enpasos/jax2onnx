@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.digamma import _digamma_positive
 from jax2onnx.plugins.jax.lax.lgamma import _lanczos_lgamma_positive
 from jax2onnx.plugins.jax.lax.zeta import _zeta_positive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -78,7 +81,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 class PolyGammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.polygamma`` for integer order on x>0 via zeta identity."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         n_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -97,112 +100,151 @@ class PolyGammaPlugin(PrimitiveLeafPlugin):
         neg_one = ctx.bind_const_for_var(object(), np.asarray(-1.0, dtype=np_dtype))
         nan_const = ctx.bind_const_for_var(object(), np.asarray(np.nan, dtype=np_dtype))
 
-        n_round = ctx.builder.Round(n, _outputs=[ctx.fresh_name("polygamma_n_round")])
+        n_round = _as_value(
+            ctx.builder.Round(n, _outputs=[ctx.fresh_name("polygamma_n_round")])
+        )
         _stamp_like(n_round, n)
-        n_is_int = ctx.builder.Equal(
-            n,
-            n_round,
-            _outputs=[ctx.fresh_name("polygamma_n_is_int")],
+        n_is_int = _as_value(
+            ctx.builder.Equal(
+                n,
+                n_round,
+                _outputs=[ctx.fresh_name("polygamma_n_is_int")],
+            )
         )
-        n_lt_zero = ctx.builder.Less(
-            n_round,
-            zero,
-            _outputs=[ctx.fresh_name("polygamma_n_lt_zero")],
+        n_lt_zero = _as_value(
+            ctx.builder.Less(
+                n_round,
+                zero,
+                _outputs=[ctx.fresh_name("polygamma_n_lt_zero")],
+            )
         )
-        n_ge_zero = ctx.builder.Not(
-            n_lt_zero,
-            _outputs=[ctx.fresh_name("polygamma_n_ge_zero")],
+        n_ge_zero = _as_value(
+            ctx.builder.Not(
+                n_lt_zero,
+                _outputs=[ctx.fresh_name("polygamma_n_ge_zero")],
+            )
         )
-        x_gt_zero = ctx.builder.Greater(
-            x,
-            zero,
-            _outputs=[ctx.fresh_name("polygamma_x_gt_zero")],
+        x_gt_zero = _as_value(
+            ctx.builder.Greater(
+                x,
+                zero,
+                _outputs=[ctx.fresh_name("polygamma_x_gt_zero")],
+            )
         )
-        valid = ctx.builder.And(
-            n_is_int,
-            n_ge_zero,
-            _outputs=[ctx.fresh_name("polygamma_valid_n")],
+        valid = _as_value(
+            ctx.builder.And(
+                n_is_int,
+                n_ge_zero,
+                _outputs=[ctx.fresh_name("polygamma_valid_n")],
+            )
         )
-        valid = ctx.builder.And(
-            valid,
-            x_gt_zero,
-            _outputs=[ctx.fresh_name("polygamma_valid")],
+        valid = _as_value(
+            ctx.builder.And(
+                valid,
+                x_gt_zero,
+                _outputs=[ctx.fresh_name("polygamma_valid")],
+            )
         )
 
         # n == 0 -> digamma(x), positive branch.
-        n_is_zero = ctx.builder.Equal(
-            n_round,
-            zero,
-            _outputs=[ctx.fresh_name("polygamma_n_is_zero")],
+        n_is_zero = _as_value(
+            ctx.builder.Equal(
+                n_round,
+                zero,
+                _outputs=[ctx.fresh_name("polygamma_n_is_zero")],
+            )
         )
         digamma_x = _digamma_positive(ctx, x, np_dtype, "polygamma_digamma")
 
         # n >= 1 -> (-1)^(n+1) * Gamma(n+1) * zeta(n+1, x)
-        s = ctx.builder.Add(
-            n_round,
-            one,
-            _outputs=[ctx.fresh_name("polygamma_s")],
+        s = _as_value(
+            ctx.builder.Add(
+                n_round,
+                one,
+                _outputs=[ctx.fresh_name("polygamma_s")],
+            )
         )
         _stamp_like(s, n_round)
         zeta_val = _zeta_positive(ctx, s, x, np_dtype, "polygamma_zeta")
         lgamma_s = _lanczos_lgamma_positive(ctx, s, np_dtype, "polygamma_lgamma")
-        gamma_s = ctx.builder.Exp(
-            lgamma_s,
-            _outputs=[ctx.fresh_name("polygamma_gamma_s")],
+        gamma_s = _as_value(
+            ctx.builder.Exp(
+                lgamma_s,
+                _outputs=[ctx.fresh_name("polygamma_gamma_s")],
+            )
         )
         _stamp_like(gamma_s, s)
 
-        half_n = ctx.builder.Floor(
+        half_n_raw = _as_value(
             ctx.builder.Div(
                 n_round,
                 two,
                 _outputs=[ctx.fresh_name("polygamma_half_n_raw")],
-            ),
-            _outputs=[ctx.fresh_name("polygamma_half_n")],
+            )
+        )
+        half_n = _as_value(
+            ctx.builder.Floor(
+                half_n_raw,
+                _outputs=[ctx.fresh_name("polygamma_half_n")],
+            )
         )
         _stamp_like(half_n, n_round)
-        two_half_n = ctx.builder.Mul(
-            half_n,
-            two,
-            _outputs=[ctx.fresh_name("polygamma_two_half_n")],
+        two_half_n = _as_value(
+            ctx.builder.Mul(
+                half_n,
+                two,
+                _outputs=[ctx.fresh_name("polygamma_two_half_n")],
+            )
         )
         _stamp_like(two_half_n, n_round)
-        n_is_even = ctx.builder.Equal(
-            n_round,
-            two_half_n,
-            _outputs=[ctx.fresh_name("polygamma_n_is_even")],
+        n_is_even = _as_value(
+            ctx.builder.Equal(
+                n_round,
+                two_half_n,
+                _outputs=[ctx.fresh_name("polygamma_n_is_even")],
+            )
         )
-        sign = ctx.builder.Where(
-            n_is_even,
-            neg_one,
-            one,
-            _outputs=[ctx.fresh_name("polygamma_sign")],
+        sign = _as_value(
+            ctx.builder.Where(
+                n_is_even,
+                neg_one,
+                one,
+                _outputs=[ctx.fresh_name("polygamma_sign")],
+            )
         )
         _stamp_like(sign, n_round)
 
-        out_n_ge_1 = ctx.builder.Mul(
-            sign,
-            gamma_s,
-            _outputs=[ctx.fresh_name("polygamma_out_n_ge_1_a")],
+        out_n_ge_1 = _as_value(
+            ctx.builder.Mul(
+                sign,
+                gamma_s,
+                _outputs=[ctx.fresh_name("polygamma_out_n_ge_1_a")],
+            )
         )
         _stamp_like(out_n_ge_1, n_round)
-        out_n_ge_1 = ctx.builder.Mul(
-            out_n_ge_1,
-            zeta_val,
-            _outputs=[ctx.fresh_name("polygamma_out_n_ge_1")],
+        out_n_ge_1 = _as_value(
+            ctx.builder.Mul(
+                out_n_ge_1,
+                zeta_val,
+                _outputs=[ctx.fresh_name("polygamma_out_n_ge_1")],
+            )
         )
         _stamp_like(out_n_ge_1, n_round)
 
-        out_valid = ctx.builder.Where(
-            n_is_zero,
-            digamma_x,
-            out_n_ge_1,
-            _outputs=[ctx.fresh_name("polygamma_out_valid")],
+        out_valid = _as_value(
+            ctx.builder.Where(
+                n_is_zero,
+                digamma_x,
+                out_n_ge_1,
+                _outputs=[ctx.fresh_name("polygamma_out_valid")],
+            )
         )
         _stamp_like(out_valid, out_n_ge_1)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("polygamma")
-        result = ctx.builder.Where(valid, out_valid, nan_const, _outputs=[desired_name])
+        result = _as_value(
+            ctx.builder.Where(valid, out_valid, nan_const, _outputs=[desired_name])
+        )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else out_valid)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
