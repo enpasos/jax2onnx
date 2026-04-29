@@ -283,6 +283,7 @@ files = [
     "jax2onnx/plugins/jax/lax/tanh.py",
     "jax2onnx/plugins/jax/lax/top_k.py",
     "jax2onnx/plugins/jax/lax/xor.py",
+    "jax2onnx/plugins/jax/lax/zeta.py",
     "jax2onnx/plugins/jax/numpy/__init__.py",
     "jax2onnx/plugins/jax/numpy/_common.py",
     "jax2onnx/plugins/jax/numpy/_reduction_utils.py",
