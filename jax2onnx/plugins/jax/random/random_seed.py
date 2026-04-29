@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import onnx_ir as ir
 
@@ -11,26 +13,33 @@ import jax
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import DimInput
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-def _shape_dims(shape: ir.Shape | tuple[int, ...]) -> tuple[object, ...]:
+def _shape_dims(shape: ir.Shape | tuple[int, ...] | None) -> tuple[DimInput, ...]:
+    if shape is None:
+        return ()
     dims = getattr(shape, "dims", None)
     if dims is None:
         try:
-            return tuple(shape)
+            return cast(tuple[DimInput, ...], tuple(shape))
         except TypeError:
             return ()
-    return tuple(dims)
+    return cast(tuple[DimInput, ...], tuple(dims))
 
 
 def _const_array(
-    ctx: LoweringContextProtocol, arr: np.ndarray, *, name_hint: str
+    ctx: LoweringContextProtocol,
+    arr: np.ndarray[Any, np.dtype[Any]],
+    *,
+    name_hint: str,
 ) -> ir.Value:
     """Emit a constant through the builder so function-mode and dedup policies apply."""
-    return ctx.builder.add_initializer_from_array(
+    result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=arr
     )
+    return result
 
 
 def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.Value:
@@ -38,11 +47,14 @@ def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.V
         ctx, np.asarray([axis], dtype=np.int64), name_hint="unsqueeze_axes"
     )
     base_dims = _shape_dims(value.shape)
-    squeezed_shape = (1,) + tuple(
-        int(d) if isinstance(d, (int, np.integer)) else d for d in base_dims
+    squeezed_shape = cast(
+        tuple[DimInput, ...],
+        (1,)
+        + tuple(int(d) if isinstance(d, (int, np.integer)) else d for d in base_dims),
     )
-    squeezed = ctx.builder.Unsqueeze(
-        value, axes, _outputs=[ctx.fresh_name("unsqueeze")]
+    squeezed = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(value, axes, _outputs=[ctx.fresh_name("unsqueeze")]),
     )
     squeezed.type = value.type
     squeezed.shape = ir.Shape(squeezed_shape)
@@ -94,10 +106,13 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
 
         seed_value = ctx.get_value_for_var(seed_var, name_hint=ctx.fresh_name("seed"))
 
-        cast_target = ctx.builder.Cast(
-            seed_value,
-            _outputs=[ctx.fresh_name("seed_u32")],
-            to=int(ir.DataType.UINT32.value),
+        cast_target = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                seed_value,
+                _outputs=[ctx.fresh_name("seed_u32")],
+                to=int(ir.DataType.UINT32.value),
+            ),
         )
         cast_target.type = ir.TensorType(ir.DataType.UINT32)
         cast_target.shape = seed_value.shape
@@ -108,11 +123,14 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
             ctx, np.asarray([0], dtype=np.uint32), name_hint="prng_zero"
         )
 
-        key_value = ctx.builder.Concat(
-            zero_vector,
-            seed_vector,
-            axis=0,
-            _outputs=[ctx.fresh_name("prng_key")],
+        key_value = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                zero_vector,
+                seed_vector,
+                axis=0,
+                _outputs=[ctx.fresh_name("prng_key")],
+            ),
         )
         key_value.type = ir.TensorType(ir.DataType.UINT32)
         key_value.shape = ir.Shape((2,))

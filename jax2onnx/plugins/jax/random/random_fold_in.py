@@ -10,6 +10,8 @@ producing an ONNX Value so downstream passes see a concrete tensor.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import onnx_ir as ir
 import jax
@@ -22,7 +24,10 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 def _identity(
     ctx: LoweringContextProtocol, value: ir.Value, name_hint: str
 ) -> ir.Value:
-    result = ctx.builder.Identity(value, _outputs=[ctx.fresh_name(name_hint)])
+    result = cast(
+        ir.Value,
+        ctx.builder.Identity(value, _outputs=[ctx.fresh_name(name_hint)]),
+    )
     if getattr(value, "type", None) is not None:
         result.type = value.type
     if getattr(value, "shape", None) is not None:

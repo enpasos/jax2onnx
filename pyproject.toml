@@ -342,6 +342,13 @@ files = [
     "jax2onnx/plugins/jax/nn/squareplus.py",
     "jax2onnx/plugins/jax/nn/tanh.py",
     "jax2onnx/plugins/jax/nn/thresholded_relu.py",
+    "jax2onnx/plugins/jax/random/__init__.py",
+    "jax2onnx/plugins/jax/random/bernoulli.py",
+    "jax2onnx/plugins/jax/random/categorical.py",
+    "jax2onnx/plugins/jax/random/normal.py",
+    "jax2onnx/plugins/jax/random/random_bits.py",
+    "jax2onnx/plugins/jax/random/random_fold_in.py",
+    "jax2onnx/plugins/jax/random/random_seed.py",
     "jax2onnx/plugins/plugin_system.py",
 ]
 follow_imports = "skip"
