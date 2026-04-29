@@ -65,6 +65,7 @@ def _broadcast_shape(
 
 
 class _BaseJnpPow(PrimitiveLeafPlugin):
+    _PRIM: ClassVar[Primitive]
     _FUNC_NAME: ClassVar[str]
 
     @staticmethod
