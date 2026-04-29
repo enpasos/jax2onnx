@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -24,24 +22,30 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -50,7 +54,7 @@ def _gather_mat_elem(
 
 
 def _scatter_mat_elem(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -62,18 +66,26 @@ def _scatter_mat_elem(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
+def _gather_vec_elem(
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        vec,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            vec,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(vec, "type", None) is not None:
         out.type = vec.type
@@ -145,7 +157,7 @@ def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.V
 class HouseholderProductPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.householder_product`` for static rank-2 inputs."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         a_var, taus_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -196,7 +208,9 @@ class HouseholderProductPlugin(PrimitiveLeafPlugin):
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
                 "householder_product"
             )
-            result = ctx.builder.Identity(q_cur, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(q_cur, _outputs=[desired_name])
+            )
             _stamp_like(result, out_spec if getattr(out_spec, "type", None) else q_cur)
             if getattr(out_spec, "shape", None) is not None:
                 result.shape = out_spec.shape
@@ -224,16 +238,22 @@ class HouseholderProductPlugin(PrimitiveLeafPlugin):
                 a_elem = _gather_mat_elem(ctx, a_val, r, i, f"hhp_aelem_{i}_{r}")
                 v = _scatter_mat_elem(ctx, v, r, 0, a_elem, f"hhp_set_v_{i}_{r}")
 
-            vt = ctx.builder.Transpose(
-                v,
-                perm=[1, 0],
-                _outputs=[ctx.fresh_name(f"hhp_vt_{i}")],
+            vt = cast(
+                ir.Value,
+                ctx.builder.Transpose(
+                    v,
+                    perm=[1, 0],
+                    _outputs=[ctx.fresh_name(f"hhp_vt_{i}")],
+                ),
             )
             if getattr(v, "type", None) is not None:
                 vt.type = v.type
             vt.shape = ir.Shape((1, m))
 
-            vvt = ctx.builder.MatMul(v, vt, _outputs=[ctx.fresh_name(f"hhp_vvt_{i}")])
+            vvt = cast(
+                ir.Value,
+                ctx.builder.MatMul(v, vt, _outputs=[ctx.fresh_name(f"hhp_vvt_{i}")]),
+            )
             if getattr(a_val, "type", None) is not None:
                 vvt.type = a_val.type
             vvt.shape = ir.Shape((m, m))
@@ -242,37 +262,49 @@ class HouseholderProductPlugin(PrimitiveLeafPlugin):
             tau_axes = _const_i64(
                 ctx, np.asarray([1], dtype=np.int64), f"hhp_tau_unsq_axes_{i}"
             )
-            tau_i = ctx.builder.Unsqueeze(
-                tau_i,
-                tau_axes,
-                _outputs=[ctx.fresh_name(f"hhp_tau_2d_{i}")],
+            tau_i = cast(
+                ir.Value,
+                ctx.builder.Unsqueeze(
+                    tau_i,
+                    tau_axes,
+                    _outputs=[ctx.fresh_name(f"hhp_tau_2d_{i}")],
+                ),
             )
             if getattr(a_val, "type", None) is not None:
                 tau_i.type = a_val.type
             tau_i.shape = ir.Shape((1, 1))
 
-            tau_vvt = ctx.builder.Mul(
-                tau_i,
-                vvt,
-                _outputs=[ctx.fresh_name(f"hhp_tau_vvt_{i}")],
+            tau_vvt = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    tau_i,
+                    vvt,
+                    _outputs=[ctx.fresh_name(f"hhp_tau_vvt_{i}")],
+                ),
             )
             if getattr(vvt, "type", None) is not None:
                 tau_vvt.type = vvt.type
             tau_vvt.shape = ir.Shape((m, m))
 
-            h_i = ctx.builder.Sub(
-                eye_m,
-                tau_vvt,
-                _outputs=[ctx.fresh_name(f"hhp_h_{i}")],
+            h_i = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    eye_m,
+                    tau_vvt,
+                    _outputs=[ctx.fresh_name(f"hhp_h_{i}")],
+                ),
             )
             if getattr(eye_m, "type", None) is not None:
                 h_i.type = eye_m.type
             h_i.shape = ir.Shape((m, m))
 
-            q_cur = ctx.builder.MatMul(
-                h_i,
-                q_cur,
-                _outputs=[ctx.fresh_name(f"hhp_q_{i}")],
+            q_cur = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    h_i,
+                    q_cur,
+                    _outputs=[ctx.fresh_name(f"hhp_q_{i}")],
+                ),
             )
             if getattr(a_val, "type", None) is not None:
                 q_cur.type = a_val.type
@@ -283,7 +315,9 @@ class HouseholderProductPlugin(PrimitiveLeafPlugin):
         )
         result = q_cur
         if getattr(result, "name", None) != desired_name:
-            result = ctx.builder.Identity(result, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(result, _outputs=[desired_name])
+            )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else q_cur)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape

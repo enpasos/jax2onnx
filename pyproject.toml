@@ -200,6 +200,7 @@ files = [
     "jax2onnx/plugins/jax/lax/floor.py",
     "jax2onnx/plugins/jax/lax/ge.py",
     "jax2onnx/plugins/jax/lax/gt.py",
+    "jax2onnx/plugins/jax/lax/householder_product.py",
     "jax2onnx/plugins/jax/lax/imag.py",
     "jax2onnx/plugins/jax/lax/integer_pow.py",
     "jax2onnx/plugins/jax/lax/iota.py",
