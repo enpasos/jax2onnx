@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -53,7 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class RngBitGeneratorPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rng_bit_generator`` with stateless ONNX random generation."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         key_var = eqn.invars[0]
         out_key_var, out_bits_var = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -69,7 +67,7 @@ class RngBitGeneratorPlugin(PrimitiveLeafPlugin):
         )
 
         key_name = getattr(out_key_spec, "name", None) or ctx.fresh_name("rngbg_key")
-        key_out = ctx.builder.Identity(key_val, _outputs=[key_name])
+        key_out = cast(ir.Value, ctx.builder.Identity(key_val, _outputs=[key_name]))
         if getattr(out_key_spec, "type", None) is not None:
             key_out.type = out_key_spec.type
         if getattr(out_key_spec, "shape", None) is not None:
@@ -92,22 +90,28 @@ class RngBitGeneratorPlugin(PrimitiveLeafPlugin):
         )
         bits_dtype_enum = numpy_dtype_to_ir(bits_np_dtype)
 
-        unit = ctx.builder.RandomUniform(
-            shape=bits_shape,
-            dtype=int(ir.DataType.FLOAT.value),
-            low=0.0,
-            high=1.0,
-            _outputs=[ctx.fresh_name("rngbg_unit")],
+        unit = cast(
+            ir.Value,
+            ctx.builder.RandomUniform(
+                shape=bits_shape,
+                dtype=int(ir.DataType.FLOAT.value),
+                low=0.0,
+                high=1.0,
+                _outputs=[ctx.fresh_name("rngbg_unit")],
+            ),
         )
         unit.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(unit, bits_shape)
         _ensure_value_metadata(ctx, unit)
 
         bits_name = getattr(out_bits_spec, "name", None) or ctx.fresh_name("rngbg_bits")
-        bits_out = ctx.builder.Cast(
-            unit,
-            to=int(bits_dtype_enum.value),
-            _outputs=[bits_name],
+        bits_out = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                unit,
+                to=int(bits_dtype_enum.value),
+                _outputs=[bits_name],
+            ),
         )
         bits_out.type = ir.TensorType(bits_dtype_enum)
         _stamp_type_and_shape(bits_out, bits_shape)
