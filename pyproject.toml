@@ -210,6 +210,7 @@ files = [
     "jax2onnx/plugins/jax/lax/iota.py",
     "jax2onnx/plugins/jax/lax/is_finite.py",
     "jax2onnx/plugins/jax/lax/le.py",
+    "jax2onnx/plugins/jax/lax/lgamma.py",
     "jax2onnx/plugins/jax/lax/log.py",
     "jax2onnx/plugins/jax/lax/log1p.py",
     "jax2onnx/plugins/jax/lax/logistic.py",
