@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import jax
 from jax import lax
@@ -11,7 +11,12 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax.reduce_window_sum import (
@@ -20,9 +25,6 @@ from jax2onnx.plugins.jax.lax.reduce_window_sum import (
     _normalize_int_tuple,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _canonical_reducer_name(name: str | None) -> str | None:
@@ -62,7 +64,9 @@ def _extract_scalar_literal(invar: Any) -> np.ndarray | None:
     return None
 
 
-def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bool:
+def _is_identity_init(
+    reducer: str, init_arr: np.ndarray[Any, np.dtype[Any]], dtype: np.dtype[Any]
+) -> bool:
     val: Any = init_arr.item()
     if reducer == "add":
         return bool(np.asarray(val == 0))
@@ -173,7 +177,7 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
     if hasattr(np, "bfloat16"):
         _MAXPOOL_DTYPES.add(np.dtype(np.bfloat16))
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         reducer_name = _extract_reducer_primitive_name(params.get("jaxpr"))
         if reducer_name not in {"add", "max", "min"}:
@@ -253,8 +257,14 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("reduce_window_out")
         )
 
-        operand_shape = tuple(getattr(getattr(operand_var, "aval", None), "shape", ()))
-        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        operand_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(operand_var, "aval", None), "shape", ())),
+        )
+        out_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(out_var, "aval", None), "shape", ())),
+        )
         dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
         if dtype_enum is None:
             raise TypeError(f"Unsupported dtype for reduce_window: {np_dtype}")
@@ -262,19 +272,25 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
         axes0 = _const_i64(ctx, np.asarray([0], dtype=np.int64), "rw_axes0")
         axes1 = _const_i64(ctx, np.asarray([1], dtype=np.int64), "rw_axes1")
 
-        unsq0 = ctx.builder.Unsqueeze(
-            operand_val,
-            axes0,
-            _outputs=[ctx.fresh_name("reduce_window_unsq0")],
+        unsq0 = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                operand_val,
+                axes0,
+                _outputs=[ctx.fresh_name("reduce_window_unsq0")],
+            ),
         )
         unsq0.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(unsq0, (1,) + operand_shape)
         _ensure_value_metadata(ctx, unsq0)
 
-        unsq1 = ctx.builder.Unsqueeze(
-            unsq0,
-            axes1,
-            _outputs=[ctx.fresh_name("reduce_window_unsq1")],
+        unsq1 = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                unsq0,
+                axes1,
+                _outputs=[ctx.fresh_name("reduce_window_unsq1")],
+            ),
         )
         unsq1.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(unsq1, (1, 1) + operand_shape)
@@ -282,9 +298,12 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
 
         pooled_input = unsq1
         if reducer_name == "min":
-            pooled_input = ctx.builder.Neg(
-                unsq1,
-                _outputs=[ctx.fresh_name("reduce_window_min_neg_in")],
+            pooled_input = cast(
+                ir.Value,
+                ctx.builder.Neg(
+                    unsq1,
+                    _outputs=[ctx.fresh_name("reduce_window_min_neg_in")],
+                ),
             )
             pooled_input.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(pooled_input, (1, 1) + operand_shape)
@@ -300,10 +319,13 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
         if any(d != 1 for d in window_dilation):
             maxpool_kwargs["dilations"] = tuple(window_dilation)
 
-        pooled = ctx.builder.MaxPool(
-            pooled_input,
-            _outputs=[ctx.fresh_name("reduce_window_pool")],
-            **maxpool_kwargs,
+        pooled = cast(
+            ir.Value,
+            ctx.builder.MaxPool(
+                pooled_input,
+                _outputs=[ctx.fresh_name("reduce_window_pool")],
+                **maxpool_kwargs,
+            ),
         )
         pooled.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(pooled, (1, 1) + out_shape)
@@ -311,9 +333,12 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
 
         restored = pooled
         if reducer_name == "min":
-            restored = ctx.builder.Neg(
-                pooled,
-                _outputs=[ctx.fresh_name("reduce_window_min_neg_out")],
+            restored = cast(
+                ir.Value,
+                ctx.builder.Neg(
+                    pooled,
+                    _outputs=[ctx.fresh_name("reduce_window_min_neg_out")],
+                ),
             )
             restored.type = ir.TensorType(dtype_enum)
             _stamp_type_and_shape(restored, (1, 1) + out_shape)
@@ -325,10 +350,13 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
             "reduce_window"
         )
-        result = ctx.builder.Squeeze(
-            restored,
-            squeeze_axes,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Squeeze(
+                restored,
+                squeeze_axes,
+                _outputs=[desired_name],
+            ),
         )
         result.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(result, out_shape)
