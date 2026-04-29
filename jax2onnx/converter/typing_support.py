@@ -184,6 +184,12 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
 
+    def bind_const_for_var(
+        self,
+        var: Any,
+        np_array: np.ndarray[Any, np.dtype[Any]],
+    ) -> ir.Value: ...
+
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
 
     def cast_like(
