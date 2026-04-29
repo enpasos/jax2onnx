@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
@@ -10,11 +10,13 @@ import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -133,7 +135,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class SelectPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.select`` to ONNX ``Where``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         cond_var, x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -147,10 +149,13 @@ class SelectPlugin(PrimitiveLeafPlugin):
         )
 
         if getattr(cond_var.aval, "dtype", np.bool_) != np.bool_:
-            cond_val = ctx.builder.Cast(
-                cond_val,
-                _outputs=[ctx.fresh_name("select_cond_bool")],
-                to=int(ir.DataType.BOOL.value),
+            cond_val = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    cond_val,
+                    _outputs=[ctx.fresh_name("select_cond_bool")],
+                    to=int(ir.DataType.BOOL.value),
+                ),
             )
             cond_val.type = ir.TensorType(ir.DataType.BOOL)
             cond_val.shape = cond_val.shape or x_val.shape
@@ -162,18 +167,23 @@ class SelectPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("select_out")
 
-        result = ctx.builder.Where(
-            cond_val,
-            x_val,
-            y_val,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Where(
+                cond_val,
+                x_val,
+                y_val,
+                _outputs=[desired_name],
+            ),
         )
         out_dtype_enum = _dtype_to_ir(
             np.dtype(getattr(out_var.aval, "dtype", np.float32)),
             ctx.builder.enable_double_precision,
         )
         result.type = ir.TensorType(out_dtype_enum)
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
+        out_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
+        )
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

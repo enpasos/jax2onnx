@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _const_scalar(value: Any) -> float | int | None:
@@ -24,7 +23,7 @@ def _const_scalar(value: Any) -> float | int | None:
         return None
     if arr.shape != ():
         return None
-    scalar = arr.item()
+    scalar: object = arr.item()
     if isinstance(scalar, (float, np.floating)):
         return float(scalar)
     if isinstance(scalar, (int, np.integer)):
@@ -166,7 +165,7 @@ def _all_axes(x: Any) -> tuple[int, ...]:
 class ReduceSumPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_sum`` via ONNX ReduceSum."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -238,16 +237,22 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name(op_name)
 
         if op_name == "ReduceL1":
-            result = ctx.builder.ReduceL1(
-                *inputs,
-                keepdims=1 if keepdims else 0,
-                _outputs=[desired_name],
+            result = cast(
+                ir.Value,
+                ctx.builder.ReduceL1(
+                    *inputs,
+                    keepdims=1 if keepdims else 0,
+                    _outputs=[desired_name],
+                ),
             )
         else:
-            result = ctx.builder.ReduceSumSquare(
-                *inputs,
-                keepdims=1 if keepdims else 0,
-                _outputs=[desired_name],
+            result = cast(
+                ir.Value,
+                ctx.builder.ReduceSumSquare(
+                    *inputs,
+                    keepdims=1 if keepdims else 0,
+                    _outputs=[desired_name],
+                ),
             )
 
         if getattr(out_spec, "type", None) is not None:

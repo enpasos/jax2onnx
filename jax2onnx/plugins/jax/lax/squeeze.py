@@ -1,15 +1,17 @@
 # jax2onnx/plugins/jax/lax/squeeze.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, List
+from typing import Any, List, cast
 
 import numpy as np
 import jax.numpy as jnp
 from jax import lax
 
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _ensure_value_metadata,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
@@ -23,11 +25,8 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.utils.shape_poly import dim_expr_constant_value
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
-
-def _const_i64(ctx: "IRContext", values: Any, name_hint: str) -> ir.Value:
+def _const_i64(ctx: LoweringContextProtocol, values: Any, name_hint: str) -> ir.Value:
     """Emit an INT64 constant via the builder to centralize initializer policy."""
     arr = np.asarray(values, dtype=np.int64)
     if arr.ndim == 0:
@@ -149,7 +148,7 @@ def _dim_const_value(dim: object) -> int | None:
 class SqueezePlugin(PrimitiveLeafPlugin):
     """plugins IR converter for jax.lax.squeeze → ONNX Squeeze."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
 
@@ -187,10 +186,13 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("squeeze_out")
 
-        result = ctx.builder.Squeeze(
-            x_val,
-            axes_val,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Squeeze(
+                x_val,
+                axes_val,
+                _outputs=[desired_name],
+            ),
         )
 
         if getattr(x_val, "type", None) and isinstance(x_val.type, ir.TensorType):
@@ -200,7 +202,10 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         spec_override = get_axis0_override(out_spec)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
         override_sources = (x_override, spec_override, ctx_override)
-        target_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        target_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(y_var, "aval", None), "shape", ())),
+        )
         target_axis0 = None
         if target_shape and isinstance(target_shape[0], (int, np.integer)):
             target_axis0 = int(target_shape[0])

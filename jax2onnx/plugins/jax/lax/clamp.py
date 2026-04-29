@@ -2,36 +2,41 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _cast_value(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target: ir.DataType,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name: str,
 ) -> ir.Value:
     current = getattr(getattr(value, "type", None), "dtype", None)
     if current == target:
         return value
     cast_name = ctx.fresh_name(name)
-    cast_val = ctx.builder.Cast(
-        value,
-        _outputs=[cast_name],
-        to=int(target.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            _outputs=[cast_name],
+            to=int(target.value),
+        ),
     )
     cast_val.type = ir.TensorType(target)
     cast_val.shape = ir.Shape(tuple(shape))
@@ -127,7 +132,7 @@ def _cast_value(
     ],
 )
 class ClampPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         min_var, x_var, max_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -149,12 +154,12 @@ class ClampPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision,
         )
 
-        x_shape = tuple(getattr(x_var.aval, "shape", ()))
+        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
         min_cast = _cast_value(ctx, min_val, target_dtype, x_shape, "ClampMinCast")
         max_cast = _cast_value(ctx, max_val, target_dtype, x_shape, "ClampMaxCast")
 
         max_name = ctx.fresh_name("clamp_max_out")
-        max_out = ctx.builder.Max(x_val, min_cast, _outputs=[max_name])
+        max_out = cast(ir.Value, ctx.builder.Max(x_val, min_cast, _outputs=[max_name]))
         max_out.type = ir.TensorType(target_dtype)
         max_out.shape = ir.Shape(x_shape)
         _stamp_type_and_shape(max_out, x_shape)
@@ -165,9 +170,15 @@ class ClampPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("clamp_out")
 
-        result = ctx.builder.Min(max_out, max_cast, _outputs=[desired_name])
+        result = cast(
+            ir.Value, ctx.builder.Min(max_out, max_cast, _outputs=[desired_name])
+        )
         result.type = ir.TensorType(target_dtype)
-        result.shape = ir.Shape(tuple(getattr(out_var.aval, "shape", x_shape)))
-        _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+        out_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(out_var.aval, "shape", x_shape)),
+        )
+        result.shape = ir.Shape(out_shape)
+        _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
