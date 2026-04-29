@@ -130,10 +130,14 @@ incremental = false
 files = [
     "jax2onnx/converter",
     "jax2onnx/ir_utils.py",
+    "jax2onnx/plugins/_axis0_utils.py",
     "jax2onnx/plugins/_attention_utils.py",
     "jax2onnx/plugins/_complex_utils.py",
     "jax2onnx/plugins/_ir_shapes.py",
+    "jax2onnx/plugins/_loop_extent_meta.py",
     "jax2onnx/plugins/_utils.py",
+    "jax2onnx/plugins/jax/lax/_index_utils.py",
+    "jax2onnx/plugins/jax/nn/_builder_utils.py",
     "jax2onnx/plugins/plugin_system.py",
 ]
 follow_imports = "skip"

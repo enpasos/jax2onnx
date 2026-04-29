@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Sequence, cast
 
 import numpy as np
 import onnx_ir as ir
@@ -71,7 +71,7 @@ def _const_i64(
     if builder is not None:
         add_initializer = getattr(builder, "add_initializer_from_array", None)
         if callable(add_initializer):
-            return add_initializer(base_name, arr)
+            return cast(ir.Value, add_initializer(base_name, arr))
 
     tensor_obj = ir.tensor(arr)
     shape = () if arr.ndim == 0 else tuple(int(d) for d in arr.shape)
@@ -187,12 +187,13 @@ def _builder_op(
         else:
             result = builder.op(op_type, list(inputs), attrs, name=out_name)
 
+    result_value = cast(ir.Value, result)
     if dtype is not None:
-        result.type = ir.TensorType(dtype)
+        result_value.type = ir.TensorType(dtype)
     if shape is not None:
-        _stamp_type_and_shape(result, tuple(shape))
-    _ensure_value_metadata(ctx, result)
-    return result
+        _stamp_type_and_shape(result_value, tuple(shape))
+    _ensure_value_metadata(ctx, result_value)
+    return result_value
 
 
 def _lower_i64_vector(
