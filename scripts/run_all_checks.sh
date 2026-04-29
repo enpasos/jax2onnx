@@ -7,6 +7,7 @@ RUN_MAXTEXT="${JAX2ONNX_RUN_MAXTEXT:-0}"
 RUN_MAXTEXT_ACTIVE=0
 RUN_MAXDIFFUSION="${JAX2ONNX_RUN_MAXDIFFUSION:-0}"
 RUN_MAXDIFFUSION_ACTIVE=0
+PYTEST_DURATION_ARGS=(--durations=50 --durations-min=1)
 
 cd "${REPO_ROOT}"
 
@@ -113,23 +114,23 @@ step=$((step + 1))
 
 if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
   echo "[${step}] Running MaxText SotA tests..."
-  poetry run pytest -q tests/examples/test_maxtext.py
+  poetry run pytest -q tests/examples/test_maxtext.py "${PYTEST_DURATION_ARGS[@]}"
   step=$((step + 1))
 fi
 
 if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
   echo "[${step}] Running MaxDiffusion SotA tests..."
-  poetry run pytest -q tests/examples/test_maxdiffusion.py
+  poetry run pytest -q tests/examples/test_maxdiffusion.py "${PYTEST_DURATION_ARGS[@]}"
   step=$((step + 1))
 fi
 
 echo "[${step}] Running pytest..."
 if poetry run python -c "import xdist" >/dev/null 2>&1; then
   echo "Using pytest-xdist: -n auto --dist=loadscope"
-  poetry run pytest -n auto --dist=loadscope
+  poetry run pytest -n auto --dist=loadscope "${PYTEST_DURATION_ARGS[@]}"
 else
   echo "pytest-xdist is not installed in the Poetry environment."
   echo "Falling back to serial pytest."
   echo "Install it with: poetry add --group dev pytest-xdist"
-  poetry run pytest
+  poetry run pytest "${PYTEST_DURATION_ARGS[@]}"
 fi
