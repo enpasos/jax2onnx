@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -23,13 +21,18 @@ def _stamp_like(value: Any, ref: Any) -> None:
         value.shape = ref.shape
 
 
-def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
+def _gather_vec_elem(
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        vec,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            vec,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(vec, "type", None) is not None:
         out.type = vec.type
@@ -39,14 +42,17 @@ def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.V
 
 
 def _gather_row(
-    ctx: "IRContext", mat: ir.Value, i: int, row_width: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, row_width: int, name: str
 ) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        mat,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         out.type = mat.type
@@ -107,7 +113,7 @@ def _gather_row(
 class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.tridiagonal_solve`` with a static Thomas algorithm."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         dl_var, d_var, du_var, b_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -154,7 +160,7 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
                 "tridiag_out"
             )
-            result = ctx.builder.Identity(b, _outputs=[desired_name])
+            result = cast(ir.Value, ctx.builder.Identity(b, _outputs=[desired_name]))
             _stamp_like(result, out_spec if getattr(out_spec, "type", None) else b)
             if getattr(out_spec, "shape", None) is not None:
                 result.shape = out_spec.shape
@@ -168,9 +174,14 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
         d0 = _gather_vec_elem(ctx, d, 0, "tridiag_d0")
         du0 = _gather_vec_elem(ctx, du, 0, "tridiag_du0")
         b0 = _gather_row(ctx, b, 0, rhs_cols, "tridiag_b0")
-        c0 = ctx.builder.Div(du0, d0, _outputs=[ctx.fresh_name("tridiag_c0")])
+        c0 = cast(
+            ir.Value, ctx.builder.Div(du0, d0, _outputs=[ctx.fresh_name("tridiag_c0")])
+        )
         _stamp_like(c0, d0)
-        d0_rhs = ctx.builder.Div(b0, d0, _outputs=[ctx.fresh_name("tridiag_d0_rhs")])
+        d0_rhs = cast(
+            ir.Value,
+            ctx.builder.Div(b0, d0, _outputs=[ctx.fresh_name("tridiag_d0_rhs")]),
+        )
         _stamp_like(d0_rhs, b0)
         c_prime.append(c0)
         d_prime.append(d0_rhs)
@@ -180,25 +191,34 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
             d_i = _gather_vec_elem(ctx, d, i, f"tridiag_d_{i}")
             b_i = _gather_row(ctx, b, i, rhs_cols, f"tridiag_b_{i}")
 
-            dl_mul_c = ctx.builder.Mul(
-                dl_i,
-                c_prime[i - 1],
-                _outputs=[ctx.fresh_name(f"tridiag_dl_mul_c_{i}")],
+            dl_mul_c = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    dl_i,
+                    c_prime[i - 1],
+                    _outputs=[ctx.fresh_name(f"tridiag_dl_mul_c_{i}")],
+                ),
             )
             _stamp_like(dl_mul_c, d_i)
-            denom = ctx.builder.Sub(
-                d_i,
-                dl_mul_c,
-                _outputs=[ctx.fresh_name(f"tridiag_denom_{i}")],
+            denom = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    d_i,
+                    dl_mul_c,
+                    _outputs=[ctx.fresh_name(f"tridiag_denom_{i}")],
+                ),
             )
             _stamp_like(denom, d_i)
 
             if i < n - 1:
                 du_i = _gather_vec_elem(ctx, du, i, f"tridiag_du_{i}")
-                c_i = ctx.builder.Div(
-                    du_i,
-                    denom,
-                    _outputs=[ctx.fresh_name(f"tridiag_c_{i}")],
+                c_i = cast(
+                    ir.Value,
+                    ctx.builder.Div(
+                        du_i,
+                        denom,
+                        _outputs=[ctx.fresh_name(f"tridiag_c_{i}")],
+                    ),
                 )
                 _stamp_like(c_i, du_i)
             else:
@@ -208,22 +228,31 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
                 )
             c_prime.append(c_i)
 
-            dl_mul_dprev = ctx.builder.Mul(
-                dl_i,
-                d_prime[i - 1],
-                _outputs=[ctx.fresh_name(f"tridiag_dl_mul_dprev_{i}")],
+            dl_mul_dprev = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    dl_i,
+                    d_prime[i - 1],
+                    _outputs=[ctx.fresh_name(f"tridiag_dl_mul_dprev_{i}")],
+                ),
             )
             _stamp_like(dl_mul_dprev, b_i)
-            rhs_num = ctx.builder.Sub(
-                b_i,
-                dl_mul_dprev,
-                _outputs=[ctx.fresh_name(f"tridiag_rhs_num_{i}")],
+            rhs_num = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    b_i,
+                    dl_mul_dprev,
+                    _outputs=[ctx.fresh_name(f"tridiag_rhs_num_{i}")],
+                ),
             )
             _stamp_like(rhs_num, b_i)
-            d_i_rhs = ctx.builder.Div(
-                rhs_num,
-                denom,
-                _outputs=[ctx.fresh_name(f"tridiag_d_rhs_{i}")],
+            d_i_rhs = cast(
+                ir.Value,
+                ctx.builder.Div(
+                    rhs_num,
+                    denom,
+                    _outputs=[ctx.fresh_name(f"tridiag_d_rhs_{i}")],
+                ),
             )
             _stamp_like(d_i_rhs, b_i)
             d_prime.append(d_i_rhs)
@@ -231,25 +260,34 @@ class TridiagonalSolvePlugin(PrimitiveLeafPlugin):
         # Back substitution.
         x_rows: list[ir.Value] = [d_prime[-1]]
         for i in range(n - 2, -1, -1):
-            c_mul_next = ctx.builder.Mul(
-                c_prime[i],
-                x_rows[0],
-                _outputs=[ctx.fresh_name(f"tridiag_c_mul_next_{i}")],
+            c_mul_next = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    c_prime[i],
+                    x_rows[0],
+                    _outputs=[ctx.fresh_name(f"tridiag_c_mul_next_{i}")],
+                ),
             )
             _stamp_like(c_mul_next, d_prime[i])
-            x_i = ctx.builder.Sub(
-                d_prime[i],
-                c_mul_next,
-                _outputs=[ctx.fresh_name(f"tridiag_x_{i}")],
+            x_i = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    d_prime[i],
+                    c_mul_next,
+                    _outputs=[ctx.fresh_name(f"tridiag_x_{i}")],
+                ),
             )
             _stamp_like(x_i, d_prime[i])
             x_rows.insert(0, x_i)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("tridiag_out")
-        result = ctx.builder.Concat(
-            *x_rows,
-            axis=0,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                *x_rows,
+                axis=0,
+                _outputs=[desired_name],
+            ),
         )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else b)
         if getattr(out_spec, "shape", None) is not None:
