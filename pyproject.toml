@@ -218,6 +218,7 @@ files = [
     "jax2onnx/plugins/jax/lax/neg.py",
     "jax2onnx/plugins/jax/lax/optimization_barrier.py",
     "jax2onnx/plugins/jax/lax/or.py",
+    "jax2onnx/plugins/jax/lax/ormqr.py",
     "jax2onnx/plugins/jax/lax/pad.py",
     "jax2onnx/plugins/jax/lax/pjit.py",
     "jax2onnx/plugins/jax/lax/pow.py",
