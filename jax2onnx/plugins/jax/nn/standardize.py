@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
@@ -124,10 +125,13 @@ class StandardizePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("std_out")
 
-        result = ctx.builder.MeanVarianceNormalization(
-            x_val,
-            axes=[int(a) for a in axes],
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.MeanVarianceNormalization(
+                x_val,
+                axes=[int(a) for a in axes],
+                _outputs=[desired_name],
+            ),
         )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
