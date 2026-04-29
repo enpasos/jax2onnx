@@ -107,12 +107,35 @@ def make_subgraph_context(
     parent_ctx: LoweringContextProtocol, *, prefix: str
 ) -> LoweringContextProtocol:
     """Create a child IR context suitable for Loop/If subgraphs."""
-    child_ctx = type(parent_ctx)(
-        opset=getattr(parent_ctx.builder, "opset", 21),
-        enable_double_precision=getattr(
+    child_kwargs: dict[str, Any] = {
+        "opset": getattr(parent_ctx.builder, "opset", 21),
+        "enable_double_precision": getattr(
             parent_ctx.builder, "enable_double_precision", False
         ),
-        input_specs=[],
+        "input_specs": [],
+    }
+    stacktrace_metadata = getattr(parent_ctx, "_stacktrace_metadata_enabled", None)
+    if stacktrace_metadata is not None:
+        child_kwargs["stacktrace_metadata"] = bool(stacktrace_metadata)
+    try:
+        child_ctx = type(parent_ctx)(**child_kwargs)
+    except TypeError:
+        child_kwargs.pop("stacktrace_metadata", None)
+        child_ctx = type(parent_ctx)(**child_kwargs)
+    child_ctx.record_primitive_calls_file = getattr(
+        parent_ctx,
+        "record_primitive_calls_file",
+        None,
+    )
+    child_ctx._lowering_record_owner = getattr(
+        parent_ctx,
+        "_lowering_record_owner",
+        parent_ctx,
+    )
+    child_ctx._primitive_call_records = getattr(
+        child_ctx._lowering_record_owner,
+        "_primitive_call_records",
+        [],
     )
     child_ctx._function_mode = True
     child_ctx._inside_function_scope = True

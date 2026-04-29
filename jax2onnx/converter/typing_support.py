@@ -105,6 +105,21 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
         prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
 
+    def require_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
+    def allocate_value_for_var(
+        self,
+        var: Any,
+        *,
+        name_hint: str | None = None,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...

@@ -24,7 +24,8 @@
   plugin metadata is staged, report nested JAXPR missing-plugin errors with
   source context, accept name-matched graph-connected outputs across `onnx_ir`
   value wrappers, scope constant-folder producer maps during nested lowering,
-  and keep primitive-call recording on the shared lowering path.
+  require equation inputs to be bound before plugin dispatch, and keep
+  stacktrace metadata plus primitive-call recording on the shared lowering path.
 * **Tighten converter utility surfaces:** Consolidate legacy context typing onto
   `LoweringContextProtocol`, centralize IR dtype/shape coercion in shared
   utilities, normalize `onnx_ir` function-container iteration, route manually
@@ -34,7 +35,7 @@
   replace the hard-coded optimizer sequence with a named pass registry that
   declares top-level/function-body applicability, fix constant folding for
   multi-output primitives by tracking each produced output independently, and
-  simplify consumer lookup fallbacks for wrapped or renamed IR values.
+  split graph reference helpers into a focused optimizer utility module.
 * **Improve layout and function-body robustness:** Route NCHW input/output
   adaptation through a dedicated layout adapter, share output-binding guardrails
   with control-flow and nested lowering helpers, and preserve function signatures

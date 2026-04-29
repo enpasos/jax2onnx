@@ -23,6 +23,35 @@ def get_bound_value(ctx: Any, var: object) -> ir.Value | None:
     return value if isinstance(value, ir.Value) else None
 
 
+def assert_eqn_inputs_bound(
+    ctx: Any,
+    eqn: object,
+    *,
+    primitive_name: str,
+    eqn_index: int,
+) -> None:
+    """Verify that plugin input vars are already bound before lowering starts."""
+    require_value = getattr(ctx, "require_value_for_var", None)
+    for in_index, invar in enumerate(getattr(eqn, "invars", ())):
+        if is_drop_var(invar):
+            continue
+        if callable(require_value):
+            try:
+                require_value(invar)
+                continue
+            except KeyError as exc:
+                raise RuntimeError(
+                    f"[converter] Primitive '{primitive_name}' at equation "
+                    f"{eqn_index} has unbound input {in_index}"
+                ) from exc
+
+        if get_bound_value(ctx, invar) is None:
+            raise RuntimeError(
+                f"[converter] Primitive '{primitive_name}' at equation "
+                f"{eqn_index} has unbound input {in_index}"
+            )
+
+
 def _value_name(value: ir.Value | None) -> str | None:
     if value is None:
         return None

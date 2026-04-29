@@ -351,6 +351,10 @@ function passes, and IR postprocessing share that helper.
 
 ## Suggested Next Steps
 
-The review items above are implemented. New follow-up work should be based on
-fresh failures, CI feedback, or a new converter design review rather than this
-completed checklist.
+The review items above are implemented. A follow-up design pass also split
+input lookup from output placeholder allocation in `IRContext`, moved equation
+input validation, current-equation scope handling, stacktrace metadata staging,
+and primitive-call recording onto the shared lowering dispatcher, and extracted
+optimizer graph reference helpers into a focused module. New follow-up work
+should be based on fresh failures, CI feedback, or a new converter design review
+rather than this completed checklist.

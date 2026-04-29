@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -42,6 +43,60 @@ class _FunctionStylePlugin:
             return (converter, conv, eqn, params)
 
         return handler
+
+
+class _AssertMetadataPlugin:
+    def lower(self, ctx: Any, eqn: Any) -> ir.Value:
+        assert getattr(ctx, "_current_eqn") is eqn
+        assert ctx.builder.current_jax_traceback == "jax traceback"
+        assert ctx.builder.current_plugin_identifier.endswith(
+            "._AssertMetadataPlugin.lower"
+        )
+        return ctx.builder.inputs[0]
+
+
+class _NestedRecordingPlugin:
+    def lower(self, ctx: Any, eqn: Any) -> ir.Value:
+        inner_outvar = object()
+        inner_jaxpr = SimpleNamespace(
+            eqns=[
+                SimpleNamespace(
+                    primitive=SimpleNamespace(name="inner"),
+                    invars=[],
+                    outvars=[inner_outvar],
+                    params={},
+                )
+            ]
+        )
+        lower_jaxpr_with_plugins(
+            ctx=ctx,
+            jaxpr=inner_jaxpr,
+            registry={"inner": _ReturnGraphInputPlugin()},
+            source="inner",
+        )
+        return ctx.builder.inputs[0]
+
+
+class _FakeMetadataBuilder:
+    stacktrace_metadata_enabled = True
+
+    def __init__(self, input_value: ir.Value) -> None:
+        self.inputs = [input_value]
+        self.initializers: list[ir.Value] = []
+        self.nodes: list[ir.Node] = []
+        self._var2val: dict[object, ir.Value] = {}
+        self.current_jax_traceback: str | None = "previous-trace"
+        self.current_plugin_identifier: str | None = "previous-plugin"
+        self.current_plugin_line: str | None = "7"
+
+    def set_current_jax_traceback(self, trace: str | None) -> None:
+        self.current_jax_traceback = trace
+
+    def set_current_plugin_identifier(
+        self, identifier: str | None, line: str | None = None
+    ) -> None:
+        self.current_plugin_identifier = identifier
+        self.current_plugin_line = line
 
 
 def test_get_registered_lowering_plugin_returns_registered_plugin() -> None:
@@ -231,6 +286,66 @@ def test_lower_equation_with_plugin_dispatches_and_finalizes_outputs() -> None:
     assert ctx.builder._var2val[outvar] is input_value
 
 
+def test_lower_equation_with_plugin_rejects_unbound_input() -> None:
+    outvar = object()
+    invar = object()
+    input_value = ir.Value(name="input")
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        )
+    )
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    eqn = SimpleNamespace(invars=[invar], outvars=[outvar])
+
+    with pytest.raises(
+        RuntimeError,
+        match="Primitive 'return_input'.*has unbound input 0",
+    ):
+        lower_equation_with_plugin(
+            _ReturnGraphInputPlugin(),
+            ctx=ctx,
+            eqn=eqn,
+            primitive_name="return_input",
+            eqn_index=0,
+            source="test",
+        )
+
+
+def test_lower_equation_with_plugin_stages_metadata_and_current_eqn() -> None:
+    outvar = object()
+    input_value = ir.Value(name="input")
+    builder = _FakeMetadataBuilder(input_value)
+    ctx = SimpleNamespace(builder=builder)
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    eqn = SimpleNamespace(
+        invars=[],
+        outvars=[outvar],
+        source_info=SimpleNamespace(traceback="jax traceback"),
+    )
+
+    lower_equation_with_plugin(
+        _AssertMetadataPlugin(),
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="metadata",
+        eqn_index=0,
+        source="test",
+    )
+
+    assert not hasattr(ctx, "_current_eqn")
+    assert builder.current_jax_traceback == "previous-trace"
+    assert builder.current_plugin_identifier == "previous-plugin"
+    assert builder.current_plugin_line == "7"
+
+
 def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
     outvars = [object(), object()]
     input_value = ir.Value(name="input")
@@ -267,6 +382,45 @@ def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
 
     assert ctx.builder._var2val[outvars[0]] is input_value
     assert ctx.builder._var2val[outvars[1]] is input_value
+
+
+def test_lower_jaxpr_with_plugins_records_nested_calls_once(tmp_path) -> None:
+    outvar = object()
+    input_value = ir.Value(name="input")
+    log_path = tmp_path / "primitive_calls.json"
+    ctx = SimpleNamespace(
+        builder=SimpleNamespace(
+            inputs=[input_value],
+            initializers=[],
+            nodes=[],
+            _var2val={},
+        ),
+        record_primitive_calls_file=str(log_path),
+    )
+    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
+        var, value
+    )
+    jaxpr = SimpleNamespace(
+        eqns=[
+            SimpleNamespace(
+                primitive=SimpleNamespace(name="outer"),
+                invars=[],
+                outvars=[outvar],
+                params={},
+            )
+        ]
+    )
+
+    lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jaxpr,
+        registry={"outer": _NestedRecordingPlugin()},
+        source="outer",
+    )
+
+    records = json.loads(log_path.read_text(encoding="utf-8"))
+    primitive_names = [record["primitive_name"] for record in records]
+    assert primitive_names == ["inner", "outer"]
 
 
 def test_lower_jaxpr_with_plugins_restores_existing_constant_producers() -> None:

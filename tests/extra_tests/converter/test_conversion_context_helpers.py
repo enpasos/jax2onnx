@@ -6,6 +6,7 @@ import numpy as np
 import onnx_ir as ir
 import jax
 import jax.numpy as jnp
+import pytest
 
 from jax2onnx.converter.conversion_api import (
     _LayoutAdapter,
@@ -108,6 +109,43 @@ def test_bind_jaxpr_inputs_creates_nchw_bridge_and_symbol_origin() -> None:
     assert origin is not None
     assert origin.value is graph_input
     assert origin.axis == 0
+
+
+def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
+    trace = _trace_to_jaxpr(
+        fn=_add_const,
+        inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
+        input_params=None,
+        enable_double_precision=False,
+        inputs_as_nchw=None,
+        outputs_as_nchw=None,
+        input_names=["x"],
+        output_names=["y"],
+    )
+    ctx = _create_ir_context(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=trace.sds_list,
+        frozen_params=trace.frozen_params,
+        record_primitive_calls_file=None,
+    )
+    _bind_closed_jaxpr_constants(
+        ctx,
+        trace.jaxpr,
+        trace.closed_jaxpr.consts,
+        default_float=np.dtype(np.float32),
+        enable_double_precision=False,
+    )
+    _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=())
+    outvar = trace.jaxpr.outvars[0]
+
+    with pytest.raises(KeyError):
+        ctx.require_value_for_var(outvar)
+
+    allocated = ctx.allocate_value_for_var(outvar, name_hint="allocated_output")
+
+    assert allocated.name == "allocated_output"
+    assert ctx.require_value_for_var(outvar) is allocated
 
 
 def test_layout_adapter_uses_context_symbol_origin_methods() -> None:

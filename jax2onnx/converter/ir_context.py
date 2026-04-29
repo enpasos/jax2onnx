@@ -230,6 +230,9 @@ class IRContext:
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
         self._current_eqn: Any = None
+        self._primitive_call_records: list[Any] = []
+        self._lowering_record_depth: int = 0
+        self._lowering_record_owner: Any = self
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None
@@ -603,42 +606,66 @@ class IRContext:
             return self._sym_origin[dim]
         return self._sym_origin_str.get(str(dim))
 
-    def get_value_for_var(
+    def _bind_literal_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        literal_val = _maybe_literal_value(var)
+        if literal_val is None:
+            raise TypeError("Literal missing value")
+        arr = np.asarray(literal_val)
+        aval = _maybe_aval(var)
+        literal_dtype = _maybe_dtype(aval)
+        if literal_dtype is None:
+            try:
+                literal_dtype = np.dtype(arr.dtype)
+            except TypeError:
+                literal_dtype = None
+        if prefer_np_dtype is not None:
+            try:
+                prefer_dtype = np.dtype(prefer_np_dtype)
+                literal_dtype = prefer_dtype
+            except TypeError:
+                pass
+
+        if np.issubdtype(arr.dtype, np.floating):
+            tgt = literal_dtype or np.dtype(self._default_float_dtype)
+            arr = arr.astype(tgt, copy=False)
+        elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
+            arr = arr.astype(literal_dtype, copy=False)
+        return self.bind_const_for_var(var, arr)
+
+    def require_value_for_var(
+        self,
+        var: Any,
+        *,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        """Return an already-bound input value, binding JAX literals as constants."""
+        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
+            return self._bind_literal_value_for_var(
+                var,
+                prefer_np_dtype=prefer_np_dtype,
+            )
+        if var in self.builder._var2val:
+            return self.builder._var2val[var]
+        raise KeyError(f"No IR value is bound for JAX var {var!r}")
+
+    def allocate_value_for_var(
         self,
         var: Any,
         *,
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        # Literals show up directly in eqn.invars for things like add_const
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
-            literal_val = _maybe_literal_value(var)
-            if literal_val is None:
-                raise TypeError("Literal missing value")
-            arr = np.asarray(literal_val)
-            aval = _maybe_aval(var)
-            literal_dtype = _maybe_dtype(aval)
-            if literal_dtype is None:
-                try:
-                    literal_dtype = np.dtype(arr.dtype)
-                except TypeError:
-                    literal_dtype = None
-            if prefer_np_dtype is not None:
-                try:
-                    prefer_dtype = np.dtype(prefer_np_dtype)
-                    literal_dtype = prefer_dtype
-                except TypeError:
-                    pass
+        """Return a bound value, allocating an output placeholder when needed."""
+        try:
+            return self.require_value_for_var(var, prefer_np_dtype=prefer_np_dtype)
+        except KeyError:
+            pass
 
-            if np.issubdtype(arr.dtype, np.floating):
-                tgt = literal_dtype or np.dtype(self._default_float_dtype)
-                arr = arr.astype(tgt, copy=False)
-            elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
-                arr = arr.astype(literal_dtype, copy=False)
-            return self.bind_const_for_var(var, arr)
-
-        if var in self.builder._var2val:
-            return self.builder._var2val[var]
         aval = _maybe_aval(var)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
@@ -670,6 +697,19 @@ class IRContext:
         )
         self.builder._var2val[var] = v
         return v
+
+    def get_value_for_var(
+        self,
+        var: Any,
+        *,
+        name_hint: Optional[str] = None,
+        prefer_np_dtype: Optional[np.dtype] = None,
+    ) -> ir.Value:
+        return self.allocate_value_for_var(
+            var,
+            name_hint=name_hint,
+            prefer_np_dtype=prefer_np_dtype,
+        )
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):

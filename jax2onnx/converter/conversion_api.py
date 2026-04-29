@@ -34,7 +34,6 @@ from jax2onnx.ir_utils import (
     maybe_numpy_dtype,
     numpy_dtype_to_ir,
 )
-from jax2onnx.utils.debug import RecordedPrimitiveCallLog, save_primitive_calls_log
 from jax2onnx.plugins import plugin_system as ps2
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
@@ -49,13 +48,7 @@ from .ir_context import IRContext
 from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
-from .lowering_dispatch import (
-    get_registered_lowering_plugin,
-    identify_lowering_plugin,
-    lower_equation_with_plugin,
-    make_converter_facade,
-)
-from .output_binding import get_bound_value
+from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import LoweringContextProtocol
 
 from jax.extend import core as jcore_ext
@@ -69,6 +62,10 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 _STRICT_OPTIMIZER_FAILURES_ENV: str = "JAX2ONNX_STRICT_OPTIMIZER_FAILURES"
 _NHWC_TO_NCHW_PERM: tuple[int, int, int, int] = (0, 3, 1, 2)
 _NCHW_TO_NHWC_PERM: tuple[int, int, int, int] = (0, 2, 3, 1)
+_current_eqn_scope: Callable[..., object] = _lowering_dispatch.current_eqn_scope
+_staged_lowering_metadata: Callable[..., object] = (
+    _lowering_dispatch.staged_lowering_metadata
+)
 
 
 @dataclass(frozen=True)
@@ -276,156 +273,6 @@ def _optimize_graph_with_failure_policy(
         if _resolve_strict_optimizer_failures(strict_optimizer_failures):
             raise
         _log_nonfatal_stage_failure("optimize_graph", exc)
-
-
-def _aval_log_entry(var: object) -> tuple[tuple[object, ...], str, str]:
-    aval = getattr(var, "aval", None)
-    if aval is None:
-        return ((), "", type(var).__name__)
-    raw_shape = getattr(aval, "shape", ())
-    try:
-        shape = tuple(raw_shape)
-    except TypeError:
-        shape = ()
-    dtype = getattr(aval, "dtype", "")
-    return (shape, str(dtype), type(aval).__name__)
-
-
-def _var_log_name(var: object) -> str:
-    try:
-        return str(var)
-    except Exception:
-        return repr(var)
-
-
-def _bound_value_name(ctx: IRContext, var: object) -> str:
-    value = get_bound_value(ctx, var)
-    if value is None:
-        return ""
-    return value.name or ""
-
-
-def _params_repr(params: Mapping[str, object]) -> str:
-    if not params:
-        return ""
-    lines: list[str] = []
-    for key in sorted(params):
-        try:
-            value_repr = repr(params[key])
-        except Exception:
-            value_repr = f"<unrepresentable:{type(params[key]).__name__}>"
-        lines.append(f"  {key}: {value_repr}")
-    return "\n".join(lines)
-
-
-def _plugin_file_hint(plugin_ref: object, prim_name: str) -> str:
-    if plugin_ref is None:
-        return prim_name
-    return f"{type(plugin_ref).__module__}.{type(plugin_ref).__name__}"
-
-
-def _primitive_call_record(
-    ctx: IRContext,
-    eqn: object,
-    *,
-    eqn_index: int,
-    primitive_name: str,
-    plugin_ref: object,
-) -> RecordedPrimitiveCallLog:
-    invars = list(getattr(eqn, "invars", ()))
-    outvars = list(getattr(eqn, "outvars", ()))
-    params = getattr(eqn, "params", {})
-    if not isinstance(params, Mapping):
-        params = {}
-    return RecordedPrimitiveCallLog(
-        sequence_id=eqn_index,
-        primitive_name=primitive_name,
-        plugin_file_hint=_plugin_file_hint(plugin_ref, primitive_name),
-        params=dict(params),
-        params_repr=_params_repr(params),
-        inputs_aval=[_aval_log_entry(var) for var in invars],
-        outputs_aval=[_aval_log_entry(var) for var in outvars],
-        inputs_jax_vars=[_var_log_name(var) for var in invars],
-        inputs_onnx_names=[_bound_value_name(ctx, var) for var in invars],
-        outputs_jax_vars=[_var_log_name(var) for var in outvars],
-        outputs_onnx_names=[_bound_value_name(ctx, var) for var in outvars],
-    )
-
-
-def _append_primitive_call_record(
-    records: list[RecordedPrimitiveCallLog],
-    ctx: IRContext,
-    eqn: object,
-    *,
-    eqn_index: int,
-    primitive_name: str,
-    plugin_ref: object,
-) -> None:
-    if not ctx.record_primitive_calls_file:
-        return
-    records.append(
-        _primitive_call_record(
-            ctx,
-            eqn,
-            eqn_index=eqn_index,
-            primitive_name=primitive_name,
-            plugin_ref=plugin_ref,
-        )
-    )
-
-
-def _eqn_jax_traceback(eqn: object) -> str | None:
-    source_info = getattr(eqn, "source_info", None)
-    if source_info is None:
-        return None
-    traceback = getattr(source_info, "traceback", None)
-    if traceback is None:
-        return None
-    try:
-        return str(traceback)
-    except Exception:
-        return None
-
-
-@contextmanager
-def _staged_lowering_metadata(
-    builder: Any,
-    *,
-    eqn: object,
-    plugin_ref: object,
-    primitive_name: str,
-) -> Iterator[None]:
-    prev_jax_trace = builder.current_jax_traceback
-    prev_plugin_id = builder.current_plugin_identifier
-    prev_plugin_line = builder.current_plugin_line
-    jax_trace: Optional[str] = None
-    plugin_identifier: Optional[str] = None
-    plugin_line: Optional[str] = None
-
-    if builder.stacktrace_metadata_enabled:
-        jax_trace = _eqn_jax_traceback(eqn)
-        plugin_identifier, plugin_line = identify_lowering_plugin(
-            plugin_ref,
-            primitive_name,
-        )
-
-    builder.set_current_jax_traceback(jax_trace)
-    builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
-    try:
-        yield
-    finally:
-        builder.set_current_jax_traceback(prev_jax_trace)
-        builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
-
-
-@contextmanager
-def _current_eqn_scope(ctx: IRContext, eqn: object) -> Iterator[None]:
-    previous_eqn = ctx._current_eqn
-    ctx._current_eqn = eqn
-    try:
-        yield
-    finally:
-        ctx._current_eqn = previous_eqn
 
 
 # Deprecated compatibility alias for TYPE_CHECKING-only legacy plugin imports.
@@ -970,50 +817,12 @@ def _trace_to_jaxpr(
 
 
 def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
-    converter = make_converter_facade(ctx)
-    primitive_call_records: list[RecordedPrimitiveCallLog] = []
-
-    try:
-        with ctx._const_folder.producer_scope(jpr):
-            for eqn_index, eqn in enumerate(jpr.eqns):
-                prim_name = eqn.primitive.name
-                plugin_ref = get_registered_lowering_plugin(
-                    PLUGIN_REGISTRY,
-                    prim_name,
-                    source="converter",
-                )
-                builder = ctx.builder
-                with (
-                    _current_eqn_scope(ctx, eqn),
-                    _staged_lowering_metadata(
-                        builder,
-                        eqn=eqn,
-                        plugin_ref=plugin_ref,
-                        primitive_name=prim_name,
-                    ),
-                ):
-                    lower_equation_with_plugin(
-                        plugin_ref,
-                        ctx=ctx,
-                        eqn=eqn,
-                        primitive_name=prim_name,
-                        eqn_index=eqn_index,
-                        source="converter",
-                        converter=converter,
-                    )
-                    _append_primitive_call_record(
-                        primitive_call_records,
-                        ctx,
-                        eqn,
-                        eqn_index=eqn_index,
-                        primitive_name=prim_name,
-                        plugin_ref=plugin_ref,
-                    )
-    finally:
-        if ctx.record_primitive_calls_file:
-            save_primitive_calls_log(
-                primitive_call_records, ctx.record_primitive_calls_file
-            )
+    _lowering_dispatch.lower_jaxpr_with_plugins(
+        ctx=ctx,
+        jaxpr=jpr,
+        registry=PLUGIN_REGISTRY,
+        source="converter",
+    )
 
 
 def to_onnx(
