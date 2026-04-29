@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -22,7 +21,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
         value.shape = ref.shape
 
 
-def _float_layout(np_dtype: np.dtype) -> tuple[int, int, int] | None:
+def _float_layout(np_dtype: np.dtype[Any]) -> tuple[int, int, int] | None:
     # Returns (mantissa_bits, min_normal_exponent, max_exponent).
     if np_dtype == np.dtype(np.float16):
         return (10, -14, 15)
@@ -96,7 +95,7 @@ def _float_layout(np_dtype: np.dtype) -> tuple[int, int, int] | None:
 class NextAfterPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.nextafter`` using ULP arithmetic (no bitcasts required)."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -122,7 +121,7 @@ class NextAfterPlugin(PrimitiveLeafPlugin):
             )
         mantissa_bits, min_exp, max_exp = layout
 
-        def _const(value: float) -> Any:
+        def _const(value: float) -> ir.Value:
             return ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
 
         zero = _const(0.0)
@@ -143,173 +142,273 @@ class NextAfterPlugin(PrimitiveLeafPlugin):
         max_exp_f = _const(float(max_exp))
         nan_const = _const(np.nan)
 
-        abs_x = ctx.builder.Abs(x, _outputs=[ctx.fresh_name("nextafter_abs_x")])
-        _stamp_like(abs_x, x)
-        x_is_zero = ctx.builder.Equal(
-            abs_x,
-            zero,
-            _outputs=[ctx.fresh_name("nextafter_x_is_zero")],
+        abs_x = cast(
+            ir.Value, ctx.builder.Abs(x, _outputs=[ctx.fresh_name("nextafter_abs_x")])
         )
-        safe_abs = ctx.builder.Where(
-            x_is_zero,
-            one,
-            abs_x,
-            _outputs=[ctx.fresh_name("nextafter_safe_abs")],
+        _stamp_like(abs_x, x)
+        x_is_zero = cast(
+            ir.Value,
+            ctx.builder.Equal(
+                abs_x,
+                zero,
+                _outputs=[ctx.fresh_name("nextafter_x_is_zero")],
+            ),
+        )
+        safe_abs = cast(
+            ir.Value,
+            ctx.builder.Where(
+                x_is_zero,
+                one,
+                abs_x,
+                _outputs=[ctx.fresh_name("nextafter_safe_abs")],
+            ),
         )
         _stamp_like(safe_abs, x)
 
-        log_abs = ctx.builder.Log(safe_abs, _outputs=[ctx.fresh_name("nextafter_log")])
+        log_abs = cast(
+            ir.Value,
+            ctx.builder.Log(safe_abs, _outputs=[ctx.fresh_name("nextafter_log")]),
+        )
         _stamp_like(log_abs, x)
-        log2_abs = ctx.builder.Div(
-            log_abs,
-            log2,
-            _outputs=[ctx.fresh_name("nextafter_log2")],
+        log2_abs = cast(
+            ir.Value,
+            ctx.builder.Div(
+                log_abs,
+                log2,
+                _outputs=[ctx.fresh_name("nextafter_log2")],
+            ),
         )
         _stamp_like(log2_abs, x)
-        exponent = ctx.builder.Floor(
-            log2_abs,
-            _outputs=[ctx.fresh_name("nextafter_exp")],
+        exponent = cast(
+            ir.Value,
+            ctx.builder.Floor(
+                log2_abs,
+                _outputs=[ctx.fresh_name("nextafter_exp")],
+            ),
         )
         _stamp_like(exponent, x)
 
-        pow_e = ctx.builder.Pow(
-            two, exponent, _outputs=[ctx.fresh_name("nextafter_pow_e")]
+        pow_e = cast(
+            ir.Value,
+            ctx.builder.Pow(
+                two, exponent, _outputs=[ctx.fresh_name("nextafter_pow_e")]
+            ),
         )
         _stamp_like(pow_e, x)
-        ulp_up_exp = ctx.builder.Sub(
-            exponent,
-            mantissa_bits_f,
-            _outputs=[ctx.fresh_name("nextafter_ulp_exp")],
+        ulp_up_exp = cast(
+            ir.Value,
+            ctx.builder.Sub(
+                exponent,
+                mantissa_bits_f,
+                _outputs=[ctx.fresh_name("nextafter_ulp_exp")],
+            ),
         )
         _stamp_like(ulp_up_exp, x)
-        ulp_up = ctx.builder.Pow(
-            two,
-            ulp_up_exp,
-            _outputs=[ctx.fresh_name("nextafter_ulp_up")],
+        ulp_up = cast(
+            ir.Value,
+            ctx.builder.Pow(
+                two,
+                ulp_up_exp,
+                _outputs=[ctx.fresh_name("nextafter_ulp_up")],
+            ),
         )
         _stamp_like(ulp_up, x)
-        is_subnormal = ctx.builder.Less(
-            abs_x,
-            min_normal,
-            _outputs=[ctx.fresh_name("nextafter_is_sub")],
+        is_subnormal = cast(
+            ir.Value,
+            ctx.builder.Less(
+                abs_x,
+                min_normal,
+                _outputs=[ctx.fresh_name("nextafter_is_sub")],
+            ),
         )
-        ulp = ctx.builder.Where(
-            is_subnormal,
-            tiny_subnormal,
-            ulp_up,
-            _outputs=[ctx.fresh_name("nextafter_ulp")],
+        ulp = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_subnormal,
+                tiny_subnormal,
+                ulp_up,
+                _outputs=[ctx.fresh_name("nextafter_ulp")],
+            ),
         )
         _stamp_like(ulp, x)
 
-        dir_delta = ctx.builder.Sub(y, x, _outputs=[ctx.fresh_name("nextafter_delta")])
+        dir_delta = cast(
+            ir.Value,
+            ctx.builder.Sub(y, x, _outputs=[ctx.fresh_name("nextafter_delta")]),
+        )
         _stamp_like(dir_delta, x)
-        dir_sign = ctx.builder.Sign(
-            dir_delta,
-            _outputs=[ctx.fresh_name("nextafter_dir_sign")],
+        dir_sign = cast(
+            ir.Value,
+            ctx.builder.Sign(
+                dir_delta,
+                _outputs=[ctx.fresh_name("nextafter_dir_sign")],
+            ),
         )
         _stamp_like(dir_sign, x)
 
-        toward_zero_metric = ctx.builder.Mul(
-            x,
-            dir_sign,
-            _outputs=[ctx.fresh_name("nextafter_toward_zero_metric")],
+        toward_zero_metric = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                x,
+                dir_sign,
+                _outputs=[ctx.fresh_name("nextafter_toward_zero_metric")],
+            ),
         )
         _stamp_like(toward_zero_metric, x)
-        toward_zero = ctx.builder.Less(
-            toward_zero_metric,
-            zero,
-            _outputs=[ctx.fresh_name("nextafter_toward_zero")],
+        toward_zero = cast(
+            ir.Value,
+            ctx.builder.Less(
+                toward_zero_metric,
+                zero,
+                _outputs=[ctx.fresh_name("nextafter_toward_zero")],
+            ),
         )
-        is_pow2 = ctx.builder.Equal(
-            abs_x,
-            pow_e,
-            _outputs=[ctx.fresh_name("nextafter_is_pow2")],
+        is_pow2 = cast(
+            ir.Value,
+            ctx.builder.Equal(
+                abs_x,
+                pow_e,
+                _outputs=[ctx.fresh_name("nextafter_is_pow2")],
+            ),
         )
-        exp_gt_min = ctx.builder.Greater(
-            exponent,
-            min_exp_f,
-            _outputs=[ctx.fresh_name("nextafter_exp_gt_min")],
+        exp_gt_min = cast(
+            ir.Value,
+            ctx.builder.Greater(
+                exponent,
+                min_exp_f,
+                _outputs=[ctx.fresh_name("nextafter_exp_gt_min")],
+            ),
         )
-        pow2_boundary = ctx.builder.And(
-            is_pow2,
-            exp_gt_min,
-            _outputs=[ctx.fresh_name("nextafter_pow2_boundary")],
+        pow2_boundary = cast(
+            ir.Value,
+            ctx.builder.And(
+                is_pow2,
+                exp_gt_min,
+                _outputs=[ctx.fresh_name("nextafter_pow2_boundary")],
+            ),
         )
-        use_half_ulp = ctx.builder.And(
-            toward_zero,
-            pow2_boundary,
-            _outputs=[ctx.fresh_name("nextafter_use_half_ulp")],
+        use_half_ulp = cast(
+            ir.Value,
+            ctx.builder.And(
+                toward_zero,
+                pow2_boundary,
+                _outputs=[ctx.fresh_name("nextafter_use_half_ulp")],
+            ),
         )
-        ulp_half = ctx.builder.Mul(
-            ulp, half, _outputs=[ctx.fresh_name("nextafter_ulp_half")]
+        ulp_half = cast(
+            ir.Value,
+            ctx.builder.Mul(ulp, half, _outputs=[ctx.fresh_name("nextafter_ulp_half")]),
         )
         _stamp_like(ulp_half, x)
-        ulp_eff = ctx.builder.Where(
-            use_half_ulp,
-            ulp_half,
-            ulp,
-            _outputs=[ctx.fresh_name("nextafter_ulp_eff")],
+        ulp_eff = cast(
+            ir.Value,
+            ctx.builder.Where(
+                use_half_ulp,
+                ulp_half,
+                ulp,
+                _outputs=[ctx.fresh_name("nextafter_ulp_eff")],
+            ),
         )
         _stamp_like(ulp_eff, x)
 
-        step = ctx.builder.Mul(
-            dir_sign, ulp_eff, _outputs=[ctx.fresh_name("nextafter_step")]
+        step = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                dir_sign, ulp_eff, _outputs=[ctx.fresh_name("nextafter_step")]
+            ),
         )
         _stamp_like(step, x)
-        candidate = ctx.builder.Add(
-            x, step, _outputs=[ctx.fresh_name("nextafter_candidate")]
+        candidate = cast(
+            ir.Value,
+            ctx.builder.Add(x, step, _outputs=[ctx.fresh_name("nextafter_candidate")]),
         )
         _stamp_like(candidate, x)
 
-        x_is_inf = ctx.builder.IsInf(x, _outputs=[ctx.fresh_name("nextafter_x_is_inf")])
-        x_sign = ctx.builder.Sign(x, _outputs=[ctx.fresh_name("nextafter_x_sign")])
+        x_is_inf = cast(
+            ir.Value,
+            ctx.builder.IsInf(x, _outputs=[ctx.fresh_name("nextafter_x_is_inf")]),
+        )
+        x_sign = cast(
+            ir.Value,
+            ctx.builder.Sign(x, _outputs=[ctx.fresh_name("nextafter_x_sign")]),
+        )
         _stamp_like(x_sign, x)
-        inf_replacement = ctx.builder.Mul(
-            x_sign,
-            max_finite,
-            _outputs=[ctx.fresh_name("nextafter_inf_replacement")],
+        inf_replacement = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                x_sign,
+                max_finite,
+                _outputs=[ctx.fresh_name("nextafter_inf_replacement")],
+            ),
         )
         _stamp_like(inf_replacement, x)
-        candidate = ctx.builder.Where(
-            x_is_inf,
-            inf_replacement,
-            candidate,
-            _outputs=[ctx.fresh_name("nextafter_candidate_inf")],
+        candidate = cast(
+            ir.Value,
+            ctx.builder.Where(
+                x_is_inf,
+                inf_replacement,
+                candidate,
+                _outputs=[ctx.fresh_name("nextafter_candidate_inf")],
+            ),
         )
         _stamp_like(candidate, x)
 
         # Optional clamp: keeps approximation bounded for extreme exponents.
-        is_over = ctx.builder.Greater(
-            exponent,
-            max_exp_f,
-            _outputs=[ctx.fresh_name("nextafter_is_over")],
+        is_over = cast(
+            ir.Value,
+            ctx.builder.Greater(
+                exponent,
+                max_exp_f,
+                _outputs=[ctx.fresh_name("nextafter_is_over")],
+            ),
         )
-        candidate = ctx.builder.Where(
-            is_over,
-            inf_replacement,
-            candidate,
-            _outputs=[ctx.fresh_name("nextafter_candidate_over")],
+        candidate = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_over,
+                inf_replacement,
+                candidate,
+                _outputs=[ctx.fresh_name("nextafter_candidate_over")],
+            ),
         )
         _stamp_like(candidate, x)
 
-        x_eq_y = ctx.builder.Equal(x, y, _outputs=[ctx.fresh_name("nextafter_x_eq_y")])
-        result_no_nan = ctx.builder.Where(
-            x_eq_y,
-            y,
-            candidate,
-            _outputs=[ctx.fresh_name("nextafter_no_nan")],
+        x_eq_y = cast(
+            ir.Value,
+            ctx.builder.Equal(x, y, _outputs=[ctx.fresh_name("nextafter_x_eq_y")]),
+        )
+        result_no_nan = cast(
+            ir.Value,
+            ctx.builder.Where(
+                x_eq_y,
+                y,
+                candidate,
+                _outputs=[ctx.fresh_name("nextafter_no_nan")],
+            ),
         )
         _stamp_like(result_no_nan, x)
 
-        x_is_nan = ctx.builder.IsNaN(x, _outputs=[ctx.fresh_name("nextafter_x_is_nan")])
-        y_is_nan = ctx.builder.IsNaN(y, _outputs=[ctx.fresh_name("nextafter_y_is_nan")])
-        any_nan = ctx.builder.Or(
-            x_is_nan,
-            y_is_nan,
-            _outputs=[ctx.fresh_name("nextafter_any_nan")],
+        x_is_nan = cast(
+            ir.Value,
+            ctx.builder.IsNaN(x, _outputs=[ctx.fresh_name("nextafter_x_is_nan")]),
         )
-        result = ctx.builder.Where(
-            any_nan, nan_const, result_no_nan, _outputs=[desired_name]
+        y_is_nan = cast(
+            ir.Value,
+            ctx.builder.IsNaN(y, _outputs=[ctx.fresh_name("nextafter_y_is_nan")]),
+        )
+        any_nan = cast(
+            ir.Value,
+            ctx.builder.Or(
+                x_is_nan,
+                y_is_nan,
+                _outputs=[ctx.fresh_name("nextafter_any_nan")],
+            ),
+        )
+        result = cast(
+            ir.Value,
+            ctx.builder.Where(
+                any_nan, nan_const, result_no_nan, _outputs=[desired_name]
+            ),
         )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
         if getattr(out_spec, "shape", None) is not None:
