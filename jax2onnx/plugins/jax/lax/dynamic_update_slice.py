@@ -2,29 +2,34 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _binary_scalar(
-    ctx: "IRContext", op: str, lhs: ir.Value, rhs: ir.Value, name_hint: str
+    ctx: LoweringContextProtocol, op: str, lhs: ir.Value, rhs: ir.Value, name_hint: str
 ) -> ir.Value:
-    result = getattr(ctx.builder, op)(
-        lhs,
-        rhs,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        getattr(ctx.builder, op)(
+            lhs,
+            rhs,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(getattr(lhs.type, "dtype", ir.DataType.INT64))
     _stamp_type_and_shape(result, ())
@@ -154,7 +159,7 @@ def _const_scalar_i64(value: ir.Value) -> int | None:
 class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.dynamic_update_slice`` via ScatterND."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         ref_var = eqn.invars[0]
         upd_var = eqn.invars[1]
         start_vars = list(eqn.invars[2:])
@@ -171,8 +176,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
         opset = int(getattr(ctx.builder, "opset", 21))
 
-        ref_shape_static = tuple(getattr(getattr(ref_var, "aval", None), "shape", ()))
-        upd_shape_static = tuple(getattr(getattr(upd_var, "aval", None), "shape", ()))
+        ref_shape_static = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(ref_var, "aval", None), "shape", ())),
+        )
+        upd_shape_static = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(upd_var, "aval", None), "shape", ())),
+        )
 
         # Fast path: map a strict cache-like case to TensorScatter (opset >= 24).
         # Conditions:
@@ -194,7 +205,8 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             candidate_axes = [
                 ax
                 for ax in range(1, rank)
-                if int(ref_shape_static[ax]) != int(upd_shape_static[ax])
+                if int(cast(int, ref_shape_static[ax]))
+                != int(cast(int, upd_shape_static[ax]))
             ]
             if len(candidate_axes) == 1:
                 seq_axis = int(candidate_axes[0])
@@ -211,7 +223,8 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         non_axis_starts_are_zero = False
                         break
                 if non_axis_starts_are_zero and all(
-                    int(ref_shape_static[ax]) == int(upd_shape_static[ax])
+                    int(cast(int, ref_shape_static[ax]))
+                    == int(cast(int, upd_shape_static[ax]))
                     for ax in range(rank)
                     if ax != seq_axis
                 ):
@@ -219,15 +232,21 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                     zero_i64 = _scalar_i64(ctx, 0, "dus_tensorscatter_zero")
                     one_i64 = _scalar_i64(ctx, 1, "dus_tensorscatter_one")
 
-                    ref_shape = ctx.builder.Shape(
-                        ref_val, _outputs=[ctx.fresh_name("dus_ref_shape")]
+                    ref_shape = cast(
+                        ir.Value,
+                        ctx.builder.Shape(
+                            ref_val, _outputs=[ctx.fresh_name("dus_ref_shape")]
+                        ),
                     )
                     ref_shape.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(ref_shape, (rank,))
                     _ensure_value_metadata(ctx, ref_shape)
 
-                    upd_shape = ctx.builder.Shape(
-                        upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]
+                    upd_shape = cast(
+                        ir.Value,
+                        ctx.builder.Shape(
+                            upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]
+                        ),
                     )
                     upd_shape.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(upd_shape, (rank,))
@@ -238,30 +257,39 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         np.asarray(seq_axis, dtype=np.int64),
                         f"dus_tensorscatter_axis_{seq_axis}",
                     )
-                    ref_dim = ctx.builder.Gather(
-                        ref_shape,
-                        axis_idx,
-                        axis=0,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_ref_dim")],
+                    ref_dim = cast(
+                        ir.Value,
+                        ctx.builder.Gather(
+                            ref_shape,
+                            axis_idx,
+                            axis=0,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_ref_dim")],
+                        ),
                     )
                     ref_dim.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(ref_dim, ())
                     _ensure_value_metadata(ctx, ref_dim)
 
-                    upd_dim = ctx.builder.Gather(
-                        upd_shape,
-                        axis_idx,
-                        axis=0,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_upd_dim")],
+                    upd_dim = cast(
+                        ir.Value,
+                        ctx.builder.Gather(
+                            upd_shape,
+                            axis_idx,
+                            axis=0,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_upd_dim")],
+                        ),
                     )
                     upd_dim.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(upd_dim, ())
                     _ensure_value_metadata(ctx, upd_dim)
 
-                    cond_neg = ctx.builder.Less(
-                        seq_start,
-                        zero_i64,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_start_neg")],
+                    cond_neg = cast(
+                        ir.Value,
+                        ctx.builder.Less(
+                            seq_start,
+                            zero_i64,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_start_neg")],
+                        ),
                     )
                     cond_neg.type = ir.TensorType(ir.DataType.BOOL)
                     _stamp_type_and_shape(cond_neg, ())
@@ -274,11 +302,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         ref_dim,
                         "dus_tensorscatter_start_plus_ref",
                     )
-                    start_norm = ctx.builder.Where(
-                        cond_neg,
-                        start_plus_ref,
-                        seq_start,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_start_norm")],
+                    start_norm = cast(
+                        ir.Value,
+                        ctx.builder.Where(
+                            cond_neg,
+                            start_plus_ref,
+                            seq_start,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_start_norm")],
+                        ),
                     )
                     start_norm.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(start_norm, ())
@@ -303,11 +334,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         np.asarray(0, dtype=np.int64),
                         "dus_tensorscatter_batch_axis",
                     )
-                    batch_dim = ctx.builder.Gather(
-                        ref_shape,
-                        batch_axis_idx,
-                        axis=0,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_batch_dim")],
+                    batch_dim = cast(
+                        ir.Value,
+                        ctx.builder.Gather(
+                            ref_shape,
+                            batch_axis_idx,
+                            axis=0,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_batch_dim")],
+                        ),
                     )
                     batch_dim.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(batch_dim, ())
@@ -318,28 +352,37 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                         np.asarray([0], dtype=np.int64),
                         "dus_tensorscatter_unsq_axes",
                     )
-                    start_vec = ctx.builder.Unsqueeze(
-                        start_clamped_scalar,
-                        unsq_axes,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_start_vec")],
+                    start_vec = cast(
+                        ir.Value,
+                        ctx.builder.Unsqueeze(
+                            start_clamped_scalar,
+                            unsq_axes,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_start_vec")],
+                        ),
                     )
                     start_vec.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(start_vec, (1,))
                     _ensure_value_metadata(ctx, start_vec)
 
-                    batch_vec = ctx.builder.Unsqueeze(
-                        batch_dim,
-                        unsq_axes,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_batch_vec")],
+                    batch_vec = cast(
+                        ir.Value,
+                        ctx.builder.Unsqueeze(
+                            batch_dim,
+                            unsq_axes,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_batch_vec")],
+                        ),
                     )
                     batch_vec.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(batch_vec, (1,))
                     _ensure_value_metadata(ctx, batch_vec)
 
-                    write_indices = ctx.builder.Expand(
-                        start_vec,
-                        batch_vec,
-                        _outputs=[ctx.fresh_name("dus_tensorscatter_write_idx")],
+                    write_indices = cast(
+                        ir.Value,
+                        ctx.builder.Expand(
+                            start_vec,
+                            batch_vec,
+                            _outputs=[ctx.fresh_name("dus_tensorscatter_write_idx")],
+                        ),
                     )
                     write_indices.type = ir.TensorType(ir.DataType.INT64)
                     _stamp_type_and_shape(write_indices, (int(ref_shape_static[0]),))
@@ -348,13 +391,16 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                     out_name = getattr(out_spec, "name", None) or ctx.fresh_name(
                         "TensorScatter"
                     )
-                    result = ctx.builder.TensorScatter(
-                        ref_val,
-                        upd_val,
-                        write_indices,
-                        axis=seq_axis,
-                        mode="none",
-                        _outputs=[out_name],
+                    result = cast(
+                        ir.Value,
+                        ctx.builder.TensorScatter(
+                            ref_val,
+                            upd_val,
+                            write_indices,
+                            axis=seq_axis,
+                            mode="none",
+                            _outputs=[out_name],
+                        ),
                     )
                     if getattr(out_spec, "type", None) is not None:
                         result.type = out_spec.type
@@ -371,15 +417,17 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         zero_i64 = _scalar_i64(ctx, 0, "dus_zero")
         one_i64 = _scalar_i64(ctx, 1, "dus_one")
 
-        ref_shape = ctx.builder.Shape(
-            ref_val, _outputs=[ctx.fresh_name("dus_ref_shape")]
+        ref_shape = cast(
+            ir.Value,
+            ctx.builder.Shape(ref_val, _outputs=[ctx.fresh_name("dus_ref_shape")]),
         )
         ref_shape.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(ref_shape, (rank,))
         _ensure_value_metadata(ctx, ref_shape)
 
-        upd_shape = ctx.builder.Shape(
-            upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]
+        upd_shape = cast(
+            ir.Value,
+            ctx.builder.Shape(upd_val, _outputs=[ctx.fresh_name("dus_upd_shape")]),
         )
         upd_shape.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(upd_shape, (rank,))
@@ -399,31 +447,40 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                 ctx, np.asarray(axis, dtype=np.int64), f"dus_axis_{axis}"
             )
 
-            upd_dim = ctx.builder.Gather(
-                upd_shape,
-                axis_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("dus_upd_dim")],
+            upd_dim = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    upd_shape,
+                    axis_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("dus_upd_dim")],
+                ),
             )
             upd_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(upd_dim, ())
             _ensure_value_metadata(ctx, upd_dim)
             upd_dims.append(upd_dim)
 
-            ref_dim = ctx.builder.Gather(
-                ref_shape,
-                axis_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("dus_ref_dim")],
+            ref_dim = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    ref_shape,
+                    axis_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("dus_ref_dim")],
+                ),
             )
             ref_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(ref_dim, ())
             _ensure_value_metadata(ctx, ref_dim)
 
-            cond_neg = ctx.builder.Less(
-                start_i64,
-                zero_i64,
-                _outputs=[ctx.fresh_name("dus_start_neg")],
+            cond_neg = cast(
+                ir.Value,
+                ctx.builder.Less(
+                    start_i64,
+                    zero_i64,
+                    _outputs=[ctx.fresh_name("dus_start_neg")],
+                ),
             )
             cond_neg.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(cond_neg, ())
@@ -432,11 +489,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             start_plus_ref = _binary_scalar(
                 ctx, "Add", start_i64, ref_dim, "dus_start_plus_ref"
             )
-            start_norm = ctx.builder.Where(
-                cond_neg,
-                start_plus_ref,
-                start_i64,
-                _outputs=[ctx.fresh_name("dus_start_norm")],
+            start_norm = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    cond_neg,
+                    start_plus_ref,
+                    start_i64,
+                    _outputs=[ctx.fresh_name("dus_start_norm")],
+                ),
             )
             start_norm.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_norm, ())
@@ -452,10 +512,13 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             start_clamped.append(clamped)
 
         # Total number of update elements: ReduceProd(upd_shape)
-        numel_upd = ctx.builder.ReduceProd(
-            upd_shape,
-            keepdims=0,
-            _outputs=[ctx.fresh_name("dus_numel")],
+        numel_upd = cast(
+            ir.Value,
+            ctx.builder.ReduceProd(
+                upd_shape,
+                keepdims=0,
+                _outputs=[ctx.fresh_name("dus_numel")],
+            ),
         )
         numel_upd.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(numel_upd, ())
@@ -467,11 +530,14 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         for axis in range(rank):
             dim = upd_dims[axis]
 
-            range_out = ctx.builder.Range(
-                zero_i64,
-                dim,
-                one_i64,
-                _outputs=[ctx.fresh_name("dus_range")],
+            range_out = cast(
+                ir.Value,
+                ctx.builder.Range(
+                    zero_i64,
+                    dim,
+                    one_i64,
+                    _outputs=[ctx.fresh_name("dus_range")],
+                ),
             )
             range_out.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_out, (None,))
@@ -482,10 +548,13 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
                 axes_tensor = _const_i64(
                     ctx, np.asarray(axes_unsq, dtype=np.int64), f"dus_unsq_axes_{axis}"
                 )
-                range_unsq = ctx.builder.Unsqueeze(
-                    range_out,
-                    axes_tensor,
-                    _outputs=[ctx.fresh_name("dus_range_unsq")],
+                range_unsq = cast(
+                    ir.Value,
+                    ctx.builder.Unsqueeze(
+                        range_out,
+                        axes_tensor,
+                        _outputs=[ctx.fresh_name("dus_range_unsq")],
+                    ),
                 )
                 range_unsq.type = ir.TensorType(ir.DataType.INT64)
                 unsq_shape = tuple([1] * axis + [None] + [1] * (rank - axis - 1))
@@ -494,28 +563,37 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             else:
                 range_unsq = range_out
 
-            range_exp = ctx.builder.Expand(
-                range_unsq,
-                upd_shape,
-                _outputs=[ctx.fresh_name("dus_range_exp")],
+            range_exp = cast(
+                ir.Value,
+                ctx.builder.Expand(
+                    range_unsq,
+                    upd_shape,
+                    _outputs=[ctx.fresh_name("dus_range_exp")],
+                ),
             )
             range_exp.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_exp, rank_shape)
             _ensure_value_metadata(ctx, range_exp)
 
-            start_b = ctx.builder.Expand(
-                start_clamped[axis],
-                upd_shape,
-                _outputs=[ctx.fresh_name("dus_start_b")],
+            start_b = cast(
+                ir.Value,
+                ctx.builder.Expand(
+                    start_clamped[axis],
+                    upd_shape,
+                    _outputs=[ctx.fresh_name("dus_start_b")],
+                ),
             )
             start_b.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_b, rank_shape)
             _ensure_value_metadata(ctx, start_b)
 
-            idx_axis = ctx.builder.Add(
-                start_b,
-                range_exp,
-                _outputs=[ctx.fresh_name("dus_idx_axis")],
+            idx_axis = cast(
+                ir.Value,
+                ctx.builder.Add(
+                    start_b,
+                    range_exp,
+                    _outputs=[ctx.fresh_name("dus_idx_axis")],
+                ),
             )
             idx_axis.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(idx_axis, rank_shape)
@@ -524,77 +602,101 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             axes_last = _const_i64(
                 ctx, np.asarray(rank, dtype=np.int64), f"dus_axes_last_{axis}"
             )
-            idx_unsq = ctx.builder.Unsqueeze(
-                idx_axis,
-                axes_last,
-                _outputs=[ctx.fresh_name("dus_idx_unsq")],
+            idx_unsq = cast(
+                ir.Value,
+                ctx.builder.Unsqueeze(
+                    idx_axis,
+                    axes_last,
+                    _outputs=[ctx.fresh_name("dus_idx_unsq")],
+                ),
             )
             idx_unsq.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(idx_unsq, tuple([None] * rank + [1]))
             _ensure_value_metadata(ctx, idx_unsq)
             idx_components.append(idx_unsq)
 
-        indices_nd = ctx.builder.Concat(
-            *idx_components,
-            axis=rank,
-            _outputs=[ctx.fresh_name("dus_indices_nd")],
+        indices_nd = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                *idx_components,
+                axis=rank,
+                _outputs=[ctx.fresh_name("dus_indices_nd")],
+            ),
         )
         indices_nd.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(indices_nd, tuple([None] * rank + [rank]))
         _ensure_value_metadata(ctx, indices_nd)
 
         axes0 = _const_i64(ctx, np.asarray(0, dtype=np.int64), "dus_axes0")
-        numel_vec = ctx.builder.Unsqueeze(
-            numel_upd,
-            axes0,
-            _outputs=[ctx.fresh_name("dus_numel_vec")],
+        numel_vec = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                numel_upd,
+                axes0,
+                _outputs=[ctx.fresh_name("dus_numel_vec")],
+            ),
         )
         numel_vec.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(numel_vec, (1,))
         _ensure_value_metadata(ctx, numel_vec)
 
         rank_const = _scalar_i64(ctx, rank, "dus_rank_scalar")
-        rank_vec = ctx.builder.Unsqueeze(
-            rank_const,
-            axes0,
-            _outputs=[ctx.fresh_name("dus_rank_vec")],
+        rank_vec = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                rank_const,
+                axes0,
+                _outputs=[ctx.fresh_name("dus_rank_vec")],
+            ),
         )
         rank_vec.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(rank_vec, (1,))
         _ensure_value_metadata(ctx, rank_vec)
 
-        shape_2d = ctx.builder.Concat(
-            numel_vec,
-            rank_vec,
-            axis=0,
-            _outputs=[ctx.fresh_name("dus_shape2d")],
+        shape_2d = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                numel_vec,
+                rank_vec,
+                axis=0,
+                _outputs=[ctx.fresh_name("dus_shape2d")],
+            ),
         )
         shape_2d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_2d, (2,))
         _ensure_value_metadata(ctx, shape_2d)
 
-        indices_2d = ctx.builder.Reshape(
-            indices_nd,
-            shape_2d,
-            _outputs=[ctx.fresh_name("dus_indices_2d")],
+        indices_2d = cast(
+            ir.Value,
+            ctx.builder.Reshape(
+                indices_nd,
+                shape_2d,
+                _outputs=[ctx.fresh_name("dus_indices_2d")],
+            ),
         )
         indices_2d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(indices_2d, (None, rank))
         _ensure_value_metadata(ctx, indices_2d)
 
-        updates_shape_1d = ctx.builder.Unsqueeze(
-            numel_upd,
-            axes0,
-            _outputs=[ctx.fresh_name("dus_updates_shape1d")],
+        updates_shape_1d = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                numel_upd,
+                axes0,
+                _outputs=[ctx.fresh_name("dus_updates_shape1d")],
+            ),
         )
         updates_shape_1d.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(updates_shape_1d, (1,))
         _ensure_value_metadata(ctx, updates_shape_1d)
 
-        upd_flat = ctx.builder.Reshape(
-            upd_val,
-            updates_shape_1d,
-            _outputs=[ctx.fresh_name("dus_upd_flat")],
+        upd_flat = cast(
+            ir.Value,
+            ctx.builder.Reshape(
+                upd_val,
+                updates_shape_1d,
+                _outputs=[ctx.fresh_name("dus_upd_flat")],
+            ),
         )
         upd_flat.type = ir.TensorType(getattr(ref_val.type, "dtype", ir.DataType.FLOAT))
         _stamp_type_and_shape(upd_flat, (None,))
@@ -605,14 +707,19 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("ScatterND")
 
-        result = ctx.builder.ScatterND(
-            ref_val,
-            indices_2d,
-            upd_flat,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.ScatterND(
+                ref_val,
+                indices_2d,
+                upd_flat,
+                _outputs=[desired_name],
+            ),
         )
 
-        target_shape = tuple(getattr(ref_var.aval, "shape", ()))
+        target_shape = cast(
+            tuple[DimInput, ...], tuple(getattr(ref_var.aval, "shape", ()))
+        )
         _stamp_type_and_shape(result, target_shape)
         result_dtype = getattr(getattr(ref_val, "type", None), "dtype", None)
         if result_dtype is not None:
