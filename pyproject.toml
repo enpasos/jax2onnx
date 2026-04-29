@@ -212,6 +212,7 @@ files = [
     "jax2onnx/plugins/jax/lax/log1p.py",
     "jax2onnx/plugins/jax/lax/logistic.py",
     "jax2onnx/plugins/jax/lax/lt.py",
+    "jax2onnx/plugins/jax/lax/lu.py",
     "jax2onnx/plugins/jax/lax/lu_pivots_to_permutation.py",
     "jax2onnx/plugins/jax/lax/max.py",
     "jax2onnx/plugins/jax/lax/min.py",
