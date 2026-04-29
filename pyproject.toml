@@ -136,7 +136,13 @@ files = [
     "jax2onnx/plugins/_ir_shapes.py",
     "jax2onnx/plugins/_loop_extent_meta.py",
     "jax2onnx/plugins/_utils.py",
+    "jax2onnx/plugins/jax/lax/_arg_utils.py",
+    "jax2onnx/plugins/jax/lax/_control_flow_utils.py",
     "jax2onnx/plugins/jax/lax/_index_utils.py",
+    "jax2onnx/plugins/jax/lax/_reduce_utils.py",
+    "jax2onnx/plugins/jax/numpy/_common.py",
+    "jax2onnx/plugins/jax/numpy/_reduction_utils.py",
+    "jax2onnx/plugins/jax/numpy/_unary_utils.py",
     "jax2onnx/plugins/jax/nn/_builder_utils.py",
     "jax2onnx/plugins/plugin_system.py",
 ]

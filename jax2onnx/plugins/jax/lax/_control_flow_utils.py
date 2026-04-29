@@ -32,9 +32,12 @@ def builder_identity(
     ctx: LoweringContextProtocol, value: ir.Value, *, name_hint: str
 ) -> ir.Value:
     builder = _get_builder(ctx)
-    out = builder.Identity(
-        value,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = cast(
+        ir.Value,
+        builder.Identity(
+            value,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     orig_type = getattr(value, "type", None)
     if orig_type is not None:
@@ -57,10 +60,13 @@ def builder_cast(
     name_hint: str,
 ) -> ir.Value:
     builder = _get_builder(ctx)
-    casted = builder.Cast(
-        value,
-        _outputs=[ctx.fresh_name(name_hint)],
-        to=int(target_enum.value),
+    casted = cast(
+        ir.Value,
+        builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(name_hint)],
+            to=int(target_enum.value),
+        ),
     )
     casted.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)
@@ -80,10 +86,13 @@ def builder_loop(
     output_names: list[str],
 ) -> tuple[ir.Value, ...] | ir.Value:
     builder = _get_builder(ctx)
-    loop_result = builder.Loop(
-        *inputs,
-        body=body,
-        _outputs=output_names,
+    loop_result = cast(
+        tuple[ir.Value, ...] | ir.Value,
+        builder.Loop(
+            *inputs,
+            body=body,
+            _outputs=output_names,
+        ),
     )
     return loop_result
 
@@ -122,62 +131,64 @@ def make_subgraph_context(
     except TypeError:
         child_kwargs.pop("stacktrace_metadata", None)
         child_ctx = type(parent_ctx)(**child_kwargs)
-    child_ctx.record_primitive_calls_file = getattr(
+    child_ctx_any = cast(Any, child_ctx)
+    child_ctx_any.record_primitive_calls_file = getattr(
         parent_ctx,
         "record_primitive_calls_file",
         None,
     )
-    child_ctx._lowering_record_owner = getattr(
+    child_ctx_any._lowering_record_owner = getattr(
         parent_ctx,
         "_lowering_record_owner",
         parent_ctx,
     )
-    child_ctx._primitive_call_records = getattr(
-        child_ctx._lowering_record_owner,
+    child_ctx_any._primitive_call_records = getattr(
+        child_ctx_any._lowering_record_owner,
         "_primitive_call_records",
         [],
     )
-    child_ctx._function_mode = True
-    child_ctx._inside_function_scope = True
+    child_ctx_any._function_mode = True
+    child_ctx_any._inside_function_scope = True
     # Ensure builder emits constants as nodes (Functions/subgraphs cannot have initializers)
-    child_ctx.builder._function_mode = True
-    child_ctx._keep_function_float32 = getattr(
+    child_builder = cast(Any, child_ctx_any.builder)
+    child_builder._function_mode = True
+    child_ctx_any._keep_function_float32 = getattr(
         parent_ctx, "_keep_function_float32", False
     )
     # Inherit known symbolic dimension origins so nested graphs can resolve them.
-    child_ctx._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
-    child_ctx._sym_origin_str = dict(getattr(parent_ctx, "_sym_origin_str", {}))
+    child_ctx_any._sym_origin = dict(getattr(parent_ctx, "_sym_origin", {}))
+    child_ctx_any._sym_origin_str = dict(getattr(parent_ctx, "_sym_origin_str", {}))
 
     # Prefix all fresh names so nested graphs remain unique.
     prefix_base = parent_ctx.fresh_name(prefix)
-    orig_ctx_fresh = child_ctx.fresh_name
+    orig_ctx_fresh = child_ctx_any.fresh_name
     setattr(
-        child_ctx,
+        child_ctx_any,
         "fresh_name",
         types.MethodType(
             lambda self, base, _orig=orig_ctx_fresh, _pref=prefix_base: _orig(
                 f"{_pref}/{base}"
             ),
-            child_ctx,
+            child_ctx_any,
         ),
     )
-    orig_builder_fresh = child_ctx.builder.fresh_name
+    orig_builder_fresh = child_builder.fresh_name
     setattr(
-        child_ctx.builder,
+        child_builder,
         "fresh_name",
         types.MethodType(
             lambda self, base, _orig=orig_builder_fresh, _pref=prefix_base: _orig(
                 f"{_pref}/{base}"
             ),
-            child_ctx.builder,
+            child_builder,
         ),
     )
     # Mirror builder bookkeeping so body graphs own independent lists.
-    child_ctx.builder.inputs = []
-    child_ctx.builder.outputs = []
-    child_ctx.builder.nodes = []
-    child_ctx.builder.initializers = []
-    return cast(LoweringContextProtocol, child_ctx)
+    child_builder.inputs = []
+    child_builder.outputs = []
+    child_builder.nodes = []
+    child_builder.initializers = []
+    return cast(LoweringContextProtocol, child_ctx_any)
 
 
 def relax_value_to_rank_only(val: ir.Value | None) -> None:
@@ -211,10 +222,8 @@ def relax_value_to_rank_only(val: ir.Value | None) -> None:
         pass
     tensor_type = getattr(val, "type", None)
     if isinstance(tensor_type, ir.TensorType):
-        dtype = getattr(tensor_type, "dtype", getattr(tensor_type, "elem_type", None))
-        try:
-            val.type = ir.TensorType(dtype, rank_only)
-        except Exception:
+        dtype = tensor_type.dtype
+        if dtype is not None:
             val.type = ir.TensorType(dtype)
 
 
