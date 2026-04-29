@@ -2,35 +2,40 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _cast_to(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     *,
     target_dtype: ir.DataType,
-    output_shape: tuple[object, ...],
+    output_shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     if value.dtype == target_dtype:
         return value
-    cast_val = ctx.builder.Cast(
-        value,
-        to=int(target_dtype.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            to=int(target_dtype.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     cast_val.type = ir.TensorType(target_dtype)
     _stamp_type_and_shape(cast_val, output_shape)
@@ -88,7 +93,7 @@ def _cast_to(
     ],
 )
 class Atan2Plugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -100,9 +105,18 @@ class Atan2Plugin(PrimitiveLeafPlugin):
             getattr(out_var.aval, "dtype", np.float32)
         )
         out_dtype = _dtype_to_ir(out_np_dtype, ctx.builder.enable_double_precision)
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
-        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        x_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(x_var, "aval", None), "shape", ())),
+        )
+        y_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(y_var, "aval", None), "shape", ())),
+        )
+        out_shape = cast(
+            tuple[DimInput, ...],
+            tuple(getattr(getattr(out_var, "aval", None), "shape", ())),
+        )
 
         x_ready = _cast_to(
             ctx,
@@ -131,10 +145,13 @@ class Atan2Plugin(PrimitiveLeafPlugin):
         pi_half = _const(np.pi / 2.0)
         neg_pi_half = _const(-np.pi / 2.0)
 
-        x_over_y = ctx.builder.Div(
-            x_ready,
-            y_ready,
-            _outputs=[ctx.fresh_name("atan2_div")],
+        x_over_y = cast(
+            ir.Value,
+            ctx.builder.Div(
+                x_ready,
+                y_ready,
+                _outputs=[ctx.fresh_name("atan2_div")],
+            ),
         )
         x_over_y.type = ir.TensorType(out_dtype)
         _stamp_type_and_shape(x_over_y, out_shape)
@@ -148,9 +165,12 @@ class Atan2Plugin(PrimitiveLeafPlugin):
                 output_shape=out_shape,
                 name_hint="atan2_atan_in_f32",
             )
-            atan_f32 = ctx.builder.Atan(
-                atan_input,
-                _outputs=[ctx.fresh_name("atan2_base_f32")],
+            atan_f32 = cast(
+                ir.Value,
+                ctx.builder.Atan(
+                    atan_input,
+                    _outputs=[ctx.fresh_name("atan2_base_f32")],
+                ),
             )
             atan_f32.type = ir.TensorType(ir.DataType.FLOAT)
             _stamp_type_and_shape(atan_f32, out_shape)
@@ -163,7 +183,10 @@ class Atan2Plugin(PrimitiveLeafPlugin):
                 name_hint="atan2_base_f64",
             )
         else:
-            base = ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")])
+            base = cast(
+                ir.Value,
+                ctx.builder.Atan(x_over_y, _outputs=[ctx.fresh_name("atan2_base")]),
+            )
             base.type = ir.TensorType(out_dtype)
             _stamp_type_and_shape(base, out_shape)
             _ensure_value_metadata(ctx, base)
