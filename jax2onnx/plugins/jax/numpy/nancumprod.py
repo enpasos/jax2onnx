@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, TypeAlias
+from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
 from jax import core
@@ -35,7 +35,12 @@ def _all_static_ints(shape: tuple[object, ...]) -> bool:
 def _num_elements(shape: tuple[object, ...]) -> int:
     if not _all_static_ints(shape):
         raise TypeError("jnp.nancumprod lowering requires static input shape")
-    return int(np.prod(tuple(int(dim) for dim in shape), dtype=np.int64))
+    return int(
+        np.prod(
+            tuple(int(cast(int | np.integer[Any], dim)) for dim in shape),
+            dtype=np.int64,
+        )
+    )
 
 
 def _const_scalar(
@@ -84,10 +89,13 @@ def _reshape(
         np.asarray(shape, dtype=np.int64),
         f"{name_hint}_shape",
     )
-    result = ctx.builder.Reshape(
-        val,
-        shape_val,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            val,
+            shape_val,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
@@ -107,10 +115,13 @@ def _cast_to_dtype(
     target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
     if getattr(getattr(val, "type", None), "dtype", None) == target_enum:
         return val
-    result = ctx.builder.Cast(
-        val,
-        to=int(target_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(target_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(target_enum)
     _stamp_type_and_shape(result, shape)
@@ -251,6 +262,7 @@ class JnpNanCumProdPlugin(PrimitiveLeafPlugin):
             raise TypeError("jnp.nancumprod lowering requires static input shape")
         operand_shape = tuple(int(dim) for dim in operand_shape_raw)
 
+        work_shape: tuple[int, ...]
         if axis_param is None:
             work_shape = (_num_elements(operand_shape_raw),)
             axis = 0

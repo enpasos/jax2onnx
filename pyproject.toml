@@ -259,6 +259,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/min.py",
     "jax2onnx/plugins/jax/numpy/minimum.py",
     "jax2onnx/plugins/jax/numpy/moveaxis.py",
+    "jax2onnx/plugins/jax/numpy/nancumprod.py",
     "jax2onnx/plugins/jax/numpy/ones.py",
     "jax2onnx/plugins/jax/numpy/outer.py",
     "jax2onnx/plugins/jax/numpy/pad.py",
