@@ -9,7 +9,9 @@ import onnx_ir as ir
 import pytest
 
 from jax2onnx.converter.ir_constants import ConstantFolder
+from jax2onnx.converter import lowering_dispatch
 from jax2onnx.converter.lowering_dispatch import (
+    _LOWER_SIGNATURE_CACHE,
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
@@ -125,6 +127,43 @@ def test_dispatches_primitive_with_params() -> None:
     )
 
     assert result == ("primitive_params", ctx, eqn, {"axis": 1})
+
+
+def test_dispatch_caches_lower_signature_lookup(monkeypatch) -> None:
+    _LOWER_SIGNATURE_CACHE.clear()
+    signature_calls = 0
+    original_signature = lowering_dispatch.inspect.signature
+
+    def _counted_signature(obj: Any) -> Any:
+        nonlocal signature_calls
+        signature_calls += 1
+        return original_signature(obj)
+
+    monkeypatch.setattr(
+        lowering_dispatch.inspect,
+        "signature",
+        _counted_signature,
+    )
+    plugin = _PrimitiveWithParams()
+    ctx = SimpleNamespace(builder=SimpleNamespace())
+    eqn = SimpleNamespace(params={"axis": 1})
+
+    dispatch_plugin_lowering(
+        plugin,
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample",
+        source="test",
+    )
+    dispatch_plugin_lowering(
+        plugin,
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name="sample",
+        source="test",
+    )
+
+    assert signature_calls == 1
 
 
 def test_dispatches_function_plugin_with_supplied_converter() -> None:

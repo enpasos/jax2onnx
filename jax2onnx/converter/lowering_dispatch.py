@@ -15,12 +15,27 @@ from .typing_support import (
     PrimitiveLowering,
 )
 
+_LOWER_SIGNATURE_CACHE: dict[object, bool] = {}
+
 
 def _lower_accepts_params(lower: Any) -> bool:
+    cache_key = getattr(lower, "__func__", lower)
     try:
-        return "params" in inspect.signature(lower).parameters
+        cached = _LOWER_SIGNATURE_CACHE.get(cache_key)
+    except TypeError:
+        cached = None
+    if cached is not None:
+        return cached
+
+    try:
+        accepts_params = "params" in inspect.signature(lower).parameters
     except (TypeError, ValueError):
-        return False
+        accepts_params = False
+    try:
+        _LOWER_SIGNATURE_CACHE[cache_key] = accepts_params
+    except TypeError:
+        pass
+    return accepts_params
 
 
 def make_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
