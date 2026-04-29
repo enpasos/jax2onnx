@@ -130,6 +130,7 @@ incremental = false
 files = [
     "jax2onnx/converter",
     "jax2onnx/ir_utils.py",
+    "jax2onnx/plugins/plugin_system.py",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
