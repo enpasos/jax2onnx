@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import Any, Iterable, cast
 
 import jax
 import jax.numpy as jnp
@@ -10,12 +10,10 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _flatten(seq: Iterable[int]) -> list[int]:
@@ -140,7 +138,7 @@ def _flatten(seq: Iterable[int]) -> list[int]:
 class PadPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.pad`` (constant mode, zero interior padding) to ONNX ``Pad``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         if len(eqn.invars) < 2:
             raise ValueError("lax.pad expects data and constant value inputs")
 
@@ -171,10 +169,13 @@ class PadPlugin(PrimitiveLeafPlugin):
         pad_val = pad_raw
         if data_dtype is not None and pad_dtype is not None and data_dtype != pad_dtype:
             cast_name = ctx.fresh_name("pad_cval_like")
-            pad_val = ctx.builder.Cast(
-                pad_raw,
-                _outputs=[cast_name],
-                to=int(data_dtype.value),
+            pad_val = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    pad_raw,
+                    _outputs=[cast_name],
+                    to=int(data_dtype.value),
+                ),
             )
             pad_val.type = ir.TensorType(data_dtype)
             pad_val.shape = pad_raw.shape
@@ -202,10 +203,13 @@ class PadPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Pad")
 
-        result = ctx.builder.Pad(
-            *pad_inputs,
-            mode="constant",
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Pad(
+                *pad_inputs,
+                mode="constant",
+                _outputs=[desired_name],
+            ),
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
@@ -217,6 +221,8 @@ class PadPlugin(PrimitiveLeafPlugin):
                     np.dtype(getattr(out_var.aval, "dtype", np.float32)),
                     ctx.builder.enable_double_precision,
                 )
+        if result_dtype is None:
+            raise TypeError("lax.pad could not infer an ONNX output dtype")
         result.type = ir.TensorType(result_dtype)
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)

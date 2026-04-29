@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -90,7 +89,7 @@ def _native_format_bits(np_dtype: np.dtype) -> tuple[int, int] | None:
 class ReducePrecisionPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.reduce_precision`` with scalar quantization arithmetic."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = dict(getattr(eqn, "params", {}) or {})
@@ -136,14 +135,14 @@ class ReducePrecisionPlugin(PrimitiveLeafPlugin):
             and exponent_bits >= native_bits[0]
             and mantissa_bits >= native_bits[1]
         ):
-            result = ctx.builder.Identity(x, _outputs=[desired_name])
+            result = cast(ir.Value, ctx.builder.Identity(x, _outputs=[desired_name]))
             _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
             if getattr(out_spec, "shape", None) is not None:
                 result.shape = out_spec.shape
             ctx.bind_value_for_var(out_var, result)
             return
 
-        def _const(value: float) -> Any:
+        def _const(value: float) -> ir.Value:
             return ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
 
         zero = _const(0.0)
@@ -152,66 +151,99 @@ class ReducePrecisionPlugin(PrimitiveLeafPlugin):
         ln2 = _const(np.log(2.0))
         mantissa_bits_f = _const(float(mantissa_bits))
 
-        abs_x = ctx.builder.Abs(x, _outputs=[ctx.fresh_name("reduce_precision_abs")])
-        _stamp_like(abs_x, x)
-        is_zero = ctx.builder.Equal(
-            abs_x,
-            zero,
-            _outputs=[ctx.fresh_name("reduce_precision_is_zero")],
+        abs_x = cast(
+            ir.Value,
+            ctx.builder.Abs(x, _outputs=[ctx.fresh_name("reduce_precision_abs")]),
         )
-        safe_abs = ctx.builder.Where(
-            is_zero,
-            one,
-            abs_x,
-            _outputs=[ctx.fresh_name("reduce_precision_safe_abs")],
+        _stamp_like(abs_x, x)
+        is_zero = cast(
+            ir.Value,
+            ctx.builder.Equal(
+                abs_x,
+                zero,
+                _outputs=[ctx.fresh_name("reduce_precision_is_zero")],
+            ),
+        )
+        safe_abs = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_zero,
+                one,
+                abs_x,
+                _outputs=[ctx.fresh_name("reduce_precision_safe_abs")],
+            ),
         )
         _stamp_like(safe_abs, x)
 
-        log_abs = ctx.builder.Log(
-            safe_abs,
-            _outputs=[ctx.fresh_name("reduce_precision_log_abs")],
+        log_abs = cast(
+            ir.Value,
+            ctx.builder.Log(
+                safe_abs,
+                _outputs=[ctx.fresh_name("reduce_precision_log_abs")],
+            ),
         )
         _stamp_like(log_abs, x)
-        log2_abs = ctx.builder.Div(
-            log_abs,
-            ln2,
-            _outputs=[ctx.fresh_name("reduce_precision_log2_abs")],
+        log2_abs = cast(
+            ir.Value,
+            ctx.builder.Div(
+                log_abs,
+                ln2,
+                _outputs=[ctx.fresh_name("reduce_precision_log2_abs")],
+            ),
         )
         _stamp_like(log2_abs, x)
-        exponent = ctx.builder.Floor(
-            log2_abs,
-            _outputs=[ctx.fresh_name("reduce_precision_exponent")],
+        exponent = cast(
+            ir.Value,
+            ctx.builder.Floor(
+                log2_abs,
+                _outputs=[ctx.fresh_name("reduce_precision_exponent")],
+            ),
         )
         _stamp_like(exponent, x)
 
-        step_exp = ctx.builder.Sub(
-            exponent,
-            mantissa_bits_f,
-            _outputs=[ctx.fresh_name("reduce_precision_step_exp")],
+        step_exp = cast(
+            ir.Value,
+            ctx.builder.Sub(
+                exponent,
+                mantissa_bits_f,
+                _outputs=[ctx.fresh_name("reduce_precision_step_exp")],
+            ),
         )
         _stamp_like(step_exp, x)
-        step = ctx.builder.Pow(
-            two,
-            step_exp,
-            _outputs=[ctx.fresh_name("reduce_precision_step")],
+        step = cast(
+            ir.Value,
+            ctx.builder.Pow(
+                two,
+                step_exp,
+                _outputs=[ctx.fresh_name("reduce_precision_step")],
+            ),
         )
         _stamp_like(step, x)
 
-        scaled = ctx.builder.Div(
-            x,
-            step,
-            _outputs=[ctx.fresh_name("reduce_precision_scaled")],
+        scaled = cast(
+            ir.Value,
+            ctx.builder.Div(
+                x,
+                step,
+                _outputs=[ctx.fresh_name("reduce_precision_scaled")],
+            ),
         )
         _stamp_like(scaled, x)
-        rounded = ctx.builder.Round(
-            scaled,
-            _outputs=[ctx.fresh_name("reduce_precision_rounded")],
+        rounded = cast(
+            ir.Value,
+            ctx.builder.Round(
+                scaled,
+                _outputs=[ctx.fresh_name("reduce_precision_rounded")],
+            ),
         )
         _stamp_like(rounded, x)
-        quantized = ctx.builder.Mul(
-            rounded,
-            step,
-            _outputs=[ctx.fresh_name("reduce_precision_quantized")],
+        quantized = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                rounded,
+                step,
+                _outputs=[ctx.fresh_name("reduce_precision_quantized")],
+            ),
         )
         _stamp_like(quantized, x)
 
@@ -219,52 +251,76 @@ class ReducePrecisionPlugin(PrimitiveLeafPlugin):
         min_exponent = _const(float(1 - bias))
         max_exponent = _const(float(bias))
 
-        sign_x = ctx.builder.Sign(x, _outputs=[ctx.fresh_name("reduce_precision_sign")])
+        sign_x = cast(
+            ir.Value,
+            ctx.builder.Sign(x, _outputs=[ctx.fresh_name("reduce_precision_sign")]),
+        )
         _stamp_like(sign_x, x)
-        signed_zero = ctx.builder.Mul(
-            sign_x,
-            zero,
-            _outputs=[ctx.fresh_name("reduce_precision_signed_zero")],
+        signed_zero = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                sign_x,
+                zero,
+                _outputs=[ctx.fresh_name("reduce_precision_signed_zero")],
+            ),
         )
         _stamp_like(signed_zero, x)
-        signed_inf = ctx.builder.Mul(
-            sign_x,
-            _const(np.inf),
-            _outputs=[ctx.fresh_name("reduce_precision_signed_inf")],
+        signed_inf = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                sign_x,
+                _const(np.inf),
+                _outputs=[ctx.fresh_name("reduce_precision_signed_inf")],
+            ),
         )
         _stamp_like(signed_inf, x)
 
-        is_under = ctx.builder.Less(
-            exponent,
-            min_exponent,
-            _outputs=[ctx.fresh_name("reduce_precision_is_under")],
+        is_under = cast(
+            ir.Value,
+            ctx.builder.Less(
+                exponent,
+                min_exponent,
+                _outputs=[ctx.fresh_name("reduce_precision_is_under")],
+            ),
         )
-        quantized = ctx.builder.Where(
-            is_under,
-            signed_zero,
-            quantized,
-            _outputs=[ctx.fresh_name("reduce_precision_under_applied")],
-        )
-        _stamp_like(quantized, x)
-
-        is_over = ctx.builder.Greater(
-            exponent,
-            max_exponent,
-            _outputs=[ctx.fresh_name("reduce_precision_is_over")],
-        )
-        quantized = ctx.builder.Where(
-            is_over,
-            signed_inf,
-            quantized,
-            _outputs=[ctx.fresh_name("reduce_precision_over_applied")],
+        quantized = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_under,
+                signed_zero,
+                quantized,
+                _outputs=[ctx.fresh_name("reduce_precision_under_applied")],
+            ),
         )
         _stamp_like(quantized, x)
 
-        result = ctx.builder.Where(
-            is_zero,
-            x,
-            quantized,
-            _outputs=[desired_name],
+        is_over = cast(
+            ir.Value,
+            ctx.builder.Greater(
+                exponent,
+                max_exponent,
+                _outputs=[ctx.fresh_name("reduce_precision_is_over")],
+            ),
+        )
+        quantized = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_over,
+                signed_inf,
+                quantized,
+                _outputs=[ctx.fresh_name("reduce_precision_over_applied")],
+            ),
+        )
+        _stamp_like(quantized, x)
+
+        result = cast(
+            ir.Value,
+            ctx.builder.Where(
+                is_zero,
+                x,
+                quantized,
+                _outputs=[desired_name],
+            ),
         )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
         if getattr(out_spec, "shape", None) is not None:
