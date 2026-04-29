@@ -241,6 +241,7 @@ files = [
     "jax2onnx/plugins/jax/numpy/full.py",
     "jax2onnx/plugins/jax/numpy/greater.py",
     "jax2onnx/plugins/jax/numpy/greater_equal.py",
+    "jax2onnx/plugins/jax/numpy/interp.py",
     "jax2onnx/plugins/jax/numpy/invert.py",
     "jax2onnx/plugins/jax/numpy/isfinite.py",
     "jax2onnx/plugins/jax/numpy/ldexp.py",

@@ -15,7 +15,11 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -39,7 +43,7 @@ def _cast_to_dtype(
     from_dtype: np.dtype[Any],
     to_dtype: np.dtype[Any],
     name_hint: str,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
 ) -> ir.Value:
     target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
     if (
@@ -47,10 +51,13 @@ def _cast_to_dtype(
         and getattr(getattr(val, "type", None), "dtype", None) == target_enum
     ):
         return val
-    result = ctx.builder.Cast(
-        val,
-        to=int(target_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(target_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(target_enum)
     _stamp_type_and_shape(result, shape)
@@ -63,14 +70,17 @@ def _unsqueeze(
     val: ir.Value,
     *,
     axis: int,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.Unsqueeze(
-        val,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(
+            val,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
@@ -96,14 +106,17 @@ def _gather(
     data: ir.Value,
     indices: ir.Value,
     *,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
-    result = ctx.builder.Gather(
-        data,
-        indices,
-        axis=0,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            data,
+            indices,
+            axis=0,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(data, "type", None) is not None:
         result.type = data.type
@@ -119,17 +132,29 @@ def _binary_float_op(
     rhs: ir.Value,
     *,
     dtype_enum: ir.DataType,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     if op_type == "Add":
-        result = ctx.builder.Add(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Add(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     elif op_type == "Sub":
-        result = ctx.builder.Sub(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Sub(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     elif op_type == "Mul":
-        result = ctx.builder.Mul(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Mul(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     elif op_type == "Div":
-        result = ctx.builder.Div(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Div(lhs, rhs, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     else:  # pragma: no cover - defensive guard for internal callers
         raise ValueError(f"Unsupported interp op: {op_type}")
     result.type = ir.TensorType(dtype_enum)
@@ -273,15 +298,21 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         x_var, xp_var, fp_var = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_shape = tuple(getattr(x_var.aval, "shape", ()))
-        xp_shape = tuple(getattr(xp_var.aval, "shape", ()))
-        fp_shape = tuple(getattr(fp_var.aval, "shape", ()))
+        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
+        xp_shape = cast(tuple[DimInput, ...], tuple(getattr(xp_var.aval, "shape", ())))
+        fp_shape = cast(tuple[DimInput, ...], tuple(getattr(fp_var.aval, "shape", ())))
         if len(xp_shape) != 1 or len(fp_shape) != 1:
             raise TypeError("jnp.interp lowering requires 1-D xp and fp")
         if not _all_static_ints(xp_shape) or not _all_static_ints(fp_shape):
             raise TypeError("jnp.interp lowering requires static xp/fp lengths")
-        xp_len = int(xp_shape[0])
-        if xp_len != int(fp_shape[0]):
+        xp_len_raw = xp_shape[0]
+        fp_len_raw = fp_shape[0]
+        if not isinstance(xp_len_raw, (int, np.integer)) or not isinstance(
+            fp_len_raw, (int, np.integer)
+        ):
+            raise TypeError("jnp.interp lowering requires static xp/fp lengths")
+        xp_len = int(xp_len_raw)
+        if xp_len != int(fp_len_raw):
             raise TypeError("jnp.interp lowering requires xp and fp with equal length")
         if xp_len < 2:
             raise ValueError("jnp.interp lowering requires at least two samples")
@@ -344,7 +375,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         )
 
         xp_broadcast = xp_compare
-        xp_broadcast_shape: tuple[object, ...] = (xp_len,)
+        xp_broadcast_shape: tuple[DimInput, ...] = (xp_len,)
         for _ in range(len(x_shape)):
             xp_broadcast_shape = (1, *xp_broadcast_shape)
             xp_broadcast = _unsqueeze(
@@ -361,7 +392,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             shape=(*x_shape, 1),
             name_hint="interp_x_unsqueeze",
         )
-        compare_shape = (*x_shape, xp_len)
+        compare_shape: tuple[DimInput, ...] = (*x_shape, xp_len)
         segment_lte = ctx.builder.LessOrEqual(
             xp_broadcast,
             x_broadcast,
@@ -535,7 +566,10 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:
-            _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
+            out_shape = cast(
+                tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
+            )
+            _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
 
