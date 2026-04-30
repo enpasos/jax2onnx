@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 import jax
 import numpy as np
 import jax.numpy as jnp
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -16,9 +17,6 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     make_subgraph_context,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
@@ -195,7 +193,7 @@ def _extract_branches(
 class CondPlugin(PrimitiveLeafPlugin):
     """IR-first lowering for ``lax.cond`` to ONNX ``If``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         cond_var, *operand_vars = eqn.invars
         builder = getattr(ctx, "builder", None)
         if builder is None:
@@ -292,7 +290,7 @@ class CondPlugin(PrimitiveLeafPlugin):
 
     def _build_branch_graph(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         branch_jaxpr: Any,
         consts: Iterable[Any],
         operand_vals: list[ir.Value],

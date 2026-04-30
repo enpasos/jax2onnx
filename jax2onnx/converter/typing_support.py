@@ -7,7 +7,9 @@ from typing import (
     Any,
     Callable,
     Collection,
+    Iterable,
     Mapping,
+    MutableSequence,
     Protocol,
     Sequence,
     runtime_checkable,
@@ -81,7 +83,10 @@ class IRBuilderProtocol(Protocol):
     def inputs(self) -> Sequence[ir.Value]: ...
 
     @property
-    def outputs(self) -> Sequence[ir.Value]: ...
+    def outputs(self) -> MutableSequence[ir.Value]: ...
+
+    @outputs.setter
+    def outputs(self, values: Iterable[ir.Value]) -> None: ...
 
     @property
     def initializers(self) -> Sequence[ir.Value]: ...
