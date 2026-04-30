@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Final, Union, cast
+from typing import Any, Final, Union, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +12,12 @@ import onnx_ir as ir
 from jax import core as jax_core
 from jax import lax
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -36,9 +41,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
 )
 
 import jax.extend.core as jax_core_ext
-
-if TYPE_CHECKING:  # pragma: no cover - import only for type checking
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
@@ -99,7 +101,9 @@ def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
     return _dtype_to_ir(np_dtype, enable_double)
 
 
-def _set_value_dtype_from_var(ctx: "IRContext", value: ir.Value, var: Any) -> None:
+def _set_value_dtype_from_var(
+    ctx: LoweringContextProtocol, value: ir.Value, var: Any
+) -> None:
     aval = getattr(var, "aval", None)
     aval_dtype = getattr(aval, "dtype", None)
     if aval_dtype is None:
@@ -112,15 +116,12 @@ def _set_value_dtype_from_var(ctx: "IRContext", value: ir.Value, var: Any) -> No
     if np.issubdtype(np_dtype, np.floating):
         promote_flag = False
     dtype_enum = _dtype_to_ir(np_dtype, promote_flag)
-    try:
-        value.type = ir.TensorType(dtype_enum, getattr(value, "shape", None))
-    except Exception:
-        value.type = ir.TensorType(dtype_enum)
+    value.type = ir.TensorType(dtype_enum)
     _ensure_value_metadata(ctx, value)
 
 
 def _maybe_cast_value(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_enum: ir.DataType | None,
     *,
@@ -709,7 +710,7 @@ def _scan_captured_vector_with_xs_f64(xs: Any) -> Any:
     ],
 )
 class ScanPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = eqn.params
         closed_jaxpr = params["jaxpr"]
         num_carry = int(params.get("num_carry", 0))
@@ -817,7 +818,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
     def _lower_without_scan_inputs(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         eqn: Any,
         closed_jaxpr: Any,
         num_carry: int,
@@ -1283,7 +1284,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
     def _lower_with_scan_inputs(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         eqn: Any,
         closed_jaxpr: Any,
         num_carry: int,
@@ -1912,4 +1913,4 @@ def _restamp_axis0(
         dims = [None]
     dims = list(dims)
     dims[0] = override_int
-    _stamp_type_and_shape(value, tuple(dims))
+    _stamp_type_and_shape(value, cast(tuple[DimInput, ...], tuple(dims)))

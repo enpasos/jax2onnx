@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
@@ -24,9 +25,6 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> tuple[Any, tuple[Any, ...]]:
     if hasattr(jaxpr_like, "jaxpr") and hasattr(jaxpr_like, "consts"):
@@ -35,7 +33,7 @@ def _unwrap_closed_jaxpr(jaxpr_like: Any) -> tuple[Any, tuple[Any, ...]]:
 
 
 def _bind_closed_jaxpr_consts(
-    ctx: "IRContext", jaxpr: Any, consts: Iterable[object]
+    ctx: LoweringContextProtocol, jaxpr: Any, consts: Iterable[object]
 ) -> None:
     for var, const in zip(getattr(jaxpr, "constvars", ()), consts):
         ctx.bind_const_for_var(var, np.asarray(const))
@@ -187,7 +185,7 @@ def _is_literal(var: Any) -> bool:
 
 
 def _evaluate_closed_jaxpr(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     closed_jaxpr: Any,
     inputs: Sequence[ir.Value],
     *,
@@ -216,7 +214,7 @@ def _evaluate_closed_jaxpr(
 
 
 def _build_loop_body_graph(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     cond_cj: Any,
     body_cj: Any,
     *,
@@ -738,7 +736,7 @@ def _build_loop_body_graph(
 class WhileLoopPlugin(PrimitiveLeafPlugin):
     """IR-first lowering for ``lax.while_loop`` via ONNX ``Loop``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         cond_cj = params.get("cond_jaxpr") or params.get("cond_fun")
         body_cj = params.get("body_jaxpr") or params.get("body_fun")

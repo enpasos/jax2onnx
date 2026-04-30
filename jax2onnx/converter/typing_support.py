@@ -67,6 +67,10 @@ class SymbolicDimOrigin:
 class SymbolicDimTracker(Protocol):
     def get_symbolic_dim_origin(self, dim: object) -> SymbolicDimOrigin | None: ...
 
+    def record_symbolic_dim_origin(
+        self, dim: object, value: ir.Value, axis: int
+    ) -> None: ...
+
 
 @runtime_checkable
 class IRBuilderProtocol(Protocol):
@@ -80,7 +84,7 @@ class IRBuilderProtocol(Protocol):
     def graph(self) -> ir.Graph: ...
 
     @property
-    def inputs(self) -> Sequence[ir.Value]: ...
+    def inputs(self) -> MutableSequence[ir.Value]: ...
 
     @property
     def outputs(self) -> MutableSequence[ir.Value]: ...
