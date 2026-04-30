@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal, Optional
+from typing import Literal, NotRequired, Optional, TypedDict, cast, overload
 
 import jax
 import jax.numpy as jnp
@@ -193,7 +193,10 @@ def _dino_rope_inference_sincos(
         coords_h = np.arange(0.5, H, step=1.0) / float(H)
         coords_w = np.arange(0.5, W, step=1.0) / float(W)
 
-    hh, ww = np.meshgrid(coords_h, coords_w, indexing="ij")
+    hh, ww = cast(
+        tuple[np.ndarray, np.ndarray],
+        np.meshgrid(coords_h, coords_w, indexing="ij"),
+    )
     coords = np.stack([hh, ww], axis=-1).reshape(H * W, 2)
     coords = (2.0 * coords - 1.0).astype(dtype)
 
@@ -274,7 +277,7 @@ class DinoRotaryProcessHeads(nnx.Module):
             )
         )
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DinoRotaryProcessHeads):
             return False
         return (
@@ -288,12 +291,16 @@ class DinoRotaryProcessHeads(nnx.Module):
     @property
     def sin(self) -> np.ndarray:
         dtype = np.dtype(self._dtype)
-        return np.frombuffer(self._sin_data, dtype=dtype).reshape(self._shape)
+        return cast(
+            np.ndarray, np.frombuffer(self._sin_data, dtype=dtype).reshape(self._shape)
+        )
 
     @property
     def cos(self) -> np.ndarray:
         dtype = np.dtype(self._dtype)
-        return np.frombuffer(self._cos_data, dtype=dtype).reshape(self._shape)
+        return cast(
+            np.ndarray, np.frombuffer(self._cos_data, dtype=dtype).reshape(self._shape)
+        )
 
 
 def _exact_gelu(x: jax.Array) -> jax.Array:
@@ -689,7 +696,19 @@ class VisionTransformer(nnx.Module):
             return jnp.concatenate([cls, patches], axis=1)
         return tokens
 
-    def _encode(self, x: jax.Array, *, capture: bool = False):
+    @overload
+    def _encode(
+        self, x: jax.Array, *, capture: Literal[False] = False
+    ) -> jax.Array: ...
+
+    @overload
+    def _encode(
+        self, x: jax.Array, *, capture: Literal[True]
+    ) -> tuple[jax.Array, list[jax.Array]]: ...
+
+    def _encode(
+        self, x: jax.Array, *, capture: bool = False
+    ) -> jax.Array | tuple[jax.Array, list[jax.Array]]:
         x = self.patch_embed(x)
         cls_tokens = jnp.broadcast_to(
             self.cls_token.value, (x.shape[0], 1, x.shape[-1])
@@ -789,12 +808,22 @@ class VisionTransformer(nnx.Module):
         return debug_infos
 
 
-def _get_test_cases():
+class _DINOTestConfig(TypedDict):
+    patch: int
+    dim: int
+    heads: int
+    depth: int
+    storage: int
+    rtol: NotRequired[float]
+    atol: NotRequired[float]
+
+
+def _get_test_cases() -> list[dict[str, object]]:
     """Returns a list of test cases for DINOv3."""
-    test_cases = []
+    test_cases: list[dict[str, object]] = []
     img_size = 224
 
-    vit_configs = {
+    vit_configs: dict[str, _DINOTestConfig] = {
         "Ti14": {"patch": 14, "dim": 192, "heads": 3, "depth": 12, "storage": 0},
         "S14": {
             "patch": 14,

@@ -1,5 +1,8 @@
 # jax2onnx/plugins/examples/nnx/vit_flat.py
 
+from __future__ import annotations
+
+from typing import Any, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -36,7 +39,14 @@ class PatchEmbedding(nnx.Module):
     """Patch embedding for Vision Transformers."""
 
     def __init__(
-        self, height, width, patch_size, num_hiddens, in_features, *, rngs: nnx.Rngs
+        self,
+        height: int,
+        width: int,
+        patch_size: int,
+        num_hiddens: int,
+        in_features: int,
+        *,
+        rngs: nnx.Rngs,
     ):
         num_patches_h, num_patches_w = height // patch_size, width // patch_size
         num_patches = num_patches_h * num_patches_w
@@ -62,7 +72,7 @@ class PatchEmbedding(nnx.Module):
             ]
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
             x = layer(x)
         return x
@@ -110,12 +120,12 @@ class ConvEmbedding(nnx.Module):
         self,
         W: int = 28,
         H: int = 28,
-        embed_dims: list[int] = [32, 64, 128],
+        embed_dims: Sequence[int] = (32, 64, 128),
         kernel_size: int = 3,
-        strides: list[int] = [1, 2, 2],
+        strides: Sequence[int] = (1, 2, 2),
         dropout_rate: float = 0.5,
         *,
-        rngs=with_rng_seed(0),
+        rngs: nnx.Rngs,
     ):
         padding = "SAME"
         layernormfeatures = embed_dims[-1] * W // 4 * H // 4
@@ -158,7 +168,7 @@ class ConvEmbedding(nnx.Module):
             ]
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -212,7 +222,14 @@ register_example(
 class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
-    def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
+    def __init__(
+        self,
+        num_hiddens: int,
+        mlp_dim: int,
+        dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
         self.layers = nnx.List(
             [
                 nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
@@ -223,7 +240,7 @@ class FeedForward(nnx.Module):
             ]
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for layer in self.layers:
             if isinstance(layer, nnx.Dropout):
                 x = layer(x, deterministic=deterministic)
@@ -271,8 +288,8 @@ register_example(
 )
 
 
-def attention(*args, **kwargs):
-    return nnx.dot_product_attention(*args, **kwargs)
+def attention(*args: Any, **kwargs: Any) -> jax.Array:
+    return cast(jax.Array, nnx.dot_product_attention(*args, **kwargs))
 
 
 class MultiHeadAttention(nnx.Module):
@@ -295,7 +312,7 @@ class MultiHeadAttention(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.attention(x, deterministic=deterministic)
         x = self.dropout(x, deterministic=deterministic)
         return x
@@ -324,7 +341,7 @@ class TransformerBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         r = self.layer_norm1(x)
         r = self.attention(r, deterministic=deterministic)
         x = x + r
@@ -397,7 +414,7 @@ class TransformerStack(nnx.Module):
             ]
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for block in self.blocks:
             x = block(x, deterministic=deterministic)
         return x
@@ -442,7 +459,7 @@ register_example(
 )
 
 
-def get_token(x, index) -> jnp.ndarray:
+def get_token(x: jnp.ndarray, index: int) -> jnp.ndarray:
     return x[:, index, :]
 
 
@@ -622,9 +639,9 @@ class VisionTransformer(nnx.Module):
         num_heads: int,
         mlp_dim: int,
         num_classes: int,
-        embed_dims: list[int] = [32, 128, 256],
+        embed_dims: Sequence[int] = (32, 128, 256),
         kernel_size: int = 3,
-        strides: list[int] = [1, 2, 2],
+        strides: Sequence[int] = (1, 2, 2),
         patch_size: int = 4,
         embedding_type: str = "conv",
         embedding_dropout_rate: float = 0.1,
@@ -680,7 +697,7 @@ class VisionTransformer(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
             raise ValueError("Input tensor 'x' must not be None or empty.")
 

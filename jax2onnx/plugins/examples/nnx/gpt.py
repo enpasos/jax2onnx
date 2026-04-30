@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from functools import wraps
+from typing import Any, cast
+
 import jax
 import jax.numpy as jnp
-from flax import nnx
 import numpy as np
-from functools import wraps
+import onnx_ir as ir
+from flax import nnx
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.plugin_system import (
@@ -18,17 +21,23 @@ from jax2onnx.plugins.plugin_system import (
 
 
 @onnx_function(unique=True)
-def attention(q, k, v, mask=None, **kwargs):
+def attention(
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    mask: jax.Array | None = None,
+    **kwargs: Any,
+) -> jax.Array:
     """A thin wrapper around nnx.dot_product_attention exposing q, k, v, mask."""
-    return nnx.dot_product_attention(q, k, v, mask=mask, **kwargs)
+    return cast(jax.Array, nnx.dot_product_attention(q, k, v, mask=mask, **kwargs))
 
 
 @wraps(attention)
-def _call_attention(*args, **kwargs):
+def _call_attention(*args: Any, **kwargs: Any) -> jax.Array:
     return attention(*args, **kwargs)
 
 
-def _no_cast_where(model) -> bool:
+def _no_cast_where(model: ir.Model) -> bool:
     """Fail if a Cast feeds directly into a Where node anywhere in the graph."""
 
     has_cast_where = expect_graph(

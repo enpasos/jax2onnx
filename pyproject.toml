@@ -144,6 +144,7 @@ files = [
     "jax2onnx/plugins/examples/jnp",
     "jax2onnx/plugins/examples/lax",
     "jax2onnx/plugins/examples/linen",
+    "jax2onnx/plugins/examples/nnx",
     "jax2onnx/plugins/examples/onnx_functions",
     "jax2onnx/plugins/flax",
     "jax2onnx/plugins/jax",

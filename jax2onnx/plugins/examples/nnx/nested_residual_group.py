@@ -23,7 +23,7 @@ class _ResGroup(nnx.Module):
         self.res_blocks = nnx.List(_ResBlock(rngs=rngs) for _ in range(blocks))
         self.conv0 = nnx.Conv(filters, filters, kernel_size=kernel_size, rngs=rngs)
 
-    def __call__(self, input):
+    def __call__(self, input: jax.Array) -> jax.Array:
         x = input
         for block in self.res_blocks:
             x = block(x)
@@ -37,7 +37,7 @@ class _ResBlock(nnx.Module):
         self.conv0 = nnx.Conv(filters, filters, kernel_size=kernel_size, rngs=rngs)
         self.conv1 = nnx.Conv(filters, filters, kernel_size=kernel_size, rngs=rngs)
 
-    def __call__(self, input):
+    def __call__(self, input: jax.Array) -> jax.Array:
         x = nnx.silu(self.conv0(input))
         x = self.conv1(x)
         x = x + input

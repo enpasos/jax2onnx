@@ -20,7 +20,7 @@ class MLP(nnx.Module):
         self.bn = nnx.BatchNorm(dmid, use_running_average=True, rngs=rngs)
         self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
 
-    def __call__(self, x: jax.Array, *, deterministic: bool = True):
+    def __call__(self, x: jax.Array, *, deterministic: bool = True) -> jax.Array:
         x = nnx.gelu(
             self.dropout(self.bn(self.linear1(x)), deterministic=deterministic)
         )

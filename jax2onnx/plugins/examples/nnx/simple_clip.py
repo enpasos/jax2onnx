@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+import jax
 from flax import nnx
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -17,7 +18,7 @@ class SimpleModel(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs):
         pass
 
-    def __call__(self, input):
+    def __call__(self, input: jax.Array) -> jax.Array:
         x = jnp.clip(input, 0.0, 1.0)
         return x
 

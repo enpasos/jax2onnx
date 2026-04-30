@@ -60,7 +60,7 @@ class TransformerDecoderLayer(nnx.Module):
         cross_attn_mask: jax.Array | None = None,
         *,
         deterministic: bool = True,
-        decode=None,
+        decode: bool | None = None,
     ) -> jax.Array:
         attn_output = self.self_attn(
             inputs_q=x, mask=mask, deterministic=deterministic, decode=decode
@@ -122,7 +122,7 @@ class TransformerDecoder(nnx.Module):
         cross_attn_mask: jax.Array | None = None,
         *,
         deterministic: bool = True,
-        decode=None,
+        decode: bool | None = None,
     ) -> jax.Array:
         for layer in self.layers:
             x = layer(
