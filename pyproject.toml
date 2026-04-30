@@ -144,6 +144,7 @@ files = [
     "jax2onnx/plugins/dm_pix/space_to_depth.py",
     "jax2onnx/plugins/flax/nnx/elu.py",
     "jax2onnx/plugins/flax/nnx/embed.py",
+    "jax2onnx/plugins/flax/nnx/einsum.py",
     "jax2onnx/plugins/flax/nnx/gelu.py",
     "jax2onnx/plugins/flax/nnx/leaky_relu.py",
     "jax2onnx/plugins/flax/nnx/log_softmax.py",
