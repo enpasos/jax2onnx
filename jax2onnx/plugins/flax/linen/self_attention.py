@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from flax import linen as nn
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -21,14 +21,16 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-def _get_param_group(params: dict, name: str) -> dict | None:
+def _get_param_group(params: dict[str, Any], name: str) -> dict[str, Any] | None:
     group = params.get(name)
     if isinstance(group, dict):
         return group
     return None
 
 
-def _dense_general_apply(x, kernel, bias, *, precision=None):
+def _dense_general_apply(
+    x: Any, kernel: Any, bias: Any, *, precision: Any = None
+) -> Any:
     y = jax.lax.dot_general(
         x,
         kernel,
@@ -40,7 +42,7 @@ def _dense_general_apply(x, kernel, bias, *, precision=None):
     return y
 
 
-def _project_output(x, kernel, bias, *, precision=None):
+def _project_output(x: Any, kernel: Any, bias: Any, *, precision: Any = None) -> Any:
     if kernel.ndim == 3:
         y = jax.lax.dot_general(
             x,
@@ -129,21 +131,22 @@ class SelfAttentionPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.self_attention")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "SelfAttention primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.SelfAttention",
@@ -154,10 +157,10 @@ class SelfAttentionPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         SelfAttentionPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(self, inputs, *args, **kwargs):
+        def patched(self: Any, inputs: Any, *args: Any, **kwargs: Any) -> Any:
             if args:
                 return orig_fn(self, inputs, *args, **kwargs)
 

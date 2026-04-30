@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from flax import linen as nn
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -21,14 +21,16 @@ from jax2onnx.plugins.plugin_system import (
 )
 
 
-def _get_param_group(params: dict, name: str) -> dict | None:
+def _get_param_group(params: dict[str, Any], name: str) -> dict[str, Any] | None:
     group = params.get(name)
     if isinstance(group, dict):
         return group
     return None
 
 
-def _dense_general_apply(x, kernel, bias, *, precision=None):
+def _dense_general_apply(
+    x: Any, kernel: Any, bias: Any, *, precision: Any = None
+) -> Any:
     y = jax.lax.dot_general(
         x,
         kernel,
@@ -40,7 +42,7 @@ def _dense_general_apply(x, kernel, bias, *, precision=None):
     return y
 
 
-def _project_output(x, kernel, bias, *, precision=None):
+def _project_output(x: Any, kernel: Any, bias: Any, *, precision: Any = None) -> Any:
     if kernel.ndim == 3:
         y = jax.lax.dot_general(
             x,
@@ -63,17 +65,18 @@ def _project_output(x, kernel, bias, *, precision=None):
     return y
 
 
-def _normalize_axes(axes, ndim: int) -> tuple[int, ...] | None:
+def _normalize_axes(axes: Any, ndim: int) -> tuple[int, ...] | None:
     if axes is None:
         return None
     try:
+        axes_tuple: tuple[int, ...]
         if isinstance(axes, int):
             axes_tuple = (int(axes),)
         else:
             axes_tuple = tuple(int(a) for a in axes)
     except Exception:
         return None
-    normalized = []
+    normalized: list[int] = []
     for a in axes_tuple:
         if a < 0:
             a += ndim
@@ -81,9 +84,15 @@ def _normalize_axes(axes, ndim: int) -> tuple[int, ...] | None:
     return tuple(normalized)
 
 
-def _make_mha_patch(orig_fn: Callable):
-    def patched(self, inputs_q, inputs_kv=None, *args, **kwargs):
-        def _fallback():
+def _make_mha_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
+    def patched(
+        self: Any,
+        inputs_q: Any,
+        inputs_kv: Any | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        def _fallback() -> Any:
             if args:
                 return orig_fn(self, inputs_q, inputs_kv, *args, **kwargs)
             return orig_fn(self, inputs_q, inputs_kv=inputs_kv, **kwargs)
@@ -303,21 +312,22 @@ class MultiHeadDotProductAttentionPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.multi_head_dot_product_attention")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "MultiHeadDotProductAttention primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.MultiHeadDotProductAttention",
@@ -328,6 +338,6 @@ class MultiHeadDotProductAttentionPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         MultiHeadDotProductAttentionPlugin._ORIGINAL_CALL = orig_fn
         return _make_mha_patch(orig_fn)

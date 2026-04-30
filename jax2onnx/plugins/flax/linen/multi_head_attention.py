@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from flax import linen as nn
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.linen.multi_head_dot_product_attention import _make_mha_patch
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
@@ -86,21 +86,22 @@ class MultiHeadAttentionPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.multi_head_attention")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "MultiHeadAttention primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.MultiHeadAttention",
@@ -111,6 +112,6 @@ class MultiHeadAttentionPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         MultiHeadAttentionPlugin._ORIGINAL_CALL = orig_fn
         return _make_mha_patch(orig_fn)
