@@ -7,13 +7,19 @@ This module contains utilities for debugging JAX to ONNX conversion.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Union, Tuple
+
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field, is_dataclass, fields
+from typing import cast
+
 import numpy as np
 
 logger = logging.getLogger("jax2onnx.utils.debug")
+
+AvalShape = tuple[object, ...]
+AvalRecord = tuple[AvalShape, str, str]
 
 
 @dataclass
@@ -24,23 +30,19 @@ class RecordedPrimitiveCallLog:
 
     sequence_id: int
     primitive_name: str
-    plugin_file_hint: Optional[str] = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    plugin_file_hint: str | None = None
+    params: dict[str, object] = field(default_factory=dict)
     params_repr: str = ""
-    inputs_aval: List[Tuple[Tuple[Union[int, Any], ...], str, str]] = field(
-        default_factory=list
-    )
-    outputs_aval: List[Tuple[Tuple[Union[int, Any], ...], str, str]] = field(
-        default_factory=list
-    )
-    conversion_context_fn_name: Optional[str] = None
+    inputs_aval: list[AvalRecord] = field(default_factory=list)
+    outputs_aval: list[AvalRecord] = field(default_factory=list)
+    conversion_context_fn_name: str | None = None
     # New fields for detailed logging
-    inputs_jax_vars: List[str] = field(default_factory=list)
-    inputs_onnx_names: List[str] = field(default_factory=list)
-    outputs_jax_vars: List[str] = field(default_factory=list)
-    outputs_onnx_names: List[str] = field(default_factory=list)
+    inputs_jax_vars: list[str] = field(default_factory=list)
+    inputs_onnx_names: list[str] = field(default_factory=list)
+    outputs_jax_vars: list[str] = field(default_factory=list)
+    outputs_onnx_names: list[str] = field(default_factory=list)
 
-    def __str__(self):
+    def __str__(self) -> str:
         # Consider updating __str__ if you want these new fields in simple printouts
         # For detailed logging to a file, direct field access is fine.
         # This is a placeholder; actual string formatting depends on desired output.
@@ -69,7 +71,7 @@ class RecordedPrimitiveCallLog:
         )
 
 
-def _to_jsonable(obj: Any, *, max_array_elems: int = 64) -> Any:
+def _to_jsonable(obj: object, *, max_array_elems: int = 64) -> object:
     """
     Best-effort serializer:
     - dataclasses -> dict (without deepcopy), field-by-field
@@ -82,17 +84,17 @@ def _to_jsonable(obj: Any, *, max_array_elems: int = 64) -> Any:
 
     # numpy scalars
     if isinstance(obj, (np.generic,)):
-        return obj.item()
+        return cast(object, obj.item())
 
     # numpy arrays
     if isinstance(obj, np.ndarray):
         if obj.size <= max_array_elems:
-            return obj.tolist()
+            return cast(object, obj.tolist())
         return {"ndarray": True, "shape": list(obj.shape), "dtype": str(obj.dtype)}
 
     # dataclasses (without dataclasses.asdict → no deepcopy)
     if is_dataclass(obj):
-        out = {}
+        out: dict[str, object] = {}
         for f in fields(obj):
             try:
                 out[f.name] = _to_jsonable(
@@ -124,7 +126,7 @@ def _to_jsonable(obj: Any, *, max_array_elems: int = 64) -> Any:
         return f"<unserializable:{type(obj).__name__}>"
 
 
-def _json_sanitize(obj):
+def _json_sanitize(obj: object) -> object:
     # Fast path for primitives
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
@@ -139,7 +141,7 @@ def _json_sanitize(obj):
 
     # Dataclasses
     if is_dataclass(obj):
-        out = {}
+        out: dict[str, object] = {}
         for f in fields(obj):
             name = f.name
             try:
@@ -150,17 +152,12 @@ def _json_sanitize(obj):
         return out
 
     # Numpy/JAX arrays → shape+dtype summary (or .tolist() if you prefer)
-    try:
-        import numpy as _np
-
-        if isinstance(obj, _np.ndarray):
-            return {
-                "__ndarray__": True,
-                "shape": list(obj.shape),
-                "dtype": str(obj.dtype),
-            }
-    except Exception:
-        pass
+    if isinstance(obj, np.ndarray):
+        return {
+            "__ndarray__": True,
+            "shape": list(obj.shape),
+            "dtype": str(obj.dtype),
+        }
 
     # Fallback: repr (covers jaxlib._jax.Traceback, frames, etc.)
     try:
@@ -169,7 +166,7 @@ def _json_sanitize(obj):
         return "<unserializable>"
 
 
-def save_primitive_calls_log(records, path: str) -> None:
+def save_primitive_calls_log(records: Sequence[object], path: str) -> None:
     try:
         sanitized = [_json_sanitize(r) for r in records]
         with open(path, "w", encoding="utf-8") as f:

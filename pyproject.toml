@@ -163,7 +163,6 @@ check_untyped_defs = false
 [[tool.mypy.overrides]]
 module = [
     "jax2onnx.plugins._post_check_onnx_graph",
-    "jax2onnx.utils.debug",
 ]
 disallow_untyped_defs = false
 check_untyped_defs = false
