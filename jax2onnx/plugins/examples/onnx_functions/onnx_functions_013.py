@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from typing import Sequence
 
 import jax
@@ -79,7 +81,7 @@ class ConvEmbedding(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.conv1(x)
         x = nnx.gelu(x, approximate=False)
         x = self.conv2(x)
@@ -94,13 +96,20 @@ class ConvEmbedding(nnx.Module):
 
 @onnx_function
 class FeedForward(nnx.Module):
-    def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
+    def __init__(
+        self,
+        num_hiddens: int,
+        mlp_dim: int,
+        dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
         self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
         self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
         self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
         self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.linear1(x)
         x = nnx.gelu(x, approximate=False)
         x = self.dropout1(x, deterministic=deterministic)
@@ -109,7 +118,7 @@ class FeedForward(nnx.Module):
 
 
 @onnx_function
-def attention(*args, **kwargs):
+def attention(*args: Any, **kwargs: Any) -> jnp.ndarray:
     return nnx.dot_product_attention(*args, **kwargs)
 
 
@@ -134,7 +143,7 @@ class MultiHeadAttention(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=attention_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         x = self.attention(x, deterministic=deterministic)
         x = self.dropout(x, deterministic=deterministic)
         return x
@@ -162,7 +171,7 @@ class TransformerBlock(nnx.Module):
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp_block = FeedForward(num_hiddens, mlp_dim, mlp_dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         r = self.layer_norm1(x)
         r = self.attention(r, deterministic=deterministic)
         x = x + r
@@ -197,7 +206,7 @@ class TransformerStack(nnx.Module):
             ]
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         for block in self.blocks:
             x = block(x, deterministic=deterministic)
         return x
@@ -316,7 +325,7 @@ class VisionTransformer(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, x: jnp.ndarray, deterministic=True) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
         if x is None or x.shape[0] == 0:
             raise ValueError("Input tensor 'x' must not be None or empty.")
 

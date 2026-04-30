@@ -20,7 +20,14 @@ from jax2onnx.plugins.plugin_system import (
 class FeedForward(nnx.Module):
     """MLP block for Transformer layers."""
 
-    def __init__(self, num_hiddens, mlp_dim, dropout_rate=0.1, *, rngs: nnx.Rngs):
+    def __init__(
+        self,
+        num_hiddens: int,
+        mlp_dim: int,
+        dropout_rate: float = 0.1,
+        *,
+        rngs: nnx.Rngs,
+    ):
         self.linear1 = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
         self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
         self.linear2 = nnx.Linear(mlp_dim, num_hiddens, rngs=rngs)
