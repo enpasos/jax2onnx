@@ -412,11 +412,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             bias_val: ir.Value | None = None
             bias_dims: tuple[DimLike, ...] = ()
             if has_bias and bias_var is not None:
-                bias_val = ctx.get_value_for_var(
+                native_bias_raw: ir.Value = ctx.get_value_for_var(
                     bias_var, name_hint=ctx.fresh_name("dpa_bias")
                 )
                 bias_val = cast_param_like(
-                    ctx, bias_val, q_attn, name_hint="dpa_bias_cast"
+                    ctx, native_bias_raw, q_attn, name_hint="dpa_bias_cast"
                 )
                 bias_shape = tuple(
                     getattr(getattr(bias_var, "aval", None), "shape", ())
@@ -556,11 +556,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         current_logits: ir.Value = scaled
 
         if has_bias and bias_var is not None:
-            bias_val = ctx.get_value_for_var(
+            fallback_bias_raw: ir.Value = ctx.get_value_for_var(
                 bias_var, name_hint=ctx.fresh_name("dpa_bias")
             )
             bias_val = cast_param_like(
-                ctx, bias_val, current_logits, name_hint="dpa_bias_cast"
+                ctx, fallback_bias_raw, current_logits, name_hint="dpa_bias_cast"
             )
             bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
             bias_dims = tuple(

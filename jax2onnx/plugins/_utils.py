@@ -78,9 +78,10 @@ def inline_reshape_initializer(
     if target_np_dtype is not None:
         np_arr = np_arr.astype(target_np_dtype, copy=False)
 
-    return ctx.builder.add_initializer_from_array(
+    initializer: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint), array=np_arr
     )
+    return initializer
 
 
 def normalize_builder_outputs(

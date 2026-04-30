@@ -424,16 +424,19 @@ def _activate_full_plugin_worlds_for_body() -> Iterator[None]:
         # Leaf plugins' binding_specs (e.g., nnx/jnp/lax rewrites)
         leaf_prims: list[Primitive] = []
         for plugin in PLUGIN_REGISTRY.values():
-            cls = plugin.__class__
             try:
-                if issubclass(cls, PrimitiveLeafPlugin):
-                    stack.enter_context(cls.plugin_binding())
-                    prim = getattr(cls, "_PRIM", None)
-                    if isinstance(prim, Primitive):
-                        leaf_prims.append(prim)
+                if not isinstance(plugin, PrimitiveLeafPlugin):
+                    continue
+                cls = plugin.__class__
+                stack.enter_context(cls.plugin_binding())
+                prim = getattr(cls, "_PRIM", None)
+                if isinstance(prim, Primitive):
+                    leaf_prims.append(prim)
             except Exception:
                 # Best-effort; a non-leaf or misconfigured plugin should not crash nested tracing
-                logger.debug("Skipping leaf binding for %r", cls, exc_info=True)
+                logger.debug(
+                    "Skipping leaf binding for %r", plugin.__class__, exc_info=True
+                )
         backfill_missing_transpose_rules(leaf_prims)
         yield
 
