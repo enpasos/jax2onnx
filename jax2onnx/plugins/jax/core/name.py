@@ -50,9 +50,7 @@ class NamePlugin(PrimitiveLeafPlugin):
             result.type = out_spec.type
         else:
             result.type = getattr(inp_val, "type", None)
-        out_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-        )
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
