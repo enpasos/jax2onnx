@@ -156,6 +156,7 @@ files = [
     "jax2onnx/plugins/flax/nnx/hard_tanh.py",
     "jax2onnx/plugins/flax/nnx/layer_norm.py",
     "jax2onnx/plugins/flax/nnx/leaky_relu.py",
+    "jax2onnx/plugins/flax/nnx/linear.py",
     "jax2onnx/plugins/flax/nnx/log_sigmoid.py",
     "jax2onnx/plugins/flax/nnx/log_softmax.py",
     "jax2onnx/plugins/flax/nnx/lora.py",
