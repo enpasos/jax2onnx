@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence
 
 import jax.numpy as jnp
 from flax import linen as nn
@@ -16,7 +16,7 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
 EXPECT_RMS_NORM_GRAPH: Final = nnx_rms_norm.EXPECT_RMS_NORM_GRAPH
 
@@ -100,10 +100,10 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.rms_norm")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.RMSNorm",
@@ -114,23 +114,28 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         RMSNormPlugin._ORIGINAL_CALL = orig_fn
         prim = RMSNormPlugin._PRIM
 
-        def patched(self, x, *, mask=None):
+        def call_orig(self: Any, x: Any, *, mask: Any | None = None) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.RMSNorm.__call__ is not available.")
+            return orig_fn(self, x, mask=mask)
+
+        def patched(self: Any, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_name", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_index_groups", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if not getattr(self, "use_fast_variance", True):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             variables = scope.variables()
             params = variables.get("params", {})
 
@@ -139,12 +144,12 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
             red_axes = _canonicalize_axes(x.ndim, reduction_axes)
             feat_axes = _canonicalize_axes(x.ndim, feature_axes)
             if tuple(sorted(red_axes)) != tuple(sorted(feat_axes)):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             axis0 = min(red_axes)
             expected_axes = tuple(range(axis0, x.ndim))
             if tuple(sorted(red_axes)) != expected_axes:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             tail_shape = tuple(x.shape[a] for a in red_axes)
             param_dtype = getattr(self, "param_dtype", None) or x.dtype
@@ -154,7 +159,7 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
             if getattr(self, "use_scale", True):
                 scale_param = params.get("scale")
                 if scale_param is None:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 base_scale = (
                     jnp.reshape(scale_param, tail_shape)
                     if tuple(scale_param.shape) != tail_shape
@@ -189,7 +194,7 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
 
 
 @RMSNormPlugin._PRIM.def_impl
-def _impl_rms_norm(x, scale, *, epsilon: float, axis: int):
+def _impl_rms_norm(x: Any, scale: Any, *, epsilon: float, axis: int) -> Any:
     return nnx_rms_norm._impl_rms_norm(
         x,
         scale,
