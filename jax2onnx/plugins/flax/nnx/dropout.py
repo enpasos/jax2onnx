@@ -1,11 +1,12 @@
 # jax2onnx/plugins/flax/nnx/dropout.py
 
 from __future__ import annotations
-from typing import Callable, ClassVar, Any, Final, Optional, Set
+from typing import Any, Callable, ClassVar, Final, Optional, cast
 import numpy as np
 import jax
 from jax.extend.core import Primitive
 import logging
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -25,14 +26,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 
 from flax import nnx
 
-# mypy/ruff-only import (avoid runtime cycles)
-# from jax2onnx.converter.conversion_api import _IRBuildContext
-from jax2onnx.converter.ir_context import IRContext
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-def _tp_to_numpy(tp) -> np.ndarray:
+def _tp_to_numpy(tp: Any) -> Any:
     """Convert an ONNX TensorProto-like object to a NumPy array without importing onnx."""
     # Prefer raw_data when present
     if getattr(tp, "raw_data", None):
@@ -66,7 +63,7 @@ _CALL_CHECK: Final = EG(
 )
 
 
-def _find_initializer(model, name: str):
+def _find_initializer(model: Any, name: str) -> Any | None:
     g = getattr(model, "graph", None)
     if g is None:
         return None
@@ -76,7 +73,7 @@ def _find_initializer(model, name: str):
     )
 
 
-def post_check_onnx_graph_init(model) -> bool:
+def post_check_onnx_graph_init(model: Any) -> bool:
     """
     Init-params path checker:
       • path: input -> Dropout -> output with shape Bx10 (edge after Dropout)
@@ -124,14 +121,14 @@ def post_check_onnx_graph_init(model) -> bool:
     return bool(ratio_ok and tm_ok)
 
 
-def post_check_onnx_graph(model) -> bool:
+def post_check_onnx_graph(model: Any) -> bool:
     if not _CALL_CHECK(model):
         return False
     g = getattr(model, "graph", None)
     if g is None:
         return False
     nodes = list(getattr(g, "node", []))
-    prod_by_output = {}
+    prod_by_output: dict[str, Any] = {}
     for n in nodes:
         for o in getattr(n, "output", []):
             if o:
@@ -172,14 +169,9 @@ def post_check_onnx_graph(model) -> bool:
 
 
 # ---- helpers ---------------------------------------------------------------
-def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder for Dropout lowering")
-    inputs = getattr(builder, "inputs", None)
-    if inputs is None:
-        builder.inputs = []
-        inputs = builder.inputs
+def _ensure_scalar_bool_input(ctx: LoweringContextProtocol, name: str) -> ir.Value:
+    builder = ctx.builder
+    inputs = builder.inputs
     for vi in inputs:
         if getattr(vi, "name", "") == name:
             return vi
@@ -190,7 +182,7 @@ def _ensure_scalar_bool_input(ctx: IRContext, name: str) -> ir.Value:
     return v
 
 
-def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
+def _const_tensor(ctx: LoweringContextProtocol, value: Any, *, name: str) -> ir.Value:
     """
     Create a scalar/nd tensor constant robustly:
       • inside a Function body  → Constant node with a tensor-valued attribute
@@ -198,15 +190,16 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
     Returns the produced ir.Value (always pre-typed/shaped).
     """
     arr = np.asarray(value)
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder for Dropout lowering")
+    builder = ctx.builder
 
     inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
     if inside_fn:
-        const_val = builder.Constant(
-            _outputs=[ctx.fresh_name(name)],
-            value=ir.tensor(arr),
+        const_val = cast(
+            ir.Value,
+            builder.Constant(
+                _outputs=[ctx.fresh_name(name)],
+                value=ir.tensor(arr),
+            ),
         )
     else:
         init_name = ctx.fresh_name(name)
@@ -220,7 +213,7 @@ def _const_tensor(ctx: IRContext, value: Any, *, name: str) -> ir.Value:
     return const_val
 
 
-def _extract_python_bool(var) -> Optional[bool]:
+def _extract_python_bool(var: Any) -> Optional[bool]:
     """Best-effort extraction of a Python bool from a traced JAX variable."""
     if var is None:
         return None
@@ -291,25 +284,27 @@ class DropoutPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, deterministic, *, rate, call_time=False):
+    def abstract_eval(
+        x: jax.core.AbstractValue,
+        deterministic: Any,
+        *,
+        rate: float,
+        call_time: bool = False,
+    ) -> jax.core.ShapedArray:
         del deterministic, rate, call_time
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: IRContext, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         # JAXPR carries two invars: x, deterministic ; rate is a static param.
         invars = list(eqn.invars)
         x_var = invars[0]
         det_var = invars[1] if len(invars) > 1 else None
         out_var = eqn.outvars[0]
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for Dropout lowering"
-            )
+        builder = ctx.builder
 
         # Params
         call_time = bool(eqn.params.get("call_time", False))
-        call_params: Set[str] = getattr(ctx, "_call_input_param_names", set())
+        call_params = ctx._call_input_param_names
         rate = float(eqn.params.get("rate", 0.5))
 
         if "deterministic" in call_params:
@@ -346,9 +341,12 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     )
                 else:
                     det_in = _ensure_scalar_bool_input(ctx, "deterministic")
-                not_out = builder.Not(
-                    det_in,
-                    _outputs=[ctx.fresh_name("not_det")],
+                not_out = cast(
+                    ir.Value,
+                    builder.Not(
+                        det_in,
+                        _outputs=[ctx.fresh_name("not_det")],
+                    ),
                 )
                 not_out.type = ir.TensorType(ir.DataType.BOOL)
                 _stamp_type_and_shape(not_out, ())
@@ -371,9 +369,12 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                     )
                 else:
                     det_in = _ensure_scalar_bool_input(ctx, "deterministic")
-                not_out = builder.Not(
-                    det_in,
-                    _outputs=[ctx.fresh_name("not_det")],
+                not_out = cast(
+                    ir.Value,
+                    builder.Not(
+                        det_in,
+                        _outputs=[ctx.fresh_name("not_det")],
+                    ),
                 )
                 not_out.type = ir.TensorType(ir.DataType.BOOL)
                 _stamp_type_and_shape(not_out, ())
@@ -382,14 +383,17 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         # Dropout has optional 2nd/3rd outputs; we only wire the first (y)
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("out"))
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("out")
-        dropout_res = builder.Dropout(
-            x_val,
-            ratio_v,
-            train_v,
-            _outputs=[out_name],
+        dropout_res = cast(
+            ir.Value,
+            builder.Dropout(
+                x_val,
+                ratio_v,
+                train_v,
+                _outputs=[out_name],
+            ),
         )
         # annotate output: mirror input shape/dtype (preserve batch symbols)
-        x_dims_meta = None
+        x_dims_meta: tuple[Any, ...] | None = None
         x_shape_val = getattr(x_val, "shape", None)
         if x_shape_val is not None:
             x_dims_meta = getattr(x_shape_val, "dims", None)
@@ -413,16 +417,16 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, dropout_res)
 
     @staticmethod
-    def _dropout(x, deterministic, *, rate, call_time: bool):
+    def _dropout(x: Any, deterministic: Any, *, rate: float, call_time: bool) -> Any:
         return DropoutPlugin._PRIM.bind(
             x, deterministic, rate=rate, call_time=call_time
         )
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         del orig_fn
 
-        def patched(self, x, deterministic=None):
+        def patched(self: nnx.Dropout, x: Any, deterministic: Any | None = None) -> Any:
             if deterministic is None:
                 # init-params path
                 det = self.deterministic
@@ -438,7 +442,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.nnx", "dropout_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -450,7 +454,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, deterministic, *, rate=None, call_time=False: cls.abstract_eval(
@@ -461,6 +465,6 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
 
 @DropoutPlugin._PRIM.def_impl
-def _impl(x, deterministic, *, rate, call_time=False):
+def _impl(x: Any, deterministic: Any, *, rate: float, call_time: bool = False) -> Any:
     del deterministic, rate, call_time
     return x
