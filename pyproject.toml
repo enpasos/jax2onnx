@@ -142,6 +142,7 @@ files = [
     "jax2onnx/plugins/dm_pix",
     "jax2onnx/plugins/flax/nnx/avg_pool.py",
     "jax2onnx/plugins/flax/nnx/batch_norm.py",
+    "jax2onnx/plugins/flax/nnx/conv.py",
     "jax2onnx/plugins/flax/nnx/dot_product_attention.py",
     "jax2onnx/plugins/flax/nnx/dropout.py",
     "jax2onnx/plugins/flax/nnx/elu.py",
