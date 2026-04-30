@@ -149,6 +149,7 @@ files = [
     "jax2onnx/plugins/flax/linen/conv_transpose.py",
     "jax2onnx/plugins/flax/linen/dense.py",
     "jax2onnx/plugins/flax/linen/dense_general.py",
+    "jax2onnx/plugins/flax/linen/dot_product_attention.py",
     "jax2onnx/plugins/flax/linen/dropout.py",
     "jax2onnx/plugins/flax/linen/einsum.py",
     "jax2onnx/plugins/flax/linen/embed.py",

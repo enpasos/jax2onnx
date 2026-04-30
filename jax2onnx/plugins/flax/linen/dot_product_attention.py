@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 import numpy as np
 import jax
@@ -11,14 +11,14 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from flax import linen as nn
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )
 
 
-def _normalize_attention_mask(mask):
+def _normalize_attention_mask(mask: Any) -> Any | None:
     if mask is None:
         return None
     if mask.ndim == 3:
@@ -28,7 +28,7 @@ def _normalize_attention_mask(mask):
     return None
 
 
-def _masked_softmax(weights, mask_bool):
+def _masked_softmax(weights: Any, mask_bool: Any | None) -> Any:
     if mask_bool is None:
         return weights
     mask_float = mask_bool.astype(weights.dtype)
@@ -83,21 +83,22 @@ class DotProductAttentionWeightsPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.dot_product_attention_weights")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "dot_product_attention_weights primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.attention",
@@ -114,10 +115,10 @@ class DotProductAttentionWeightsPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         DotProductAttentionWeightsPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(query, key, *args, **kwargs):
+        def patched(query: Any, key: Any, *args: Any, **kwargs: Any) -> Any:
             bias = None
             mask = None
             if len(args) >= 1:
@@ -231,21 +232,22 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.dot_product_attention")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "dot_product_attention primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.attention",
@@ -262,10 +264,10 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         DotProductAttentionPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(query, key, value, *args, **kwargs):
+        def patched(query: Any, key: Any, value: Any, *args: Any, **kwargs: Any) -> Any:
             bias = None
             mask = None
             if len(args) >= 1:
@@ -341,21 +343,22 @@ class MakeAttentionMaskPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.make_attention_mask")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "make_attention_mask primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.attention",
@@ -372,10 +375,10 @@ class MakeAttentionMaskPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         MakeAttentionMaskPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(query_input, key_input, *args, **kwargs):
+        def patched(query_input: Any, key_input: Any, *args: Any, **kwargs: Any) -> Any:
             pairwise_fn = None
             extra_batch_dims = 0
             dtype = None
@@ -443,21 +446,22 @@ class MakeCausalMaskPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.make_causal_mask")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "make_causal_mask primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.attention",
@@ -474,10 +478,10 @@ class MakeCausalMaskPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         MakeCausalMaskPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(x, *args, **kwargs):
+        def patched(x: Any, *args: Any, **kwargs: Any) -> Any:
             extra_batch_dims = 0
             dtype = None
             if len(args) == 1:
