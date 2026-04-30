@@ -24,6 +24,7 @@ Example:
 """
 
 import logging
+import importlib
 import os
 import re
 from contextlib import contextmanager
@@ -32,6 +33,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterator,
     List,
     Literal,
     Mapping,
@@ -50,7 +52,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnx_ir as ir
-import onnxruntime
 from jax import core
 
 from jax2onnx.converter.conversion_api import (
@@ -73,7 +74,7 @@ OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
 
 @contextmanager
-def _temporary_x64(enabled: bool) -> None:
+def _temporary_x64(enabled: bool) -> Iterator[None]:
     prev = jax.config.jax_enable_x64
     try:
         if enabled != prev:
@@ -369,7 +370,7 @@ if TYPE_CHECKING:
 
     @overload
     def to_onnx(
-        fn: Callable,
+        fn: Callable[..., Any],
         inputs: Sequence[UserInputSpec],
         input_params: Optional[Mapping[str, object]] = ...,
         model_name: str = ...,
@@ -387,7 +388,7 @@ if TYPE_CHECKING:
 
     @overload
     def to_onnx(
-        fn: Callable,
+        fn: Callable[..., Any],
         inputs: Sequence[UserInputSpec],
         input_params: Optional[Mapping[str, object]] = ...,
         model_name: str = ...,
@@ -405,7 +406,7 @@ if TYPE_CHECKING:
 
     @overload
     def to_onnx(
-        fn: Callable,
+        fn: Callable[..., Any],
         inputs: Sequence[UserInputSpec],
         input_params: Optional[Mapping[str, object]] = ...,
         model_name: str = ...,
@@ -423,7 +424,7 @@ if TYPE_CHECKING:
 
 
 def to_onnx(
-    fn: Callable,
+    fn: Callable[..., Any],
     inputs: Sequence[UserInputSpec],
     input_params: Optional[Mapping[str, object]] = None,
     model_name: str = "jax_model",
@@ -536,10 +537,7 @@ def to_onnx(
             raise ValueError(
                 "`output_path` must be provided when return_mode is 'file'."
             )
-        path_value = os.fspath(output_path)
-        if isinstance(path_value, bytes):
-            path_value = path_value.decode()
-        file_path = cast(str, path_value)
+        file_path = os.fspath(output_path)
 
     normalized_inputs: List[InputSpec] = []
     if inputs:
@@ -738,7 +736,7 @@ def onnx_function(
 
 
 def allclose(
-    fn: Callable,
+    fn: Callable[..., Any],
     onnx_model_path: str,
     inputs: List[Any],
     input_params: Optional[Dict[str, Any]] = None,
@@ -828,7 +826,7 @@ def allclose(
 
 
 def _run_allclose(
-    fn: Callable,
+    fn: Callable[..., Any],
     model_path: str,
     xs: List[Any],
     params: Dict[str, Any],
@@ -838,7 +836,7 @@ def _run_allclose(
     inputs_as_nchw: Optional[Sequence[int]] = None,
     outputs_as_nchw: Optional[Sequence[int]] = None,
 ) -> Tuple[bool, str]:
-    import onnxruntime as ort
+    ort = cast(Any, importlib.import_module("onnxruntime"))
 
     # Use single-threaded ORT to reduce nondeterminism across runs.
     sess_options = ort.SessionOptions()
@@ -944,7 +942,7 @@ def _run_allclose(
 
 
 def _build_ort_inputs(
-    session: "onnxruntime.InferenceSession",
+    session: Any,
     xs: List[Any],
     params: Dict[str, Any],
 ) -> Dict[str, np.ndarray]:
@@ -975,7 +973,7 @@ def _build_ort_inputs(
 
 
 def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
-    arr = np.asarray(value)
+    arr = cast(np.ndarray, np.asarray(value))
     expected_dtype = getattr(input_meta, "type", None)
 
     if isinstance(expected_dtype, str) and expected_dtype.startswith("tensor("):
@@ -1012,7 +1010,7 @@ def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
                     packed = np.stack([arr.real, arr.imag], axis=-1).astype(
                         target_dtype
                     )
-                    return packed
+                    return cast(np.ndarray, packed)
                 raise ValueError(
                     "Cannot map complex input to expected real tensor without trailing dimension of size 2."
                 )
@@ -1022,14 +1020,12 @@ def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
     return arr
 
 
-def _to_jax_array(value: Any) -> jnp.ndarray:
-    if isinstance(value, jnp.ndarray):
-        return value
-    return jnp.asarray(value)
+def _to_jax_array(value: Any) -> jax.Array:
+    return cast(jax.Array, jnp.asarray(value))
 
 
 def _to_jax_kwarg(value: Any) -> Any:
-    if isinstance(value, (jnp.ndarray, np.ndarray)):
+    if isinstance(value, np.ndarray):
         return jnp.asarray(value)
     if isinstance(value, (list, tuple)):
         return jnp.asarray(value)
@@ -1039,9 +1035,7 @@ def _to_jax_kwarg(value: Any) -> Any:
 def _to_numpy_output(value: Any) -> np.ndarray:
     if isinstance(value, np.ndarray):
         return value
-    if isinstance(value, jnp.ndarray):
-        return np.asarray(value)
-    return np.asarray(value)
+    return cast(np.ndarray, np.asarray(value))
 
 
 def _is_floating_dtype(arr: np.ndarray) -> bool:

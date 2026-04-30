@@ -128,14 +128,14 @@ warn_return_any = true
 warn_unreachable = true
 incremental = false
 files = [
-    "jax2onnx/converter",
-    "jax2onnx/ir_utils.py",
-    "jax2onnx/plugins",
+    "jax2onnx",
 ]
 # Optional SOTA example integrations depend on external checkouts and large
-# untyped third-party surfaces; keep the first-party plugin tree typed.
+# untyped third-party surfaces; sandbox scripts are exploratory repros. Keep
+# the first-party package typed.
 exclude = [
     "^jax2onnx/plugins/examples/(maxtext|maxdiffusion)/",
+    "^jax2onnx/sandbox/",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
