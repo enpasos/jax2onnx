@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/group_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -9,6 +9,10 @@ from flax import nnx
 from jax.extend.core import Primitive
 
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import (
+    IRBuilderProtocol,
+    LoweringContextProtocol,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -24,9 +28,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 GROUP_NORM_PRIM: Final[Primitive] = Primitive("nnx.group_norm")
 GROUP_NORM_PRIM.multiple_results = False
@@ -62,11 +63,8 @@ EXPECT_GROUP_NORM_TRANSPOSED: Final = EG(
 )
 
 
-def _require_builder(ctx: Any):
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder")
-    return builder
+def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
+    return ctx.builder
 
 
 @register_primitive(
@@ -227,12 +225,20 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
 
     # ---------------- abstract eval ----------------
     @staticmethod
-    def abstract_eval(x, scale, bias, *, epsilon, num_groups, channel_axis):
+    def abstract_eval(
+        x: Any,
+        scale: Any,
+        bias: Any,
+        *,
+        epsilon: float,
+        num_groups: int,
+        channel_axis: int,
+    ) -> jax.core.ShapedArray:
         del scale, bias, epsilon, num_groups, channel_axis
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 
@@ -250,7 +256,9 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="gn_scale_cast")
         bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="gn_bias_cast")
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
         rank = len(x_shape)
         if rank == 0:
             raise ValueError("GroupNorm requires tensor inputs")
@@ -271,10 +279,11 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             perm = list(range(rank))
             inv_perm = perm
 
-        def _label(idx: int):
-            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        def _label(idx: int) -> str | int | None:
+            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            return label
 
-        def _dims_for(indices: Sequence[int]):
+        def _dims_for(indices: Sequence[int]) -> tuple[Any, ...]:
             dims: list[Any] = []
             for idx in indices:
                 label = _label(idx)
@@ -293,23 +302,29 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
 
         gn_input = x_val
         if need_layout_convert:
-            gn_input = builder.Transpose(
-                x_val,
-                perm=tuple(int(p) for p in perm),
-                _outputs=[ctx.fresh_name("gn_nchw_in")],
+            gn_input = cast(
+                ir.Value,
+                builder.Transpose(
+                    x_val,
+                    perm=tuple(int(p) for p in perm),
+                    _outputs=[ctx.fresh_name("gn_nchw_in")],
+                ),
             )
             if x_ir_dtype is not None:
                 gn_input.type = ir.TensorType(x_ir_dtype)
             _stamp_type_and_shape(gn_input, nchw_dims)
             _ensure_value_metadata(ctx, gn_input)
 
-        gn_out = builder.GroupNormalization(
-            gn_input,
-            scale_val,
-            bias_val,
-            epsilon=float(epsilon),
-            num_groups=int(num_groups),
-            _outputs=[ctx.fresh_name("GroupNorm")],
+        gn_out = cast(
+            ir.Value,
+            builder.GroupNormalization(
+                gn_input,
+                scale_val,
+                bias_val,
+                epsilon=float(epsilon),
+                num_groups=int(num_groups),
+                _outputs=[ctx.fresh_name("GroupNorm")],
+            ),
         )
         if x_ir_dtype is not None:
             gn_out.type = ir.TensorType(x_ir_dtype)
@@ -317,10 +332,13 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, gn_out)
 
         if need_layout_convert:
-            final_val = builder.Transpose(
-                gn_out,
-                perm=tuple(int(p) for p in inv_perm),
-                _outputs=[ctx.fresh_name("gn_out")],
+            final_val = cast(
+                ir.Value,
+                builder.Transpose(
+                    gn_out,
+                    perm=tuple(int(p) for p in inv_perm),
+                    _outputs=[ctx.fresh_name("gn_out")],
+                ),
             )
             if x_ir_dtype is not None:
                 final_val.type = ir.TensorType(x_ir_dtype)
@@ -331,21 +349,20 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(final_val, nhwc_dims)
             _ensure_value_metadata(ctx, final_val)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, final_val)
+        ctx.bind_value_for_var(y_var, final_val)
 
     # ---------------- monkey patch & binding ----------------
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.nnx", "group_norm_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(nnx.GroupNorm, "__call__", cls._patch_call),
         ]
 
     @staticmethod
-    def _prepare_param(vec: jax.Array | None, size: int, dtype, *, default: float):
+    def _prepare_param(
+        vec: jax.Array | None, size: int, dtype: Any, *, default: float
+    ) -> jax.Array:
         if vec is None:
             return jnp.full((size,), default, dtype=dtype)
         arr = jnp.asarray(vec, dtype=dtype)
@@ -354,8 +371,8 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         return jnp.reshape(arr, (size,))
 
     @classmethod
-    def _patch_call(cls, orig):
-        def wrapped(self: nnx.GroupNorm, x, *, mask=None):
+    def _patch_call(cls, orig: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapped(self: nnx.GroupNorm, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
                 # Fall back to original implementation when masks are involved.
                 return orig(self, x, mask=mask)
@@ -398,7 +415,7 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -406,8 +423,8 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
 
 @GroupNormPlugin._PRIM.def_impl
 def _impl_group_norm(
-    x, scale, bias, *, epsilon: float, num_groups: int, channel_axis: int
-):
+    x: Any, scale: Any, bias: Any, *, epsilon: float, num_groups: int, channel_axis: int
+) -> Any:
     axis = int(channel_axis)
     if axis < 0:
         axis += x.ndim
