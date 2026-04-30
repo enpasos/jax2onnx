@@ -130,26 +130,12 @@ incremental = false
 files = [
     "jax2onnx/converter",
     "jax2onnx/ir_utils.py",
-    "jax2onnx/plugins/_axis0_utils.py",
-    "jax2onnx/plugins/_attention_utils.py",
-    "jax2onnx/plugins/_complex_utils.py",
-    "jax2onnx/plugins/_ir_shapes.py",
-    "jax2onnx/plugins/_loop_extent_meta.py",
-    "jax2onnx/plugins/_patching.py",
-    "jax2onnx/plugins/_post_check_onnx_graph.py",
-    "jax2onnx/plugins/_utils.py",
-    "jax2onnx/plugins/__init__.py",
-    "jax2onnx/plugins/dm_pix",
-    "jax2onnx/plugins/equinox",
-    "jax2onnx/plugins/examples/eqx",
-    "jax2onnx/plugins/examples/jnp",
-    "jax2onnx/plugins/examples/lax",
-    "jax2onnx/plugins/examples/linen",
-    "jax2onnx/plugins/examples/nnx",
-    "jax2onnx/plugins/examples/onnx_functions",
-    "jax2onnx/plugins/flax",
-    "jax2onnx/plugins/jax",
-    "jax2onnx/plugins/plugin_system.py",
+    "jax2onnx/plugins",
+]
+# Optional SOTA example integrations depend on external checkouts and large
+# untyped third-party surfaces; keep the first-party plugin tree typed.
+exclude = [
+    "^jax2onnx/plugins/examples/(maxtext|maxdiffusion)/",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
