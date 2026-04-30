@@ -943,7 +943,7 @@ def _torch_tensor_to_jax(tensor: Any, *, dtype: jnp.dtype | None) -> jnp.ndarray
     """Convert a torch tensor into a JAX array without mutating the source."""
 
     try:
-        import torch
+        torch = cast(Any, import_module("torch"))
     except ImportError as exc:  # pragma: no cover - defensive, should not happen
         raise ImportError("torch must be installed to map GPT-OSS weights.") from exc
 
@@ -1279,7 +1279,7 @@ def load_pretrained_gpt_oss(
     """Load a GPT-OSS checkpoint and mirror it into the Equinox example."""
 
     try:
-        import torch
+        torch = cast(Any, import_module("torch"))
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             "Loading GPT-OSS checkpoints requires `torch`. "
