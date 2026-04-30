@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 _EQX_WEIGHT_NORM_LINEAR: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
@@ -66,7 +66,7 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
         )
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="equinox.nn.WeightNorm",

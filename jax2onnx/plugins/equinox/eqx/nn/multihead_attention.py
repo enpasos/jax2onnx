@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, ClassVar
+from collections.abc import MutableSequence
+from typing import Any, Callable, ClassVar, cast
 
 import equinox as eqx
 import jax
@@ -18,7 +19,11 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -39,21 +44,33 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 
 HeadsTuple = tuple[jax.Array, jax.Array, jax.Array]
 ProcessHeadsFn = Callable[[jax.Array, jax.Array, jax.Array], HeadsTuple]
+ShapeDims = tuple[object, ...]
+FlatMeta = tuple[DimInput, DimInput]
+PreparedInput = tuple[
+    ir.Value,
+    ir.Value | None,
+    ShapeDims,
+    ir.Value,
+    tuple[int, ...] | None,
+    int | None,
+    FlatMeta,
+    int | None,
+]
 
 
-def _normalized_dim(dim: object) -> object:
+def _normalized_dim(dim: object) -> DimInput:
     if isinstance(dim, (int, np.integer)):
         return int(dim)
     if isinstance(dim, str):
         return dim
-    return dim
+    return cast(DimInput, dim)
 
 
 def _static_dims(dims: tuple[object, ...]) -> tuple[int, ...] | None:
     static_dims: list[int] = []
     for dim in dims:
         try:
-            dim_val = int(dim)
+            dim_val = int(cast(Any, dim))
         except Exception:  # symbolic or dynamic
             return None
         if dim_val < 0:
@@ -207,7 +224,9 @@ def _apply_rotary_process_heads_lowering(
         rank = len(dims)
         if rank <= 2:
             return cache_val
-        reshape_vals = np.ones(rank, dtype=np.int64)
+        reshape_vals: np.ndarray[Any, np.dtype[np.int64]] = np.ones(
+            rank, dtype=np.int64
+        )
         seq_axis = rank - 3
         if seq_axis < 0:
             seq_axis = 0
@@ -222,13 +241,13 @@ def _apply_rotary_process_heads_lowering(
             name_hint=f"{prefix}_{tag}_reshape_inline",
         )
         if cache_val is not original:
-            try:
-                ctx.builder.initializers.remove(original)
-            except (ValueError, AttributeError):
-                try:
-                    ctx._initializers.remove(original)
-                except Exception:
-                    pass
+            for initializers in (ctx.builder.initializers, ctx._initializers):
+                if isinstance(initializers, MutableSequence):
+                    try:
+                        initializers.remove(original)
+                        break
+                    except ValueError:
+                        pass
         else:
             reshape_shape = _const_i64(
                 ctx,
@@ -361,11 +380,14 @@ def _mha_forward(
 
     scale = 1.0 / math.sqrt(float(qk_size))
 
-    def _matmul_heads(lhs, rhs):
-        return lax.dot_general(
-            lhs,
-            rhs,
-            dimension_numbers=(((1,), (0,)), ((), ())),
+    def _matmul_heads(lhs: jax.Array, rhs: jax.Array) -> jax.Array:
+        return cast(
+            jax.Array,
+            lax.dot_general(
+                lhs,
+                rhs,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            ),
         )
 
     scores = jax.vmap(_matmul_heads)(q_heads, k_heads) * scale
@@ -675,21 +697,26 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             name_hint="mha_bo_cast",
         )
 
-        def _prepare_input(val, var, prefix):
-            aval_shape = tuple(getattr(getattr(var, "aval", None), "shape", ()))
+        def _prepare_input(val: ir.Value, var: object, prefix: str) -> PreparedInput:
+            aval_shape: ShapeDims = tuple(
+                getattr(getattr(var, "aval", None), "shape", ())
+            )
             rank = len(aval_shape)
             axis = max(rank - 1, 0)
 
-            leading_dims = None
-            sequence_dim_val = None
+            leading_dims: ir.Value | None = None
+            sequence_dim_val: ir.Value | None = None
             leading_static_dims: tuple[int, ...] | None = None
             seq_len_static: int | None = None
             feature_static: int | None = None
             seq_len_hint: int | None = None
+            flat_meta: FlatMeta = (None, None)
             if rank > 0:
                 leading_static_dims = _static_dims(aval_shape[:-1])
                 try:
-                    feature_candidate = int(aval_shape[-1]) if aval_shape else None
+                    feature_candidate = (
+                        int(cast(Any, aval_shape[-1])) if aval_shape else None
+                    )
                 except Exception:
                     feature_candidate = None
                 if feature_candidate is not None and feature_candidate >= 0:
@@ -699,7 +726,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     seq_len_hint = seq_len_static
                 elif rank >= 2:
                     try:
-                        seq_candidate = int(aval_shape[-2])
+                        seq_candidate = int(cast(Any, aval_shape[-2]))
                     except Exception:
                         seq_candidate = None
                     if seq_candidate is not None and seq_candidate >= 0:
@@ -780,7 +807,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         np.asarray([1], dtype=np.int64),
                         f"{prefix}_leading_steps",
                     )
-                    leading_dims = builder.Slice(
+                    leading_dims_val: ir.Value = builder.Slice(
                         shape_vec,
                         start,
                         end,
@@ -788,9 +815,10 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         steps,
                         _outputs=[ctx.fresh_name(f"{prefix}_leading")],
                     )
-                    leading_dims.type = ir.TensorType(ir.DataType.INT64)
-                    _stamp_type_and_shape(leading_dims, (axis,))
-                    _ensure_value_metadata(ctx, leading_dims)
+                    leading_dims_val.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(leading_dims_val, (axis,))
+                    _ensure_value_metadata(ctx, leading_dims_val)
+                    leading_dims = leading_dims_val
 
                     if axis > 0:
                         seq_index = _const_i64(
@@ -812,14 +840,15 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                             np.asarray([1], dtype=np.int64),
                             f"{prefix}_seq_shape",
                         )
-                        sequence_dim_val = builder.Reshape(
+                        sequence_dim: ir.Value = builder.Reshape(
                             seq_scalar,
                             seq_shape,
                             _outputs=[ctx.fresh_name(f"{prefix}_seq_dim")],
                         )
-                        sequence_dim_val.type = ir.TensorType(ir.DataType.INT64)
-                        _stamp_type_and_shape(sequence_dim_val, (1,))
-                        _ensure_value_metadata(ctx, sequence_dim_val)
+                        sequence_dim.type = ir.TensorType(ir.DataType.INT64)
+                        _stamp_type_and_shape(sequence_dim, (1,))
+                        _ensure_value_metadata(ctx, sequence_dim)
+                        sequence_dim_val = sequence_dim
                     else:
                         sequence_dim_val = _const_i64(
                             ctx,
@@ -847,7 +876,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         np.asarray([1], dtype=np.int64),
                         f"{prefix}_feature_shape",
                     )
-                    feature_dim = builder.Reshape(
+                    feature_dim: ir.Value = builder.Reshape(
                         feature_scalar,
                         feature_shape,
                         _outputs=[ctx.fresh_name(f"{prefix}_feature_dim")],
@@ -860,16 +889,19 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         np.asarray([-1], dtype=np.int64),
                         f"{prefix}_minus_one",
                     )
-                    flatten_shape = builder.Concat(
+                    flatten_shape_val: ir.Value = builder.Concat(
                         minus_one,
                         feature_dim,
                         axis=0,
                         _outputs=[ctx.fresh_name(f"{prefix}_flatten_shape")],
                     )
-                    flatten_shape.type = ir.TensorType(ir.DataType.INT64)
-                    _stamp_type_and_shape(flatten_shape, (2,))
-                    _ensure_value_metadata(ctx, flatten_shape)
+                    flatten_shape_val.type = ir.TensorType(ir.DataType.INT64)
+                    _stamp_type_and_shape(flatten_shape_val, (2,))
+                    _ensure_value_metadata(ctx, flatten_shape_val)
+                    flatten_shape = flatten_shape_val
 
+                if flatten_shape is None:
+                    raise RuntimeError("MHA flatten shape was not materialized.")
                 flat = builder.Reshape(
                     val,
                     flatten_shape,
@@ -878,7 +910,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 val_dtype = getattr(getattr(val, "type", None), "dtype", None)
                 if val_dtype is not None:
                     flat.type = ir.TensorType(val_dtype)
-                flat_first_meta = None
+                flat_first_meta: DimInput = None
                 if flatten_first_static is not None:
                     flat_first_meta = _normalized_dim(flatten_first_static)
                 elif leading_static_dims is not None:
@@ -888,7 +920,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         )
                     except Exception:
                         flat_first_meta = None
-                flat_second_meta = None
+                flat_second_meta: DimInput = None
                 if feature_static is not None:
                     flat_second_meta = _normalized_dim(feature_static)
                 elif aval_shape:
@@ -919,23 +951,23 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             )
 
         def _project(
-            x_val,
-            weight_val,
-            bias_val,
+            x_val: ir.Value,
+            weight_val: ir.Value,
+            bias_val: ir.Value,
             tail_dims: tuple[int, int],
-            prefix,
+            prefix: str,
             *,
-            use_bias,
-            leading_dims,
-            aval_shape,
+            use_bias: bool,
+            leading_dims: ir.Value | None,
+            aval_shape: ShapeDims,
             leading_static_dims: tuple[int, ...] | None,
-            flat_meta,
-        ):
-            gemm_inputs = [x_val, weight_val]
+            flat_meta: FlatMeta,
+        ) -> ir.Value:
+            gemm_inputs: list[ir.Value] = [x_val, weight_val]
             beta = 1.0 if use_bias else 0.0
             if use_bias:
                 gemm_inputs.append(bias_val)
-            proj = builder.Gemm(
+            proj: ir.Value = builder.Gemm(
                 *gemm_inputs,
                 alpha=1.0,
                 beta=beta,
@@ -953,6 +985,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 np.asarray(tail_dims, dtype=np.int64),
                 f"{prefix}_tail",
             )
+            reshape_shape: ir.Value
             if leading_static_dims:
                 reshape_vals = np.asarray(
                     tuple(int(dim) for dim in leading_static_dims) + tail_dims,
@@ -978,7 +1011,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, reshape_shape)
             else:
                 reshape_shape = reshape_tail
-            reshaped = builder.Reshape(
+            reshaped: ir.Value = builder.Reshape(
                 proj,
                 reshape_shape,
                 _outputs=[ctx.fresh_name(f"{prefix}_heads")],
@@ -996,15 +1029,16 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             return reshaped
 
         def _reshape_heads(
-            val,
-            prefix,
+            val: ir.Value,
+            prefix: str,
             tail_dims: tuple[int, int],
             seq_dim_val: ir.Value | None,
             leading_static_dims: tuple[int, ...] | None,
             static_seq_hint: int | None,
-        ):
+        ) -> tuple[ir.Value, int | None, int | None]:
             batch_static: int | None = None
             seq_static: int | None = static_seq_hint
+            full_shape: ir.Value
             if leading_static_dims is not None:
                 seq_static = leading_static_dims[-1] if leading_static_dims else 1
                 prefix_dims = leading_static_dims[:-1] if leading_static_dims else ()
@@ -1033,7 +1067,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     np.asarray([-1], dtype=np.int64),
                     f"{prefix}_batch_flat",
                 )
-                prefix_shape = builder.Concat(
+                prefix_shape: ir.Value = builder.Concat(
                     minus_one,
                     seq_dim_val,
                     axis=0,
@@ -1056,7 +1090,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                 full_shape.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(full_shape, (2 + len(tail_dims),))
                 _ensure_value_metadata(ctx, full_shape)
-            reshaped = builder.Reshape(
+            reshaped: ir.Value = builder.Reshape(
                 val,
                 full_shape,
                 _outputs=[ctx.fresh_name(f"{prefix}_reshape4")],
@@ -1173,7 +1207,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             value_seq_static_hint,
         )
 
-        def _is_rotary_like(candidate) -> bool:
+        def _is_rotary_like(candidate: object | None) -> bool:
             if candidate is None:
                 return False
             if isinstance(candidate, RotaryProcessHeads):
@@ -1449,9 +1483,9 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         out_dtype = getattr(getattr(query_val, "type", None), "dtype", None)
         if out_dtype is not None:
             output.type = ir.TensorType(out_dtype)
-        context_flat_shape = getattr(getattr(context_flat, "shape", None), "dims", None)
-        if isinstance(context_flat_shape, tuple):
-            output_meta = tuple(_normalized_dim(dim) for dim in context_flat_shape)
+        context_flat_dims = getattr(getattr(context_flat, "shape", None), "dims", None)
+        if isinstance(context_flat_dims, tuple):
+            output_meta = tuple(_normalized_dim(dim) for dim in context_flat_dims)
             _stamp_type_and_shape(output, output_meta)
             _ensure_value_metadata(ctx, output)
 
@@ -1517,9 +1551,11 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
         if process_heads is None:
             return None
         if isinstance(process_heads, RotaryProcessHeads):
-            return process_heads
+            normalized: object = process_heads
+            return normalized
         if hasattr(process_heads, "sin") and hasattr(process_heads, "cos"):
-            return process_heads
+            normalized = process_heads
+            return normalized
         raise NotImplementedError(
             "process_heads callable is not supported by the MultiheadAttention lowering."
         )
@@ -1556,8 +1592,8 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                         "Inference overrides for Dropout are not supported"
                     )
                 process_param = cls._normalize_process_heads(process_heads)
-                dropout = getattr(self, "dropout", None)
-                if dropout is not None and getattr(dropout, "p", 0.0):
+                dropout = cast(Any, getattr(self, "dropout", None))
+                if dropout is not None and getattr(dropout, "p", False):
                     raise NotImplementedError(
                         "Dropout in MultiheadAttention is not supported"
                     )
@@ -1685,7 +1721,38 @@ def _mha_batch_rule(
         raise NotImplementedError("Inconsistent batching of MHA inputs.")
 
     if q_bdim is None:
-        out = MultiheadAttentionPlugin._PRIM.bind(
+        out = cast(
+            jax.Array,
+            MultiheadAttentionPlugin._PRIM.bind(
+                query,
+                key,
+                value,
+                q_weight,
+                q_bias,
+                k_weight,
+                k_bias,
+                v_weight,
+                v_bias,
+                o_weight,
+                o_bias,
+                **params,
+            ),
+        )
+        return out, None
+
+    if k_bdim is None or v_bdim is None:
+        raise NotImplementedError("Inconsistent batching of MHA inputs.")
+
+    if q_bdim != 0:
+        query = jnp.moveaxis(query, q_bdim, 0)
+    if k_bdim != 0:
+        key = jnp.moveaxis(key, k_bdim, 0)
+    if v_bdim != 0:
+        value = jnp.moveaxis(value, v_bdim, 0)
+
+    out = cast(
+        jax.Array,
+        MultiheadAttentionPlugin._PRIM.bind(
             query,
             key,
             value,
@@ -1698,29 +1765,7 @@ def _mha_batch_rule(
             o_weight,
             o_bias,
             **params,
-        )
-        return out, None
-
-    if q_bdim != 0:
-        query = jnp.moveaxis(query, q_bdim, 0)
-    if k_bdim != 0:
-        key = jnp.moveaxis(key, k_bdim, 0)
-    if v_bdim != 0:
-        value = jnp.moveaxis(value, v_bdim, 0)
-
-    out = MultiheadAttentionPlugin._PRIM.bind(
-        query,
-        key,
-        value,
-        q_weight,
-        q_bias,
-        k_weight,
-        k_bias,
-        v_weight,
-        v_bias,
-        o_weight,
-        o_bias,
-        **params,
+        ),
     )
     if q_bdim != 0:
         out = jnp.moveaxis(out, 0, q_bdim)
