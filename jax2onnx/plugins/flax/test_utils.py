@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -13,15 +15,18 @@ from flax.nnx import bridge
 
 
 class _LinenToNNXCallable:
-    def __init__(self, model, rngs):
+    def __init__(self, model: Callable[..., Any], rngs: Any) -> None:
         self._model = model
         self._rngs = rngs
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self._model(*args, rngs=self._rngs, **kwargs)
 
 
-def _filter_kwargs_for_signature(target, kwargs):
+def _filter_kwargs_for_signature(
+    target: Callable[..., Any] | type[Any],
+    kwargs: Mapping[str, Any],
+) -> dict[str, Any]:
     if not kwargs:
         return {}
     try:
@@ -35,7 +40,7 @@ def _filter_kwargs_for_signature(target, kwargs):
     return {key: val for key, val in kwargs.items() if key in allowed}
 
 
-def _extract_raw_key(rngs):
+def _extract_raw_key(rngs: Any) -> Any | None:
     if rngs is None:
         return None
     if isinstance(rngs, nnx.Rngs):
@@ -47,7 +52,7 @@ def _extract_raw_key(rngs):
     return rngs
 
 
-def _split_keys(key, count):
+def _split_keys(key: Any, count: int) -> tuple[Any | None, ...]:
     if key is None:
         return (None,) * count
     try:
@@ -56,14 +61,16 @@ def _split_keys(key, count):
         return (key,) * count
 
 
-def _call_with_rngs(model, rngs, *args, **kwargs):
+def _call_with_rngs(
+    model: Callable[..., Any], rngs: Any, *args: Any, **kwargs: Any
+) -> Any:
     if rngs is None:
         return model(*args, **kwargs)
     return model(*args, rngs=rngs, **kwargs)
 
 
 @contextmanager
-def _use_original_jnp_shape():
+def _use_original_jnp_shape() -> Iterator[None]:
     try:
         from jax2onnx.plugins.jax.numpy._common import get_orig_impl
         from jax2onnx.plugins.jax.numpy.shape import JnpShapePlugin
@@ -89,14 +96,17 @@ def _use_original_jnp_shape():
         jnp.shape = current_shape
 
 
-def _rnn_input_shape_without_time(inputs, cell, time_major: bool):
+def _rnn_input_shape_without_time(
+    inputs: Any, cell: Any, time_major: bool
+) -> tuple[Any, ...]:
     time_axis = 0 if time_major else inputs.ndim - (cell.num_feature_axes + 1)
     if time_axis < 0:
         time_axis += inputs.ndim
-    return inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+    shape = tuple(cast(Any, inputs.shape))
+    return shape[:time_axis] + shape[time_axis + 1 :]
 
 
-def _rnn_carry_dtype(cell, inputs):
+def _rnn_carry_dtype(cell: Any, inputs: Any) -> Any:
     dtype = getattr(cell, "param_dtype", None)
     if dtype is None:
         dtype = getattr(cell, "dtype", None)
@@ -105,7 +115,7 @@ def _rnn_carry_dtype(cell, inputs):
     return dtype
 
 
-def _make_rnn_initial_carry(cell, inputs, *, time_major: bool):
+def _make_rnn_initial_carry(cell: Any, inputs: Any, *, time_major: bool) -> Any:
     input_shape = _rnn_input_shape_without_time(inputs, cell, time_major)
     dtype = _rnn_carry_dtype(cell, inputs)
 
@@ -131,12 +141,14 @@ def _make_rnn_initial_carry(cell, inputs, *, time_major: bool):
 
 
 class _LinenToNNXRecurrentCallable:
-    def __init__(self, model, rngs, *, carry_is_tuple):
+    def __init__(
+        self, model: Callable[..., Any], rngs: Any, *, carry_is_tuple: bool
+    ) -> None:
         self._model = model
         self._rngs = rngs
         self._carry_is_tuple = carry_is_tuple
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._carry_is_tuple:
             if len(args) < 3:
                 raise ValueError("Expected carry tuple (c, h) and inputs.")
@@ -155,12 +167,17 @@ class _LinenToNNXRecurrentCallable:
 
 
 class _LinenToNNXRNNCallable:
-    def __init__(self, model, rngs, carry_init):
+    def __init__(
+        self,
+        model: Callable[..., Any],
+        rngs: Any,
+        carry_init: Callable[[Any], Any],
+    ) -> None:
         self._model = model
         self._rngs = rngs
         self._carry_init = carry_init
 
-    def __call__(self, inputs, **kwargs):
+    def __call__(self, inputs: Any, **kwargs: Any) -> Any:
         if "initial_carry" in kwargs:
             initial_carry = kwargs.pop("initial_carry")
         else:
@@ -176,12 +193,12 @@ class _LinenToNNXRNNCallable:
 
 
 def linen_to_nnx(
-    module_cls,
-    input_shape=(1, 32),
-    dtype=jnp.float32,
-    rngs=None,
-    **kwargs,
-):
+    module_cls: type[Any] | Callable[..., Any],
+    input_shape: tuple[int, ...] = (1, 32),
+    dtype: Any = jnp.float32,
+    rngs: Any | None = None,
+    **kwargs: Any,
+) -> Any:
     """Wrap a Linen module as NNX and initialize it with a dummy input."""
     module = module_cls(**kwargs)
     model = bridge.ToNNX(module, rngs=rngs)
@@ -202,12 +219,12 @@ def linen_to_nnx(
 
 
 def linen_rnn_cell_to_nnx(
-    module_cls,
-    input_shape=(1, 32),
-    dtype=jnp.float32,
-    rngs=None,
-    **kwargs,
-):
+    module_cls: type[Any] | Callable[..., Any],
+    input_shape: tuple[int, ...] = (1, 32),
+    dtype: Any = jnp.float32,
+    rngs: Any | None = None,
+    **kwargs: Any,
+) -> _LinenToNNXRecurrentCallable:
     """Wrap a Linen RNN cell as NNX and initialize it with a dummy carry+input."""
     module_kwargs = _filter_kwargs_for_signature(module_cls, kwargs)
     module = module_cls(**module_kwargs)
@@ -230,15 +247,15 @@ def linen_rnn_cell_to_nnx(
 
 
 def linen_rnn_to_nnx(
-    cell_cls,
-    input_shape=(1, 4, 8),
-    dtype=jnp.float32,
-    rngs=None,
+    cell_cls: type[Any] | Callable[..., Any],
+    input_shape: tuple[int, ...] = (1, 4, 8),
+    dtype: Any = jnp.float32,
+    rngs: Any | None = None,
     *,
-    cell_kwargs=None,
+    cell_kwargs: Mapping[str, Any] | None = None,
     time_major: bool = False,
     return_carry: bool = False,
-):
+) -> _LinenToNNXRNNCallable:
     """Wrap a Linen RNN module as NNX and initialize it with a fixed carry."""
     cell_kwargs = cell_kwargs or {}
     cell = cell_cls(**_filter_kwargs_for_signature(cell_cls, cell_kwargs))
@@ -250,7 +267,7 @@ def linen_rnn_to_nnx(
     init_key = raw_key
     call_key = raw_key
 
-    def carry_init(xs):
+    def carry_init(xs: Any) -> Any:
         return _make_rnn_initial_carry(cell, xs, time_major=time_major)
 
     initial_carry = carry_init(dummy_inputs)
@@ -264,15 +281,15 @@ def linen_rnn_to_nnx(
 
 
 def linen_bidirectional_to_nnx(
-    cell_cls,
-    input_shape=(1, 4, 8),
-    dtype=jnp.float32,
-    rngs=None,
+    cell_cls: type[Any] | Callable[..., Any],
+    input_shape: tuple[int, ...] = (1, 4, 8),
+    dtype: Any = jnp.float32,
+    rngs: Any | None = None,
     *,
-    cell_kwargs=None,
+    cell_kwargs: Mapping[str, Any] | None = None,
     time_major: bool = False,
     return_carry: bool = False,
-):
+) -> _LinenToNNXRNNCallable:
     """Wrap a Linen Bidirectional module as NNX with fixed carries."""
     cell_kwargs = cell_kwargs or {}
     forward_cell = cell_cls(**_filter_kwargs_for_signature(cell_cls, cell_kwargs))
@@ -294,7 +311,7 @@ def linen_bidirectional_to_nnx(
     init_key = raw_key
     call_key = raw_key
 
-    def carry_init(xs):
+    def carry_init(xs: Any) -> Any:
         return (
             _make_rnn_initial_carry(forward_cell, xs, time_major=time_major),
             _make_rnn_initial_carry(backward_cell, xs, time_major=time_major),
