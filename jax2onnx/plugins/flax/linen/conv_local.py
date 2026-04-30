@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Sequence
+from typing import Any, Callable, ClassVar, Sequence
 import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import linen as nn
 from flax.linen import linear as linen_linear
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -86,21 +86,26 @@ class ConvLocalPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.conv_local")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         ConvLocalPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(self, inputs):
+        def call_orig(self: Any, inputs: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.ConvLocal.__call__ is not available.")
+            return orig_fn(self, inputs)
+
+        def patched(self: Any, inputs: Any) -> Any:
             kernel_size = (
                 (self.kernel_size,)
                 if isinstance(self.kernel_size, int)
                 else tuple(self.kernel_size)
             )
             if inputs.ndim < len(kernel_size) + 2:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             num_batch_dimensions = inputs.ndim - (len(kernel_size) + 1)
             if num_batch_dimensions != 1:
@@ -153,14 +158,14 @@ class ConvLocalPlugin(PrimitiveLeafPlugin):
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             variables = scope.variables()
             params = variables.get("params", {})
             kernel = params.get("kernel")
             bias = params.get("bias") if self.use_bias else None
             if kernel is None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             if self.mask is not None:
                 if self.mask.shape != kernel.shape:
@@ -192,7 +197,7 @@ class ConvLocalPlugin(PrimitiveLeafPlugin):
 
             if self.use_bias:
                 if bias is None:
-                    return orig_fn(self, inputs)
+                    return call_orig(self, inputs)
                 bias = bias.reshape((1,) * (y.ndim - bias.ndim) + bias.shape)
                 y = y + bias
 
@@ -203,7 +208,7 @@ class ConvLocalPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.ConvLocal",

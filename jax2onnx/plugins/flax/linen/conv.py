@@ -105,11 +105,11 @@ class ConvPlugin(nnx_conv.ConvPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.conv")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         real_orig = getattr(orig_fn, "__j2o_linen_conv_original__", orig_fn)
         ConvPlugin._ORIGINAL_CALL = real_orig
         prim = ConvPlugin._PRIM
@@ -123,14 +123,19 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                 return (int(x),) * rank
             return tuple(int(v) for v in x)
 
-        def patched(self, inputs):
+        def call_orig(self: Any, inputs: Any) -> Any:
+            if real_orig is None:
+                raise RuntimeError("flax.linen.Conv.__call__ is not available.")
+            return real_orig(self, inputs)
+
+        def patched(self: Any, inputs: Any) -> Any:
             kernel_size = (
                 (self.kernel_size,)
                 if isinstance(self.kernel_size, int)
                 else tuple(self.kernel_size)
             )
             if inputs.ndim < len(kernel_size) + 2:
-                return real_orig(self, inputs)
+                return call_orig(self, inputs)
             if not getattr(self, "shared_weights", True):
                 raise NotImplementedError(
                     "linen.Conv with shared_weights=False is not supported."
@@ -144,7 +149,7 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                 getattr(self, "kernel_dilation", 1), len(kernel_size)
             )
             if any(d != 1 for d in input_dilation):
-                return real_orig(self, inputs)
+                return call_orig(self, inputs)
 
             padding_lax = linen_linear.canonicalize_padding(
                 getattr(self, "padding", "SAME"),
@@ -229,7 +234,7 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                         feature_group_count=feature_group_count,
                     )
 
-            return real_orig(self, inputs)
+            return call_orig(self, inputs)
 
         patched_any: Any = patched
         setattr(patched_any, "__j2o_linen_conv_shim__", True)
@@ -237,7 +242,7 @@ class ConvPlugin(nnx_conv.ConvPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "conv_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -249,8 +254,8 @@ class ConvPlugin(nnx_conv.ConvPlugin):
         ]
 
     @staticmethod
-    def patch_info():
-        def _wrapper(orig):
+    def patch_info() -> dict[str, Any]:
+        def _wrapper(orig: Callable[..., Any] | None) -> Callable[..., Any]:
             return ConvPlugin._make_patch(orig)
 
         return {
@@ -263,17 +268,17 @@ class ConvPlugin(nnx_conv.ConvPlugin):
 
 @ConvPlugin._PRIM.def_impl
 def _impl(
-    x,
-    kernel,
-    bias,
+    x: Any,
+    kernel: Any,
+    bias: Any,
     *,
-    use_bias,
-    strides,
-    padding,
-    dilations,
-    dimension_numbers,
-    feature_group_count,
-):
+    use_bias: bool,
+    strides: Sequence[int],
+    padding: Any,
+    dilations: Sequence[int],
+    dimension_numbers: Any,
+    feature_group_count: int,
+) -> Any:
     return nnx_conv._impl(
         x,
         kernel,
