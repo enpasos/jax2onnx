@@ -143,7 +143,10 @@ class ReducePrecisionPlugin(PrimitiveLeafPlugin):
             return
 
         def _const(value: float) -> ir.Value:
-            return ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
+            const_value: ir.Value = ctx.bind_const_for_var(
+                object(), np.asarray(value, dtype=np_dtype)
+            )
+            return const_value
 
         zero = _const(0.0)
         one = _const(1.0)

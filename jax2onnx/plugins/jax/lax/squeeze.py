@@ -33,7 +33,8 @@ def _const_i64(ctx: LoweringContextProtocol, values: Any, name_hint: str) -> ir.
         arr = arr.reshape(1)
     name = ctx.fresh_name(name_hint)
     # Route through builder so function-mode and duplicate policies apply.
-    return ctx.builder.const_i64(name, arr.tolist())
+    const: ir.Value = ctx.builder.const_i64(name, arr.tolist())
+    return const
 
 
 def _dim_const_value(dim: object) -> int | None:
@@ -202,9 +203,8 @@ class SqueezePlugin(PrimitiveLeafPlugin):
         spec_override = get_axis0_override(out_spec)
         ctx_override = getattr(ctx, "_static_loop_extent_axis0", None)
         override_sources = (x_override, spec_override, ctx_override)
-        target_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(y_var, "aval", None), "shape", ())),
+        target_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(y_var, "aval", None), "shape", ())
         )
         target_axis0 = None
         if target_shape and isinstance(target_shape[0], (int, np.integer)):

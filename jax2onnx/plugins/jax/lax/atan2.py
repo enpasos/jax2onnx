@@ -105,17 +105,14 @@ class Atan2Plugin(PrimitiveLeafPlugin):
             getattr(out_var.aval, "dtype", np.float32)
         )
         out_dtype = _dtype_to_ir(out_np_dtype, ctx.builder.enable_double_precision)
-        x_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(x_var, "aval", None), "shape", ())),
+        x_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
         )
-        y_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(y_var, "aval", None), "shape", ())),
+        y_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(y_var, "aval", None), "shape", ())
         )
-        out_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(out_var, "aval", None), "shape", ())),
+        out_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(out_var, "aval", None), "shape", ())
         )
 
         x_ready = _cast_to(
@@ -136,9 +133,10 @@ class Atan2Plugin(PrimitiveLeafPlugin):
         const_np_dtype = np.float64 if out_dtype == ir.DataType.DOUBLE else np.float32
 
         def _const(value: float) -> ir.Value:
-            return ctx.bind_const_for_var(
+            const_value: ir.Value = ctx.bind_const_for_var(
                 object(), np.asarray(value, dtype=const_np_dtype)
             )
+            return const_value
 
         zero = _const(0.0)
         pi = _const(np.pi)

@@ -257,13 +257,11 @@ class ReduceWindowPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("reduce_window_out")
         )
 
-        operand_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(operand_var, "aval", None), "shape", ())),
+        operand_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(operand_var, "aval", None), "shape", ())
         )
-        out_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(out_var, "aval", None), "shape", ())),
+        out_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(out_var, "aval", None), "shape", ())
         )
         dtype_enum = _dtype_to_ir(np_dtype, ctx.builder.enable_double_precision)
         if dtype_enum is None:

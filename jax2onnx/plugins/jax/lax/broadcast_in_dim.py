@@ -666,9 +666,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 rs_val,
                 _outputs=[ctx.fresh_name("bcast_reshape_out")],
             )
-            _stamp_type_and_shape(
-                reshaped_val, cast(tuple[DimInput, ...], tuple(reshape_dims))
-            )
+            reshaped_dims = tuple(cast(DimInput, dim) for dim in reshape_dims)
+            _stamp_type_and_shape(reshaped_val, reshaped_dims)
             if getattr(x_val, "type", None) is not None:
                 reshaped_val.type = x_val.type
             _ensure_value_metadata(ctx, reshaped_val)

@@ -154,7 +154,7 @@ class ClampPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision,
         )
 
-        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
+        x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
         min_cast = _cast_value(ctx, min_val, target_dtype, x_shape, "ClampMinCast")
         max_cast = _cast_value(ctx, max_val, target_dtype, x_shape, "ClampMaxCast")
 
@@ -174,10 +174,7 @@ class ClampPlugin(PrimitiveLeafPlugin):
             ir.Value, ctx.builder.Min(max_out, max_cast, _outputs=[desired_name])
         )
         result.type = ir.TensorType(target_dtype)
-        out_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(out_var.aval, "shape", x_shape)),
-        )
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", x_shape))
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

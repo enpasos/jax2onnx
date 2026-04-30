@@ -149,12 +149,9 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             selector_var, name_hint=ctx.fresh_name("select_idx")
         )
 
-        out_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-        )
-        selector_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(selector_var.aval, "shape", ())),
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
+        selector_shape: tuple[DimInput, ...] = tuple(
+            getattr(selector_var.aval, "shape", ())
         )
 
         def _ensure_tensor_metadata(

@@ -37,7 +37,8 @@ def _require_dtype(value: ir.Value, *, context: str) -> ir.DataType:
 
 
 def _as_dim_tuple(dims: Sequence[object]) -> tuple[DimInput, ...]:
-    return cast(tuple[DimInput, ...], tuple(dims))
+    dim_tuple = tuple(cast(DimInput, dim) for dim in dims)
+    return dim_tuple
 
 
 def _resolve_fft_constants() -> (
@@ -184,7 +185,7 @@ def _reshape_tensor(
 def _make_scalar_i64(
     ctx: LoweringContextProtocol, value: int, *, name_hint: str
 ) -> ir.Value:
-    scalar = ctx.builder.add_initializer_from_array(
+    scalar: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=np.int64),
     )

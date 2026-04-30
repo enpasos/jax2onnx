@@ -318,7 +318,8 @@ def _build_loop_body_graph(
     opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
     body_graph.opset_imports.clear()
     body_graph.opset_imports.update(opset_imports)
-    return body_graph
+    typed_graph: ir.Graph = body_graph
+    return typed_graph
 
 
 @register_primitive(

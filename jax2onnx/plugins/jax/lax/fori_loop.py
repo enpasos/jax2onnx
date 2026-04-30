@@ -204,7 +204,8 @@ def _build_body_graph(
     opset_imports.setdefault("", opset_version)
     body_graph.opset_imports.clear()
     body_graph.opset_imports.update(opset_imports)
-    return body_graph
+    typed_graph: ir.Graph = body_graph
+    return typed_graph
 
 
 @register_primitive(

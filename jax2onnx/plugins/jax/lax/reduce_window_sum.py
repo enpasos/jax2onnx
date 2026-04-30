@@ -275,9 +275,8 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
                 )
             needs_cast_back = True
 
-        operand_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(operand_var, "aval", None), "shape", ()) or ()),
+        operand_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(operand_var, "aval", None), "shape", ()) or ()
         )
         opset = int(getattr(ctx.builder, "opset", 21))
         operand_producer = None
@@ -396,9 +395,8 @@ class ReduceWindowSumPlugin(PrimitiveLeafPlugin):
                 ),
             )
         conv_out.type = ir.TensorType(conv_dtype_enum)
-        out_shape = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(out_var, "aval", None), "shape", ()) or ()),
+        out_shape: tuple[DimInput, ...] = tuple(
+            getattr(getattr(out_var, "aval", None), "shape", ()) or ()
         )
         _stamp_type_and_shape(conv_out, (1, 1) + out_shape)
         _ensure_value_metadata(ctx, conv_out)

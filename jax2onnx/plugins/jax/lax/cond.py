@@ -350,4 +350,5 @@ class CondPlugin(PrimitiveLeafPlugin):
         opset_imports.setdefault("", getattr(ctx.builder, "opset", 21))
         branch_graph.opset_imports.clear()
         branch_graph.opset_imports.update(opset_imports)
-        return branch_graph
+        typed_graph: ir.Graph = branch_graph
+        return typed_graph

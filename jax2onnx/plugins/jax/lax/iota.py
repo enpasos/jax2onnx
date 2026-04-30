@@ -110,7 +110,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
             # scalar iota is treated as vector of length size param (when provided as int)
             shape_param = (params.get("size", 0),)
 
-        shape = cast(tuple[DimInput, ...], tuple(shape_param))
+        shape: tuple[DimInput, ...] = tuple(shape_param)
 
         rank = len(shape)
         if dimension < 0 or dimension >= rank:

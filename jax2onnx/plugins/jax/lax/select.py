@@ -181,9 +181,7 @@ class SelectPlugin(PrimitiveLeafPlugin):
             ctx.builder.enable_double_precision,
         )
         result.type = ir.TensorType(out_dtype_enum)
-        out_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-        )
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
         result.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)

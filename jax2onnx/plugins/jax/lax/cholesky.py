@@ -73,12 +73,14 @@ def _lower_single_cholesky(
     np_dtype: np.dtype[Any],
     name_prefix: str,
 ) -> ir.Value:
-    l_mat = ctx.bind_const_for_var(object(), np.zeros((n, n), dtype=np_dtype))
+    l_mat: ir.Value = ctx.bind_const_for_var(object(), np.zeros((n, n), dtype=np_dtype))
     _stamp_like(l_mat, x)
 
     for i in range(n):
         for j in range(i + 1):
-            s = ctx.bind_const_for_var(object(), np.zeros((1, 1), dtype=np_dtype))
+            s: ir.Value = ctx.bind_const_for_var(
+                object(), np.zeros((1, 1), dtype=np_dtype)
+            )
             for k in range(j):
                 lik = _gather_elem(ctx, l_mat, i, k, f"{name_prefix}_lik_{i}_{j}_{k}")
                 ljk = _gather_elem(ctx, l_mat, j, k, f"{name_prefix}_ljk_{i}_{j}_{k}")

@@ -176,13 +176,11 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             )
         opset = int(getattr(ctx.builder, "opset", 21))
 
-        ref_shape_static = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(ref_var, "aval", None), "shape", ())),
+        ref_shape_static: tuple[DimInput, ...] = tuple(
+            getattr(getattr(ref_var, "aval", None), "shape", ())
         )
-        upd_shape_static = cast(
-            tuple[DimInput, ...],
-            tuple(getattr(getattr(upd_var, "aval", None), "shape", ())),
+        upd_shape_static: tuple[DimInput, ...] = tuple(
+            getattr(getattr(upd_var, "aval", None), "shape", ())
         )
 
         # Fast path: map a strict cache-like case to TensorScatter (opset >= 24).
@@ -717,9 +715,7 @@ class DynamicUpdateSlicePlugin(PrimitiveLeafPlugin):
             ),
         )
 
-        target_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(ref_var.aval, "shape", ()))
-        )
+        target_shape: tuple[DimInput, ...] = tuple(getattr(ref_var.aval, "shape", ()))
         _stamp_type_and_shape(result, target_shape)
         result_dtype = getattr(getattr(ref_val, "type", None), "dtype", None)
         if result_dtype is not None:

@@ -97,8 +97,10 @@ def _dtype_enum_for_var(var: Any, enable_double: bool) -> ir.DataType | None:
     except TypeError:
         return None
     if np.issubdtype(np_dtype, np.floating):
-        return _dtype_to_ir(np_dtype, enable_double)
-    return _dtype_to_ir(np_dtype, enable_double)
+        dtype: ir.DataType | None = _dtype_to_ir(np_dtype, enable_double)
+        return dtype
+    dtype = _dtype_to_ir(np_dtype, enable_double)
+    return dtype
 
 
 def _set_value_dtype_from_var(
@@ -1913,4 +1915,5 @@ def _restamp_axis0(
         dims = [None]
     dims = list(dims)
     dims[0] = override_int
-    _stamp_type_and_shape(value, cast(tuple[DimInput, ...], tuple(dims)))
+    dim_tuple = tuple(cast(DimInput, dim) for dim in dims)
+    _stamp_type_and_shape(value, dim_tuple)

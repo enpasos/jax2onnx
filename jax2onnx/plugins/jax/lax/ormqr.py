@@ -27,12 +27,14 @@ def _make_householder_vector(
     m: int,
     np_dtype: np.dtype[Any],
 ) -> ir.Value:
-    v = ctx.bind_const_for_var(object(), np.zeros((m, 1), dtype=np_dtype))
+    v: ir.Value = ctx.bind_const_for_var(object(), np.zeros((m, 1), dtype=np_dtype))
     if getattr(a_val, "type", None) is not None:
         v.type = a_val.type
     v.shape = ir.Shape((m, 1))
 
-    one = ctx.bind_const_for_var(object(), np.asarray([[1.0]], dtype=np_dtype))
+    one: ir.Value = ctx.bind_const_for_var(
+        object(), np.asarray([[1.0]], dtype=np_dtype)
+    )
     if getattr(a_val, "type", None) is not None:
         one.type = a_val.type
     one.shape = ir.Shape((1, 1))

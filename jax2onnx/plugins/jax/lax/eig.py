@@ -359,7 +359,7 @@ def _unit_vector_packed_1x1(
     imag.type = ir.TensorType(base_dtype)
     real.shape = ir.Shape((1, 1))
     imag.shape = ir.Shape((1, 1))
-    return pack_real_imag_pair(
+    packed: ir.Value = pack_real_imag_pair(
         ctx,
         real,
         imag,
@@ -367,6 +367,7 @@ def _unit_vector_packed_1x1(
         name_hint=name_hint,
         output_name=output_name,
     )
+    return packed
 
 
 @register_primitive(

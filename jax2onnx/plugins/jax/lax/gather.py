@@ -39,7 +39,8 @@ def _as_value(value: Any) -> ir.Value:
 
 
 def _as_dim_tuple(dims: tuple[Any, ...] | list[Any]) -> tuple[DimInput, ...]:
-    return cast(tuple[DimInput, ...], tuple(dims))
+    dim_tuple: tuple[DimInput, ...] = tuple(dims)
+    return dim_tuple
 
 
 def _ensure_constant_folders_registered(ctx: LoweringContextProtocol) -> None:
