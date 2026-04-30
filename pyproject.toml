@@ -256,6 +256,7 @@ files = [
     "jax2onnx/plugins/jax/lax/rsqrt.py",
     "jax2onnx/plugins/jax/lax/rng_bit_generator.py",
     "jax2onnx/plugins/jax/lax/rng_uniform.py",
+    "jax2onnx/plugins/jax/lax/scatter.py",
     "jax2onnx/plugins/jax/lax/scatter_add.py",
     "jax2onnx/plugins/jax/lax/scatter_max.py",
     "jax2onnx/plugins/jax/lax/scatter_min.py",
