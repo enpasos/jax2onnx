@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/batch_norm.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 import logging
 import numpy as np
 import jax
@@ -10,6 +10,10 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import (
+    IRBuilderProtocol,
+    LoweringContextProtocol,
+)
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -26,11 +30,14 @@ from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
     _as_ir_dim_label,
+    _to_ir_dim_for_shape,
 )
 
 
-def _label_from_meta(val: ir.Value, aval_shape: tuple, idx: int):
-    label = _dim_label_from_value_or_aval(val, aval_shape, idx)
+def _label_from_meta(
+    val: ir.Value, aval_shape: tuple[object, ...], idx: int
+) -> str | int | None:
+    label: str | int | None = _dim_label_from_value_or_aval(val, aval_shape, idx)
     if label is None and idx < len(aval_shape):
         maybe_dim = aval_shape[idx]
         fallback_label = _as_ir_dim_label(maybe_dim)
@@ -39,36 +46,30 @@ def _label_from_meta(val: ir.Value, aval_shape: tuple, idx: int):
     return label
 
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
+def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
+    return ctx.builder
 
 
-def _require_builder(ctx):
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder")
-    return builder
-
-
-def _const_from_array(ctx, name_hint: str, arr: np.ndarray) -> ir.Value:
-    builder = getattr(ctx, "builder", None)
-    base_name = ctx.fresh_name(name_hint) if hasattr(ctx, "fresh_name") else name_hint
+def _const_from_array(
+    ctx: LoweringContextProtocol,
+    name_hint: str,
+    arr: np.ndarray[Any, np.dtype[Any]],
+) -> ir.Value:
+    builder = ctx.builder
+    base_name = ctx.fresh_name(name_hint)
     np_arr = np.asarray(arr)
 
-    builder_mode = (
-        bool(getattr(builder, "_function_mode", False))
-        if builder is not None
-        else False
-    )
+    builder_mode = bool(getattr(builder, "_function_mode", False))
     inside_function = bool(
         getattr(ctx, "_inside_function_scope", False)
         or getattr(ctx, "_function_mode", False)
     )
 
-    if builder is not None and not inside_function and not builder_mode:
-        add_initializer = getattr(builder, "add_initializer_from_array", None)
-        if callable(add_initializer):
-            return add_initializer(base_name, np_arr)
+    if not inside_function and not builder_mode:
+        init_value: ir.Value = builder.add_initializer_from_array(
+            name=base_name, array=np_arr
+        )
+        return init_value
 
     value = ir.Value(
         name=base_name,
@@ -87,10 +88,9 @@ def _const_from_array(ctx, name_hint: str, arr: np.ndarray) -> ir.Value:
         init_list.append(value)
         return value
 
-    if builder is not None:
-        builder_inits = getattr(builder, "initializers", None)
-        if isinstance(builder_inits, list):
-            builder_inits.append(value)
+    builder_inits = getattr(builder, "initializers", None)
+    if isinstance(builder_inits, list):
+        builder_inits.append(value)
 
     return value
 
@@ -270,17 +270,27 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.batch_norm")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------------- abstract eval ----------------
     @staticmethod
-    def abstract_eval(x, scale, bias, mean, var, *, epsilon, momentum, **_ignored):
+    def abstract_eval(
+        x: Any,
+        scale: Any,
+        bias: Any,
+        mean: Any,
+        var: Any,
+        *,
+        epsilon: float,
+        momentum: float,
+        **_ignored: Any,
+    ) -> jax.core.ShapedArray:
         del scale, bias, mean, var, epsilon, momentum
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         builder = _require_builder(ctx)
         x_var, scale_var, bias_var, mean_var, var_var = eqn.invars[:5]
         y_var = eqn.outvars[0]
@@ -336,10 +346,14 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         # input dtype and module params already match it in these tests,
         # so no runtime CastLike is needed (keeps '^BatchNormalization$' valid).
         # Preserve original graph.input shape labels if binder left them unknown
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
         if is_shape_all_unknown(getattr(x_val, "shape", None)):
             if any(d is not None for d in x_shape):
-                _stamp_type_and_shape(x_val, x_shape)
+                _stamp_type_and_shape(
+                    x_val, tuple(_to_ir_dim_for_shape(d) for d in x_shape)
+                )
 
         x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
         bn_dtype = x_dtype if x_dtype is not None else numpy_dtype_to_ir(x_np_dtype)
@@ -357,10 +371,13 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
                 _label_from_meta(x_val, x_shape, rank - 1),  # C
                 *[_label_from_meta(x_val, x_shape, i) for i in range(1, rank - 1)],
             )
-            x_nchw = builder.Transpose(
-                x_val,
-                perm=tuple(int(p) for p in perm),
-                _outputs=[ctx.fresh_name("bn_pre_transpose")],
+            x_nchw = cast(
+                ir.Value,
+                builder.Transpose(
+                    x_val,
+                    perm=tuple(int(p) for p in perm),
+                    _outputs=[ctx.fresh_name("bn_pre_transpose")],
+                ),
             )
             x_nchw.type = ir.TensorType(bn_dtype)
             _stamp_type_and_shape(x_nchw, nchw_dims)
@@ -368,25 +385,31 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             bn_in = x_nchw
 
         # BatchNormalization node
-        bn_out = builder.BatchNormalization(
-            bn_in,
-            scale_val,
-            bias_val,
-            mean_val,
-            var_val,
-            epsilon=float(epsilon),
-            momentum=float(momentum),
-            _outputs=[ctx.fresh_name("BatchNormalization")],
+        bn_out = cast(
+            ir.Value,
+            builder.BatchNormalization(
+                bn_in,
+                scale_val,
+                bias_val,
+                mean_val,
+                var_val,
+                epsilon=float(epsilon),
+                momentum=float(momentum),
+                _outputs=[ctx.fresh_name("BatchNormalization")],
+            ),
         )
         bn_out.type = ir.TensorType(bn_dtype)
 
         # NCHW -> NHWC to restore original layout; also stamp final output shape
         if need_layout_convert:
             inv_perm = [0] + list(range(2, rank)) + [1]
-            y_val = builder.Transpose(
-                bn_out,
-                perm=tuple(int(p) for p in inv_perm),
-                _outputs=[ctx.fresh_name("BatchNormOut")],
+            y_val = cast(
+                ir.Value,
+                builder.Transpose(
+                    bn_out,
+                    perm=tuple(int(p) for p in inv_perm),
+                    _outputs=[ctx.fresh_name("BatchNormOut")],
+                ),
             )
             nhwc_dims = tuple(_label_from_meta(x_val, x_shape, i) for i in range(rank))
             # Stamp BOTH meta and TensorType so graph.output keeps symbols like 'B'
@@ -402,25 +425,22 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
             final_value.type = ir.TensorType(bn_dtype)
             _ensure_value_metadata(ctx, final_value)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, final_value)
+        ctx.bind_value_for_var(y_var, final_value)
 
     # ---------------- direct bind for tests ----------------
     @staticmethod
     def _batch_norm(
-        x,
-        scale,
-        bias,
-        mean,
-        var,
+        x: Any,
+        scale: Any,
+        bias: Any,
+        mean: Any,
+        var: Any,
         *,
-        epsilon,
-        momentum,
-        scale_is_default=False,
-        bias_is_default=False,
-    ):
+        epsilon: float,
+        momentum: float,
+        scale_is_default: bool = False,
+        bias_is_default: bool = False,
+    ) -> Any:
         return BatchNormPlugin._PRIM.bind(
             x,
             scale,
@@ -435,10 +455,17 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 
     # ---------------- monkey-patch & bindings ----------------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         del orig_fn  # not used; kept for symmetry with other plugins
 
-        def patched(self, x, use_running_average=None, *, mask=None):
+        def patched(
+            self: nnx.BatchNorm,
+            x: Any,
+            use_running_average: Any | None = None,
+            *,
+            mask: Any | None = None,
+        ) -> Any:
+            del use_running_average, mask
             # Force inference behavior; warn if training mode was requested
             if not self.use_running_average:
                 logging.warning(
@@ -478,7 +505,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             # Ensure flax.nnx.batch_norm_p points to our private Primitive during tracing
             AssignSpec("flax.nnx", "batch_norm_p", cls._PRIM, delete_if_missing=True),
@@ -492,7 +519,7 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, scale, bias, mean, var, **params: cls.abstract_eval(
@@ -505,17 +532,18 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
 # ---------------- concrete eager impl ----------------
 @BatchNormPlugin._PRIM.def_impl
 def _impl(
-    x,
-    scale,
-    bias,
-    mean,
-    var,
+    x: Any,
+    scale: Any,
+    bias: Any,
+    mean: Any,
+    var: Any,
     *,
-    epsilon,
-    momentum,
-    scale_is_default=False,
-    bias_is_default=False,
-):
+    epsilon: float,
+    momentum: float,
+    scale_is_default: bool = False,
+    bias_is_default: bool = False,
+) -> Any:
+    del scale_is_default, bias_is_default
     del momentum  # inference-only export
     rank = x.ndim
     if rank > 2:
