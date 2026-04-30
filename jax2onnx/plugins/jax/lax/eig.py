@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     ensure_packed_real_pair,
     pack_real_imag_pair,
@@ -17,8 +18,9 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
 def _base_dtype_for_complex_out(var: Any) -> ir.DataType:
@@ -31,7 +33,7 @@ def _base_dtype_for_complex_out(var: Any) -> ir.DataType:
 
 
 def _cast_if_needed(
-    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+    ctx: LoweringContextProtocol, value: ir.Value, target: ir.DataType, name_hint: str
 ) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
@@ -40,10 +42,12 @@ def _cast_if_needed(
             current = value_type.dtype
     if current == target:
         return value
-    casted = ctx.builder.Cast(
-        value,
-        to=int(target.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    casted = _as_value(
+        ctx.builder.Cast(
+            value,
+            to=int(target.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     casted.type = ir.TensorType(target)
     if getattr(value, "shape", None) is not None:
@@ -52,24 +56,28 @@ def _cast_if_needed(
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = _as_value(
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        )
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = _as_value(
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -77,12 +85,16 @@ def _gather_mat_elem(
     return elem
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
+def _reshape_to_1d_len1(
+    ctx: LoweringContextProtocol, value: ir.Value, name_hint: str
+) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
-    out = ctx.builder.Reshape(
-        value,
-        one_shape,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Reshape(
+            value,
+            one_shape,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -91,7 +103,7 @@ def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir
 
 
 def _complex_add(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: tuple[ir.Value, ir.Value],
     rhs: tuple[ir.Value, ir.Value],
     *,
@@ -100,15 +112,19 @@ def _complex_add(
 ) -> tuple[ir.Value, ir.Value]:
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
-    out_r = ctx.builder.Add(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
-    out_i = ctx.builder.Add(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_r = _as_value(
+        ctx.builder.Add(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    )
+    out_i = _as_value(
+        ctx.builder.Add(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    )
     out_r.type = ir.TensorType(dtype)
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _complex_sub(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: tuple[ir.Value, ir.Value],
     rhs: tuple[ir.Value, ir.Value],
     *,
@@ -117,15 +133,19 @@ def _complex_sub(
 ) -> tuple[ir.Value, ir.Value]:
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
-    out_r = ctx.builder.Sub(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
-    out_i = ctx.builder.Sub(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_r = _as_value(
+        ctx.builder.Sub(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    )
+    out_i = _as_value(
+        ctx.builder.Sub(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    )
     out_r.type = ir.TensorType(dtype)
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _complex_mul(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: tuple[ir.Value, ir.Value],
     rhs: tuple[ir.Value, ir.Value],
     *,
@@ -135,22 +155,30 @@ def _complex_mul(
     lhs_r, lhs_i = lhs
     rhs_r, rhs_i = rhs
 
-    pr = ctx.builder.Mul(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_pr")])
-    qs = ctx.builder.Mul(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_qs")])
-    ps = ctx.builder.Mul(lhs_r, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_ps")])
-    qr = ctx.builder.Mul(lhs_i, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_qr")])
+    pr = _as_value(
+        ctx.builder.Mul(lhs_r, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_pr")])
+    )
+    qs = _as_value(
+        ctx.builder.Mul(lhs_i, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_qs")])
+    )
+    ps = _as_value(
+        ctx.builder.Mul(lhs_r, rhs_i, _outputs=[ctx.fresh_name(f"{prefix}_ps")])
+    )
+    qr = _as_value(
+        ctx.builder.Mul(lhs_i, rhs_r, _outputs=[ctx.fresh_name(f"{prefix}_qr")])
+    )
     for val in (pr, qs, ps, qr):
         val.type = ir.TensorType(dtype)
 
-    out_r = ctx.builder.Sub(pr, qs, _outputs=[ctx.fresh_name(f"{prefix}_r")])
-    out_i = ctx.builder.Add(ps, qr, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_r = _as_value(ctx.builder.Sub(pr, qs, _outputs=[ctx.fresh_name(f"{prefix}_r")]))
+    out_i = _as_value(ctx.builder.Add(ps, qr, _outputs=[ctx.fresh_name(f"{prefix}_i")]))
     out_r.type = ir.TensorType(dtype)
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _complex_real_scale(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: tuple[ir.Value, ir.Value],
     scalar: ir.Value,
     *,
@@ -158,15 +186,19 @@ def _complex_real_scale(
     prefix: str,
 ) -> tuple[ir.Value, ir.Value]:
     val_r, val_i = value
-    out_r = ctx.builder.Mul(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
-    out_i = ctx.builder.Mul(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_r = _as_value(
+        ctx.builder.Mul(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    )
+    out_i = _as_value(
+        ctx.builder.Mul(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    )
     out_r.type = ir.TensorType(dtype)
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _complex_div_real(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: tuple[ir.Value, ir.Value],
     scalar: ir.Value,
     *,
@@ -174,15 +206,19 @@ def _complex_div_real(
     prefix: str,
 ) -> tuple[ir.Value, ir.Value]:
     val_r, val_i = value
-    out_r = ctx.builder.Div(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
-    out_i = ctx.builder.Div(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_r = _as_value(
+        ctx.builder.Div(val_r, scalar, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    )
+    out_i = _as_value(
+        ctx.builder.Div(val_i, scalar, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    )
     out_r.type = ir.TensorType(dtype)
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _complex_sqrt_principal(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: tuple[ir.Value, ir.Value],
     *,
     dtype: ir.DataType,
@@ -191,72 +227,96 @@ def _complex_sqrt_principal(
     prefix: str,
 ) -> tuple[ir.Value, ir.Value]:
     x, y = value
-    x2 = ctx.builder.Mul(x, x, _outputs=[ctx.fresh_name(f"{prefix}_x2")])
-    y2 = ctx.builder.Mul(y, y, _outputs=[ctx.fresh_name(f"{prefix}_y2")])
+    x2 = _as_value(ctx.builder.Mul(x, x, _outputs=[ctx.fresh_name(f"{prefix}_x2")]))
+    y2 = _as_value(ctx.builder.Mul(y, y, _outputs=[ctx.fresh_name(f"{prefix}_y2")]))
     x2.type = ir.TensorType(dtype)
     y2.type = ir.TensorType(dtype)
 
-    radius2 = ctx.builder.Add(x2, y2, _outputs=[ctx.fresh_name(f"{prefix}_r2")])
+    radius2 = _as_value(
+        ctx.builder.Add(x2, y2, _outputs=[ctx.fresh_name(f"{prefix}_r2")])
+    )
     radius2.type = ir.TensorType(dtype)
-    radius = ctx.builder.Sqrt(radius2, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    radius = _as_value(
+        ctx.builder.Sqrt(radius2, _outputs=[ctx.fresh_name(f"{prefix}_r")])
+    )
     radius.type = ir.TensorType(dtype)
 
-    r_plus_x = ctx.builder.Add(radius, x, _outputs=[ctx.fresh_name(f"{prefix}_rp")])
-    r_minus_x = ctx.builder.Sub(radius, x, _outputs=[ctx.fresh_name(f"{prefix}_rm")])
+    r_plus_x = _as_value(
+        ctx.builder.Add(radius, x, _outputs=[ctx.fresh_name(f"{prefix}_rp")])
+    )
+    r_minus_x = _as_value(
+        ctx.builder.Sub(radius, x, _outputs=[ctx.fresh_name(f"{prefix}_rm")])
+    )
     r_plus_x.type = ir.TensorType(dtype)
     r_minus_x.type = ir.TensorType(dtype)
 
-    half_plus = ctx.builder.Div(
-        r_plus_x, two, _outputs=[ctx.fresh_name(f"{prefix}_half_plus")]
+    half_plus = _as_value(
+        ctx.builder.Div(r_plus_x, two, _outputs=[ctx.fresh_name(f"{prefix}_half_plus")])
     )
-    half_minus = ctx.builder.Div(
-        r_minus_x, two, _outputs=[ctx.fresh_name(f"{prefix}_half_minus")]
+    half_minus = _as_value(
+        ctx.builder.Div(
+            r_minus_x, two, _outputs=[ctx.fresh_name(f"{prefix}_half_minus")]
+        )
     )
     half_plus.type = ir.TensorType(dtype)
     half_minus.type = ir.TensorType(dtype)
 
-    half_plus_clip = ctx.builder.Max(
-        half_plus,
-        zero,
-        _outputs=[ctx.fresh_name(f"{prefix}_half_plus_clip")],
+    half_plus_clip = _as_value(
+        ctx.builder.Max(
+            half_plus,
+            zero,
+            _outputs=[ctx.fresh_name(f"{prefix}_half_plus_clip")],
+        )
     )
-    half_minus_clip = ctx.builder.Max(
-        half_minus,
-        zero,
-        _outputs=[ctx.fresh_name(f"{prefix}_half_minus_clip")],
+    half_minus_clip = _as_value(
+        ctx.builder.Max(
+            half_minus,
+            zero,
+            _outputs=[ctx.fresh_name(f"{prefix}_half_minus_clip")],
+        )
     )
     half_plus_clip.type = ir.TensorType(dtype)
     half_minus_clip.type = ir.TensorType(dtype)
 
-    out_r = ctx.builder.Sqrt(
-        half_plus_clip, _outputs=[ctx.fresh_name(f"{prefix}_sqrt_real")]
+    out_r = _as_value(
+        ctx.builder.Sqrt(
+            half_plus_clip, _outputs=[ctx.fresh_name(f"{prefix}_sqrt_real")]
+        )
     )
-    imag_abs = ctx.builder.Sqrt(
-        half_minus_clip, _outputs=[ctx.fresh_name(f"{prefix}_sqrt_imag_abs")]
+    imag_abs = _as_value(
+        ctx.builder.Sqrt(
+            half_minus_clip, _outputs=[ctx.fresh_name(f"{prefix}_sqrt_imag_abs")]
+        )
     )
     out_r.type = ir.TensorType(dtype)
     imag_abs.type = ir.TensorType(dtype)
 
-    sign_y = ctx.builder.Sign(y, _outputs=[ctx.fresh_name(f"{prefix}_sign_y")])
+    sign_y = _as_value(
+        ctx.builder.Sign(y, _outputs=[ctx.fresh_name(f"{prefix}_sign_y")])
+    )
     sign_y.type = ir.TensorType(dtype)
-    out_i = ctx.builder.Mul(sign_y, imag_abs, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    out_i = _as_value(
+        ctx.builder.Mul(sign_y, imag_abs, _outputs=[ctx.fresh_name(f"{prefix}_i")])
+    )
     out_i.type = ir.TensorType(dtype)
     return out_r, out_i
 
 
 def _concat_1d_pair(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     first: ir.Value,
     second: ir.Value,
     *,
     dtype: ir.DataType,
     name: str,
 ) -> ir.Value:
-    out = ctx.builder.Concat(
-        first,
-        second,
-        axis=0,
-        _outputs=[name],
+    out = _as_value(
+        ctx.builder.Concat(
+            first,
+            second,
+            axis=0,
+            _outputs=[name],
+        )
     )
     out.type = ir.TensorType(dtype)
     out.shape = ir.Shape((2,))
@@ -264,7 +324,7 @@ def _concat_1d_pair(
 
 
 def _bind_complex_output(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     out_var: Any,
     value: ir.Value,
     *,
@@ -275,7 +335,7 @@ def _bind_complex_output(
     out_name = getattr(out_spec, "name", None) or ctx.fresh_name(name_hint)
     out_val = value
     if getattr(out_val, "name", None) != out_name:
-        out_val = ctx.builder.Identity(value, _outputs=[out_name])
+        out_val = _as_value(ctx.builder.Identity(value, _outputs=[out_name]))
 
     packed_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ())) + (2,)
     out_val.type = ir.TensorType(base_dtype)
@@ -286,7 +346,7 @@ def _bind_complex_output(
 
 
 def _unit_vector_packed_1x1(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     *,
     base_dtype: ir.DataType,
     output_name: str,
@@ -430,7 +490,7 @@ def _unit_vector_packed_1x1(
 class EigPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.eig`` for static square ``1x1`` matrices."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         compute_left = bool(params.get("compute_left_eigenvectors", True))
         compute_right = bool(params.get("compute_right_eigenvectors", True))
@@ -488,10 +548,12 @@ class EigPlugin(PrimitiveLeafPlugin):
             )
             zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=scalar_dtype))
             zero.type = ir.TensorType(eigvals_base)
-            x_imag = ctx.builder.Mul(
-                x_real,
-                zero,
-                _outputs=[ctx.fresh_name("eig_in_imag_zero")],
+            x_imag = _as_value(
+                ctx.builder.Mul(
+                    x_real,
+                    zero,
+                    _outputs=[ctx.fresh_name("eig_in_imag_zero")],
+                )
             )
             x_imag.type = ir.TensorType(eigvals_base)
             if getattr(x_real, "shape", None) is not None:
