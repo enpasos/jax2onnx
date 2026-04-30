@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Sequence
+from typing import Any, Callable, ClassVar, Sequence, cast
 import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import linen as nn
 from flax.linen import linear as linen_linear
+import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
@@ -59,7 +60,7 @@ def _normalize_padding(
     kernel_spatial: Sequence[int],
     strides: Sequence[int],
     dilations: Sequence[int],
-) -> str | tuple[tuple[int, int], ...]:
+) -> tuple[tuple[int, int], ...]:
     if isinstance(padding, str):
         padding = padding.upper()
         if padding not in {"SAME", "VALID"}:
@@ -74,7 +75,13 @@ def _normalize_padding(
     return tuple((int(lo), int(hi)) for lo, hi in padding)
 
 
-def _transpose_value(ctx, value, perm, shape, name_hint):
+def _transpose_value(
+    ctx: Any,
+    value: ir.Value,
+    perm: Sequence[int],
+    shape: Sequence[Any],
+    name_hint: str,
+) -> ir.Value:
     builder = getattr(ctx, "builder", None)
     if builder is None:
         raise AttributeError("IR build context missing builder")
@@ -87,10 +94,16 @@ def _transpose_value(ctx, value, perm, shape, name_hint):
         out.type = value.type
     _stamp_type_and_shape(out, shape)
     _ensure_value_metadata(ctx, out)
-    return out
+    return cast(ir.Value, out)
 
 
-def _flip_spatial_dims(ctx, value, shape, spatial_axes, name_hint):
+def _flip_spatial_dims(
+    ctx: Any,
+    value: ir.Value,
+    shape: Sequence[Any],
+    spatial_axes: Sequence[int],
+    name_hint: str,
+) -> ir.Value:
     builder = getattr(ctx, "builder", None)
     if builder is None:
         raise AttributeError("IR build context missing builder")
@@ -115,7 +128,7 @@ def _flip_spatial_dims(ctx, value, shape, spatial_axes, name_hint):
         flipped.type = value.type
     _stamp_type_and_shape(flipped, shape)
     _ensure_value_metadata(ctx, flipped)
-    return flipped
+    return cast(ir.Value, flipped)
 
 
 @register_primitive(
@@ -172,28 +185,28 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.conv_transpose")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(
-        x,
-        kernel,
-        bias,
+        x: Any,
+        kernel: Any,
+        bias: Any,
         *,
         use_bias: bool,
         strides: Sequence[int],
         padding: str | Sequence[Sequence[int]],
         kernel_dilation: Sequence[int],
         transpose_kernel: bool,
-        precision=None,
-        preferred_element_type=None,
-    ):
+        precision: Any = None,
+        preferred_element_type: Any = None,
+    ) -> jax.core.ShapedArray:
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
         b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
 
-        def _shape_fn(xv, kv, bv):
+        def _shape_fn(xv: Any, kv: Any, bv: Any) -> Any:
             y = jax.lax.conv_transpose(
                 xv,
                 kv,
@@ -211,7 +224,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         out = jax.eval_shape(_shape_fn, x_spec, k_spec, b_spec)
         return jax.core.ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: Any, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError(
@@ -335,11 +348,18 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_val)
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         ConvTransposePlugin._ORIGINAL_CALL = orig_fn
         prim = ConvTransposePlugin._PRIM
 
-        def patched(self, inputs):
+        def call_orig(self: Any, inputs: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError(
+                    "flax.linen.ConvTranspose.__call__ is not available."
+                )
+            return orig_fn(self, inputs)
+
+        def patched(self: Any, inputs: Any) -> Any:
             kernel_size = (
                 (self.kernel_size,)
                 if isinstance(self.kernel_size, int)
@@ -369,14 +389,14 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             variables = scope.variables()
             params = variables.get("params", {})
             kernel = params.get("kernel")
             bias = params.get("bias") if self.use_bias else None
             if kernel is None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             if self.mask is not None:
                 if self.mask.shape != kernel.shape:
@@ -414,7 +434,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec(
                 "flax.linen",
@@ -431,7 +451,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -439,18 +459,18 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
 
 @ConvTransposePlugin._PRIM.def_impl
 def _impl(
-    x,
-    kernel,
-    bias,
+    x: Any,
+    kernel: Any,
+    bias: Any,
     *,
-    use_bias,
-    strides,
-    padding,
-    kernel_dilation,
-    transpose_kernel,
-    precision=None,
-    preferred_element_type=None,
-):
+    use_bias: bool,
+    strides: Sequence[int],
+    padding: str | Sequence[Sequence[int]],
+    kernel_dilation: Sequence[int],
+    transpose_kernel: bool,
+    precision: Any = None,
+    preferred_element_type: Any = None,
+) -> Any:
     y = jax.lax.conv_transpose(
         x,
         kernel,

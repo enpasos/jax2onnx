@@ -146,6 +146,7 @@ files = [
     "jax2onnx/plugins/flax/linen/batch_norm.py",
     "jax2onnx/plugins/flax/linen/conv.py",
     "jax2onnx/plugins/flax/linen/conv_local.py",
+    "jax2onnx/plugins/flax/linen/conv_transpose.py",
     "jax2onnx/plugins/flax/linen/dense.py",
     "jax2onnx/plugins/flax/linen/dense_general.py",
     "jax2onnx/plugins/flax/linen/dropout.py",
