@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 from flax import nnx
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -62,7 +63,7 @@ _LORA_ONNX: Final[list[dict[str, str]]] = [
 class LoRAPlugin(PrimitiveLeafPlugin):
     """Metadata plugin for ``flax.nnx.LoRA`` (module body is inlined)."""
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         raise NotImplementedError(
             "nnx.lora primitive should not reach lowering; it is inlined."
         )
@@ -113,7 +114,7 @@ class LoRAPlugin(PrimitiveLeafPlugin):
 class LoRALinearPlugin(PrimitiveLeafPlugin):
     """Metadata plugin for ``flax.nnx.LoRALinear`` (module body is inlined)."""
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         raise NotImplementedError(
             "nnx.lora_linear primitive should not reach lowering; it is inlined."
         )

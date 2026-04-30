@@ -215,7 +215,8 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
             inv_perm = perm
 
         def _label(idx: int) -> str | int | None:
-            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            return label
 
         nchw_dims_in = tuple(_label(i) for i in perm)
 

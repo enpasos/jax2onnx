@@ -82,7 +82,10 @@ def _const_from_array(
     builder_mode = bool(getattr(builder, "_function_mode", False))
 
     if not inside_function and not builder_mode:
-        return builder.add_initializer_from_array(name=base_name, array=np_arr)
+        initializer: ir.Value = builder.add_initializer_from_array(
+            name=base_name, array=np_arr
+        )
+        return initializer
 
     value = ir.Value(
         name=base_name,

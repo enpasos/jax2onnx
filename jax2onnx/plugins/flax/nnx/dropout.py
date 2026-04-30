@@ -174,7 +174,8 @@ def _ensure_scalar_bool_input(ctx: LoweringContextProtocol, name: str) -> ir.Val
     inputs = builder.inputs
     for vi in inputs:
         if getattr(vi, "name", "") == name:
-            return vi
+            input_value: ir.Value = vi
+            return input_value
     v = ir.Value(name=name, type=ir.TensorType(ir.DataType.BOOL), shape=ir.Shape(()))
     inputs.append(v)
     _stamp_type_and_shape(v, ())
