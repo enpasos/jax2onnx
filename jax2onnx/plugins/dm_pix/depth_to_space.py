@@ -147,10 +147,8 @@ class DmPixDepthToSpacePlugin(PrimitiveLeafPlugin):
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
-        out_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-        )
+        x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
         rank = len(x_shape)
         if rank not in (3, 4):
             raise NotImplementedError(
