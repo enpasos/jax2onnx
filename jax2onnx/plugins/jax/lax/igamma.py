@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.lgamma import _lanczos_lgamma_positive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -23,143 +26,185 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _regularized_lower_gamma(
-    ctx: "IRContext",
-    a: Any,
-    x: Any,
+    ctx: LoweringContextProtocol,
+    a: ir.Value,
+    x: ir.Value,
     np_dtype: np.dtype[Any],
     name_prefix: str,
     *,
     steps: int = 96,
-) -> Any:
+) -> ir.Value:
     """Approximate P(a, x) = igamma(a, x) for a>0, x>=0 via midpoint quadrature."""
     zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=np_dtype))
     one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
     steps_f = ctx.bind_const_for_var(object(), np.asarray(float(steps), dtype=np_dtype))
 
-    x_eq_zero = ctx.builder.Equal(
-        x,
-        zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_x_eq_zero")],
+    x_eq_zero = _as_value(
+        ctx.builder.Equal(
+            x,
+            zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_x_eq_zero")],
+        )
     )
-    safe_x = ctx.builder.Where(
-        x_eq_zero,
-        one,
-        x,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_safe_x")],
+    safe_x = _as_value(
+        ctx.builder.Where(
+            x_eq_zero,
+            one,
+            x,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_safe_x")],
+        )
     )
     _stamp_like(safe_x, x)
 
-    h = ctx.builder.Div(safe_x, steps_f, _outputs=[ctx.fresh_name(f"{name_prefix}_h")])
+    h = _as_value(
+        ctx.builder.Div(safe_x, steps_f, _outputs=[ctx.fresh_name(f"{name_prefix}_h")])
+    )
     _stamp_like(h, x)
-    a_minus_one = ctx.builder.Sub(
-        a,
-        one,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_a_minus_one")],
+    a_minus_one = _as_value(
+        ctx.builder.Sub(
+            a,
+            one,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_a_minus_one")],
+        )
     )
     _stamp_like(a_minus_one, a)
 
     acc = zero
     for i in range(steps):
-        t = ctx.builder.Mul(
-            h,
-            ctx.bind_const_for_var(
-                object(), np.asarray(float(i) + 0.5, dtype=np_dtype)
-            ),
-            _outputs=[ctx.fresh_name(f"{name_prefix}_t_{i}")],
+        t = _as_value(
+            ctx.builder.Mul(
+                h,
+                ctx.bind_const_for_var(
+                    object(), np.asarray(float(i) + 0.5, dtype=np_dtype)
+                ),
+                _outputs=[ctx.fresh_name(f"{name_prefix}_t_{i}")],
+            )
         )
         _stamp_like(t, x)
-        t_pow = ctx.builder.Pow(
-            t,
-            a_minus_one,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_{i}")],
+        t_pow = _as_value(
+            ctx.builder.Pow(
+                t,
+                a_minus_one,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_{i}")],
+            )
         )
         _stamp_like(t_pow, x)
-        neg_t = ctx.builder.Neg(
-            t, _outputs=[ctx.fresh_name(f"{name_prefix}_neg_t_{i}")]
+        neg_t = _as_value(
+            ctx.builder.Neg(t, _outputs=[ctx.fresh_name(f"{name_prefix}_neg_t_{i}")])
         )
         _stamp_like(neg_t, x)
-        exp_neg_t = ctx.builder.Exp(
-            neg_t,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_exp_neg_t_{i}")],
+        exp_neg_t = _as_value(
+            ctx.builder.Exp(
+                neg_t,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_exp_neg_t_{i}")],
+            )
         )
         _stamp_like(exp_neg_t, x)
-        integrand = ctx.builder.Mul(
-            t_pow,
-            exp_neg_t,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_integrand_{i}")],
+        integrand = _as_value(
+            ctx.builder.Mul(
+                t_pow,
+                exp_neg_t,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_integrand_{i}")],
+            )
         )
         _stamp_like(integrand, x)
-        acc = ctx.builder.Add(
-            acc,
-            integrand,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_acc_{i}")],
+        acc = _as_value(
+            ctx.builder.Add(
+                acc,
+                integrand,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_acc_{i}")],
+            )
         )
         _stamp_like(acc, x)
 
-    integral = ctx.builder.Mul(
-        acc,
-        h,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_integral")],
+    integral = _as_value(
+        ctx.builder.Mul(
+            acc,
+            h,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_integral")],
+        )
     )
     _stamp_like(integral, x)
 
     lgamma_a = _lanczos_lgamma_positive(ctx, a, np_dtype, f"{name_prefix}_lgamma")
-    gamma_a = ctx.builder.Exp(
-        lgamma_a,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_gamma_a")],
+    gamma_a = _as_value(
+        ctx.builder.Exp(
+            lgamma_a,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_gamma_a")],
+        )
     )
     _stamp_like(gamma_a, a)
 
-    p = ctx.builder.Div(
-        integral,
-        gamma_a,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_p_raw")],
+    p = _as_value(
+        ctx.builder.Div(
+            integral,
+            gamma_a,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_p_raw")],
+        )
     )
     _stamp_like(p, x)
-    p = ctx.builder.Where(
-        x_eq_zero,
-        zero,
-        p,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_p_x0")],
+    p = _as_value(
+        ctx.builder.Where(
+            x_eq_zero,
+            zero,
+            p,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_p_x0")],
+        )
     )
     _stamp_like(p, x)
-    p = ctx.builder.Max(
-        p,
-        zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_p_clip_lo")],
+    p = _as_value(
+        ctx.builder.Max(
+            p,
+            zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_p_clip_lo")],
+        )
     )
     _stamp_like(p, x)
-    p = ctx.builder.Min(
-        p,
-        one,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_p_clip_hi")],
+    p = _as_value(
+        ctx.builder.Min(
+            p,
+            one,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_p_clip_hi")],
+        )
     )
     _stamp_like(p, x)
     return p
 
 
 def _valid_domain_mask(
-    ctx: "IRContext", a: Any, x: Any, np_dtype: np.dtype[Any], name_prefix: str
-) -> Any:
+    ctx: LoweringContextProtocol,
+    a: ir.Value,
+    x: ir.Value,
+    np_dtype: np.dtype[Any],
+    name_prefix: str,
+) -> ir.Value:
     zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=np_dtype))
-    a_gt_zero = ctx.builder.Greater(
-        a,
-        zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_a_gt_zero")],
+    a_gt_zero = _as_value(
+        ctx.builder.Greater(
+            a,
+            zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_a_gt_zero")],
+        )
     )
-    x_lt_zero = ctx.builder.Less(
-        x,
-        zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_x_lt_zero")],
+    x_lt_zero = _as_value(
+        ctx.builder.Less(
+            x,
+            zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_x_lt_zero")],
+        )
     )
-    x_ge_zero = ctx.builder.Not(
-        x_lt_zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_x_ge_zero")],
+    x_ge_zero = _as_value(
+        ctx.builder.Not(
+            x_lt_zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_x_ge_zero")],
+        )
     )
-    return ctx.builder.And(
-        a_gt_zero,
-        x_ge_zero,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_valid")],
+    return _as_value(
+        ctx.builder.And(
+            a_gt_zero,
+            x_ge_zero,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_valid")],
+        )
     )
 
 
@@ -207,7 +252,7 @@ def _valid_domain_mask(
 class IGammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igamma`` with midpoint quadrature for the lower gamma ratio."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -225,7 +270,9 @@ class IGammaPlugin(PrimitiveLeafPlugin):
         nan_const = ctx.bind_const_for_var(object(), np.asarray(np.nan, dtype=np_dtype))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("igamma")
-        result = ctx.builder.Where(valid, p, nan_const, _outputs=[desired_name])
+        result = _as_value(
+            ctx.builder.Where(valid, p, nan_const, _outputs=[desired_name])
+        )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else p)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
@@ -275,7 +322,7 @@ class IGammaPlugin(PrimitiveLeafPlugin):
 class IGammaCPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igammac`` as 1 - igamma(a, x) over the valid domain."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -291,25 +338,31 @@ class IGammaCPlugin(PrimitiveLeafPlugin):
         p = _regularized_lower_gamma(ctx, a, x, np_dtype, "igammac")
         one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
         zero = ctx.bind_const_for_var(object(), np.asarray(0.0, dtype=np_dtype))
-        x_eq_zero = ctx.builder.Equal(
-            x,
-            zero,
-            _outputs=[ctx.fresh_name("igammac_x_eq_zero")],
+        x_eq_zero = _as_value(
+            ctx.builder.Equal(
+                x,
+                zero,
+                _outputs=[ctx.fresh_name("igammac_x_eq_zero")],
+            )
         )
-        q = ctx.builder.Sub(one, p, _outputs=[ctx.fresh_name("igammac_q")])
+        q = _as_value(ctx.builder.Sub(one, p, _outputs=[ctx.fresh_name("igammac_q")]))
         _stamp_like(q, p)
-        q = ctx.builder.Where(
-            x_eq_zero,
-            one,
-            q,
-            _outputs=[ctx.fresh_name("igammac_q_x0")],
+        q = _as_value(
+            ctx.builder.Where(
+                x_eq_zero,
+                one,
+                q,
+                _outputs=[ctx.fresh_name("igammac_q_x0")],
+            )
         )
         _stamp_like(q, p)
 
         valid = _valid_domain_mask(ctx, a, x, np_dtype, "igammac")
         nan_const = ctx.bind_const_for_var(object(), np.asarray(np.nan, dtype=np_dtype))
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("igammac")
-        result = ctx.builder.Where(valid, q, nan_const, _outputs=[desired_name])
+        result = _as_value(
+            ctx.builder.Where(valid, q, nan_const, _outputs=[desired_name])
+        )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else q)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
@@ -349,7 +402,7 @@ class IGammaCPlugin(PrimitiveLeafPlugin):
 class IGammaGradAPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.igamma_grad_a`` with symmetric finite differences on a."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         a_var, x_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -363,18 +416,24 @@ class IGammaGradAPlugin(PrimitiveLeafPlugin):
         )
 
         eps = ctx.bind_const_for_var(object(), np.asarray(1e-3, dtype=np_dtype))
-        a_plus = ctx.builder.Add(a, eps, _outputs=[ctx.fresh_name("igammagrad_ap")])
+        a_plus = _as_value(
+            ctx.builder.Add(a, eps, _outputs=[ctx.fresh_name("igammagrad_ap")])
+        )
         _stamp_like(a_plus, a)
-        a_minus_raw = ctx.builder.Sub(
-            a,
-            eps,
-            _outputs=[ctx.fresh_name("igammagrad_am_raw")],
+        a_minus_raw = _as_value(
+            ctx.builder.Sub(
+                a,
+                eps,
+                _outputs=[ctx.fresh_name("igammagrad_am_raw")],
+            )
         )
         _stamp_like(a_minus_raw, a)
-        a_minus = ctx.builder.Max(
-            a_minus_raw,
-            eps,
-            _outputs=[ctx.fresh_name("igammagrad_am")],
+        a_minus = _as_value(
+            ctx.builder.Max(
+                a_minus_raw,
+                eps,
+                _outputs=[ctx.fresh_name("igammagrad_am")],
+            )
         )
         _stamp_like(a_minus, a)
 
@@ -383,42 +442,54 @@ class IGammaGradAPlugin(PrimitiveLeafPlugin):
             ctx, a_minus, x, np_dtype, "igammagrad_minus"
         )
 
-        num = ctx.builder.Sub(
-            p_plus,
-            p_minus,
-            _outputs=[ctx.fresh_name("igammagrad_num")],
+        num = _as_value(
+            ctx.builder.Sub(
+                p_plus,
+                p_minus,
+                _outputs=[ctx.fresh_name("igammagrad_num")],
+            )
         )
         _stamp_like(num, p_plus)
-        den = ctx.builder.Sub(
-            a_plus,
-            a_minus,
-            _outputs=[ctx.fresh_name("igammagrad_den")],
+        den = _as_value(
+            ctx.builder.Sub(
+                a_plus,
+                a_minus,
+                _outputs=[ctx.fresh_name("igammagrad_den")],
+            )
         )
         _stamp_like(den, a_plus)
-        grad = ctx.builder.Div(
-            num,
-            den,
-            _outputs=[ctx.fresh_name("igammagrad_grad")],
+        grad = _as_value(
+            ctx.builder.Div(
+                num,
+                den,
+                _outputs=[ctx.fresh_name("igammagrad_grad")],
+            )
         )
         _stamp_like(grad, num)
 
         valid = _valid_domain_mask(ctx, a, x, np_dtype, "igammagrad")
-        a_gt_eps = ctx.builder.Greater(
-            a,
-            eps,
-            _outputs=[ctx.fresh_name("igammagrad_a_gt_eps")],
+        a_gt_eps = _as_value(
+            ctx.builder.Greater(
+                a,
+                eps,
+                _outputs=[ctx.fresh_name("igammagrad_a_gt_eps")],
+            )
         )
-        valid = ctx.builder.And(
-            valid,
-            a_gt_eps,
-            _outputs=[ctx.fresh_name("igammagrad_valid")],
+        valid = _as_value(
+            ctx.builder.And(
+                valid,
+                a_gt_eps,
+                _outputs=[ctx.fresh_name("igammagrad_valid")],
+            )
         )
         nan_const = ctx.bind_const_for_var(object(), np.asarray(np.nan, dtype=np_dtype))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
             "igamma_grad_a"
         )
-        result = ctx.builder.Where(valid, grad, nan_const, _outputs=[desired_name])
+        result = _as_value(
+            ctx.builder.Where(valid, grad, nan_const, _outputs=[desired_name])
+        )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else grad)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
