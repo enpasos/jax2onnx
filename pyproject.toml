@@ -142,6 +142,7 @@ files = [
     "jax2onnx/plugins/dm_pix",
     "jax2onnx/plugins/equinox/eqx/nn/dropout.py",
     "jax2onnx/plugins/equinox/eqx/nn/linear.py",
+    "jax2onnx/plugins/equinox/eqx/nn/rms_norm.py",
     "jax2onnx/plugins/equinox/eqx/nn/rotary_positional_embedding.py",
     "jax2onnx/plugins/flax/nnx",
     "jax2onnx/plugins/flax/linen",

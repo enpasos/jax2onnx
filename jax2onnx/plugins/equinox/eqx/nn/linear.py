@@ -87,7 +87,7 @@ def _inline_scalar_bias(
         new_type = bias_type
 
     # Route through builder so function-mode + duplicate policy apply.
-    new_val = ctx.builder.add_initializer_from_array(
+    new_val: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name("linear_bias_inline"), array=np.asarray(broadcast)
     )
     # Preserve the desired dtype metadata if available
