@@ -190,8 +190,8 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
         params = getattr(eqn, "params", {})
         side = _validate_side(params.get("side", "left"))
 
-        a_shape = cast(tuple[DimInput, ...], tuple(getattr(a_var.aval, "shape", ())))
-        v_shape = cast(tuple[DimInput, ...], tuple(getattr(v_var.aval, "shape", ())))
+        a_shape: tuple[DimInput, ...] = tuple(getattr(a_var.aval, "shape", ()))
+        v_shape: tuple[DimInput, ...] = tuple(getattr(v_var.aval, "shape", ()))
         if len(a_shape) != 1:
             raise TypeError("jnp.searchsorted lowering requires 1-D sorted input 'a'")
         a_len = a_shape[0]

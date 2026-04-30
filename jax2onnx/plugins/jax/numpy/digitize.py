@@ -327,10 +327,8 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
         params = getattr(eqn, "params", {})
         right = bool(params.get("right", False))
 
-        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
-        bins_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(bins_var.aval, "shape", ()))
-        )
+        x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
+        bins_shape: tuple[DimInput, ...] = tuple(getattr(bins_var.aval, "shape", ()))
         if len(bins_shape) != 1:
             raise TypeError("jnp.digitize lowering requires 1-D bins")
         bins_len = bins_shape[0]

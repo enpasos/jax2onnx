@@ -260,9 +260,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
         )
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("tile_out"))
 
-        input_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(input_var.aval, "shape", ()))
-        )
+        input_shape: tuple[DimInput, ...] = tuple(getattr(input_var.aval, "shape", ()))
         input_dtype: np.dtype[Any] = np.dtype(
             getattr(input_var.aval, "dtype", np.float32)
         )
@@ -495,9 +493,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             dtype_enum = _dtype_to_ir(
                 input_np_dtype, ctx.builder.enable_double_precision
             )
-            new_shape = cast(
-                tuple[DimInput, ...], tuple([1] * num_new + list(current_shape))
-            )
+            new_shape: tuple[DimInput, ...] = tuple([1] * num_new + list(current_shape))
             reshaped = ctx.builder.Reshape(
                 input_val,
                 target_shape,

@@ -54,7 +54,7 @@ def _const(
     value: float,
     name_hint: str,
 ) -> ir.Value:
-    const = ctx.builder.add_initializer_from_array(
+    const: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=np_dtype),
     )

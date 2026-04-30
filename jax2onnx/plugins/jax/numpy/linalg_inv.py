@@ -49,7 +49,7 @@ def _const_scalar(
     name_hint: str,
 ) -> ir.Value:
     dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
-    result = ctx.builder.add_initializer_from_array(
+    result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=dtype),
     )

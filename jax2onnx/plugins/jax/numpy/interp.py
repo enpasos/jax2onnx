@@ -95,7 +95,7 @@ def _const_i64_scalar(
     *,
     name_hint: str,
 ) -> ir.Value:
-    result = _const_i64(ctx, np.asarray(value, dtype=np.int64), name_hint)
+    result: ir.Value = _const_i64(ctx, np.asarray(value, dtype=np.int64), name_hint)
     _stamp_type_and_shape(result, ())
     _ensure_value_metadata(ctx, result)
     return result
@@ -298,9 +298,9 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         x_var, xp_var, fp_var = eqn.invars
         (out_var,) = eqn.outvars
 
-        x_shape = cast(tuple[DimInput, ...], tuple(getattr(x_var.aval, "shape", ())))
-        xp_shape = cast(tuple[DimInput, ...], tuple(getattr(xp_var.aval, "shape", ())))
-        fp_shape = cast(tuple[DimInput, ...], tuple(getattr(fp_var.aval, "shape", ())))
+        x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
+        xp_shape: tuple[DimInput, ...] = tuple(getattr(xp_var.aval, "shape", ()))
+        fp_shape: tuple[DimInput, ...] = tuple(getattr(fp_var.aval, "shape", ()))
         if len(xp_shape) != 1 or len(fp_shape) != 1:
             raise TypeError("jnp.interp lowering requires 1-D xp and fp")
         if not _all_static_ints(xp_shape) or not _all_static_ints(fp_shape):
@@ -566,9 +566,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:
-            out_shape = cast(
-                tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-            )
+            out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
             _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)

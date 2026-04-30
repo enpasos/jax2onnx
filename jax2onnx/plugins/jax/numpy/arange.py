@@ -678,7 +678,8 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
         def _const(value: float | int, tag: str) -> ir.Value:
             arr = np.asarray(value, dtype=result_dtype)
-            return ctx.bind_const_for_var(object(), arr)
+            const_value: ir.Value = ctx.bind_const_for_var(object(), arr)
+            return const_value
 
         if len(input_vals) == 1:
             start_val = _const(0, "start")

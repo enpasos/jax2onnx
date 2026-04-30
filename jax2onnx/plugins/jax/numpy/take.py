@@ -198,8 +198,8 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         if not np.issubdtype(indices_dtype, np.integer):
             raise TypeError("jnp.take indices must be integer typed")
 
-        indices_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(indices_var.aval, "shape", ()))
+        indices_shape: tuple[DimInput, ...] = tuple(
+            getattr(indices_var.aval, "shape", ())
         )
         indices_val = _as_int64(ctx, indices_val, indices_shape, "take_indices_int64")
 
@@ -213,9 +213,7 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
             _outputs=[ctx.fresh_name("Gather")],
         )
 
-        out_shape = cast(
-            tuple[DimInput, ...], tuple(getattr(out_var.aval, "shape", ()))
-        )
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
         result.type = ir.TensorType(getattr(arr_val.type, "dtype", ir.DataType.FLOAT))
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
