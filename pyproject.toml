@@ -146,6 +146,8 @@ files = [
     "jax2onnx/plugins/flax/linen/dropout.py",
     "jax2onnx/plugins/flax/linen/embed.py",
     "jax2onnx/plugins/flax/linen/group_norm.py",
+    "jax2onnx/plugins/flax/linen/instance_norm.py",
+    "jax2onnx/plugins/flax/linen/layer_norm.py",
     "jax2onnx/plugins/flax/linen/max_pool.py",
     "jax2onnx/plugins/flax/linen/min_pool.py",
     "jax2onnx/plugins/flax/linen/pool.py",

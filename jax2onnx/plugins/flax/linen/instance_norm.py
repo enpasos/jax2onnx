@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence, cast
 
+import jax
 import jax.numpy as jnp
 import onnx_ir as ir
 from flax import linen as nn
@@ -22,7 +23,8 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 
 EXPECT_INSTANCE_NORM_PLAIN: Final = nnx_group_norm.EG(
@@ -122,9 +124,9 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.instance_norm")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 
@@ -142,7 +144,9 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
         scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="in_scale_cast")
         bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="in_bias_cast")
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
         rank = len(x_shape)
         if rank == 0:
             raise ValueError("InstanceNorm requires tensor inputs")
@@ -173,10 +177,11 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
             perm = list(range(rank))
             inv_perm = perm
 
-        def _label(idx: int):
-            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        def _label(idx: int) -> str | int | None:
+            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            return label
 
-        def _dims_for(indices: Sequence[int]):
+        def _dims_for(indices: Sequence[int]) -> tuple[Any, ...]:
             dims: list[Any] = []
             for idx in indices:
                 label = _label(idx)
@@ -192,24 +197,30 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
         nhwc_dims = _dims_for(range(rank))
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
 
-        inst_input = x_val
+        inst_input: ir.Value = x_val
         if need_layout_convert:
-            inst_input = builder.Transpose(
-                x_val,
-                perm=tuple(int(p) for p in perm),
-                _outputs=[ctx.fresh_name("in_nchw_in")],
+            inst_input = cast(
+                ir.Value,
+                builder.Transpose(
+                    x_val,
+                    perm=tuple(int(p) for p in perm),
+                    _outputs=[ctx.fresh_name("in_nchw_in")],
+                ),
             )
             if x_ir_dtype is not None:
                 inst_input.type = ir.TensorType(x_ir_dtype)
             _stamp_type_and_shape(inst_input, nchw_dims)
             _ensure_value_metadata(ctx, inst_input)
 
-        inst_out = builder.InstanceNormalization(
-            inst_input,
-            scale_val,
-            bias_val,
-            epsilon=float(epsilon),
-            _outputs=[ctx.fresh_name("InstanceNorm")],
+        inst_out = cast(
+            ir.Value,
+            builder.InstanceNormalization(
+                inst_input,
+                scale_val,
+                bias_val,
+                epsilon=float(epsilon),
+                _outputs=[ctx.fresh_name("InstanceNorm")],
+            ),
         )
         if x_ir_dtype is not None:
             inst_out.type = ir.TensorType(x_ir_dtype)
@@ -220,10 +231,13 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
         _ensure_value_metadata(ctx, inst_out)
 
         if need_layout_convert:
-            final_val = builder.Transpose(
-                inst_out,
-                perm=tuple(int(p) for p in inv_perm),
-                _outputs=[ctx.fresh_name("in_out")],
+            final_val = cast(
+                ir.Value,
+                builder.Transpose(
+                    inst_out,
+                    perm=tuple(int(p) for p in inv_perm),
+                    _outputs=[ctx.fresh_name("in_out")],
+                ),
             )
             if x_ir_dtype is not None:
                 final_val.type = ir.TensorType(x_ir_dtype)
@@ -234,13 +248,10 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
             _stamp_type_and_shape(final_val, nhwc_dims)
             _ensure_value_metadata(ctx, final_val)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, final_val)
+        ctx.bind_value_for_var(y_var, final_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.InstanceNorm",
@@ -251,41 +262,46 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         InstanceNormPlugin._ORIGINAL_CALL = orig_fn
         prim = InstanceNormPlugin._PRIM
 
-        def patched(self, x, *, mask=None):
+        def call_orig(self: Any, x: Any, *, mask: Any | None = None) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.InstanceNorm.__call__ is not available.")
+            return orig_fn(self, x, mask=mask)
+
+        def patched(self: Any, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_name", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_index_groups", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if not getattr(self, "use_fast_variance", True):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             variables = scope.variables()
             params = variables.get("params", {})
 
             feature_axes = getattr(self, "feature_axes", -1)
             feat_axes = _canonicalize_axes(x.ndim, feature_axes)
             if len(feat_axes) != 1:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             feature_axis = feat_axes[0]
             if feature_axis == 0:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             channels = x.shape[feature_axis]
             if channels is None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             num_groups = int(channels)
             if num_groups <= 0:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             param_dtype = getattr(self, "param_dtype", None) or x.dtype
             if x.dtype != param_dtype:
@@ -294,7 +310,7 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
             if getattr(self, "use_scale", True):
                 scale_param = params.get("scale")
                 if scale_param is None:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 scale = jnp.asarray(scale_param, dtype=param_dtype)
             else:
                 scale = jnp.ones((channels,), dtype=param_dtype)
@@ -302,7 +318,7 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
             if getattr(self, "use_bias", True):
                 bias_param = params.get("bias")
                 if bias_param is None:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 bias = jnp.asarray(bias_param, dtype=param_dtype)
             else:
                 bias = jnp.zeros((channels,), dtype=param_dtype)
