@@ -205,6 +205,7 @@ files = [
     "jax2onnx/plugins/jax/lax/exp.py",
     "jax2onnx/plugins/jax/lax/exp2.py",
     "jax2onnx/plugins/jax/lax/expm1.py",
+    "jax2onnx/plugins/jax/lax/fft.py",
     "jax2onnx/plugins/jax/lax/floor.py",
     "jax2onnx/plugins/jax/lax/ge.py",
     "jax2onnx/plugins/jax/lax/gt.py",

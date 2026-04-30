@@ -2,25 +2,42 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Sequence
+from typing import Any, Final, Sequence, cast
 
 import numpy as np
 from jax import lax
 
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     pack_native_complex,
     _shape_tuple,
     _base_dtype_for_complex,
     conjugate_packed_tensor,
 )
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
+
+
+def _require_dtype(value: ir.Value, *, context: str) -> ir.DataType:
+    dtype = value.dtype
+    if dtype is None:
+        raise ValueError(f"{context} requires typed IR input")
+    return dtype
+
+
+def _as_dim_tuple(dims: Sequence[object]) -> tuple[DimInput, ...]:
+    return cast(tuple[DimInput, ...], tuple(dims))
 
 
 def _resolve_fft_constants() -> (
@@ -129,9 +146,14 @@ def _enum_to_int(value: object | None) -> int | None:
 
 
 def _reshape_tensor(
-    ctx: "IRContext", value: ir.Value, target_dims: Sequence[object], *, name_hint: str
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    target_dims: Sequence[object],
+    *,
+    name_hint: str,
 ) -> ir.Value:
     target_dims = tuple(target_dims)
+    ir_target_dims = cast(tuple[DimInput, ...], target_dims)
     if not target_dims:
         return value
     if all(_is_static_int(d) for d in target_dims):
@@ -143,21 +165,25 @@ def _reshape_tensor(
         shape_init.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shape_init, (len(target_dims),))
         _ensure_value_metadata(ctx, shape_init)
-        reshaped = ctx.builder.Reshape(
-            value,
-            shape_init,
-            _outputs=[ctx.fresh_name(name_hint)],
+        reshaped = _as_value(
+            ctx.builder.Reshape(
+                value,
+                shape_init,
+                _outputs=[ctx.fresh_name(name_hint)],
+            )
         )
         reshaped.type = value.type
-        _stamp_type_and_shape(reshaped, target_dims)
+        _stamp_type_and_shape(reshaped, ir_target_dims)
         _ensure_value_metadata(ctx, reshaped)
         return reshaped
-    value.shape = ir.Shape(target_dims)
+    value.shape = ir.Shape(ir_target_dims)
     _ensure_value_metadata(ctx, value)
     return value
 
 
-def _make_scalar_i64(ctx: "IRContext", value: int, *, name_hint: str) -> ir.Value:
+def _make_scalar_i64(
+    ctx: LoweringContextProtocol, value: int, *, name_hint: str
+) -> ir.Value:
     scalar = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=np.int64),
@@ -169,7 +195,7 @@ def _make_scalar_i64(ctx: "IRContext", value: int, *, name_hint: str) -> ir.Valu
 
 
 def _gather_channel(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     tensor: ir.Value,
     *,
     axis: int,
@@ -178,11 +204,13 @@ def _gather_channel(
     name_hint: str,
 ) -> ir.Value:
     idx_init = _make_scalar_i64(ctx, index, name_hint=f"{name_hint}_idx")
-    gathered = ctx.builder.Gather(
-        tensor,
-        idx_init,
-        axis=axis,
-        _outputs=[ctx.fresh_name(name_hint)],
+    gathered = _as_value(
+        ctx.builder.Gather(
+            tensor,
+            idx_init,
+            axis=axis,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     gathered.type = ir.TensorType(dtype)
     dims = list(_shape_tuple(tensor))
@@ -191,7 +219,7 @@ def _gather_channel(
             dims.pop(axis)
         except IndexError:
             dims = []
-    _stamp_type_and_shape(gathered, tuple(dims))
+    _stamp_type_and_shape(gathered, _as_dim_tuple(dims))
     _ensure_value_metadata(ctx, gathered)
     return gathered
 
@@ -473,7 +501,7 @@ def _gather_channel(
 class FFTPlugin(PrimitiveLeafPlugin):
     """Lower `lax.fft` primitives to ONNX DFT."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         out_var = eqn.outvars[0]
         fft_type = eqn.params.get("fft_type")
@@ -523,13 +551,13 @@ class FFTPlugin(PrimitiveLeafPlugin):
 
     def _lower_complex_fft(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         x_val: ir.Value,
         fft_lengths: tuple[int, ...],
         *,
         inverse: bool,
     ) -> tuple[ir.Value, ir.DataType]:
-        base_dtype = _base_dtype_for_complex(x_val.dtype)
+        base_dtype = _base_dtype_for_complex(_require_dtype(x_val, context="FFT/IFFT"))
         packed = pack_native_complex(ctx, x_val, name_hint="fft")
         original_dims = _shape_tuple(packed)
 
@@ -553,16 +581,19 @@ class FFTPlugin(PrimitiveLeafPlugin):
         axis_index = _transform_axis(packed_dims)
         dft_inputs.append(_make_scalar_i64(ctx, axis_index, name_hint="fft_axis"))
 
-        dft_out = ctx.builder.DFT(
-            *dft_inputs,
-            _outputs=[ctx.fresh_name("fft_pair")],
-            inverse=1 if inverse else 0,
-            onesided=0,
+        dft_out = _as_value(
+            ctx.builder.DFT(
+                *dft_inputs,
+                _outputs=[ctx.fresh_name("fft_pair")],
+                inverse=1 if inverse else 0,
+                onesided=0,
+            )
         )
         dft_out.type = ir.TensorType(base_dtype)
         if all(_is_static_int(d) for d in packed_dims):
-            dft_out.shape = ir.Shape(packed_dims)
-            _stamp_type_and_shape(dft_out, packed_dims)
+            packed_ir_dims = _as_dim_tuple(packed_dims)
+            dft_out.shape = ir.Shape(packed_ir_dims)
+            _stamp_type_and_shape(dft_out, packed_ir_dims)
         _ensure_value_metadata(ctx, dft_out)
 
         result = dft_out
@@ -581,19 +612,20 @@ class FFTPlugin(PrimitiveLeafPlugin):
             )
         else:
             if all(_is_static_int(d) for d in original_dims):
-                _stamp_type_and_shape(result, original_dims)
-                result.shape = ir.Shape(original_dims)
+                original_ir_dims = _as_dim_tuple(original_dims)
+                _stamp_type_and_shape(result, original_ir_dims)
+                result.shape = ir.Shape(original_ir_dims)
                 _ensure_value_metadata(ctx, result)
 
         return result, base_dtype
 
     def _lower_rfft(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         x_val: ir.Value,
         fft_lengths: tuple[int, ...],
     ) -> tuple[ir.Value, ir.DataType]:
-        base_dtype = x_val.dtype
+        base_dtype = _require_dtype(x_val, context="RFFT")
         real_dims = _shape_tuple(x_val)
         if not real_dims:
             raise NotImplementedError("RFFT requires at least one signal dimension.")
@@ -629,11 +661,13 @@ class FFTPlugin(PrimitiveLeafPlugin):
             )
         dft_inputs.append(_make_scalar_i64(ctx, axis_index, name_hint="rfft_axis"))
 
-        dft_out = ctx.builder.DFT(
-            *dft_inputs,
-            _outputs=[ctx.fresh_name("rfft_pair")],
-            inverse=0,
-            onesided=1,
+        dft_out = _as_value(
+            ctx.builder.DFT(
+                *dft_inputs,
+                _outputs=[ctx.fresh_name("rfft_pair")],
+                inverse=0,
+                onesided=1,
+            )
         )
         dft_out.type = ir.TensorType(base_dtype)
         _ensure_value_metadata(ctx, dft_out)
@@ -658,8 +692,9 @@ class FFTPlugin(PrimitiveLeafPlugin):
                 name_hint="rfft_unbatch",
             )
         elif onesided is not None and all(_is_static_int(d) for d in output_dims):
-            _stamp_type_and_shape(result, tuple(output_dims))
-            result.shape = ir.Shape(tuple(output_dims))
+            output_ir_dims = _as_dim_tuple(output_dims)
+            _stamp_type_and_shape(result, output_ir_dims)
+            result.shape = ir.Shape(output_ir_dims)
             _ensure_value_metadata(ctx, result)
 
         result.type = ir.TensorType(base_dtype)
@@ -667,7 +702,7 @@ class FFTPlugin(PrimitiveLeafPlugin):
 
     def _lower_irfft(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         x_val: ir.Value,
         fft_lengths: tuple[int, ...],
     ) -> tuple[ir.Value, ir.DataType]:
@@ -675,7 +710,7 @@ class FFTPlugin(PrimitiveLeafPlugin):
             raise NotImplementedError(
                 "IRFFT currently requires an explicit fft_lengths entry."
             )
-        base_dtype = _base_dtype_for_complex(x_val.dtype)
+        base_dtype = _base_dtype_for_complex(_require_dtype(x_val, context="IRFFT"))
         target_len = int(fft_lengths[0])
 
         complex_dims = _shape_tuple(x_val)
@@ -718,16 +753,18 @@ class FFTPlugin(PrimitiveLeafPlugin):
                 mirror_init.type = ir.TensorType(ir.DataType.INT64)
                 _stamp_type_and_shape(mirror_init, (mirror_count,))
                 _ensure_value_metadata(ctx, mirror_init)
-                mirror_vals = ctx.builder.Gather(
-                    packed,
-                    mirror_init,
-                    axis=axis_index,
-                    _outputs=[ctx.fresh_name("irfft_mirror")],
+                mirror_vals = _as_value(
+                    ctx.builder.Gather(
+                        packed,
+                        mirror_init,
+                        axis=axis_index,
+                        _outputs=[ctx.fresh_name("irfft_mirror")],
+                    )
                 )
                 mirror_vals.type = ir.TensorType(base_dtype)
                 mirror_dims = list(packed_dims)
                 mirror_dims[axis_index] = mirror_count
-                _stamp_type_and_shape(mirror_vals, tuple(mirror_dims))
+                _stamp_type_and_shape(mirror_vals, _as_dim_tuple(mirror_dims))
                 _ensure_value_metadata(ctx, mirror_vals)
 
                 mirror_conj = conjugate_packed_tensor(
@@ -739,16 +776,18 @@ class FFTPlugin(PrimitiveLeafPlugin):
 
                 full_dims = list(packed_dims)
                 full_dims[axis_index] = target_len
-                packed = ctx.builder.Concat(
-                    packed,
-                    mirror_conj,
-                    axis=axis_index,
-                    _outputs=[ctx.fresh_name("irfft_full_spectrum")],
+                packed = _as_value(
+                    ctx.builder.Concat(
+                        packed,
+                        mirror_conj,
+                        axis=axis_index,
+                        _outputs=[ctx.fresh_name("irfft_full_spectrum")],
+                    )
                 )
                 packed.type = ir.TensorType(base_dtype)
-                _stamp_type_and_shape(packed, tuple(full_dims))
+                _stamp_type_and_shape(packed, _as_dim_tuple(full_dims))
                 _ensure_value_metadata(ctx, packed)
-                packed_dims = tuple(full_dims)
+                packed_dims = _as_dim_tuple(full_dims)
         else:
             # Already full spectrum.
             pass
@@ -757,11 +796,13 @@ class FFTPlugin(PrimitiveLeafPlugin):
         dft_inputs.append(_make_scalar_i64(ctx, target_len, name_hint="irfft_length"))
         dft_inputs.append(_make_scalar_i64(ctx, axis_index, name_hint="irfft_axis"))
 
-        dft_out = ctx.builder.DFT(
-            *dft_inputs,
-            _outputs=[ctx.fresh_name("irfft_pair")],
-            inverse=1,
-            onesided=0,
+        dft_out = _as_value(
+            ctx.builder.DFT(
+                *dft_inputs,
+                _outputs=[ctx.fresh_name("irfft_pair")],
+                inverse=1,
+                onesided=0,
+            )
         )
         dft_out.type = ir.TensorType(base_dtype)
         _ensure_value_metadata(ctx, dft_out)
@@ -795,8 +836,9 @@ class FFTPlugin(PrimitiveLeafPlugin):
             )
         else:
             if all(_is_static_int(d) for d in real_dims):
-                _stamp_type_and_shape(result, tuple(real_dims))
-                result.shape = ir.Shape(tuple(real_dims))
+                real_ir_dims = _as_dim_tuple(real_dims)
+                _stamp_type_and_shape(result, real_ir_dims)
+                result.shape = ir.Shape(real_ir_dims)
                 _ensure_value_metadata(ctx, result)
 
         result.type = ir.TensorType(base_dtype)
