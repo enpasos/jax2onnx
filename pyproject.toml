@@ -141,6 +141,7 @@ files = [
     "jax2onnx/plugins/__init__.py",
     "jax2onnx/plugins/dm_pix",
     "jax2onnx/plugins/equinox",
+    "jax2onnx/plugins/examples/eqx",
     "jax2onnx/plugins/examples/jnp",
     "jax2onnx/plugins/examples/lax",
     "jax2onnx/plugins/examples/linen",

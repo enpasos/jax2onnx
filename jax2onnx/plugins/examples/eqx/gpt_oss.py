@@ -8,8 +8,9 @@ import dataclasses
 import gc
 import json
 import math
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import equinox as eqx
 import jax
@@ -20,6 +21,7 @@ import jax.core as jax_core
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
+    FunctionPlugin,
     PLUGIN_REGISTRY,
     construct_and_call,
     onnx_function,
@@ -73,9 +75,11 @@ def _build_causal_mask(
 ) -> jnp.ndarray:
     """Return a causal + optional sliding-window mask suitable for attention logits."""
     seq_len_int = int(seq_len)
-    mask = np.triu(np.full((seq_len_int, seq_len_int), -np.inf, dtype=np.float32), k=1)
+    mask: np.ndarray = np.triu(
+        np.full((seq_len_int, seq_len_int), -np.inf, dtype=np.float32), k=1
+    )
     if sliding_window > 0:
-        lower = np.tril(
+        lower: np.ndarray = np.tril(
             np.full((seq_len_int, seq_len_int), -np.inf, dtype=np.float32),
             k=-(sliding_window + 1),
         )
@@ -84,7 +88,7 @@ def _build_causal_mask(
     return jnp.asarray(mask, dtype=dtype)
 
 
-def _apply_pointwise(module, x: jnp.ndarray) -> jnp.ndarray:
+def _apply_pointwise(module: eqx.Module | None, x: jnp.ndarray) -> jnp.ndarray:
     """Apply an Equinox module independently across batch and sequence axes."""
 
     if module is None or isinstance(module, eqx.nn.Identity):
@@ -94,7 +98,7 @@ def _apply_pointwise(module, x: jnp.ndarray) -> jnp.ndarray:
     return apply_batch(x)
 
 
-def _resolve_seq_length(length, query: jnp.ndarray) -> int:
+def _resolve_seq_length(length: Any, query: jnp.ndarray) -> Any:
     if isinstance(length, (int, np.integer)):
         return int(length)
     try:
@@ -311,7 +315,7 @@ class RotaryEmbedding(eqx.Module):
 
         head_dim = self.head_dim
         base = np.float32(self.base)
-        steps = np.arange(0, head_dim, 2, dtype=np.float32)
+        steps: np.ndarray = np.arange(0, head_dim, 2, dtype=np.float32)
         freq = np.power(base, steps / np.float32(head_dim), dtype=np.float32)
         if self.scaling_factor > 1.0:
             concentration = (
@@ -348,12 +352,12 @@ class RotaryEmbedding(eqx.Module):
         self._inv_freq = jnp.asarray(inv_freq, dtype=jnp.float32)
 
         max_len = int(self.initial_context_length)
-        positions = np.arange(max_len, dtype=np.float32)
+        positions: np.ndarray = np.arange(max_len, dtype=np.float32)
         freqs = np.outer(positions, inv_freq)
         self._cos_cache = jnp.array(np.cos(freqs) * concentration, dtype=jnp.float32)
         self._sin_cache = jnp.array(np.sin(freqs) * concentration, dtype=jnp.float32)
 
-    def compute_sin_cos(self, seq_len: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def compute_sin_cos(self, seq_len: Any) -> tuple[jnp.ndarray, jnp.ndarray]:
         if isinstance(seq_len, int):
             # Static path
             seq_len_int = seq_len
@@ -440,9 +444,10 @@ class RotaryEmbedding(eqx.Module):
         return rotated_query, rotated_key
 
 
-PLUGIN_REGISTRY[
-    "onnx_fn::jax2onnx.plugins.examples.eqx.gpt_oss.RotaryEmbedding"
-].primitive.multiple_results = True
+cast(
+    FunctionPlugin,
+    PLUGIN_REGISTRY["onnx_fn::jax2onnx.plugins.examples.eqx.gpt_oss.RotaryEmbedding"],
+).primitive.multiple_results = True
 
 
 @onnx_function
@@ -511,11 +516,11 @@ class AttentionBlock(eqx.Module):
             keys[2], (self.num_attention_heads,), dtype=param_dtype
         ) * jnp.asarray(0.02, dtype=param_dtype)
 
-    def __call__(self, x: jnp.ndarray):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         out, _ = self.debug(x)
         return out
 
-    def debug(self, x: jnp.ndarray):
+    def debug(self, x: jnp.ndarray) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         if x.ndim != 3:
             raise ValueError(
                 "AttentionBlock expects inputs shaped (batch, seq, hidden)."
@@ -669,11 +674,11 @@ class MLPBlock(eqx.Module):
             dtype=param_dtype,
         )
 
-    def __call__(self, x: jnp.ndarray):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         out, _ = self.debug(x)
         return out
 
-    def debug(self, x: jnp.ndarray):
+    def debug(self, x: jnp.ndarray) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         if x.ndim != 3:
             raise ValueError("MLPBlock expects inputs shaped (batch, seq, hidden).")
         if x.shape[-1] != self.hidden_size:
@@ -773,12 +778,12 @@ class TransformerBlock(eqx.Module):
             param_dtype=param_dtype,
         )
 
-    def __call__(self, x: jnp.ndarray):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         out, _ = self.debug(x)
         return out
 
-    def debug(self, x: jnp.ndarray):
-        dbg: dict = {"input": x}
+    def debug(self, x: jnp.ndarray) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        dbg: dict[str, jnp.ndarray] = {"input": x}
         x, attn_dbg = self.attn.debug(x)
         dbg.update(attn_dbg)
         x, mlp_dbg = self.mlp.debug(x)
@@ -835,11 +840,13 @@ class Transformer(eqx.Module):
             dtype=param_dtype,
         )
 
-    def __call__(self, tokens: jnp.ndarray):
+    def __call__(self, tokens: jnp.ndarray) -> jnp.ndarray:
         out, _ = self.debug(tokens)
         return out
 
-    def debug(self, tokens: jnp.ndarray):
+    def debug(
+        self, tokens: jnp.ndarray
+    ) -> tuple[jnp.ndarray, tuple[dict[str, jnp.ndarray], ...]]:
         tokens = jnp.asarray(tokens, dtype=jnp.int32)
         squeeze_batch = False
         if tokens.ndim == 1:
@@ -849,7 +856,7 @@ class Transformer(eqx.Module):
             raise ValueError("Transformer expects token tensors shaped (batch, seq).")
 
         x = jnp.take(self.embedding.weight, tokens, axis=0)
-        debug_blocks: list = []
+        debug_blocks: list[dict[str, jnp.ndarray]] = []
         for block in self.blocks:
             x, dbg = block.debug(x)
             debug_blocks.append(dbg)
@@ -860,7 +867,7 @@ class Transformer(eqx.Module):
         logits = logits.astype(jnp.float32)
         if squeeze_batch:
             logits = logits[0]
-            debug_blocks = tuple(
+            debug_output = tuple(
                 {
                     k: v[0] if isinstance(v, jnp.ndarray) and v.shape[0] == 1 else v
                     for k, v in dbg.items()
@@ -868,8 +875,8 @@ class Transformer(eqx.Module):
                 for dbg in debug_blocks
             )
         else:
-            debug_blocks = tuple(debug_blocks)
-        return logits, debug_blocks
+            debug_output = tuple(debug_blocks)
+        return logits, debug_output
 
 
 def _config_from_torch_transformer(torch_model: Any) -> GPTOSSConfig:
@@ -1181,6 +1188,8 @@ def _populate_eqx_from_torch(
         )
 
         attn_norm = getattr(torch_block.attn, "norm", None)
+        if attn_norm is None:
+            raise ValueError("Torch attention block is missing norm parameters.")
         attn_eps = float(getattr(attn_norm, "eps", getattr(attn_norm, "epsilon", 1e-5)))
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].attn.norm.weight,
@@ -1194,6 +1203,8 @@ def _populate_eqx_from_torch(
         )
 
         mlp_norm = getattr(torch_block.mlp, "norm", None)
+        if mlp_norm is None:
+            raise ValueError("Torch MLP block is missing norm parameters.")
         mlp_eps = float(getattr(mlp_norm, "eps", getattr(mlp_norm, "epsilon", 1e-5)))
         eqx_model = eqx.tree_at(
             lambda m, idx=idx: m.blocks[idx].mlp.norm.weight,
@@ -1237,6 +1248,8 @@ def _populate_eqx_from_torch(
         )
 
     torch_norm = getattr(torch_model, "norm", None)
+    if torch_norm is None:
+        raise ValueError("Torch Transformer is missing final norm parameters.")
     torch_eps = float(getattr(torch_norm, "eps", getattr(torch_norm, "epsilon", 1e-5)))
     eqx_model = eqx.tree_at(
         lambda m: m.norm.weight,
@@ -1274,7 +1287,9 @@ def load_pretrained_gpt_oss(
         ) from exc
 
     try:
-        from gpt_oss.torch.weights import Checkpoint
+        checkpoint_cls = cast(
+            Any, getattr(import_module("gpt_oss.torch.weights"), "Checkpoint")
+        )
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             "Loading GPT-OSS checkpoints requires the `gpt-oss` package. "
@@ -1298,7 +1313,7 @@ def load_pretrained_gpt_oss(
     config = GPTOSSConfig(**config_kwargs)
     key = jax.random.PRNGKey(int(seed))
     eqx_model = Transformer(config=config, key=key, param_dtype=param_dtype)
-    checkpoint_reader = Checkpoint(str(checkpoint_path), torch.device(device))
+    checkpoint_reader = checkpoint_cls(str(checkpoint_path), torch.device(device))
     eqx_model = _populate_eqx_from_checkpoint(
         checkpoint_reader,
         eqx_model,
