@@ -143,6 +143,7 @@ files = [
     "jax2onnx/plugins/flax/nnx",
     "jax2onnx/plugins/flax/linen/activation.py",
     "jax2onnx/plugins/flax/linen/avg_pool.py",
+    "jax2onnx/plugins/flax/linen/batch_norm.py",
     "jax2onnx/plugins/flax/linen/dropout.py",
     "jax2onnx/plugins/flax/linen/embed.py",
     "jax2onnx/plugins/flax/linen/group_norm.py",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 import logging
 import numpy as np
 from flax import linen as nn
@@ -164,22 +164,22 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.batch_norm")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def _batch_norm(
-        x,
-        scale,
-        bias,
-        mean,
-        var,
+        x: Any,
+        scale: Any,
+        bias: Any,
+        mean: Any,
+        var: Any,
         *,
-        epsilon,
-        momentum,
-        scale_is_default=False,
-        bias_is_default=False,
-    ):
+        epsilon: float,
+        momentum: float,
+        scale_is_default: bool = False,
+        bias_is_default: bool = False,
+    ) -> Any:
         return BatchNormPlugin._PRIM.bind(
             x,
             scale,
@@ -193,11 +193,28 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
         )
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         BatchNormPlugin._ORIGINAL_CALL = orig_fn
         prim = BatchNormPlugin._PRIM
 
-        def patched(self, x, use_running_average=None, *, mask=None):
+        def call_orig(
+            self: Any,
+            x: Any,
+            use_running_average: Any | None = None,
+            *,
+            mask: Any | None = None,
+        ) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.BatchNorm.__call__ is not available.")
+            return orig_fn(self, x, use_running_average=use_running_average, mask=mask)
+
+        def patched(
+            self: Any,
+            x: Any,
+            use_running_average: Any | None = None,
+            *,
+            mask: Any | None = None,
+        ) -> Any:
             try:
                 use_running_average = nn.merge_param(
                     "use_running_average",
@@ -205,8 +222,11 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
                     use_running_average,
                 )
             except ValueError:
-                return orig_fn(
-                    self, x, use_running_average=use_running_average, mask=mask
+                return call_orig(
+                    self,
+                    x,
+                    use_running_average=use_running_average,
+                    mask=mask,
                 )
 
             if not use_running_average:
@@ -216,19 +236,19 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
 
             axis = getattr(self, "axis", -1)
             if not isinstance(axis, int):
-                return orig_fn(
+                return call_orig(
                     self, x, use_running_average=use_running_average, mask=mask
                 )
             if axis < 0:
                 axis += x.ndim
             if axis != x.ndim - 1:
-                return orig_fn(
+                return call_orig(
                     self, x, use_running_average=use_running_average, mask=mask
                 )
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(
+                return call_orig(
                     self, x, use_running_average=use_running_average, mask=mask
                 )
 
@@ -239,7 +259,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             mean = batch_stats.get("mean")
             var = batch_stats.get("var")
             if mean is None or var is None:
-                return orig_fn(
+                return call_orig(
                     self, x, use_running_average=use_running_average, mask=mask
                 )
 
@@ -250,7 +270,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
             for arr in (mean, var, scale, bias):
                 if arr is None:
                     continue
-                shape = getattr(arr, "shape", ())
+                shape: tuple[object, ...] = tuple(getattr(arr, "shape", ()))
                 if len(shape) == 1 and isinstance(shape[0], (int, np.integer)):
                     num_features = int(shape[0])
                     break
@@ -266,7 +286,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
 
             if getattr(self, "use_scale", True):
                 if scale is None:
-                    return orig_fn(
+                    return call_orig(
                         self, x, use_running_average=use_running_average, mask=mask
                     )
                 scale_is_default = False
@@ -276,7 +296,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
 
             if getattr(self, "use_bias", True):
                 if bias is None:
-                    return orig_fn(
+                    return call_orig(
                         self, x, use_running_average=use_running_average, mask=mask
                     )
                 bias_is_default = False
@@ -299,7 +319,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "batch_norm_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -313,17 +333,17 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
 
 @BatchNormPlugin._PRIM.def_impl
 def _impl(
-    x,
-    scale,
-    bias,
-    mean,
-    var,
+    x: Any,
+    scale: Any,
+    bias: Any,
+    mean: Any,
+    var: Any,
     *,
-    epsilon,
-    momentum,
-    scale_is_default=False,
-    bias_is_default=False,
-):
+    epsilon: float,
+    momentum: float,
+    scale_is_default: bool = False,
+    bias_is_default: bool = False,
+) -> Any:
     return nnx_batch_norm._impl(
         x,
         scale,
