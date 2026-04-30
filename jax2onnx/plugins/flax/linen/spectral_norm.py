@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -19,10 +19,10 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
 
-def _l2_normalize(x, *, eps: float) -> jax.Array:
+def _l2_normalize(x: Any, *, eps: float) -> jax.Array:
     return x * jax.lax.rsqrt((x * x).sum(axis=None, keepdims=True) + eps)
 
 
@@ -70,7 +70,7 @@ def _maybe_broadcast(
     return tuple(int(v) for v in x)
 
 
-def _call_dense(layer: nn.Dense, x, kernel, bias):
+def _call_dense(layer: nn.Dense, x: Any, kernel: Any, bias: Any) -> Any:
     from jax2onnx.plugins.flax.linen import dense as linen_dense
 
     use_bias = bool(getattr(layer, "use_bias", True))
@@ -89,7 +89,7 @@ def _call_dense(layer: nn.Dense, x, kernel, bias):
     )
 
 
-def _call_conv(layer: nn.Conv, x, kernel, bias):
+def _call_conv(layer: nn.Conv, x: Any, kernel: Any, bias: Any) -> Any | None:
     from jax2onnx.plugins.flax.linen import conv as linen_conv
 
     kernel_size = (
@@ -176,7 +176,7 @@ class _SpectralNormDense(nn.Module):
     n_steps: int = 1
 
     @nn.compact
-    def __call__(self, x, *, update_stats: bool = False):
+    def __call__(self, x: Any, *, update_stats: bool = False) -> Any:
         return nn.SpectralNorm(
             nn.Dense(self.features),
             n_steps=self.n_steps,
@@ -220,20 +220,21 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.spectral_norm")
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "SpectralNorm primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.SpectralNorm",
@@ -244,49 +245,64 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         SpectralNormPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(self, *args, update_stats: bool, **kwargs):
+        def call_orig(
+            self: Any,
+            *args: Any,
+            update_stats: bool,
+            **kwargs: Any,
+        ) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.SpectralNorm.__call__ is not available.")
+            return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+
+        def patched(
+            self: Any,
+            *args: Any,
+            update_stats: bool,
+            **kwargs: Any,
+        ) -> Any:
             if update_stats:
                 raise NotImplementedError(
                     "SpectralNorm export only supports update_stats=False."
                 )
             if kwargs:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
             if len(args) != 1:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
             variables = scope.variables()
 
             stats = variables.get(getattr(self, "collection_name", "batch_stats"), {})
 
             layer = getattr(self, "layer_instance", None)
             if layer is None:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             inner_scope = getattr(layer, "scope", None)
             if inner_scope is None or not hasattr(inner_scope, "variables"):
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
             inner_vars = inner_scope.variables()
             params = inner_vars.get("params", {})
 
             kernel = params.get("kernel")
             bias = params.get("bias")
             if kernel is None:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             layer_name = getattr(layer, "name", None)
             if not layer_name:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             u_name = f"{layer_name}/kernel/u"
             u_val = stats.get(u_name)
             if u_val is None:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             try:
                 kernel = _spectral_normalize(
@@ -299,7 +315,7 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
                     ),
                 )
             except Exception:
-                return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+                return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
             x = args[0]
 
@@ -310,6 +326,6 @@ class SpectralNormPlugin(PrimitiveLeafPlugin):
                 if out is not None:
                     return out
 
-            return orig_fn(self, *args, update_stats=update_stats, **kwargs)
+            return call_orig(self, *args, update_stats=update_stats, **kwargs)
 
         return patched

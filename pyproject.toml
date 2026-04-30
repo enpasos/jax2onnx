@@ -160,6 +160,7 @@ files = [
     "jax2onnx/plugins/flax/linen/pool.py",
     "jax2onnx/plugins/flax/linen/recurrent.py",
     "jax2onnx/plugins/flax/linen/rms_norm.py",
+    "jax2onnx/plugins/flax/linen/spectral_norm.py",
     "jax2onnx/plugins/flax/linen/weight_norm.py",
     "jax2onnx/plugins/jax/_autodiff_utils.py",
     "jax2onnx/plugins/jax/_batching_utils.py",
