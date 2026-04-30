@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable, cast
 
 import jax
 import jax.numpy as jnp
@@ -10,8 +10,13 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
@@ -29,7 +34,15 @@ from .gather_compile import compile_to_gir
 _CONST_HANDLERS_REGISTERED: bool = False
 
 
-def _ensure_constant_folders_registered(ctx: "IRContext") -> None:
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
+
+
+def _as_dim_tuple(dims: tuple[Any, ...] | list[Any]) -> tuple[DimInput, ...]:
+    return cast(tuple[DimInput, ...], tuple(dims))
+
+
+def _ensure_constant_folders_registered(ctx: LoweringContextProtocol) -> None:
     global _CONST_HANDLERS_REGISTERED
     if _CONST_HANDLERS_REGISTERED:
         return
@@ -74,10 +87,6 @@ def _ensure_constant_folders_registered(ctx: "IRContext") -> None:
     _CONST_HANDLERS_REGISTERED = True
 
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
-
-
 def _is_integer_dtype(dtype: Any) -> bool:
     try:
         return np.issubdtype(np.dtype(dtype), np.integer)
@@ -89,7 +98,7 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     dtype = getattr(getattr(val, "type", None), "dtype", None)
     if dtype is None:
         raise TypeError("Missing dtype on value; ensure inputs are typed.")
-    return dtype
+    return cast(ir.DataType, dtype)
 
 
 def _shape_tuple(value: ir.Value) -> tuple[Any, ...]:
@@ -115,21 +124,27 @@ def _mode_name(mode: Any) -> str:
 def _default_fill_value(dtype: ir.DataType) -> np.ndarray[Any, np.dtype[Any]]:
     np_dtype = ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
     if np.issubdtype(np_dtype, np.floating):
-        return np.asarray(np.nan, dtype=np_dtype)
+        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(np.nan, dtype=np_dtype))
     if np.issubdtype(np_dtype, np.bool_):
-        return np.asarray(True, dtype=np_dtype)
+        return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(True, dtype=np_dtype))
     if np.issubdtype(np_dtype, np.signedinteger):
-        return np.asarray(np.iinfo(np_dtype).min, dtype=np_dtype)
+        return cast(
+            np.ndarray[Any, np.dtype[Any]],
+            np.asarray(np.iinfo(np_dtype).min, dtype=np_dtype),
+        )
     if np.issubdtype(np_dtype, np.unsignedinteger):
-        return np.asarray(np.iinfo(np_dtype).max, dtype=np_dtype)
-    return np.asarray(0, dtype=np_dtype)
+        return cast(
+            np.ndarray[Any, np.dtype[Any]],
+            np.asarray(np.iinfo(np_dtype).max, dtype=np_dtype),
+        )
+    return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(0, dtype=np_dtype))
 
 
 def _fill_value_array(fill_value: Any, dtype: ir.DataType) -> np.ndarray[Any, Any]:
     if fill_value is None:
         return _default_fill_value(dtype)
     np_dtype = ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
-    return np.asarray(fill_value, dtype=np_dtype)
+    return cast(np.ndarray[Any, Any], np.asarray(fill_value, dtype=np_dtype))
 
 
 @register_primitive(
@@ -311,7 +326,7 @@ def _fill_value_array(fill_value: Any, dtype: ir.DataType) -> np.ndarray[Any, An
 class GatherPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.gather`` for the common index patterns exercised in tests."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         data_var, indices_var = eqn.invars
         out_var = eqn.outvars[0]
         mode = eqn.params.get("mode", lax.GatherScatterMode.PROMISE_IN_BOUNDS)
@@ -385,12 +400,17 @@ class GatherPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, current_data_var)
 
     def _emit_transpose_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], input_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        input_tensor: ir.Value,
     ) -> ir.Value:
-        result_val = ctx.builder.Transpose(
-            input_tensor,
-            _outputs=[ctx.fresh_name("transpose_gather_data")],
-            perm=gir_instr["numpy_transpose"],
+        result_val = _as_value(
+            ctx.builder.Transpose(
+                input_tensor,
+                _outputs=[ctx.fresh_name("transpose_gather_data")],
+                perm=gir_instr["numpy_transpose"],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
@@ -398,12 +418,17 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_transpose_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        index_tensor: ir.Value,
     ) -> ir.Value:
-        result_val = ctx.builder.Transpose(
-            index_tensor,
-            _outputs=[ctx.fresh_name("transpose_gather_index")],
-            perm=gir_instr["numpy_transpose"],
+        result_val = _as_value(
+            ctx.builder.Transpose(
+                index_tensor,
+                _outputs=[ctx.fresh_name("transpose_gather_index")],
+                perm=gir_instr["numpy_transpose"],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
@@ -411,14 +436,19 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_reshape_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        index_tensor: ir.Value,
     ) -> ir.Value:
         new_shape = get_gir_output_shape(gir_instr)
         new_shape_val = _lower_i64_vector(ctx, new_shape, "new_shape_for_gather_index")
-        result_val = ctx.builder.Reshape(
-            index_tensor,
-            new_shape_val,
-            _outputs=[ctx.fresh_name("reshape_gather_index")],
+        result_val = _as_value(
+            ctx.builder.Reshape(
+                index_tensor,
+                new_shape_val,
+                _outputs=[ctx.fresh_name("reshape_gather_index")],
+            )
         )
         _stamp_type_and_shape(result_val, new_shape)
         result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
@@ -426,18 +456,23 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_lastdim_gather_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        index_tensor: ir.Value,
     ) -> ir.Value:
         gather_indices_val = _const_i64(
             ctx,
             np.asarray(gir_instr["gather_indices"], dtype=np.int64),
             "gather_index_for_lastdim_gather_index",
         )
-        result_val = ctx.builder.Gather(
-            index_tensor,
-            gather_indices_val,
-            axis=-1,
-            _outputs=[ctx.fresh_name("lastdim_reorder_gather_on_gather_index")],
+        result_val = _as_value(
+            ctx.builder.Gather(
+                index_tensor,
+                gather_indices_val,
+                axis=-1,
+                _outputs=[ctx.fresh_name("lastdim_reorder_gather_on_gather_index")],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(index_tensor))
@@ -445,7 +480,10 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_index_expand_range_gir_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], index_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        index_tensor: ir.Value,
     ) -> ir.Value:
         new_dims = gir_instr.get("new_dims", [])
         if not new_dims:
@@ -481,10 +519,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 np.asarray([axis], dtype=np.int64),
                 f"index_expand_unsq_axes_{offset}",
             )
-            current_val = ctx.builder.Unsqueeze(
-                current_val,
-                axes_const,
-                _outputs=[ctx.fresh_name("index_expand_unsqueeze")],
+            current_val = _as_value(
+                ctx.builder.Unsqueeze(
+                    current_val,
+                    axes_const,
+                    _outputs=[ctx.fresh_name("index_expand_unsqueeze")],
+                )
             )
             current_shape_descr.insert(axis, 1)
             _stamp_type_and_shape(current_val, tuple(current_shape_descr))
@@ -512,13 +552,15 @@ class GatherPlugin(PrimitiveLeafPlugin):
             slice_steps = _const_i64(
                 ctx, np.asarray([1], dtype=np.int64), "index_expand_base_steps"
             )
-            base_shape_val = ctx.builder.Slice(
-                input_shape_val,
-                base_slice_starts,
-                base_slice_ends,
-                slice_axes,
-                slice_steps,
-                _outputs=[ctx.fresh_name("index_expand_base_shape")],
+            base_shape_val = _as_value(
+                ctx.builder.Slice(
+                    input_shape_val,
+                    base_slice_starts,
+                    base_slice_ends,
+                    slice_axes,
+                    slice_steps,
+                    _outputs=[ctx.fresh_name("index_expand_base_shape")],
+                )
             )
             _stamp_type_and_shape(base_shape_val, (base_rank,))
             base_shape_val.type = ir.TensorType(ir.DataType.INT64)
@@ -533,11 +575,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
         )
 
         if base_shape_val is not None:
-            target_no_index_shape_val = ctx.builder.Concat(
-                base_shape_val,
-                new_dims_const_val,
-                axis=0,
-                _outputs=[ctx.fresh_name("index_expand_target_shape")],
+            target_no_index_shape_val = _as_value(
+                ctx.builder.Concat(
+                    base_shape_val,
+                    new_dims_const_val,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("index_expand_target_shape")],
+                )
             )
         else:
             target_no_index_shape_val = new_dims_const_val
@@ -551,11 +595,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
             np.asarray([index_dim_value], dtype=np.int64),
             "index_expand_index_dim",
         )
-        target_full_shape_val = ctx.builder.Concat(
-            target_no_index_shape_val,
-            index_dim_const,
-            axis=0,
-            _outputs=[ctx.fresh_name("index_expand_full_shape")],
+        target_full_shape_val = _as_value(
+            ctx.builder.Concat(
+                target_no_index_shape_val,
+                index_dim_const,
+                axis=0,
+                _outputs=[ctx.fresh_name("index_expand_full_shape")],
+            )
         )
         target_full_descr = target_no_index_descr + [index_dim_descr]
         _stamp_type_and_shape(target_full_shape_val, (len(target_full_descr),))
@@ -572,11 +618,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 ctx, slice_size, f"index_expand_range_limit_{dim_idx}"
             )
             delta_val = _scalar_i64(ctx, 1, f"index_expand_range_delta_{dim_idx}")
-            range_val = ctx.builder.Range(
-                start_val,
-                limit_val,
-                delta_val,
-                _outputs=[ctx.fresh_name("index_expand_range")],
+            range_val = _as_value(
+                ctx.builder.Range(
+                    start_val,
+                    limit_val,
+                    delta_val,
+                    _outputs=[ctx.fresh_name("index_expand_range")],
+                )
             )
             _stamp_type_and_shape(range_val, (slice_size,))
             range_val.type = ir.TensorType(ir.DataType.INT64)
@@ -592,19 +640,23 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 np.asarray(reshape_shape, dtype=np.int64),
                 f"index_expand_range_shape_{dim_idx}",
             )
-            range_reshaped = ctx.builder.Reshape(
-                range_val,
-                reshape_shape_const,
-                _outputs=[ctx.fresh_name("index_expand_range_reshape")],
+            range_reshaped = _as_value(
+                ctx.builder.Reshape(
+                    range_val,
+                    reshape_shape_const,
+                    _outputs=[ctx.fresh_name("index_expand_range_reshape")],
+                )
             )
             _stamp_type_and_shape(range_reshaped, tuple(reshape_shape))
             range_reshaped.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_metadata(ctx, range_reshaped)
 
-            range_expanded = ctx.builder.Expand(
-                range_reshaped,
-                target_no_index_shape_val,
-                _outputs=[ctx.fresh_name("index_expand_range_expand")],
+            range_expanded = _as_value(
+                ctx.builder.Expand(
+                    range_reshaped,
+                    target_no_index_shape_val,
+                    _outputs=[ctx.fresh_name("index_expand_range_expand")],
+                )
             )
             _stamp_type_and_shape(range_expanded, tuple(target_no_index_descr))
             range_expanded.type = ir.TensorType(ir.DataType.INT64)
@@ -616,10 +668,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 np.asarray([unsqueeze_axis], dtype=np.int64),
                 f"index_expand_range_unsq_axes_{dim_idx}",
             )
-            range_unsqueezed = ctx.builder.Unsqueeze(
-                range_expanded,
-                axes_last_const,
-                _outputs=[ctx.fresh_name("index_expand_range_unsq")],
+            range_unsqueezed = _as_value(
+                ctx.builder.Unsqueeze(
+                    range_expanded,
+                    axes_last_const,
+                    _outputs=[ctx.fresh_name("index_expand_range_unsq")],
+                )
             )
             _stamp_type_and_shape(range_unsqueezed, tuple(target_no_index_descr + [1]))
             range_unsqueezed.type = ir.TensorType(ir.DataType.INT64)
@@ -634,19 +688,23 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 np.asarray(one_hot_shape, dtype=np.int64),
                 f"index_expand_one_hot_shape_{dim_idx}",
             )
-            one_hot_reshaped = ctx.builder.Reshape(
-                one_hot_const,
-                one_hot_shape_const,
-                _outputs=[ctx.fresh_name("index_expand_one_hot_reshape")],
+            one_hot_reshaped = _as_value(
+                ctx.builder.Reshape(
+                    one_hot_const,
+                    one_hot_shape_const,
+                    _outputs=[ctx.fresh_name("index_expand_one_hot_reshape")],
+                )
             )
             _stamp_type_and_shape(one_hot_reshaped, tuple(one_hot_shape))
             one_hot_reshaped.type = ir.TensorType(ir.DataType.INT64)
             _ensure_value_metadata(ctx, one_hot_reshaped)
 
-            range_contribution = ctx.builder.Mul(
-                range_unsqueezed,
-                one_hot_reshaped,
-                _outputs=[ctx.fresh_name("index_expand_contribution")],
+            range_contribution = _as_value(
+                ctx.builder.Mul(
+                    range_unsqueezed,
+                    one_hot_reshaped,
+                    _outputs=[ctx.fresh_name("index_expand_contribution")],
+                )
             )
             _stamp_type_and_shape(range_contribution, tuple(target_full_descr))
             range_contribution.type = ir.TensorType(ir.DataType.INT64)
@@ -655,29 +713,38 @@ class GatherPlugin(PrimitiveLeafPlugin):
             if total_add is None:
                 total_add = range_contribution
             else:
-                total_add = ctx.builder.Add(
-                    total_add,
-                    range_contribution,
-                    _outputs=[ctx.fresh_name("index_expand_total_add")],
+                total_add = _as_value(
+                    ctx.builder.Add(
+                        total_add,
+                        range_contribution,
+                        _outputs=[ctx.fresh_name("index_expand_total_add")],
+                    )
                 )
                 _stamp_type_and_shape(total_add, tuple(target_full_descr))
                 total_add.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_metadata(ctx, total_add)
 
+        if total_add is None:
+            raise RuntimeError("index_expand produced no range contribution")
+
         if dtype_enum != ir.DataType.INT64:
-            total_add = ctx.builder.Cast(
-                total_add,
-                _outputs=[ctx.fresh_name("index_expand_cast")],
-                to=int(dtype_enum.value),
+            total_add = _as_value(
+                ctx.builder.Cast(
+                    total_add,
+                    _outputs=[ctx.fresh_name("index_expand_cast")],
+                    to=int(dtype_enum.value),
+                )
             )
             _stamp_type_and_shape(total_add, tuple(target_full_descr))
             total_add.type = ir.TensorType(dtype_enum)
             _ensure_value_metadata(ctx, total_add)
 
-        result_val = ctx.builder.Add(
-            current_val,
-            total_add,
-            _outputs=[ctx.fresh_name("index_expand_apply")],
+        result_val = _as_value(
+            ctx.builder.Add(
+                current_val,
+                total_add,
+                _outputs=[ctx.fresh_name("index_expand_apply")],
+            )
         )
         _stamp_type_and_shape(result_val, tuple(target_full_descr))
         result_val.type = ir.TensorType(dtype_enum)
@@ -686,7 +753,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
     def _emit_gather_from_gir(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         gir_instr: dict[str, Any],
         input_tensor: ir.Value,
         index_tensor: ir.Value,
@@ -698,13 +765,15 @@ class GatherPlugin(PrimitiveLeafPlugin):
         if index_tensor.type != ir.TensorType(
             ir.DataType.INT64
         ) and index_tensor.type != ir.TensorType(ir.DataType.INT32):
-            index_tensor_final = ctx.builder.Cast(
-                index_tensor,
-                _outputs=[ctx.fresh_name("gather_nd_indices")],
-                to=int(ir.DataType.INT64.value),
+            index_tensor_final = _as_value(
+                ctx.builder.Cast(
+                    index_tensor,
+                    _outputs=[ctx.fresh_name("gather_nd_indices")],
+                    to=int(ir.DataType.INT64.value),
+                )
             )
             index_tensor_final.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(index_tensor_final, tuple(index_tensor.shape))
+            _stamp_type_and_shape(index_tensor_final, _shape_tuple(index_tensor))
             _ensure_value_metadata(ctx, index_tensor_final)
         else:
             index_tensor_final = index_tensor
@@ -733,11 +802,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
 
         # emit gather
-        result_val = ctx.builder.Gather(
-            input_tensor,
-            index_tensor_final,
-            axis=gather_axis,
-            _outputs=[ctx.fresh_name("simple_gather")],
+        result_val = _as_value(
+            ctx.builder.Gather(
+                input_tensor,
+                index_tensor_final,
+                axis=gather_axis,
+                _outputs=[ctx.fresh_name("simple_gather")],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
@@ -755,7 +826,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
     def _clip_gather_indices_for_mode(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         input_tensor: ir.Value,
         index_tensor: ir.Value,
         *,
@@ -764,10 +835,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
     ) -> tuple[ir.Value, ir.Value | None]:
         index_shape = _shape_tuple(index_tensor)
         if index_tensor.type != ir.TensorType(ir.DataType.INT64):
-            index_tensor = ctx.builder.Cast(
-                index_tensor,
-                _outputs=[ctx.fresh_name("gather_indices_i64")],
-                to=int(ir.DataType.INT64.value),
+            index_tensor = _as_value(
+                ctx.builder.Cast(
+                    index_tensor,
+                    _outputs=[ctx.fresh_name("gather_indices_i64")],
+                    to=int(ir.DataType.INT64.value),
+                )
             )
             index_tensor.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(index_tensor, index_shape)
@@ -779,10 +852,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
         dim_scalar = _gather_int_scalar(ctx, input_shape, axis_norm, "gather_axis_dim")
         one = _scalar_i64(ctx, 1, "gather_bound_one")
         zero = _scalar_i64(ctx, 0, "gather_bound_zero")
-        max_index = ctx.builder.Sub(
-            dim_scalar,
-            one,
-            _outputs=[ctx.fresh_name("gather_max_index")],
+        max_index = _as_value(
+            ctx.builder.Sub(
+                dim_scalar,
+                one,
+                _outputs=[ctx.fresh_name("gather_max_index")],
+            )
         )
         max_index.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(max_index, ())
@@ -790,46 +865,56 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
         invalid_mask = None
         if need_invalid_mask:
-            lt_zero = ctx.builder.Less(
-                index_tensor,
-                zero,
-                _outputs=[ctx.fresh_name("gather_index_lt_zero")],
+            lt_zero = _as_value(
+                ctx.builder.Less(
+                    index_tensor,
+                    zero,
+                    _outputs=[ctx.fresh_name("gather_index_lt_zero")],
+                )
             )
             lt_zero.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(lt_zero, index_shape)
             _ensure_value_metadata(ctx, lt_zero)
 
-            gt_max = ctx.builder.Greater(
-                index_tensor,
-                max_index,
-                _outputs=[ctx.fresh_name("gather_index_gt_max")],
+            gt_max = _as_value(
+                ctx.builder.Greater(
+                    index_tensor,
+                    max_index,
+                    _outputs=[ctx.fresh_name("gather_index_gt_max")],
+                )
             )
             gt_max.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(gt_max, index_shape)
             _ensure_value_metadata(ctx, gt_max)
 
-            invalid_mask = ctx.builder.Or(
-                lt_zero,
-                gt_max,
-                _outputs=[ctx.fresh_name("gather_invalid_index")],
+            invalid_mask = _as_value(
+                ctx.builder.Or(
+                    lt_zero,
+                    gt_max,
+                    _outputs=[ctx.fresh_name("gather_invalid_index")],
+                )
             )
             invalid_mask.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(invalid_mask, index_shape)
             _ensure_value_metadata(ctx, invalid_mask)
 
-        clipped_low = ctx.builder.Max(
-            index_tensor,
-            zero,
-            _outputs=[ctx.fresh_name("gather_index_nonnegative")],
+        clipped_low = _as_value(
+            ctx.builder.Max(
+                index_tensor,
+                zero,
+                _outputs=[ctx.fresh_name("gather_index_nonnegative")],
+            )
         )
         clipped_low.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(clipped_low, index_shape)
         _ensure_value_metadata(ctx, clipped_low)
 
-        clipped = ctx.builder.Min(
-            clipped_low,
-            max_index,
-            _outputs=[ctx.fresh_name("gather_index_clipped")],
+        clipped = _as_value(
+            ctx.builder.Min(
+                clipped_low,
+                max_index,
+                _outputs=[ctx.fresh_name("gather_index_clipped")],
+            )
         )
         clipped.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(clipped, index_shape)
@@ -838,7 +923,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
     def _fill_invalid_gather_result(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         input_tensor: ir.Value,
         result_val: ir.Value,
         invalid_mask: ir.Value,
@@ -856,10 +941,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 np.asarray([len(mask_shape)], dtype=np.int64),
                 f"gather_invalid_mask_axis_{tail_axis}",
             )
-            invalid_mask = ctx.builder.Unsqueeze(
-                invalid_mask,
-                axes,
-                _outputs=[ctx.fresh_name("gather_invalid_mask_unsqueeze")],
+            invalid_mask = _as_value(
+                ctx.builder.Unsqueeze(
+                    invalid_mask,
+                    axes,
+                    _outputs=[ctx.fresh_name("gather_invalid_mask_unsqueeze")],
+                )
             )
             mask_shape = mask_shape + (1,)
             invalid_mask.type = ir.TensorType(ir.DataType.BOOL)
@@ -875,11 +962,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(fill_const, ())
         _ensure_value_metadata(ctx, fill_const)
 
-        filled = ctx.builder.Where(
-            invalid_mask,
-            fill_const,
-            result_val,
-            _outputs=[ctx.fresh_name("gather_fill_or_drop")],
+        filled = _as_value(
+            ctx.builder.Where(
+                invalid_mask,
+                fill_const,
+                result_val,
+                _outputs=[ctx.fresh_name("gather_fill_or_drop")],
+            )
         )
         _stamp_type_and_shape(filled, _shape_tuple(result_val))
         filled.type = ir.TensorType(result_dtype)
@@ -887,12 +976,15 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return filled
 
     def _convert_symbolic_1d_int_vec(
-        self, ctx: "IRContext", values: list[Any], name: str
+        self, ctx: LoweringContextProtocol, values: list[Any], name: str
     ) -> ir.Value:
         return _lower_i64_vector(ctx, values, name)
 
     def _emit_slice_from_gir(
-        self, ctx: "IRContext", gir_instr: dict[str, Any], input_tensor: ir.Value
+        self,
+        ctx: LoweringContextProtocol,
+        gir_instr: dict[str, Any],
+        input_tensor: ir.Value,
     ) -> ir.Value:
         axes = [dim["dim"] for dim in gir_instr["dims"] if dim["mode"] == "range_slice"]
         starts = [
@@ -906,12 +998,14 @@ class GatherPlugin(PrimitiveLeafPlugin):
         ends_val = self._convert_symbolic_1d_int_vec(ctx, ends, "gather_slice_ends")
         axes_val = self._convert_symbolic_1d_int_vec(ctx, axes, "gather_slice_axes")
 
-        result_val = ctx.builder.Slice(
-            input_tensor,
-            starts_val,
-            ends_val,
-            axes_val,
-            _outputs=[ctx.fresh_name("gather_slice")],
+        result_val = _as_value(
+            ctx.builder.Slice(
+                input_tensor,
+                starts_val,
+                ends_val,
+                axes_val,
+                _outputs=[ctx.fresh_name("gather_slice")],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
@@ -920,7 +1014,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
 
     def _emit_gather_nd_from_gir(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         gir_instr: dict[str, Any],
         input_tensor: ir.Value,
         index_tensor: ir.Value,
@@ -928,13 +1022,15 @@ class GatherPlugin(PrimitiveLeafPlugin):
         batch_dims = 0
         # emit cast on index if it is not the correct type
         if index_tensor.type != ir.TensorType(ir.DataType.INT64):
-            index_tensor_final = ctx.builder.Cast(
-                index_tensor,
-                _outputs=[ctx.fresh_name("gather_nd_indices")],
-                to=int(ir.DataType.INT64.value),
+            index_tensor_final = _as_value(
+                ctx.builder.Cast(
+                    index_tensor,
+                    _outputs=[ctx.fresh_name("gather_nd_indices")],
+                    to=int(ir.DataType.INT64.value),
+                )
             )
             index_tensor_final.type = ir.TensorType(ir.DataType.INT64)
-            _stamp_type_and_shape(index_tensor_final, tuple(index_tensor.shape))
+            _stamp_type_and_shape(index_tensor_final, _shape_tuple(index_tensor))
             _ensure_value_metadata(ctx, index_tensor_final)
         else:
             index_tensor_final = index_tensor
@@ -947,11 +1043,13 @@ class GatherPlugin(PrimitiveLeafPlugin):
                 assert dim["mode"] in ["passthrough", "gather"]
 
         # emit GatherND
-        result_val = ctx.builder.GatherND(
-            input_tensor,
-            index_tensor_final,
-            batch_dims=batch_dims,
-            _outputs=[ctx.fresh_name("gather_nd")],
+        result_val = _as_value(
+            ctx.builder.GatherND(
+                input_tensor,
+                index_tensor_final,
+                batch_dims=batch_dims,
+                _outputs=[ctx.fresh_name("gather_nd")],
+            )
         )
         _stamp_type_and_shape(result_val, get_gir_output_shape(gir_instr))
         result_val.type = ir.TensorType(_dtype_enum_from_value(input_tensor))
@@ -959,7 +1057,7 @@ class GatherPlugin(PrimitiveLeafPlugin):
         return result_val
 
     def _emit_constant_index(
-        self, ctx: "IRContext", gir_instr: dict[str, Any]
+        self, ctx: LoweringContextProtocol, gir_instr: dict[str, Any]
     ) -> ir.Value:
         index_val = _const_i64(
             ctx,

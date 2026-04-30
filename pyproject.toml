@@ -211,6 +211,7 @@ files = [
     "jax2onnx/plugins/jax/lax/fft.py",
     "jax2onnx/plugins/jax/lax/floor.py",
     "jax2onnx/plugins/jax/lax/fori_loop.py",
+    "jax2onnx/plugins/jax/lax/gather.py",
     "jax2onnx/plugins/jax/lax/ge.py",
     "jax2onnx/plugins/jax/lax/gt.py",
     "jax2onnx/plugins/jax/lax/hessenberg.py",
