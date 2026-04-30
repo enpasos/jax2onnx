@@ -17,7 +17,7 @@ from jax2onnx.plugins.plugin_system import (
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
-    def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
+    def __init__(self, num_hiddens: int, mlp_dim: int, rngs: nnx.Rngs):
         self.layers = nnx.List(
             [
                 nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
@@ -39,12 +39,12 @@ class MLPBlock(nnx.Module):
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         rngs = nnx.Rngs(0)
         self.layer_norm2 = nnx.LayerNorm(3, rngs=rngs)
         self.mlp = MLPBlock(num_hiddens=3, mlp_dim=6, rngs=rngs)
 
-    def __call__(self, x, deterministic: bool):
+    def __call__(self, x: jnp.ndarray, deterministic: bool) -> jnp.ndarray:
         # Explicitly pass the deterministic parameter to the MLPBlock
         x_normalized = self.layer_norm2(x)
         return self.mlp(x_normalized, deterministic=deterministic)

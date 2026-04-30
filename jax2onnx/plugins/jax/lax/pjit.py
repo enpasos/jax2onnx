@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Tuple, cast
+from typing import Any, Iterable, Tuple, cast
 
 from functools import partial
 import numpy as np
@@ -10,15 +10,13 @@ import jax
 from jax.experimental import mesh_utils, pjit
 from jax.sharding import Mesh, PartitionSpec as P
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _extract_closed_jaxpr(params: dict[str, Any]) -> Tuple[Any, Iterable[Any]]:
@@ -99,7 +97,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
 class PJITPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``pjit`` call directly into the current IR context."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         inner_jaxpr, consts = _extract_closed_jaxpr(eqn.params)
 
         # Bind constants into the current context so inner equations can use them

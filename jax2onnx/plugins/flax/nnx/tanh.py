@@ -1,24 +1,20 @@
 # jax2onnx/plugins/flax/nnx/tanh.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable, List, Union
+from typing import Callable, ClassVar, cast
 import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import nnx
-import onnx_ir as ir
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._ir_shapes import (
-    _dim_label_from_value_or_aval,
-    _stamp_type_and_shape,
-    _ensure_value_metadata,
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
 )
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 @register_primitive(
@@ -53,55 +49,34 @@ class TanhPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x):
+    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
-        (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
-
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for Tanh lowering")
-
-        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Tanh")
-        result = builder.Tanh(x_val, _outputs=[out_name])
-
-        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        if dtype is not None:
-            result.type = ir.TensorType(dtype)
-
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        if x_shape:
-            dims: List[Union[int, str]] = [
-                _dim_label_from_value_or_aval(x_val, x_shape, i)
-                for i in range(len(x_shape))
-            ]
-            _stamp_type_and_shape(result, tuple(dims))
-        _ensure_value_metadata(ctx, result)
-
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if callable(bind_value):
-            bind_value(y_var, result)
-        else:
-            raise AttributeError("IR build context missing bind_value_for_var")
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Tanh",
+            input_hint="tanh_in",
+            output_hint="tanh_out",
+        )
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(
+        orig_fn: Callable[..., ArrayLike] | None,
+    ) -> Callable[[ArrayLike], ArrayLike]:
+        del orig_fn
         prim = TanhPlugin._PRIM
 
-        def patched_tanh(x):
-            return prim.bind(x)
+        def patched_tanh(x: ArrayLike) -> ArrayLike:
+            return cast(ArrayLike, prim.bind(x))
 
         return patched_tanh
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             # Expose a private primitive handle (created if missing)
             AssignSpec("flax.nnx", "tanh_p", cls._PRIM, delete_if_missing=True),
@@ -115,7 +90,7 @@ class TanhPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -123,5 +98,5 @@ class TanhPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @TanhPlugin._PRIM.def_impl
-def _impl(x):
+def _impl(x: ArrayLike) -> ArrayLike:
     return jnp.tanh(x)

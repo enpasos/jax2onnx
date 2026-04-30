@@ -212,15 +212,18 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for select lowering")
-        cast = builder.Cast(
-            val,
-            _outputs=[ctx.fresh_name("select_cond_cast")],
-            to=int(ir.DataType.BOOL.value),
+        cast_val = cast(
+            ir.Value,
+            builder.Cast(
+                val,
+                _outputs=[ctx.fresh_name("select_cond_cast")],
+                to=int(ir.DataType.BOOL.value),
+            ),
         )
-        cast.type = ir.TensorType(ir.DataType.BOOL)
-        _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_metadata(ctx, cast)
-        return cast
+        cast_val.type = ir.TensorType(ir.DataType.BOOL)
+        _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
+        _ensure_value_metadata(ctx, cast_val)
+        return cast_val
 
     @staticmethod
     def _ensure_dtype(
@@ -238,15 +241,18 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for select lowering")
-        cast = builder.Cast(
-            val,
-            _outputs=[ctx.fresh_name("select_cast")],
-            to=int(target_ir_dtype.value),
+        cast_val = cast(
+            ir.Value,
+            builder.Cast(
+                val,
+                _outputs=[ctx.fresh_name("select_cast")],
+                to=int(target_ir_dtype.value),
+            ),
         )
-        cast.type = ir.TensorType(target_ir_dtype)
-        _stamp_type_and_shape(cast, tuple(getattr(var.aval, "shape", ())))
-        _ensure_value_metadata(ctx, cast)
-        return cast
+        cast_val.type = ir.TensorType(target_ir_dtype)
+        _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))
+        _ensure_value_metadata(ctx, cast_val)
+        return cast_val
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:

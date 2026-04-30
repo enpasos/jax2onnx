@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -14,7 +14,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -34,7 +34,7 @@ def _as_output_name(
     spec: ir.Value,
     name_hint: str,
 ) -> str:
-    desired_name = getattr(spec, "name", None) or ctx.fresh_name(name_hint)
+    desired_name = cast(str, getattr(spec, "name", None) or ctx.fresh_name(name_hint))
     producer = getattr(spec, "producer", None)
     if callable(producer) and producer() is not None:
         desired_name = ctx.fresh_name(name_hint)
@@ -49,7 +49,7 @@ def _const_scalar(
     name_hint: str,
 ) -> ir.Value:
     dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
-    result = ctx.builder.add_initializer_from_array(
+    result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=np.asarray(value, dtype=dtype),
     )
@@ -72,11 +72,14 @@ def _gather_matrix_elem(
     batch_shape = matrix_shape[:-2]
     row_axis = len(matrix_shape) - 2
     row_idx = _const_i64(ctx, np.asarray(row, dtype=np.int64), f"{name_hint}_row")
-    row_val = ctx.builder.Gather(
-        matrix,
-        row_idx,
-        axis=row_axis,
-        _outputs=[ctx.fresh_name(f"{name_hint}_row")],
+    row_val = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            matrix,
+            row_idx,
+            axis=row_axis,
+            _outputs=[ctx.fresh_name(f"{name_hint}_row")],
+        ),
     )
     row_val.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(row_val, batch_shape + (matrix_shape[-1],))
@@ -84,11 +87,14 @@ def _gather_matrix_elem(
 
     col_axis = len(batch_shape)
     col_idx = _const_i64(ctx, np.asarray(col, dtype=np.int64), f"{name_hint}_col")
-    elem = ctx.builder.Gather(
-        row_val,
-        col_idx,
-        axis=col_axis,
-        _outputs=[ctx.fresh_name(name_hint)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row_val,
+            col_idx,
+            axis=col_axis,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     elem.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(elem, batch_shape)
@@ -109,13 +115,13 @@ def _binary_op(
 ) -> ir.Value:
     outputs = [output_name or ctx.fresh_name(name_hint)]
     if op_type == "Add":
-        result = ctx.builder.Add(lhs, rhs, _outputs=outputs)
+        result = cast(ir.Value, ctx.builder.Add(lhs, rhs, _outputs=outputs))
     elif op_type == "Sub":
-        result = ctx.builder.Sub(lhs, rhs, _outputs=outputs)
+        result = cast(ir.Value, ctx.builder.Sub(lhs, rhs, _outputs=outputs))
     elif op_type == "Mul":
-        result = ctx.builder.Mul(lhs, rhs, _outputs=outputs)
+        result = cast(ir.Value, ctx.builder.Mul(lhs, rhs, _outputs=outputs))
     elif op_type == "Div":
-        result = ctx.builder.Div(lhs, rhs, _outputs=outputs)
+        result = cast(ir.Value, ctx.builder.Div(lhs, rhs, _outputs=outputs))
     else:  # pragma: no cover - internal guard
         raise ValueError(f"Unsupported linalg.inv op: {op_type}")
     result.type = ir.TensorType(dtype_enum)
@@ -132,7 +138,10 @@ def _neg(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    result = ctx.builder.Neg(val, _outputs=[ctx.fresh_name(name_hint)])
+    result = cast(
+        ir.Value,
+        ctx.builder.Neg(val, _outputs=[ctx.fresh_name(name_hint)]),
+    )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
     _ensure_value_metadata(ctx, result)
@@ -148,10 +157,13 @@ def _unsqueeze(
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.Unsqueeze(
-        val,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(
+            val,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
@@ -169,10 +181,13 @@ def _concat(
     shape: tuple[int, ...],
     name_hint: str,
 ) -> ir.Value:
-    result = ctx.builder.Concat(
-        *values,
-        axis=axis,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Concat(
+            *values,
+            axis=axis,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
@@ -529,7 +544,7 @@ class JnpLinalgInvPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(

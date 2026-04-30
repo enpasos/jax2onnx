@@ -1,27 +1,22 @@
 # jax2onnx/plugins/flax/nnx/log_softmax.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, List, Union
+from typing import Any, Callable, ClassVar, cast
 
-import numpy as np
 import jax
 from jax.extend.core import Primitive
 from flax import nnx
-import onnx_ir as ir
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._ir_shapes import (
-    _stamp_type_and_shape,
-    _dim_label_from_value_or_aval,
-    _ensure_value_metadata,
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
 )
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-
-def _axis_attr_equals(model, expected: int) -> bool:
+def _axis_attr_equals(model: Any, expected: int) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "LogSoftmax"),
         None,
@@ -89,14 +84,15 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x, axis: int = -1):
+    def abstract_eval(
+        x: jax.core.AbstractValue, axis: int = -1
+    ) -> jax.core.ShapedArray:
         del axis
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
         axis = int(eqn.params.get("axis", -1))
 
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
@@ -105,55 +101,30 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
         if rank:
             axis_attr = axis % rank if axis < 0 else axis
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for LogSoftmax lowering"
-            )
-
-        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("LogSoftmax")
-        result = builder.LogSoftmax(
-            x_val,
-            axis=int(axis_attr),
-            _outputs=[out_name],
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="LogSoftmax",
+            input_hint="log_softmax_in",
+            output_hint="log_softmax_out",
+            attrs={"axis": int(axis_attr)},
         )
-
-        spec_type = getattr(out_spec, "type", None)
-        if spec_type is not None:
-            result.type = spec_type
-        else:
-            x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-            if x_dtype is not None:
-                result.type = ir.TensorType(x_dtype)
-
-        final_dims: List[Union[int, str]] = []
-        for i, d in enumerate(x_shape):
-            if isinstance(d, (int, np.integer)):
-                final_dims.append(int(d))
-            else:
-                final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
-
-        _stamp_type_and_shape(result, tuple(final_dims))
-        _ensure_value_metadata(ctx, result)
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, result)
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(
+        orig_fn: Callable[..., ArrayLike] | None,
+    ) -> Callable[..., ArrayLike]:
+        del orig_fn
         prim = LogSoftmaxPlugin._PRIM
 
-        def patched_log_softmax(x, axis: int = -1):
-            return prim.bind(x, axis=axis)
+        def patched_log_softmax(x: ArrayLike, axis: int = -1) -> ArrayLike:
+            return cast(ArrayLike, prim.bind(x, axis=axis))
 
         return patched_log_softmax
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.nnx", "log_softmax_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -165,7 +136,7 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, *, axis=-1: cls.abstract_eval(x, axis=axis)
@@ -175,5 +146,5 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @LogSoftmaxPlugin._PRIM.def_impl
-def _impl(x, *, axis: int):
+def _impl(x: ArrayLike, *, axis: int) -> ArrayLike:
     return jax.nn.log_softmax(x, axis=axis)

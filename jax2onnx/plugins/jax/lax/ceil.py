@@ -42,7 +42,7 @@ class CeilPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ceil_out"))
 
         # Derive a safe output name, avoiding reuse if out_spec already has a producer.
-        desired_name = out_spec.name
+        desired_name = out_spec.name or ctx.fresh_name("ceil_out")
         producer = getattr(out_spec, "producer", None)
         if producer is not None:
             desired_name = ctx.fresh_name(desired_name)

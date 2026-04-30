@@ -12,7 +12,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
-def _exclusive_self_attention(q, k, v):
+def _exclusive_self_attention(q: jax.Array, k: jax.Array, v: jax.Array) -> jax.Array:
     y = nnx.dot_product_attention(q, k, v)
     eps = jnp.asarray(1e-12, dtype=v.dtype)
     v_norm = v * jax.lax.rsqrt(jnp.sum(jnp.square(v), axis=-1, keepdims=True) + eps)

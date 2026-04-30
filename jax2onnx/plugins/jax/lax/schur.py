@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -57,7 +56,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 class SchurPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.schur`` for static square ``1x1`` matrices."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         compute_vecs = bool(params.get("compute_schur_vectors", True))
         select_callable = params.get("select_callable", None)
@@ -93,7 +92,7 @@ class SchurPlugin(PrimitiveLeafPlugin):
         t_var = outvars[0]
         t_spec = ctx.get_value_for_var(t_var, name_hint=ctx.fresh_name("schur_t"))
         t_name = getattr(t_spec, "name", None) or ctx.fresh_name("schur_t")
-        t_out = ctx.builder.Identity(x, _outputs=[t_name])
+        t_out = cast(ir.Value, ctx.builder.Identity(x, _outputs=[t_name]))
         _stamp_like(t_out, t_spec if getattr(t_spec, "type", None) else x)
         if getattr(t_spec, "shape", None) is not None:
             t_out.shape = t_spec.shape
@@ -109,7 +108,7 @@ class SchurPlugin(PrimitiveLeafPlugin):
         )
         q_const = ctx.bind_const_for_var(object(), np.asarray([[1]], dtype=q_dtype))
         q_name = getattr(q_spec, "name", None) or ctx.fresh_name("schur_q")
-        q_out = ctx.builder.Identity(q_const, _outputs=[q_name])
+        q_out = cast(ir.Value, ctx.builder.Identity(q_const, _outputs=[q_name]))
         _stamp_like(q_out, q_spec if getattr(q_spec, "type", None) else q_const)
         if getattr(q_spec, "shape", None) is not None:
             q_out.shape = q_spec.shape

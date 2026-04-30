@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -67,7 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
     ],
 )
 class SortPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", -1))
         num_keys = int(params.get("num_keys", 1))
@@ -123,33 +121,42 @@ class SortPlugin(PrimitiveLeafPlugin):
 
             key_input = key_value
             if key_is_bool:
-                key_input = ctx.builder.Cast(
-                    key_value,
-                    to=ir.DataType.INT32,
-                    _outputs=[ctx.fresh_name("sort_key_i32")],
+                key_input = cast(
+                    ir.Value,
+                    ctx.builder.Cast(
+                        key_value,
+                        to=ir.DataType.INT32,
+                        _outputs=[ctx.fresh_name("sort_key_i32")],
+                    ),
                 )
                 key_input.type = ir.TensorType(ir.DataType.INT32)
                 key_input.dtype = ir.DataType.INT32
                 _stamp_type_and_shape(key_input, key_shape)
                 _ensure_value_metadata(ctx, key_input)
 
-            values, indices = ctx.builder.TopK(
-                key_input,
-                k_val,
-                _outputs=[
-                    ctx.fresh_name("sort_values"),
-                    ctx.fresh_name("sort_indices"),
-                ],
-                axis=int(axis),
-                largest=0,
-                sorted=1,
+            values, indices = cast(
+                tuple[ir.Value, ir.Value],
+                ctx.builder.TopK(
+                    key_input,
+                    k_val,
+                    _outputs=[
+                        ctx.fresh_name("sort_values"),
+                        ctx.fresh_name("sort_indices"),
+                    ],
+                    axis=int(axis),
+                    largest=0,
+                    sorted=1,
+                ),
             )
 
             if key_is_bool:
-                values = ctx.builder.Cast(
-                    values,
-                    to=ir.DataType.BOOL,
-                    _outputs=[ctx.fresh_name("sort_values_bool")],
+                values = cast(
+                    ir.Value,
+                    ctx.builder.Cast(
+                        values,
+                        to=ir.DataType.BOOL,
+                        _outputs=[ctx.fresh_name("sort_values_bool")],
+                    ),
                 )
                 values.type = ir.TensorType(ir.DataType.BOOL)
                 values.dtype = ir.DataType.BOOL
@@ -170,11 +177,14 @@ class SortPlugin(PrimitiveLeafPlugin):
                 if value_idx == key_idx:
                     continue
 
-                gathered = ctx.builder.GatherElements(
-                    value,
-                    indices,
-                    axis=int(axis),
-                    _outputs=[ctx.fresh_name("sort_gathered")],
+                gathered = cast(
+                    ir.Value,
+                    ctx.builder.GatherElements(
+                        value,
+                        indices,
+                        axis=int(axis),
+                        _outputs=[ctx.fresh_name("sort_gathered")],
+                    ),
                 )
                 value_dtype = getattr(getattr(value, "type", None), "dtype", None)
                 if value_dtype is not None:
@@ -189,7 +199,7 @@ class SortPlugin(PrimitiveLeafPlugin):
             outvars, out_specs, current_values, strict=True
         ):
             result_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
-            result = ctx.builder.Identity(value, _outputs=[result_name])
+            result = cast(ir.Value, ctx.builder.Identity(value, _outputs=[result_name]))
             value_dtype = getattr(getattr(value, "type", None), "dtype", None)
             if value_dtype is not None:
                 result.type = ir.TensorType(value_dtype)

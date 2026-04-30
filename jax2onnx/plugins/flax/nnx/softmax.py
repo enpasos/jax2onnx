@@ -1,25 +1,21 @@
 # jax2onnx/plugins/flax/nnx/softmax.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, ClassVar, Callable, List, Union
+from typing import Callable, ClassVar, cast
 
 import jax
 import jax.numpy as jnp  # noqa: F401  (kept for parity with other plugins)
 from jax.extend.core import Primitive
 from flax import nnx
-import onnx_ir as ir
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._ir_shapes import (
-    _dim_label_from_value_or_aval,
-    _stamp_type_and_shape,
-    _ensure_value_metadata,
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
 )
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 @register_primitive(
@@ -58,14 +54,16 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x, axis: int = -1):
+    def abstract_eval(
+        x: jax.core.AbstractValue, axis: int = -1
+    ) -> jax.core.ShapedArray:
+        del axis
         # Output has same shape/dtype as input
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
 
         axis = int(eqn.params.get("axis", -1))
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
@@ -74,52 +72,30 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
         # Normalize negative axes to non-negative for ONNX attr robustness
         axis_attr = (axis % max(rank, 1)) if (axis < 0 and rank) else axis
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for Softmax lowering"
-            )
-
-        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Softmax")
-        result = builder.Softmax(
-            x_val,
-            _outputs=[out_name],
-            axis=int(axis_attr),
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Softmax",
+            input_hint="softmax_in",
+            output_hint="softmax_out",
+            attrs={"axis": int(axis_attr)},
         )
-
-        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        if dtype is not None:
-            result.type = ir.TensorType(dtype)
-
-        if x_shape:
-            dims: List[Union[int, str]] = [
-                _dim_label_from_value_or_aval(x_val, x_shape, i)
-                for i in range(len(x_shape))
-            ]
-            _stamp_type_and_shape(result, tuple(dims))
-        _ensure_value_metadata(ctx, result)
-
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if callable(bind_value):
-            bind_value(y_var, result)
-        else:
-            raise AttributeError("IR build context missing bind_value_for_var")
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(
+        orig_fn: Callable[..., ArrayLike] | None,
+    ) -> Callable[..., ArrayLike]:
+        del orig_fn
         prim = SoftmaxPlugin._PRIM
 
-        def patched_softmax(x, axis: int = -1):
-            return prim.bind(x, axis=axis)
+        def patched_softmax(x: ArrayLike, axis: int = -1) -> ArrayLike:
+            return cast(ArrayLike, prim.bind(x, axis=axis))
 
         return patched_softmax
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             # Expose our private primitive as flax.nnx.softmax_p (for parity with other ops)
             AssignSpec("flax.nnx", "softmax_p", cls._PRIM, delete_if_missing=True),
@@ -133,7 +109,7 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -141,5 +117,5 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @SoftmaxPlugin._PRIM.def_impl
-def _impl(x, *, axis: int):
+def _impl(x: ArrayLike, *, axis: int) -> ArrayLike:
     return jax.nn.softmax(x, axis=axis)

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
+import onnx_ir as ir
+
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -28,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ShardingConstraintPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.sharding_constraint`` to an ONNX Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -40,7 +40,7 @@ class ShardingConstraintPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Identity")
 
-        result = ctx.builder.Identity(inp_val, _outputs=[desired_name])
+        result = cast(ir.Value, ctx.builder.Identity(inp_val, _outputs=[desired_name]))
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:

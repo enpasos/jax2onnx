@@ -73,10 +73,13 @@ def cast_to_dtype(
     dtype_enum = numpy_dtype_to_ir(np_dtype)
     if getattr(getattr(val, "type", None), "dtype", None) == dtype_enum:
         return val
-    cast_val = ctx.builder.Cast(
-        val,
-        to=int(dtype_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(dtype_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     cast_val.type = ir.TensorType(dtype_enum)
     cast_val.shape = getattr(val, "shape", None)
@@ -238,10 +241,13 @@ def _lower_signed_arithmetic_right_shift(
     )
     _stamp_like(selected, shifted, dtype=unsigned_enum)
 
-    result = ctx.builder.Cast(
-        selected,
-        to=int(signed_enum.value),
-        _outputs=[desired_name],
+    result = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            selected,
+            to=int(signed_enum.value),
+            _outputs=[desired_name],
+        ),
     )
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type

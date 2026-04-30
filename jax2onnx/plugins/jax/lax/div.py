@@ -1,11 +1,12 @@
 # jax2onnx/plugins/jax/lax/div.py
 
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 
 import onnx_ir as ir
 import jax
 import numpy as np
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
     stamp_axis0_binary_result,
@@ -30,12 +31,9 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _lower_complex_div(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: ir.Value,
     rhs: ir.Value,
     *,
@@ -391,7 +389,7 @@ def _match_lpnormalization_pattern(
 class DivPlugin(PrimitiveLeafPlugin):
     """IR-first lowering of ``lax.div`` to ONNX ``Div``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

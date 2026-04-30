@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -73,7 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ApproxTopKPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.approx_top_k`` to ONNX ``TopK``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (arr_var,) = eqn.invars
         values_var, indices_var = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -102,16 +100,20 @@ class ApproxTopKPlugin(PrimitiveLeafPlugin):
         largest = 1 if bool(params.get("is_max_k", True)) else 0
 
         k_val = _const_i64(ctx, np.asarray([k], dtype=np.int64), "approx_topk_k")
-        values, indices = ctx.builder.TopK(
-            arr_val,
-            k_val,
-            axis=axis,
-            largest=largest,
-            sorted=1,
-            _outputs=[
-                getattr(values_spec, "name", None) or ctx.fresh_name("approx_topk_v"),
-                ctx.fresh_name("approx_topk_i64"),
-            ],
+        values, indices = cast(
+            tuple[ir.Value, ir.Value],
+            ctx.builder.TopK(
+                arr_val,
+                k_val,
+                axis=axis,
+                largest=largest,
+                sorted=1,
+                _outputs=[
+                    getattr(values_spec, "name", None)
+                    or ctx.fresh_name("approx_topk_v"),
+                    ctx.fresh_name("approx_topk_i64"),
+                ],
+            ),
         )
 
         values_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
@@ -134,13 +136,16 @@ class ApproxTopKPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(result_indices, result_shape_t)
         _ensure_value_metadata(ctx, result_indices)
         if idx_dtype_enum != ir.DataType.INT64:
-            result_indices = ctx.builder.Cast(
-                indices,
-                to=int(idx_dtype_enum.value),
-                _outputs=[
-                    getattr(indices_spec, "name", None)
-                    or ctx.fresh_name("approx_topk_indices")
-                ],
+            result_indices = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    indices,
+                    to=int(idx_dtype_enum.value),
+                    _outputs=[
+                        getattr(indices_spec, "name", None)
+                        or ctx.fresh_name("approx_topk_indices")
+                    ],
+                ),
             )
             result_indices.type = ir.TensorType(idx_dtype_enum)
             _stamp_type_and_shape(result_indices, result_shape_t)

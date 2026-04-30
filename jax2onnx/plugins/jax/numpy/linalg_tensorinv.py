@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -55,10 +55,13 @@ def _reshape(
         np.asarray(shape, dtype=np.int64),
         f"{name_hint}_shape",
     )
-    result = ctx.builder.Reshape(
-        val,
-        shape_val,
-        _outputs=[output_name or ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            val,
+            shape_val,
+            _outputs=[output_name or ctx.fresh_name(name_hint)],
+        ),
     )
     result.type = ir.TensorType(dtype_enum)
     _stamp_type_and_shape(result, shape)
@@ -73,7 +76,8 @@ def _normalise_shapes(
 ) -> tuple[tuple[int, ...], int, tuple[int, ...]]:
     if not _all_static_ints(shape_raw):
         raise TypeError("jnp.linalg.tensorinv lowering requires static shapes")
-    shape = tuple(int(dim) for dim in shape_raw)
+    static_shape = cast(tuple[int | np.integer[Any], ...], shape_raw)
+    shape = tuple(int(dim) for dim in static_shape)
     if ind <= 0 or ind >= len(shape):
         raise ValueError("jnp.linalg.tensorinv requires 0 < ind < a.ndim")
     rows = _prod(shape[:ind])
@@ -123,7 +127,7 @@ def _invert_1x1(
         value=1.0,
         name_hint="linalg_tensorinv_one",
     )
-    return _binary_op(
+    result: ir.Value = _binary_op(
         ctx,
         "Div",
         one,
@@ -133,6 +137,7 @@ def _invert_1x1(
         name_hint="linalg_tensorinv_1x1",
         output_name=output_name,
     )
+    return result
 
 
 def _invert_2x2(
@@ -301,7 +306,7 @@ def _invert_2x2(
         shape=(1, 1),
         name_hint="linalg_tensorinv_det_matrix",
     )
-    return _binary_op(
+    result: ir.Value = _binary_op(
         ctx,
         "Div",
         adjugate,
@@ -311,6 +316,7 @@ def _invert_2x2(
         name_hint="linalg_tensorinv_result",
         output_name=output_name,
     )
+    return result
 
 
 @register_primitive(
@@ -465,7 +471,7 @@ class JnpLinalgTensorInvPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, inv_matrix)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(

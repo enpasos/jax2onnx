@@ -14,7 +14,11 @@ from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -60,10 +64,11 @@ def _validate_sample_shape(shape: tuple[object, ...]) -> int:
         raise TypeError("jnp.histogramdd lowering requires sample shape (N, 2)")
     if not _all_static_ints(shape):
         raise TypeError("jnp.histogramdd lowering requires static sample shape")
-    dim_count = int(shape[1])
+    static_shape = cast(tuple[int | np.integer[Any], int | np.integer[Any]], shape)
+    dim_count = int(static_shape[1])
     if dim_count != 2:
         raise TypeError("jnp.histogramdd lowering currently supports exactly 2 dims")
-    return int(shape[0])
+    return int(static_shape[0])
 
 
 def _abstract_eval_via_orig(
@@ -131,7 +136,7 @@ def _gather_sample_column(
         np.asarray(column, dtype=np.int64),
         f"{name_hint}_index",
     )
-    result = ctx.builder.Gather(
+    result: ir.Value = ctx.builder.Gather(
         sample,
         index,
         axis=1,
@@ -515,7 +520,7 @@ class JnpHistogramddPlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
             output_name = ctx.fresh_name(name_hint)
-        result = ctx.builder.Identity(value, _outputs=[output_name])
+        result: ir.Value = ctx.builder.Identity(value, _outputs=[output_name])
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         else:
@@ -525,7 +530,7 @@ class JnpHistogramddPlugin(PrimitiveLeafPlugin):
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
         else:
-            _stamp_type_and_shape(result, output_shape)
+            _stamp_type_and_shape(result, cast(tuple[DimInput, ...], output_shape))
         _ensure_value_metadata(ctx, result)
         return result
 
@@ -598,10 +603,10 @@ def _histogramdd_impl(
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     orig = get_orig_impl(JnpHistogramddPlugin._PRIM, JnpHistogramddPlugin._FUNC_NAME)
     hist, edges = orig(sample, bins=(x_edges, y_edges), density=density)
-    return cast(
-        tuple[jax.Array, jax.Array, jax.Array],
-        (hist, edges[0], edges[1]),
-    )
+    hist_out: jax.Array = hist
+    x_edges_out: jax.Array = edges[0]
+    y_edges_out: jax.Array = edges[1]
+    return hist_out, x_edges_out, y_edges_out
 
 
 JnpHistogramddPlugin._PRIM.def_abstract_eval(JnpHistogramddPlugin.abstract_eval)

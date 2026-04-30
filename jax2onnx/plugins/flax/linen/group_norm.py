@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence
 
 import jax.numpy as jnp
 from flax import linen as nn
@@ -16,7 +16,7 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
 EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
 EXPECT_GROUP_NORM_TRANSPOSED: Final = nnx_group_norm.EXPECT_GROUP_NORM_TRANSPOSED
@@ -105,10 +105,10 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.group_norm")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.GroupNorm",
@@ -119,23 +119,28 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         GroupNormPlugin._ORIGINAL_CALL = orig_fn
         prim = GroupNormPlugin._PRIM
 
-        def patched(self, x, *, mask=None):
+        def call_orig(self: Any, x: Any, *, mask: Any | None = None) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.GroupNorm.__call__ is not available.")
+            return orig_fn(self, x, mask=mask)
+
+        def patched(self: Any, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_name", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_index_groups", None) is not None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if not getattr(self, "use_fast_variance", True):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             variables = scope.variables()
             params = variables.get("params", {})
 
@@ -145,11 +150,11 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
             reduction_axes = _canonicalize_axes(x.ndim, reduction_axes)
             expected_axes = tuple(range(1, x.ndim - 1)) + (x.ndim - 1,)
             if tuple(reduction_axes) != expected_axes:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             channels = x.shape[-1]
             if channels is None:
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             num_groups = None
             group_size = getattr(self, "group_size", None)
@@ -157,18 +162,20 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
             if (group_size is None and configured_groups is None) or (
                 group_size is not None and configured_groups is not None
             ):
-                return orig_fn(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if group_size is not None:
                 if channels % group_size != 0:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 num_groups = channels // group_size
             else:
+                if configured_groups is None:
+                    return call_orig(self, x, mask=mask)
                 try:
                     num_groups = int(configured_groups)
                 except Exception:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 if num_groups <= 0 or channels % num_groups != 0:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
 
             param_dtype = getattr(self, "param_dtype", None) or x.dtype
             if x.dtype != param_dtype:
@@ -177,7 +184,7 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
             if getattr(self, "use_scale", True):
                 scale_param = params.get("scale")
                 if scale_param is None:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 scale = jnp.asarray(scale_param, dtype=param_dtype)
             else:
                 scale = jnp.ones((channels,), dtype=param_dtype)
@@ -185,7 +192,7 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
             if getattr(self, "use_bias", True):
                 bias_param = params.get("bias")
                 if bias_param is None:
-                    return orig_fn(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 bias = jnp.asarray(bias_param, dtype=param_dtype)
             else:
                 bias = jnp.zeros((channels,), dtype=param_dtype)
@@ -209,8 +216,8 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
 
 @GroupNormPlugin._PRIM.def_impl
 def _impl_group_norm(
-    x, scale, bias, *, epsilon: float, num_groups: int, channel_axis: int
-):
+    x: Any, scale: Any, bias: Any, *, epsilon: float, num_groups: int, channel_axis: int
+) -> Any:
     return nnx_group_norm._impl_group_norm(
         x,
         scale,

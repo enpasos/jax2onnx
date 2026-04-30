@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -98,7 +96,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class RemPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rem`` (truncated remainder) using Mod or Div/Mul/Sub."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -124,11 +122,14 @@ class RemPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("rem_out")
 
         if np.issubdtype(dtype, np.floating):
-            result = ctx.builder.Mod(
-                x_val,
-                y_val,
-                fmod=1,
-                _outputs=[desired_name],
+            result = cast(
+                ir.Value,
+                ctx.builder.Mod(
+                    x_val,
+                    y_val,
+                    fmod=1,
+                    _outputs=[desired_name],
+                ),
             )
             result.type = ir.TensorType(x_dtype_enum)
             result.shape = ir.Shape(out_shape)
@@ -137,30 +138,39 @@ class RemPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, result)
             return
 
-        div_val = ctx.builder.Div(
-            x_val,
-            y_val,
-            _outputs=[ctx.fresh_name("rem_div")],
+        div_val = cast(
+            ir.Value,
+            ctx.builder.Div(
+                x_val,
+                y_val,
+                _outputs=[ctx.fresh_name("rem_div")],
+            ),
         )
         div_val.type = ir.TensorType(x_dtype_enum)
         div_val.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(div_val, out_shape)
         _ensure_value_metadata(ctx, div_val)
 
-        mul_val = ctx.builder.Mul(
-            div_val,
-            y_val,
-            _outputs=[ctx.fresh_name("rem_mul")],
+        mul_val = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                div_val,
+                y_val,
+                _outputs=[ctx.fresh_name("rem_mul")],
+            ),
         )
         mul_val.type = ir.TensorType(x_dtype_enum)
         mul_val.shape = ir.Shape(out_shape)
         _stamp_type_and_shape(mul_val, out_shape)
         _ensure_value_metadata(ctx, mul_val)
 
-        result = ctx.builder.Sub(
-            x_val,
-            mul_val,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Sub(
+                x_val,
+                mul_val,
+                _outputs=[desired_name],
+            ),
         )
         result.type = ir.TensorType(x_dtype_enum)
         result.shape = ir.Shape(out_shape)

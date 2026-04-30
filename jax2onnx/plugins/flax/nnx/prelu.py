@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import jax
 from jax.interpreters import batching
@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from flax import nnx
 from jax.extend.core import Primitive
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -21,9 +22,6 @@ from jax2onnx.plugins.plugin_system import (
     register_primitive,
     with_requested_dtype,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext
 
 
 PRELU_PRIM: Final[Primitive] = Primitive("nnx.prelu")
@@ -84,7 +82,7 @@ class PReluPlugin(PrimitiveLeafPlugin):
         del negative_slope
         return jax.core.ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: "IRBuildContext", eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_var, slope_var = eqn.invars
         y_var = eqn.outvars[0]
 

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     ensure_packed_real_pair,
@@ -16,9 +17,6 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -45,7 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class ImagPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.imag`` to ONNX ops."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -72,7 +70,9 @@ class ImagPlugin(PrimitiveLeafPlugin):
             )
             output_name = getattr(out_spec, "name", None) or ctx.fresh_name("imag_out")
             if getattr(imag_part, "name", None) != output_name:
-                result = ctx.builder.Identity(imag_part, _outputs=[output_name])
+                result = cast(
+                    ir.Value, ctx.builder.Identity(imag_part, _outputs=[output_name])
+                )
                 result.type = ir.TensorType(base_dtype)
                 result.dtype = base_dtype
                 if getattr(imag_part, "shape", None) is not None:
@@ -97,7 +97,9 @@ class ImagPlugin(PrimitiveLeafPlugin):
             target_dtype = ir.DataType.FLOAT
         zero_np = np.asarray(0, dtype=target_dtype.numpy())
         zero_const = ctx.bind_const_for_var(object(), zero_np)
-        result = ctx.builder.Mul(x_val, zero_const, _outputs=[output_name])
+        result = cast(
+            ir.Value, ctx.builder.Mul(x_val, zero_const, _outputs=[output_name])
+        )
         result.type = ir.TensorType(target_dtype)
         result.dtype = target_dtype
         output_shape = tuple(getattr(out_var.aval, "shape", ()))

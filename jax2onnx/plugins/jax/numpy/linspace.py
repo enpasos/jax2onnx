@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableSequence
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
@@ -78,7 +79,8 @@ def _bind_exact_const(
     if callable(append_initializer):
         append_initializer(value)
     else:
-        ctx.builder.initializers.append(value)
+        initializers = cast(MutableSequence[ir.Value], ctx.builder.initializers)
+        initializers.append(value)
     _ensure_value_metadata(ctx, value)
     return value
 
@@ -111,10 +113,13 @@ def _maybe_cast(
     if cur_dtype == target_enum:
         return value
     cast_name = ctx.fresh_name(name_hint)
-    cast_val = ctx.builder.Cast(
-        value,
-        _outputs=[cast_name],
-        to=int(target_enum.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            _outputs=[cast_name],
+            to=int(target_enum.value),
+        ),
     )
     cast_val.type = ir.TensorType(target_enum)
     shape_obj = getattr(value, "shape", None)

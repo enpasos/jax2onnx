@@ -1,11 +1,12 @@
 # jax2onnx/plugins/jax/lax/slice.py
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import numpy as np
 import jax
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import ensure_axis0_extent, _axis0_debug
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
@@ -17,9 +18,6 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _lower_i64_vector
 from jax2onnx.utils.shape_poly import dim_expr_constant_value
-
-if TYPE_CHECKING:
-    pass
 
 
 @register_primitive(
@@ -83,7 +81,7 @@ if TYPE_CHECKING:
     ],
 )
 class SlicePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: Any, eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -137,7 +135,7 @@ class SlicePlugin(PrimitiveLeafPlugin):
             inputs.append(steps_val)
         dtype = getattr(getattr(x_val, "type", None), "dtype", None)
         out_name = getattr(out_val, "name", None) or ctx.fresh_name("slice_out")
-        out_tensor = ctx.builder.Slice(*inputs, _outputs=[out_name])
+        out_tensor = cast(ir.Value, ctx.builder.Slice(*inputs, _outputs=[out_name]))
         if dtype is not None:
             out_tensor.type = ir.TensorType(dtype)
         _ensure_value_metadata(ctx, out_tensor)

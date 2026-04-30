@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -45,7 +48,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class CombineMasksPlugin(PrimitiveLeafPlugin):
     """Metadata plugin for ``flax.nnx.combine_masks`` (inlined to JAX ops)."""
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         raise NotImplementedError(
             "nnx.combine_masks primitive should not reach lowering; it is inlined."
         )

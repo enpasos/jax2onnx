@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import Optional, cast
 import jax
 import numpy as np
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._loop_extent_meta import (
     propagate_axis0_override,
     set_axis0_override,
@@ -28,9 +29,6 @@ from jax2onnx.plugins._complex_utils import (
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -128,7 +126,7 @@ if TYPE_CHECKING:
     ],
 )
 class MulPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -196,7 +194,10 @@ class MulPlugin(PrimitiveLeafPlugin):
                     _ensure_value_metadata(ctx, out_val)
                     break
         else:
-            result = ctx.builder.Mul(a_val, b_val, _outputs=[out_spec.name])
+            result = cast(
+                ir.Value,
+                ctx.builder.Mul(a_val, b_val, _outputs=[out_spec.name]),
+            )
             if getattr(out_spec, "type", None) is not None:
                 result.type = out_spec.type
             stamp_axis0_binary_result(result, out_var, out_spec, override)
@@ -208,7 +209,7 @@ class MulPlugin(PrimitiveLeafPlugin):
 
     def _lower_complex_mul(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         lhs: ir.Value,
         rhs: ir.Value,
     ) -> tuple[ir.Value, ir.DataType]:

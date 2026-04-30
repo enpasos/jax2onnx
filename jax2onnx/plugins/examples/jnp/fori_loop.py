@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 
@@ -18,7 +20,7 @@ def _model(x: jax.Array) -> tuple[jax.Array, int]:
         counter = counter + 1
         return value, counter
 
-    return jax.lax.fori_loop(0, steps, body, (x, 0))
+    return cast(tuple[jax.Array, int], jax.lax.fori_loop(0, steps, body, (x, 0)))
 
 
 register_example(

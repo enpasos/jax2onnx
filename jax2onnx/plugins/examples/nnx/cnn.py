@@ -19,7 +19,7 @@ class CNN(nnx.Module):
         self.linear1 = nnx.Linear(3136, 256, rngs=rngs)
         self.linear2 = nnx.Linear(256, 10, rngs=rngs)
 
-    def __call__(self, x: jax.Array):
+    def __call__(self, x: jax.Array) -> jax.Array:
         x = self.avg_pool(nnx.relu(self.conv1(x)))
         x = self.avg_pool(nnx.relu(self.conv2(x)))
         x = x.reshape(x.shape[0], -1)  # flatten

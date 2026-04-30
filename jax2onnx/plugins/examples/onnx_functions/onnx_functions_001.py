@@ -18,7 +18,7 @@ from jax2onnx.plugins.plugin_system import (
 class MLPBlock(nnx.Module):  # Renamed from MLPBlock001
     """MLP block for Transformer layers."""
 
-    def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
+    def __init__(self, num_hiddens: int, mlp_dim: int, rngs: nnx.Rngs):
         self.layers = nnx.List(
             [
                 nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
@@ -39,7 +39,7 @@ class MLPBlock(nnx.Module):  # Renamed from MLPBlock001
 
 
 class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
-    def __init__(self):
+    def __init__(self) -> None:
         rngs = nnx.Rngs(0)
         self.layer_norm2 = nnx.LayerNorm(256, rngs=rngs)
         # === Updated internal reference ===
@@ -47,7 +47,7 @@ class SuperBlock(nnx.Module):  # Keep outer block name as it's not decorated
             num_hiddens=256, mlp_dim=512, rngs=rngs
         )  # Use renamed class
 
-    def __call__(self, x):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         # Apply LayerNorm (not part of ONNX function), then call the @onnx_function MLPBlock
         # Note: LayerNorm would be part of the main graph, MLP call becomes a function call node.
         return self.mlp(self.layer_norm2(x))

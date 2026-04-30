@@ -128,7 +128,14 @@ warn_return_any = true
 warn_unreachable = true
 incremental = false
 files = [
-    "jax2onnx/converter",
+    "jax2onnx",
+]
+# Optional SOTA example integrations depend on external checkouts and large
+# untyped third-party surfaces; sandbox scripts are exploratory repros. Keep
+# the first-party package typed.
+exclude = [
+    "^jax2onnx/plugins/examples/(maxtext|maxdiffusion)/",
+    "^jax2onnx/sandbox/",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
@@ -138,19 +145,18 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
+    "onnx_ir",
+    "onnx_ir.*",
+]
+follow_imports = "normal"
+
+[[tool.mypy.overrides]]
+module = [
     "tests.*",
     "jax2onnx.sandbox.*",
 ]
 ignore_missing_imports = true
 allow_untyped_globals = true
-disallow_untyped_defs = false
-check_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = [
-    "jax2onnx.plugins._post_check_onnx_graph",
-    "jax2onnx.utils.debug",
-]
 disallow_untyped_defs = false
 check_untyped_defs = false
 

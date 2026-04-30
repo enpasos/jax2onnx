@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 import equinox as eqx
+import jax
+import jax.core as jax_core
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -13,7 +15,9 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -28,6 +32,11 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 def _axes_for_tail(x_rank: int, tail_rank: int) -> tuple[int, ...]:
     axis_start = max(x_rank - tail_rank, 0)
     return tuple(range(axis_start, x_rank))
+
+
+def _aval_shape(value: object) -> tuple[DimInput, ...]:
+    aval = getattr(value, "aval", None)
+    return tuple(cast(DimInput, dim) for dim in getattr(aval, "shape", ()))
 
 
 @register_primitive(
@@ -68,11 +77,18 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, scale, bias, *, epsilon, result_dtype):
+    def abstract_eval(
+        x: jax_core.AbstractValue,
+        scale: jax_core.AbstractValue,
+        bias: jax_core.AbstractValue,
+        *,
+        epsilon: float,
+        result_dtype: np.dtype[Any],
+    ) -> ShapedArray:
         del scale, bias, epsilon
         return ShapedArray(x.shape, result_dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax_core.JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -87,8 +103,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("rms_out"))
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        scale_shape = tuple(getattr(getattr(scale_var, "aval", None), "shape", ()))
+        x_shape = _aval_shape(x_var)
+        scale_shape = _aval_shape(scale_var)
 
         axes = _axes_for_tail(len(x_shape), len(scale_shape))
         axes_val = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "rms_axes")
@@ -107,13 +123,15 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         )
 
         builder = ctx.builder
+        x_dtype = x_val.dtype
 
-        pow_out = builder.Pow(
+        pow_out: ir.Value = builder.Pow(
             x_val,
             two_val,
             _outputs=[ctx.fresh_name("rms_pow")],
         )
-        pow_out.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            pow_out.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(pow_out, x_shape)
 
         mean_dims = list(x_shape)
@@ -122,52 +140,58 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                 mean_dims[axis] = 1
         mean_dims_tuple = tuple(mean_dims)
 
-        mean_out = builder.ReduceMean(
+        mean_out: ir.Value = builder.ReduceMean(
             pow_out,
             axes_val,
             keepdims=1,
             _outputs=[ctx.fresh_name("rms_mean")],
         )
-        mean_out.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            mean_out.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(mean_out, mean_dims_tuple)
 
-        add_out = builder.Add(
+        add_out: ir.Value = builder.Add(
             mean_out,
             eps_val,
             _outputs=[ctx.fresh_name("rms_add")],
         )
-        add_out.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            add_out.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(add_out, mean_dims_tuple)
 
-        sqrt_out = builder.Sqrt(
+        sqrt_out: ir.Value = builder.Sqrt(
             add_out,
             _outputs=[ctx.fresh_name("rms_sqrt")],
         )
-        sqrt_out.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            sqrt_out.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(sqrt_out, mean_dims_tuple)
 
-        div_out = builder.Div(
+        div_out: ir.Value = builder.Div(
             x_val,
             sqrt_out,
             _outputs=[ctx.fresh_name("rms_div")],
         )
-        div_out.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            div_out.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(div_out, x_shape)
 
-        scaled = builder.Mul(
+        scaled: ir.Value = builder.Mul(
             div_out,
             scale_val,
             _outputs=[ctx.fresh_name("rms_scaled")],
         )
-        scaled.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            scaled.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(scaled, x_shape)
 
-        affine = builder.Add(
+        affine: ir.Value = builder.Add(
             scaled,
             bias_val,
             _outputs=[ctx.fresh_name("rms_affine")],
         )
-        affine.type = ir.TensorType(getattr(x_val.type, "dtype", None))
+        if x_dtype is not None:
+            affine.type = ir.TensorType(x_dtype)
         _stamp_type_and_shape(affine, x_shape)
 
         if result_dtype != x_np_dtype:
@@ -178,7 +202,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         else:
             result = affine
 
-        stamped_dims = []
+        stamped_dims: list[DimInput] = []
         for idx, dim in enumerate(x_shape):
             label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
             stamped_dims.append(label if label is not None else dim)
@@ -196,7 +220,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("equinox.nn", "rms_norm_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -208,8 +232,16 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _patch_call(orig):
-        def wrapped(self, x, state=_SENTINEL, *, key=None):
+    def _patch_call(orig: Callable[..., Any] | None) -> Callable[..., Any]:
+        del orig
+
+        def wrapped(
+            self: eqx.nn.RMSNorm,
+            x: jax.Array,
+            state: Any = _SENTINEL,
+            *,
+            key: jax.Array | None = None,
+        ) -> Any:
             del key
             if x.shape != self.shape:
                 raise ValueError(
@@ -230,12 +262,15 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             else:
                 bias = jnp.zeros(self.shape, dtype=compute_dtype)
 
-            out = RMSNormPlugin._PRIM.bind(
-                x_cast,
-                weight,
-                bias,
-                epsilon=float(self.eps),
-                result_dtype=np.dtype(orig_dtype),
+            out = cast(
+                jax.Array,
+                RMSNormPlugin._PRIM.bind(
+                    x_cast,
+                    weight,
+                    bias,
+                    epsilon=float(self.eps),
+                    result_dtype=np.dtype(orig_dtype),
+                ),
             )
 
             if state is _SENTINEL:
@@ -245,14 +280,21 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @RMSNormPlugin._PRIM.def_impl
-def _rms_norm_impl(x, scale, bias, *, epsilon, result_dtype):
+def _rms_norm_impl(
+    x: jax.Array,
+    scale: jax.Array,
+    bias: jax.Array,
+    *,
+    epsilon: float,
+    result_dtype: np.dtype[Any],
+) -> jax.Array:
     tail_rank = scale.ndim or 1
     axes = _axes_for_tail(x.ndim, tail_rank)
     sq_mean = jnp.mean(jnp.square(x), axis=axes, keepdims=True)
@@ -263,20 +305,29 @@ def _rms_norm_impl(x, scale, bias, *, epsilon, result_dtype):
     bias_arr = jnp.asarray(bias, dtype=normed.dtype)
 
     result = normed * scale_arr + bias_arr
-    return jnp.asarray(result, dtype=result_dtype)
+    return cast(jax.Array, jnp.asarray(result, dtype=result_dtype))
 
 
-def _rms_norm_batch_rule(batched_args, batch_dims, *, epsilon, result_dtype):
+def _rms_norm_batch_rule(
+    batched_args: tuple[jax.Array, jax.Array, jax.Array],
+    batch_dims: tuple[int | None, int | None, int | None],
+    *,
+    epsilon: float,
+    result_dtype: np.dtype[Any],
+) -> tuple[jax.Array, int | None]:
     x, scale, bias = batched_args
     x_bdim, scale_bdim, bias_bdim = batch_dims
     if scale_bdim is not None or bias_bdim is not None:
         raise NotImplementedError("Batching over RMSNorm parameters is not supported.")
-    result = RMSNormPlugin._PRIM.bind(
-        x,
-        scale,
-        bias,
-        epsilon=epsilon,
-        result_dtype=result_dtype,
+    result = cast(
+        jax.Array,
+        RMSNormPlugin._PRIM.bind(
+            x,
+            scale,
+            bias,
+            epsilon=epsilon,
+            result_dtype=result_dtype,
+        ),
     )
     return result, x_bdim
 

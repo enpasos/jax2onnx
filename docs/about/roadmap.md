@@ -31,6 +31,13 @@
   utilities, normalize `onnx_ir` function-container iteration, route manually
   constructed nodes through the IR builder metadata path, and remove the unused
   optional shape-inference placeholder.
+* **Raise first-party typing coverage:** Enable `onnx_ir` type checking for the
+  converter, type the lowering-builder/plugin protocols and shared helper
+  modules, extend strict mypy coverage across JAX/LAX/NumPy, Flax Linen/NNX,
+  Equinox, example plugins, public API, quickstart, debug logging, and
+  `expect_graph` helpers, and collapse the mypy target to package-wide
+  `jax2onnx` coverage with only sandbox and optional MaxText/MaxDiffusion
+  integrations excluded.
 * **Harden the IR optimizer:** Add an opt-in strict optimizer failure mode,
   replace the hard-coded optimizer sequence with a named pass registry that
   declares top-level/function-body applicability, fix constant folding for

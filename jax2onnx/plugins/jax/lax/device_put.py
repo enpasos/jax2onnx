@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - import for typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -56,7 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for typing only
 class DevicePutPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.device_put`` to an IR Identity node."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         in_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -68,9 +66,12 @@ class DevicePutPlugin(PrimitiveLeafPlugin):
         )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Identity")
-        result = ctx.builder.Identity(
-            in_val,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Identity(
+                in_val,
+                _outputs=[desired_name],
+            ),
         )
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))

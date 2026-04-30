@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 from flax import nnx
 from typing import Final
 
@@ -55,7 +56,7 @@ class ComplexParentWithResidual(nnx.Module):
         )
         self.layernorm = nnx.LayerNorm(num_features=16, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         x_residual = self.initial_op(x)
         ffn_output = self.ffn(x_residual)
         return self.layernorm(x_residual + ffn_output)

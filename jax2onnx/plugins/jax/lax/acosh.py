@@ -47,7 +47,7 @@ class AcoshPlugin(PrimitiveLeafPlugin):
         if hasattr(out_spec, "producer") and out_spec.producer() is not None:
             output_name = ctx.fresh_name("acosh_out")
         else:
-            output_name = out_spec.name
+            output_name = out_spec.name or ctx.fresh_name("acosh_out")
 
         result = ctx.builder.Acosh(x_val, _outputs=[output_name])
         result.type = out_spec.type

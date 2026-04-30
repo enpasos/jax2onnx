@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final, Sequence
+from typing import Any, Callable, ClassVar, Final, Sequence
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -154,11 +154,14 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.dense_general")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, kernel, bias, *, dimension_numbers):
+    def abstract_eval(
+        x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
+    ) -> jax.core.ShapedArray:
+        del bias
         ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
         lhs_contract = tuple(lhs_contract)
         rhs_contract = tuple(rhs_contract)
@@ -179,25 +182,30 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
         return jax.core.ShapedArray(out_shape, x.dtype)
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         DenseGeneralPlugin._ORIGINAL_CALL = orig_fn
         prim = DenseGeneralPlugin._PRIM
 
-        def patched(self, inputs):
+        def call_orig(self: Any, inputs: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.DenseGeneral.__call__ is not available.")
+            return orig_fn(self, inputs)
+
+        def patched(self: Any, inputs: Any) -> Any:
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             variables = scope.variables()
             params = variables.get("params", {})
             kernel = params.get("kernel")
             if kernel is None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             if getattr(self, "dot_general_cls", None) is not None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
             if getattr(self, "dot_general", None) is not None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             features = linen_linear._canonicalize_tuple(self.features)
             axis = linen_linear._canonicalize_tuple(self.axis)
@@ -205,15 +213,15 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
             if batch_dims:
                 max_dim = int(np.max(batch_dims))
                 if set(batch_dims) != set(range(max_dim + 1)):
-                    return orig_fn(self, inputs)
+                    return call_orig(self, inputs)
 
             ndim = inputs.ndim
             axis = linen_linear._normalize_axes(axis, ndim)
             batch_dims = linen_linear._normalize_axes(batch_dims, ndim)
             if batch_dims:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
             if not _is_trailing_axes(axis, ndim):
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             use_bias = bool(getattr(self, "use_bias", True))
             bias = params.get("bias") if use_bias else None
@@ -227,7 +235,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec(
                 "flax.linen",
@@ -244,7 +252,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, kernel, bias, dimension_numbers=None: cls.abstract_eval(
@@ -255,7 +263,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
 
 
 @DenseGeneralPlugin._PRIM.def_impl
-def _impl(x, kernel, bias, *, dimension_numbers):
+def _impl(x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any) -> Any:
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
     if bias is not None:
         y = y + bias

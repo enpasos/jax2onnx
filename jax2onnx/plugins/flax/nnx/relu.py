@@ -1,50 +1,45 @@
 # jax2onnx/plugins/flax/nnx/relu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Union, Any, Final
+from typing import Any, Final, cast
 
-import numpy as np
+import jax
 from jax.extend.core import Primitive as JaxPrimitive
-from jax.core import ShapedArray
 from flax import nnx
+from numpy.typing import ArrayLike
 
-import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins._ir_shapes import (
-    _stamp_type_and_shape,
-    _dim_label_from_value_or_aval,
-    _ensure_value_metadata,
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
 )
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 # --- Define a JAX Primitive for nnx.relu and keep a reference on flax.nnx ---
 # We do this so tracing (make_jaxpr) “sees” a primitive instead of a Python function.
 
 
-def _init_relu_prim() -> Any:
+def _init_relu_prim() -> JaxPrimitive:
     relu_prim = getattr(nnx, "relu_p", None)
     if relu_prim is None:
         relu_prim = JaxPrimitive("nnx.relu")
         relu_prim.multiple_results = False
         nnx.relu_p = relu_prim  # attach for visibility / reuse
-    return relu_prim
+    return cast(JaxPrimitive, relu_prim)
 
 
-nnx_relu_p: Final[Any] = _init_relu_prim()
+nnx_relu_p: Final[JaxPrimitive] = _init_relu_prim()
 
 
-def _relu_abstract_eval(x_aval: ShapedArray) -> ShapedArray:
+def _relu_abstract_eval(x_aval: jax.core.ShapedArray) -> jax.core.ShapedArray:
     # ReLU preserves shape & dtype
-    return ShapedArray(x_aval.shape, x_aval.dtype)
+    return jax.core.ShapedArray(x_aval.shape, x_aval.dtype)
 
 
 # Idempotent abstract eval registration
 try:
-    nnx_relu_p.def_abstract_eval(_relu_abstract_eval)  # type: ignore[arg-type]
+    nnx_relu_p.def_abstract_eval(_relu_abstract_eval)
 except Exception:
     pass
 
@@ -86,52 +81,25 @@ class ReluPlugin(PrimitiveLeafPlugin):
     """
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
-        x_var = eqn.invars[0]
-        y_var = eqn.outvars[0]
-
-        # Materialize IR values
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-
-        # Emit ONNX Relu
-        out_name = getattr(y_val, "name", None) or ctx.fresh_name("Relu")
-        builder: Any = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for Relu lowering")
-        result = builder.Relu(x_val, _outputs=[out_name])
-
-        # Stamp output type/shape (preserve symbolic labels from input)
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        final_dims: List[Union[int, str]] = []
-        for i, d in enumerate(x_shape):
-            if isinstance(d, (int, np.integer)):
-                final_dims.append(int(d))
-            else:
-                final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
-
-        dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-        if dtype is not None:
-            result.type = ir.TensorType(dtype)
-
-        _stamp_type_and_shape(result, tuple(final_dims))
-        _ensure_value_metadata(ctx, result)
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if callable(bind_value):
-            bind_value(y_var, result)
-        else:
-            raise AttributeError("IR build context missing bind_value_for_var")
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Relu",
+            input_hint="relu_in",
+            output_hint="relu_out",
+        )
 
     # ---------------- monkey patch binding ----------------
     @staticmethod
-    def patch_info():
+    def patch_info() -> dict[str, Any]:
         """
         Provide a small patch so `flax.nnx.relu` binds our primitive during tracing.
         The converter machinery will enter/exit this patch via plugin_binding().
         """
 
-        def _patched_relu(x):
-            return nnx_relu_p.bind(x)
+        def _patched_relu(x: ArrayLike) -> ArrayLike:
+            return cast(ArrayLike, nnx_relu_p.bind(x))
 
         return {
             "patch_targets": [nnx],

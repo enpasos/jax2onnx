@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
-
-def lower_pow(ctx: "IRContext", eqn: Any) -> None:
+def lower_pow(ctx: LoweringContextProtocol, eqn: Any) -> None:
     base_var, exponent_var = eqn.invars
     out_var = eqn.outvars[0]
 
@@ -30,11 +28,16 @@ def lower_pow(ctx: "IRContext", eqn: Any) -> None:
 
     if exp_dtype != target_dtype:
         cast_name = ctx.fresh_name("pow_exp_cast")
-        cast_val = ctx.builder.Cast(
-            exp_val,
-            _outputs=[cast_name],
-            to=int(
-                _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision).value
+        cast_val = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                exp_val,
+                _outputs=[cast_name],
+                to=int(
+                    _dtype_to_ir(
+                        target_dtype, ctx.builder.enable_double_precision
+                    ).value
+                ),
             ),
         )
         cast_val.shape = exp_val.shape
@@ -52,7 +55,9 @@ def lower_pow(ctx: "IRContext", eqn: Any) -> None:
     if callable(producer) and producer() is not None:
         desired_name = ctx.fresh_name("pow_out")
 
-    result = ctx.builder.Pow(base_val, exp_input, _outputs=[desired_name])
+    result = cast(
+        ir.Value, ctx.builder.Pow(base_val, exp_input, _outputs=[desired_name])
+    )
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type
     else:
@@ -101,5 +106,5 @@ def lower_pow(ctx: "IRContext", eqn: Any) -> None:
 class PowPlugin(PrimitiveLeafPlugin):
     """Lower elementwise ``lax.pow`` to ONNX ``Pow`` with dtype harmonisation."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lower_pow(ctx, eqn)

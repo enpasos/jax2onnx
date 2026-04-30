@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -65,7 +63,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class CumLogSumExpPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.cumlogsumexp`` via ``Exp -> CumSum -> Log``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -87,21 +85,27 @@ class CumLogSumExpPlugin(PrimitiveLeafPlugin):
             ctx, np.asarray(axis, dtype=np.int64), "cumlogsumexp_axis"
         )
 
-        exp_val = ctx.builder.Exp(
-            operand_val,
-            _outputs=[ctx.fresh_name("cumlogsumexp_exp")],
+        exp_val = cast(
+            ir.Value,
+            ctx.builder.Exp(
+                operand_val,
+                _outputs=[ctx.fresh_name("cumlogsumexp_exp")],
+            ),
         )
         if getattr(operand_val, "type", None) is not None:
             exp_val.type = operand_val.type
         if getattr(operand_val, "shape", None) is not None:
             exp_val.shape = operand_val.shape
 
-        cumsum_val = ctx.builder.CumSum(
-            exp_val,
-            axis_const,
-            exclusive=0,
-            reverse=1 if reverse else 0,
-            _outputs=[ctx.fresh_name("cumlogsumexp_cumsum")],
+        cumsum_val = cast(
+            ir.Value,
+            ctx.builder.CumSum(
+                exp_val,
+                axis_const,
+                exclusive=0,
+                reverse=1 if reverse else 0,
+                _outputs=[ctx.fresh_name("cumlogsumexp_cumsum")],
+            ),
         )
         if getattr(operand_val, "type", None) is not None:
             cumsum_val.type = operand_val.type
@@ -111,7 +115,7 @@ class CumLogSumExpPlugin(PrimitiveLeafPlugin):
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
             "cumlogsumexp_out"
         )
-        result = ctx.builder.Log(cumsum_val, _outputs=[desired_name])
+        result = cast(ir.Value, ctx.builder.Log(cumsum_val, _outputs=[desired_name]))
 
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         out_dtype_enum = _dtype_to_ir(

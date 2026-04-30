@@ -15,7 +15,11 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -39,15 +43,18 @@ def _cast_to_dtype(
     from_dtype: np.dtype[Any],
     to_dtype: np.dtype[Any],
     name_hint: str,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
 ) -> ir.Value:
     if from_dtype == to_dtype:
         return val
     target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
-    cast_val = ctx.builder.Cast(
-        val,
-        to=int(target_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(target_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     cast_val.type = ir.TensorType(target_enum)
     _stamp_type_and_shape(cast_val, shape)
@@ -60,14 +67,17 @@ def _unsqueeze(
     val: ir.Value,
     *,
     axis: int,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.Unsqueeze(
-        val,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(
+            val,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
@@ -84,11 +94,14 @@ def _gather_bin_scalar(
     name_hint: str,
 ) -> ir.Value:
     idx = _const_i64(ctx, np.asarray(index, dtype=np.int64), f"{name_hint}_index")
-    result = ctx.builder.Gather(
-        bins,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            bins,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(bins, "type", None) is not None:
         result.type = bins.type
@@ -106,20 +119,32 @@ def _compare(
     name_hint: str,
 ) -> ir.Value:
     if op_type == "Less":
-        result = ctx.builder.Less(bins, x, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Less(bins, x, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     elif op_type == "LessOrEqual":
-        result = ctx.builder.LessOrEqual(
-            bins,
-            x,
-            _outputs=[ctx.fresh_name(name_hint)],
+        result = cast(
+            ir.Value,
+            ctx.builder.LessOrEqual(
+                bins,
+                x,
+                _outputs=[ctx.fresh_name(name_hint)],
+            ),
         )
     elif op_type == "Greater":
-        result = ctx.builder.Greater(bins, x, _outputs=[ctx.fresh_name(name_hint)])
+        result = cast(
+            ir.Value,
+            ctx.builder.Greater(bins, x, _outputs=[ctx.fresh_name(name_hint)]),
+        )
     elif op_type == "GreaterOrEqual":
-        result = ctx.builder.GreaterOrEqual(
-            bins,
-            x,
-            _outputs=[ctx.fresh_name(name_hint)],
+        result = cast(
+            ir.Value,
+            ctx.builder.GreaterOrEqual(
+                bins,
+                x,
+                _outputs=[ctx.fresh_name(name_hint)],
+            ),
         )
     else:  # pragma: no cover - defensive guard for internal callers
         raise ValueError(f"Unsupported digitize comparison op: {op_type}")
@@ -133,8 +158,8 @@ def _count_matches(
     x: ir.Value,
     *,
     op_type: str,
-    compare_shape: tuple[object, ...],
-    output_shape: tuple[object, ...],
+    compare_shape: tuple[DimInput, ...],
+    output_shape: tuple[DimInput, ...],
     reduce_axis: int,
     name_hint: str,
 ) -> ir.Value:
@@ -149,10 +174,13 @@ def _count_matches(
     _ensure_value_metadata(ctx, comparison)
 
     out_enum = numpy_dtype_to_ir(_result_dtype())
-    counts_input = ctx.builder.Cast(
-        comparison,
-        to=int(out_enum.value),
-        _outputs=[ctx.fresh_name(f"{name_hint}_counts_input")],
+    counts_input = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            comparison,
+            to=int(out_enum.value),
+            _outputs=[ctx.fresh_name(f"{name_hint}_counts_input")],
+        ),
     )
     counts_input.type = ir.TensorType(out_enum)
     _stamp_type_and_shape(counts_input, compare_shape)
@@ -163,11 +191,14 @@ def _count_matches(
         np.asarray([reduce_axis], dtype=np.int64),
         f"{name_hint}_reduce_axes",
     )
-    result = ctx.builder.ReduceSum(
-        counts_input,
-        axes,
-        keepdims=0,
-        _outputs=[ctx.fresh_name(f"{name_hint}_count")],
+    result = cast(
+        ir.Value,
+        ctx.builder.ReduceSum(
+            counts_input,
+            axes,
+            keepdims=0,
+            _outputs=[ctx.fresh_name(f"{name_hint}_count")],
+        ),
     )
     result.type = ir.TensorType(out_enum)
     _stamp_type_and_shape(result, output_shape)
@@ -296,8 +327,8 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
         params = getattr(eqn, "params", {})
         right = bool(params.get("right", False))
 
-        x_shape = tuple(getattr(x_var.aval, "shape", ()))
-        bins_shape = tuple(getattr(bins_var.aval, "shape", ()))
+        x_shape: tuple[DimInput, ...] = tuple(getattr(x_var.aval, "shape", ()))
+        bins_shape: tuple[DimInput, ...] = tuple(getattr(bins_var.aval, "shape", ()))
         if len(bins_shape) != 1:
             raise TypeError("jnp.digitize lowering requires 1-D bins")
         bins_len = bins_shape[0]
@@ -337,7 +368,7 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
         )
 
         bins_broadcast = bins_ready
-        bins_broadcast_shape: tuple[object, ...] = (int(bins_len),)
+        bins_broadcast_shape: tuple[DimInput, ...] = (int(bins_len),)
         for _ in range(len(x_shape)):
             bins_broadcast_shape = (1, *bins_broadcast_shape)
             bins_broadcast = _unsqueeze(
@@ -356,7 +387,7 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
             name_hint="digitize_x_unsqueeze",
         )
 
-        compare_shape = (*x_shape, int(bins_len))
+        compare_shape: tuple[DimInput, ...] = (*x_shape, int(bins_len))
         reduce_axis = len(x_shape)
         inc_op = "Less" if right else "LessOrEqual"
         dec_op = "GreaterOrEqual" if right else "Greater"

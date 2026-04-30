@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/linen/max_pool.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Final, Optional, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Final, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import jax
@@ -10,8 +10,9 @@ from flax import linen as nn
 from jax.extend.core import Primitive
 
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import max_pool as nnx_max_pool
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -20,9 +21,6 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
-
 
 EXPECT_T_MP_T: Final = nnx_max_pool.EXPECT_T_MP_T
 EXPECT_T_GMP_T: Final = nnx_max_pool.EXPECT_T_GMP_T
@@ -30,6 +28,12 @@ EXPECT_T_GMP_T: Final = nnx_max_pool.EXPECT_T_GMP_T
 
 MAX_POOL_PRIM: Final[Primitive] = Primitive("linen.max_pool")
 MAX_POOL_PRIM.multiple_results = False
+
+
+def _static_dim_as_int(dim: object) -> int:
+    if not isinstance(dim, (int, np.integer)):
+        raise TypeError(f"Expected static dimension, got {dim!r}")
+    return int(dim)
 
 
 @register_primitive(
@@ -105,7 +109,7 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
     """IR-only plugin for flax.linen.max_pool."""
 
     _PRIM: ClassVar[Primitive] = MAX_POOL_PRIM
-    _ORIG_CALL: ClassVar[Optional[Callable]] = None
+    _ORIG_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------------- helpers ----------------
@@ -118,7 +122,9 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         return tuple(int(s) for s in strides)
 
     @staticmethod
-    def _compute_output_dim(length, window, stride, padding: str):
+    def _compute_output_dim(
+        length: object, window: int, stride: int, padding: str
+    ) -> object:
         if isinstance(length, (int, np.integer)):
             if padding.upper() == "SAME":
                 return int(np.ceil(length / stride))
@@ -126,7 +132,13 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         return length
 
     @staticmethod
-    def abstract_eval(x, *, window_shape, strides, padding):
+    def abstract_eval(
+        x: Any,
+        *,
+        window_shape: Sequence[int],
+        strides: Optional[Sequence[int]],
+        padding: str,
+    ) -> jax.core.ShapedArray:
         strides = MaxPoolPlugin._normalize_stride(strides, window_shape)
         padding = str(padding)
         shape = list(x.shape)
@@ -141,7 +153,7 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(tuple(out_shape), x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (x_var,) = eqn.invars[:1]
         (y_var,) = eqn.outvars[:1]
 
@@ -155,8 +167,12 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
+        y_aval_shape: tuple[object, ...] = tuple(
+            getattr(getattr(y_var, "aval", None), "shape", ())
+        )
         rank = len(x_shape)
 
         need_layout_convert = rank > 2
@@ -167,23 +183,23 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
             perm = list(range(rank))
             inv_perm = perm
 
-        def _label(idx: int):
-            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        def _label(idx: int) -> str | int | None:
+            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            return label
 
         nchw_dims_in = tuple(_label(i) for i in perm)
 
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for MaxPool lowering"
-            )
+        builder = ctx.builder
 
-        pool_in = x_val
+        pool_in: ir.Value = x_val
         if need_layout_convert:
-            pool_in = builder.Transpose(
-                x_val,
-                _outputs=[ctx.fresh_name("mp_nchw_in")],
-                perm=tuple(perm),
+            pool_in = cast(
+                ir.Value,
+                builder.Transpose(
+                    x_val,
+                    _outputs=[ctx.fresh_name("mp_nchw_in")],
+                    perm=tuple(perm),
+                ),
             )
             pool_in.type = x_val.type
             _stamp_type_and_shape(
@@ -204,24 +220,30 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
                 for dim in (*spatial_in, *spatial_out)
             )
             and all(
-                int(win) == int(inp)
+                int(win) == _static_dim_as_int(inp)
                 for win, inp in zip(window_shape, spatial_in, strict=False)
             )
-            and all(int(out) == 1 for out in spatial_out)
+            and all(_static_dim_as_int(out) == 1 for out in spatial_out)
         )
 
         if use_global_max_pool:
-            pool_result = builder.GlobalMaxPool(
-                pool_in,
-                _outputs=[ctx.fresh_name("GlobalMaxPool")],
+            pool_result = cast(
+                ir.Value,
+                builder.GlobalMaxPool(
+                    pool_in,
+                    _outputs=[ctx.fresh_name("GlobalMaxPool")],
+                ),
             )
         else:
-            pool_result = builder.MaxPool(
-                pool_in,
-                _outputs=[ctx.fresh_name("MaxPool")],
-                kernel_shape=tuple(int(v) for v in window_shape),
-                strides=tuple(int(v) for v in strides),
-                auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+            pool_result = cast(
+                ir.Value,
+                builder.MaxPool(
+                    pool_in,
+                    _outputs=[ctx.fresh_name("MaxPool")],
+                    kernel_shape=tuple(int(v) for v in window_shape),
+                    strides=tuple(int(v) for v in strides),
+                    auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+                ),
             )
 
         dtype = getattr(getattr(x_val, "type", None), "dtype", None)
@@ -242,31 +264,35 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
             )
             _ensure_value_metadata(ctx, pool_result)
 
-            final = builder.Transpose(
-                pool_result,
-                _outputs=[
-                    getattr(y_val, "name", None) or ctx.fresh_name("maxpool_transpose")
-                ],
-                perm=tuple(inv_perm),
+            final = cast(
+                ir.Value,
+                builder.Transpose(
+                    pool_result,
+                    _outputs=[
+                        getattr(y_val, "name", None)
+                        or ctx.fresh_name("maxpool_transpose")
+                    ],
+                    perm=tuple(inv_perm),
+                ),
             )
             if dtype is not None:
                 final.type = ir.TensorType(dtype)
-            _stamp_type_and_shape(final, nhwc_dims)
+            _stamp_type_and_shape(
+                final, tuple(_to_ir_dim_for_shape(d) for d in nhwc_dims)
+            )
             _ensure_value_metadata(ctx, final)
         else:
             final = pool_result
-            _stamp_type_and_shape(final, nhwc_dims[:rank])
+            _stamp_type_and_shape(
+                final, tuple(_to_ir_dim_for_shape(d) for d in nhwc_dims[:rank])
+            )
             _ensure_value_metadata(ctx, final)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if callable(bind_value):
-            bind_value(y_var, final)
-        else:
-            raise AttributeError("IR build context missing bind_value_for_var")
+        ctx.bind_value_for_var(y_var, final)
 
     # ---------------- monkey patch & binding ----------------
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.pooling",
@@ -283,10 +309,16 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def _make_patch(cls, orig):
+    def _make_patch(cls, orig: Callable[..., Any]) -> Callable[..., Any]:
         cls._ORIG_CALL = orig
 
-        def patched_max_pool(x, *, window_shape, strides=None, padding="VALID"):
+        def patched_max_pool(
+            x: Any,
+            *,
+            window_shape: Sequence[int],
+            strides: Optional[Sequence[int]] = None,
+            padding: str = "VALID",
+        ) -> Any:
             strides_tuple = cls._normalize_stride(strides, window_shape)
             return cls._PRIM.bind(
                 x,
@@ -298,16 +330,23 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
         return patched_max_pool
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
     # ---------------- eager impl ----------------
     @staticmethod
-    def _call_max_pool_eager(x, *, window_shape, strides, padding):
-        if MaxPoolPlugin._ORIG_CALL is not None:
-            return MaxPoolPlugin._ORIG_CALL(
+    def _call_max_pool_eager(
+        x: Any,
+        *,
+        window_shape: Sequence[int],
+        strides: Sequence[int],
+        padding: str,
+    ) -> Any:
+        orig_call = MaxPoolPlugin._ORIG_CALL
+        if orig_call is not None:
+            return orig_call(
                 x,
                 window_shape=window_shape,
                 strides=strides,
@@ -331,7 +370,9 @@ class MaxPoolPlugin(PrimitiveLeafPlugin):
 
 
 @MaxPoolPlugin._PRIM.def_impl
-def _impl_max_pool(x, *, window_shape, strides, padding):
+def _impl_max_pool(
+    x: Any, *, window_shape: Sequence[int], strides: Sequence[int], padding: str
+) -> Any:
     return MaxPoolPlugin._call_max_pool_eager(
         x,
         window_shape=tuple(int(v) for v in window_shape),

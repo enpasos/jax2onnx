@@ -10,6 +10,8 @@ NodeList: TypeAlias = List[ir.Node]
 NodeSeq: TypeAlias = Sequence[ir.Node]
 ValueList: TypeAlias = List[ir.Value]
 ValueSeq: TypeAlias = Sequence[ir.Value]
+InputValue: TypeAlias = ir.Value | None
+InputValueList: TypeAlias = List[InputValue]
 
 
 def _v_name(v: Union[ir.Value, str, None]) -> Optional[str]:
@@ -20,7 +22,6 @@ def _v_name(v: Union[ir.Value, str, None]) -> Optional[str]:
     if isinstance(v, ir.Value):
         name = v.name
         return name or None
-    return None
 
 
 def _value_identity(
@@ -32,7 +33,6 @@ def _value_identity(
         return value_or_name, _v_name(value_or_name)
     if isinstance(value_or_name, str):
         return None, value_or_name or None
-    return None, None
 
 
 def _node_outputs(n: ir.Node) -> ValueList:
@@ -44,11 +44,11 @@ def _node_output(n: ir.Node) -> Optional[ir.Value]:
     return outs[0] if outs else None
 
 
-def _node_inputs(n: ir.Node) -> ValueList:
-    return list(cast(ValueSeq, n.inputs))
+def _node_inputs(n: ir.Node) -> InputValueList:
+    return list(n.inputs)
 
 
-def _set_node_inputs(n: ir.Node, new_ins: Sequence[ir.Value]) -> None:
+def _set_node_inputs(n: ir.Node, new_ins: Sequence[InputValue]) -> None:
     for idx, val in enumerate(new_ins):
         n.replace_input_with(idx, val)
 
@@ -60,9 +60,6 @@ def _has_input_name_or_obj(
     Return True if 'node' has an input that matches either the given name
     (by .name on Value or string equality) or the given object identity.
     """
-    if not isinstance(node, ir.Node):
-        return False
-
     ins = _node_inputs(node)
     if obj is not None:
         for iv in ins:

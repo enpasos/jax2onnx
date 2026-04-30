@@ -73,6 +73,8 @@ def _sanitize_op_type(s: str) -> str:
 # Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
 PluginEntry = Union["FunctionPlugin", PrimitiveLowering]
 PLUGIN_REGISTRY: Dict[str, PluginEntry] = {}
+PatchCallable = Callable[[Callable[..., Any]], Callable[..., Any]]
+PatchSpec = tuple[PatchCallable, list[Any], str]
 
 # Qualified target name -> FunctionPlugin (for reference)
 ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
@@ -368,7 +370,7 @@ class PrimitiveLeafPlugin(PrimitivePlugin, PrimitiveLowering):
 # ------------------------------------------------------------------------------
 
 
-def _extract_ir_ctx(converter: Any):
+def _extract_ir_ctx(converter: Any) -> Any | None:
     """
     Be tolerant about how the IRContext is exposed by the converter facade.
     Different call-sites may attach it under slightly different names.
@@ -408,7 +410,7 @@ def _extract_ir_ctx(converter: Any):
 
 
 @contextmanager
-def _activate_full_plugin_worlds_for_body():
+def _activate_full_plugin_worlds_for_body() -> Iterator[None]:
     """
     For nested function-body tracing: activate BOTH
       1) function patches (via apply_monkey_patches), and
@@ -422,16 +424,19 @@ def _activate_full_plugin_worlds_for_body():
         # Leaf plugins' binding_specs (e.g., nnx/jnp/lax rewrites)
         leaf_prims: list[Primitive] = []
         for plugin in PLUGIN_REGISTRY.values():
-            cls = plugin.__class__
             try:
-                if issubclass(cls, PrimitiveLeafPlugin):
-                    stack.enter_context(cls.plugin_binding())
-                    prim = getattr(cls, "_PRIM", None)
-                    if isinstance(prim, Primitive):
-                        leaf_prims.append(prim)
+                if not isinstance(plugin, PrimitiveLeafPlugin):
+                    continue
+                cls = plugin.__class__
+                stack.enter_context(cls.plugin_binding())
+                prim = getattr(cls, "_PRIM", None)
+                if isinstance(prim, Primitive):
+                    leaf_prims.append(prim)
             except Exception:
                 # Best-effort; a non-leaf or misconfigured plugin should not crash nested tracing
-                logger.debug("Skipping leaf binding for %r", cls, exc_info=True)
+                logger.debug(
+                    "Skipping leaf binding for %r", plugin.__class__, exc_info=True
+                )
         backfill_missing_transpose_rules(leaf_prims)
         yield
 
@@ -464,7 +469,7 @@ class FunctionPlugin(PrimitivePlugin):
         *,
         unique: bool = False,
         namespace: str | None = None,
-    ):
+    ) -> None:
         self.name = primitive_name
         self.target = target
         self.unique = bool(unique)
@@ -477,10 +482,10 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
         self.primitive.def_impl(self._primitive_impl)
         batching.primitive_batchers[self.primitive] = self._batching_rule
-        self._orig_fn = None  # set by patch wrapper
+        self._orig_fn: Callable[..., Any] | None = None  # set by patch wrapper
 
     # Implement abstract method (used by monkey-patch activator)
-    def get_patch_params(self):
+    def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
         info = self.patch_info()
         targets = info["patch_targets"]
         patch_func = info["patch_function"]
@@ -507,7 +512,7 @@ class FunctionPlugin(PrimitivePlugin):
             )
 
     @staticmethod
-    def _aval_to_shaped_array(aval):
+    def _aval_to_shaped_array(aval: Any) -> ShapedArray:
         if isinstance(aval, ShapedArray):
             return aval
         if hasattr(aval, "shape") and hasattr(aval, "dtype"):
@@ -516,7 +521,7 @@ class FunctionPlugin(PrimitivePlugin):
             f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
         )
 
-    def _abstract_eval_with_kwargs(self, *args, **kwargs):
+    def _abstract_eval_with_kwargs(self, *args: Any, **kwargs: Any) -> Any:
         if self._orig_fn is None:
             raise ValueError(f"Original function not set for '{self.name}'")
 
@@ -549,12 +554,14 @@ class FunctionPlugin(PrimitivePlugin):
             out_aval = [self._aval_to_shaped_array(a) for a in out_aval]
         return out_aval
 
-    def _primitive_impl(self, *args, **kwargs):
+    def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
         if self._orig_fn is None:
             raise ValueError("Original function not set for primitive!")
         return self._orig_fn(*args, **kwargs)
 
-    def _batching_rule(self, args, dims, **params):
+    def _batching_rule(
+        self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
+    ) -> tuple[Any, Any]:
         params.pop("instance_key", None)
         call_kwargs = {}
         for key, value in params.items():
@@ -570,7 +577,7 @@ class FunctionPlugin(PrimitivePlugin):
                 f"Batching rule for '{self.name}' missing original callable."
             )
 
-        axis_size = None
+        axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
             if bdim is batching.not_mapped:
                 continue
@@ -590,20 +597,20 @@ class FunctionPlugin(PrimitivePlugin):
             for arg, bdim in zip(args, dims)
         ]
 
-        def _call_single(*single_args):
+        def _call_single(*single_args: Any) -> Any:
             return original_fn(*single_args, **call_kwargs)
 
         batched_result = jax.vmap(_call_single)(*prepared_args)
         out_dims = jtu.tree_map(lambda _: 0, batched_result)
         return batched_result, out_dims
 
-    def _make_patch_fn(self, primitive: Primitive, is_class: bool) -> Callable:
-        def patch(original_call):
+    def _make_patch_fn(self, primitive: Primitive, is_class: bool) -> PatchCallable:
+        def patch(original_call: Callable[..., Any]) -> Callable[..., Any]:
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
 
             @functools.wraps(original_call)
-            def wrapped(*args, **kwargs):
+            def wrapped(*args: Any, **kwargs: Any) -> Any:
                 expects_self = is_class or (params and params[0] == "self")
                 if expects_self:
                     instance = args[0]
@@ -746,10 +753,10 @@ class FunctionPlugin(PrimitivePlugin):
                 signature_parts.append(("callable_name", call_ident))
         return tuple(signature_parts)
 
-    def get_handler(self, converter: Any) -> Callable:
+    def get_handler(self, converter: Any) -> Callable[[Any, Any, dict[str, Any]], Any]:
         return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
 
-    def _allocate_friendly_name(self, ctx) -> tuple[str, str]:
+    def _allocate_friendly_name(self, ctx: Any) -> tuple[str, str]:
         """
         Produce the human-readable FunctionProto identifiers.
 
@@ -785,13 +792,15 @@ class FunctionPlugin(PrimitivePlugin):
         domain = f"{namespace}.{base}.{idx}"
         return base, domain
 
-    def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]):
+    def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]) -> None:
         # Resolve callee
         callee = self._orig_fn
         if "instance_key" in params:
             key = params["instance_key"]
             del params["instance_key"]
             callee = INSTANCE_MAP2.get(key)
+        if callee is None:
+            raise RuntimeError("[onnx_function] Cannot resolve callee")
 
         # Parent ctx
         ctx = _extract_ir_ctx(converter)
@@ -833,7 +842,7 @@ class FunctionPlugin(PrimitivePlugin):
                 hash(arr.tobytes()),
             )
 
-        def _resolve_tracer_var(tracer: Any):
+        def _resolve_tracer_var(tracer: Any) -> Any | None:
             frame = getattr(getattr(tracer, "_trace", None), "frame", None)
             if frame is None:
                 return None
@@ -1049,7 +1058,7 @@ class FunctionPlugin(PrimitivePlugin):
             ]
             base_arg_count = len(sds)
 
-            def _wrapped(*all_args):
+            def _wrapped(*all_args: Any) -> Any:
                 core_args = all_args[:base_arg_count]
                 dyn_args = all_args[base_arg_count:]
                 kw = dict(static_params)
@@ -1250,7 +1259,7 @@ def onnx_function(
     namespace: str | None = None,
     name: str | None = None,
     type: str | None = None,  # noqa: A002 - allow user-facing keyword 'type'
-):
+) -> Any:
     """
     Mark a class or free function as an ONNX function boundary.
     We do **not** wrap/capture the original callable here to avoid freezing out
@@ -1259,7 +1268,7 @@ def onnx_function(
     records a hit, and binds the function primitive.
     """
 
-    def _decorate(actual_target: Any):
+    def _decorate(actual_target: Any) -> Any:
         normalized_ns = _normalize_namespace(namespace)
         override_name = _onnx_function_override_name(name, type)
         _register_onnx_function_plugin(
@@ -1333,7 +1342,7 @@ def register_primitive(
 # ------------------------------------------------------------------------------
 
 
-def _iter_patch_specs():
+def _iter_patch_specs() -> Iterator[PatchSpec]:
     """
     Only yield patch specs for function plugins via their patch_info().
     Leaf plugin AssignSpec/MonkeyPatchSpec are handled by apply_patches()
@@ -1357,7 +1366,7 @@ def _iter_patch_specs():
 
 
 @contextmanager
-def apply_monkey_patches():
+def apply_monkey_patches() -> Iterator[None]:
     """Temporarily swap in tracing-time shims.
 
     Conversion may patch framework call-sites so tracing emits custom

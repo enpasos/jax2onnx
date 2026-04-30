@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
+import jax
 import jax.nn as jnn
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import linen as nn
 
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -31,17 +33,19 @@ _ACTIVATION_TARGETS: Final[dict[str, tuple[tuple[object, str], ...]]] = {
 _PATCH_MODULES: Final[tuple[str, ...]] = ("flax.linen.activation", "flax.linen")
 
 
-def _resolve_target(name: str) -> Callable | None:
+def _resolve_target(name: str) -> Callable[..., Any] | None:
     for module, attr in _ACTIVATION_TARGETS[name]:
         fn = getattr(module, attr, None)
-        if fn is not None:
-            return fn
+        if callable(fn):
+            return cast(Callable[..., Any], fn)
     return None
 
 
-def _make_forwarder(name: str) -> Callable[[Callable | None], Callable | None]:
-    def _patch(orig: Callable | None) -> Callable | None:
-        def _forward(*args, **kwargs):
+def _make_forwarder(
+    name: str,
+) -> Callable[[Callable[..., Any] | None], Callable[..., Any]]:
+    def _patch(orig: Callable[..., Any] | None) -> Callable[..., Any]:
+        def _forward(*args: Any, **kwargs: Any) -> Any:
             target = _resolve_target(name)
             if target is not None:
                 return target(*args, **kwargs)
@@ -152,14 +156,14 @@ class LinenActivationPlugin(PrimitiveLeafPlugin):
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         raise NotImplementedError(
             "Linen activation patching should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
-        specs: list[MonkeyPatchSpec] = []
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        specs: list[AssignSpec | MonkeyPatchSpec] = []
         for module in _PATCH_MODULES:
             for name in _ACTIVATION_TARGETS:
                 specs.append(

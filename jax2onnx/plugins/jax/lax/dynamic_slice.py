@@ -130,7 +130,7 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             axis = int(origin.axis)
             shape_vec = _shape_vec_for(origin.value, axis)
             gather_idx = _const_i64(ctx, [axis], f"dyn_slice_size_axis_{idx}")
-            gathered = ctx.builder.Gather(
+            gathered: ir.Value = ctx.builder.Gather(
                 shape_vec,
                 gather_idx,
                 axis=0,

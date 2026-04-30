@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import math
+from importlib import import_module
 from pathlib import Path
-from typing import Literal, Optional, Tuple
+from typing import Callable, Literal, NotRequired, Optional, TypedDict, cast, overload
 
 import equinox as eqx
 import jax
@@ -120,7 +121,7 @@ class DinoRoPE(eqx.Module):
         W: int,
         key: Optional[jax.Array] = None,
         inference: Optional[bool] = None,
-    ) -> Tuple[jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, jax.Array]:
         if key is None:
             key = jax.random.PRNGKey(0)
         k_shift, k_jitter, k_rescale = jax.random.split(key, 3)
@@ -191,7 +192,10 @@ def _dino_rope_inference_sincos(
         coords_h = np.arange(0.5, H, step=1.0) / float(H)
         coords_w = np.arange(0.5, W, step=1.0) / float(W)
 
-    hh, ww = np.meshgrid(coords_h, coords_w, indexing="ij")
+    hh, ww = cast(
+        tuple[np.ndarray, np.ndarray],
+        np.meshgrid(coords_h, coords_w, indexing="ij"),
+    )
     coords = np.stack([hh, ww], axis=-1).reshape(H * W, 2)
     coords = (2.0 * coords - 1.0).astype(dtype)
 
@@ -215,7 +219,7 @@ class DinoRotaryProcessHeads(eqx.Module):
 
     _sin_data: bytes = eqx.field(static=True)
     _cos_data: bytes = eqx.field(static=True)
-    _shape: tuple[int, int] = eqx.field(static=True)
+    _shape: tuple[int, ...] = eqx.field(static=True)
     _dtype: str = eqx.field(static=True)
     prefix_tokens: int = eqx.field(static=True)
 
@@ -277,7 +281,7 @@ class DinoRotaryProcessHeads(eqx.Module):
             )
         )
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DinoRotaryProcessHeads):
             return False
         return (
@@ -291,18 +295,24 @@ class DinoRotaryProcessHeads(eqx.Module):
     @property
     def sin(self) -> np.ndarray:
         dtype = np.dtype(self._dtype)
-        return np.frombuffer(self._sin_data, dtype=dtype).reshape(self._shape)
+        return cast(
+            np.ndarray,
+            np.frombuffer(self._sin_data, dtype=dtype).reshape(self._shape),
+        )
 
     @property
     def cos(self) -> np.ndarray:
         dtype = np.dtype(self._dtype)
-        return np.frombuffer(self._cos_data, dtype=dtype).reshape(self._shape)
+        return cast(
+            np.ndarray,
+            np.frombuffer(self._cos_data, dtype=dtype).reshape(self._shape),
+        )
 
 
 # --- Model code derived from https://github.com/clementpoiret/Equimo ---
 
 
-def _apply_pointwise(module, x: Array) -> Array:
+def _apply_pointwise(module: eqx.Module | None, x: Array) -> Array:
     """Apply an Equinox module independently across batch and sequence axes."""
     if module is None or isinstance(module, eqx.nn.Identity):
         return x
@@ -730,7 +740,17 @@ class VisionTransformer(eqx.Module):
             return jnp.concatenate([cls, patches], axis=1)
         return tokens
 
-    def _encode(self, x: Array, *, capture: bool = False):
+    @overload
+    def _encode(self, x: Array, *, capture: Literal[False] = False) -> Array: ...
+
+    @overload
+    def _encode(
+        self, x: Array, *, capture: Literal[True]
+    ) -> tuple[Array, list[Array]]: ...
+
+    def _encode(
+        self, x: Array, *, capture: bool = False
+    ) -> Array | tuple[Array, list[Array]]:
         x = self.patch_embed(x)
         cls_tokens = jnp.broadcast_to(self.cls_token, (x.shape[0], 1, x.shape[-1]))
         if self.num_storage_tokens and self.storage_tokens is not None:
@@ -827,12 +847,22 @@ class VisionTransformer(eqx.Module):
         return debug_infos
 
 
-def _get_test_cases():
+class _DINOTestConfig(TypedDict):
+    patch: int
+    dim: int
+    heads: int
+    depth: int
+    storage: int
+    rtol: NotRequired[float]
+    atol: NotRequired[float]
+
+
+def _get_test_cases() -> list[dict[str, object]]:
     """Returns a list of test cases for DINOv3."""
-    test_cases = []
+    test_cases: list[dict[str, object]] = []
     img_size = 224
 
-    vit_configs = {
+    vit_configs: dict[str, _DINOTestConfig] = {
         "Ti14": {"patch": 14, "dim": 192, "heads": 3, "depth": 12, "storage": 0},
         # S14 occasionally exhibits larger numeric drift; loosen tolerance a bit.
         "S14": {
@@ -906,7 +936,7 @@ def load_pretrained_dinov3(
     *,
     weights_path: Optional[str | Path] = None,
     inference_mode: bool = True,
-):
+) -> eqx.Module:
     """Load a converted DINOv3 Equinox checkpoint produced via Equimo.
 
     Parameters
@@ -927,7 +957,10 @@ def load_pretrained_dinov3(
     """
 
     try:
-        from equimo.io import load_model as _equimo_load_model
+        _equimo_load_model = cast(
+            Callable[..., eqx.Module],
+            getattr(import_module("equimo.io"), "load_model"),
+        )
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             "Loading pretrained DINOv3 weights requires `equimo`. "

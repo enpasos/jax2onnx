@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Final, Optional
+from typing import Any, Callable, ClassVar, Final, Optional, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +12,7 @@ from flax import nnx
 from jax import core
 from jax.extend.core import Primitive
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -27,19 +28,17 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
-
 
 _EINSUM_MODULE_PRIM: Final[Primitive] = Primitive("nnx_einsum_module")
 _EINSUM_MODULE_PRIM.multiple_results = False
+EinsumOptimize = str | bool | list[tuple[int, ...]]
 
 
 class _MockParam:
-    def __init__(self, value):
+    def __init__(self, value: Any) -> None:
         self.value = value
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Any) -> Any:
         return self.value[item]
 
 
@@ -124,27 +123,32 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x,
-        kernel,
-        *maybe_bias,
+        x: core.AbstractValue,
+        kernel: core.AbstractValue,
+        *maybe_bias: core.AbstractValue,
         einsum_str: str,
         use_bias_bool: bool,
         precision: Any | None = None,
-        optimize: Any | None = None,
+        optimize: EinsumOptimize | None = None,
         preferred_element_type: Any | None = None,
         dtype: Any | None = None,
         param_dtype: Any | None = None,
-    ):
+    ) -> core.ShapedArray:
+        del dtype, param_dtype
         bias = maybe_bias[0] if maybe_bias else None
 
-        def _shape_fn(x_arg, kernel_arg, bias_arg=None):
+        def _shape_fn(x_arg: Any, kernel_arg: Any, bias_arg: Any | None = None) -> Any:
+            einsum_kwargs: dict[str, Any] = {
+                "precision": precision,
+                "preferred_element_type": preferred_element_type,
+            }
+            if optimize is not None:
+                einsum_kwargs["optimize"] = optimize
             result = jnp.einsum(
                 einsum_str,
                 x_arg,
                 kernel_arg,
-                precision=precision,
-                optimize=optimize,
-                preferred_element_type=preferred_element_type,
+                **einsum_kwargs,
             )
             if use_bias_bool and bias_arg is not None:
                 result = result + bias_arg
@@ -167,9 +171,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
 
         return core.ShapedArray(out_spec.shape, out_spec.dtype)
 
-    def lower(self, ctx: "IRBuildContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
-        equation = params["einsum_str"]
+        equation = str(params["einsum_str"])
         use_bias = bool(params.get("use_bias_bool", False))
 
         invars = list(eqn.invars)
@@ -200,11 +204,14 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             raise AttributeError("IR build context missing builder for Einsum lowering")
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("einsum_out")
-        einsum_outputs = builder.Einsum(
-            x_val,
-            kernel_val,
-            _outputs=[ctx.fresh_name("einsum_mid") if use_bias else out_name],
-            equation=equation,
+        einsum_outputs = cast(
+            ir.Value,
+            builder.Einsum(
+                x_val,
+                kernel_val,
+                _outputs=[ctx.fresh_name("einsum_mid") if use_bias else out_name],
+                equation=equation,
+            ),
         )
         einsum_out = einsum_outputs
         spec_type = getattr(out_spec, "type", None)
@@ -223,10 +230,13 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
             _stamp_type_and_shape(bias_val, bias_shape)
             _ensure_value_metadata(ctx, bias_val)
-            result = builder.Add(
-                einsum_out,
-                bias_val,
-                _outputs=[out_name],
+            result = cast(
+                ir.Value,
+                builder.Add(
+                    einsum_out,
+                    bias_val,
+                    _outputs=[out_name],
+                ),
             )
             if spec_type is not None:
                 result.type = spec_type
@@ -243,11 +253,13 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, einsum_out)
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patch(orig):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patch(
+            orig: Callable[[Any, Any], Any] | None,
+        ) -> Callable[[nnx.Einsum, Any], Any]:
             cls._ORIG_CALL = orig
 
-            def _patched(self: nnx.Einsum, x):
+            def _patched(self: nnx.Einsum, x: Any) -> Any:
                 kernel = self.kernel.value
                 bias = self.bias.value if self.bias is not None else None
                 operands = [x, kernel]
@@ -277,29 +289,35 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 def _runtime_einsum(
-    x,
-    kernel,
+    x: Any,
+    kernel: Any,
     bias: Optional[Any],
     *,
     einsum_str: str,
     precision: Any | None,
-    optimize: Any | None,
+    optimize: EinsumOptimize | None,
     preferred_element_type: Any | None,
     dtype: Any | None,
     param_dtype: Any | None,
     orig_call: Callable[[Any, Any], Any] | None,
-):
+) -> Any:
     if orig_call is None:
         raise RuntimeError("Original nnx.Einsum.__call__ not captured")
 
-    def infer_bias_shape(self, x_shape, einsum_output_shape, input_for_bias=None):
+    def infer_bias_shape(
+        self: Any,
+        x_shape: Any,
+        einsum_output_shape: Any,
+        input_for_bias: Any | None = None,
+    ) -> Any:
+        del x_shape, einsum_output_shape, input_for_bias
         return getattr(self, "bias_shape", None)
 
     sanitized_bias_shape = getattr(bias, "shape", None) if bias is not None else None
@@ -328,17 +346,17 @@ def _runtime_einsum(
 
 @EinsumModulePlugin._PRIM.def_impl
 def _einsum_impl(
-    x,
-    kernel,
-    *maybe_bias,
+    x: Any,
+    kernel: Any,
+    *maybe_bias: Any,
     einsum_str: str,
     use_bias_bool: bool,
     precision: Any | None = None,
-    optimize: Any | None = None,
+    optimize: EinsumOptimize | None = None,
     preferred_element_type: Any | None = None,
     dtype: Any | None = None,
     param_dtype: Any | None = None,
-):
+) -> Any:
     bias = maybe_bias[0] if maybe_bias else None
     return _runtime_einsum(
         x,

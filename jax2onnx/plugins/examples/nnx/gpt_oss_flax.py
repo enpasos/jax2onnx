@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import numpy as np
-from typing import Final, List, Optional
+from typing import Callable, Final, List, Optional
 
 import jax
 from jax import core as jax_core
@@ -48,7 +48,7 @@ _NORMAL_002: Final = jax.nn.initializers.normal(stddev=0.02)
 
 def _init_param(
     key: jax.Array,
-    initializer,
+    initializer: Callable[[jax.Array, tuple[int, ...], jnp.dtype], jax.Array],
     shape: tuple[int, ...],
     dtype: jnp.dtype = jnp.float32,
 ) -> nnx.Param:
@@ -168,7 +168,7 @@ def _build_rmsnorm_apply(
     *,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array], jax.Array]:
     module = RMSNorm(hidden_size)
 
     def _apply(x: jax.Array) -> jax.Array:
@@ -235,7 +235,7 @@ def _rotary_tables(
     else:
         inv_freq = 1.0 / inv_freq
 
-    positions = np.arange(table_length, dtype=np.float32)
+    positions: np.ndarray = np.arange(table_length, dtype=np.float32)
     freqs = np.outer(positions, inv_freq)
     cos = np.cos(freqs) * concentration
     sin = np.sin(freqs) * concentration
@@ -267,8 +267,10 @@ def _causal_mask(
 ) -> jax.Array:
     q_len = max(1, q_len)
     kv_len = max(1, kv_len)
-    q_positions = np.arange(q_len, dtype=np.int32).reshape(q_len, 1) + kv_offset
-    kv_positions = np.arange(kv_len, dtype=np.int32).reshape(1, kv_len)
+    q_positions: np.ndarray = (
+        np.arange(q_len, dtype=np.int32).reshape(q_len, 1) + kv_offset
+    )
+    kv_positions: np.ndarray = np.arange(kv_len, dtype=np.int32).reshape(1, kv_len)
     mask = np.where(kv_positions > q_positions, -np.inf, 0.0).astype(np.float32)
     if sliding_window > 0:
         mask += np.where(
@@ -319,7 +321,7 @@ def _build_rotary_apply(
     table_length: int,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array, jax.Array], tuple[jax.Array, jax.Array]]:
     cos_table, sin_table = _rotary_tables(
         head_dim=head_dim,
         table_length=table_length,
@@ -588,7 +590,7 @@ class MLPBlockCore(nnx.Module):
     def __call__(
         self,
         normed: jax.Array,
-        capture_routing: Optional[List[dict]] = None,
+        capture_routing: Optional[List[dict[str, np.ndarray]]] = None,
         *,
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
@@ -715,7 +717,7 @@ class MLPBlock(nnx.Module):
     def __call__(
         self,
         x: jax.Array,
-        capture_routing: Optional[List[dict]] = None,
+        capture_routing: Optional[List[dict[str, np.ndarray]]] = None,
         *,
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
@@ -765,7 +767,7 @@ class TransformerBlock(nnx.Module):
     def __call__(
         self,
         x: jax.Array,
-        capture_routing: Optional[List[dict]] = None,
+        capture_routing: Optional[List[dict[str, np.ndarray]]] = None,
         *,
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
@@ -839,7 +841,7 @@ class Transformer(nnx.Module):
     def __call__(
         self,
         tokens: jax.Array,
-        capture_routing: Optional[List[List[dict]]] = None,
+        capture_routing: Optional[List[List[dict[str, np.ndarray]]]] = None,
         capture_hidden_states: Optional[List[jax.Array]] = None,
         capture_block_debug: Optional[List[dict[str, jax.Array]]] = None,
     ) -> jax.Array:
@@ -990,12 +992,12 @@ def _sdpa_callable(
     *,
     sequence_length: int | None = None,
     kv_length: int | None = None,
-) -> callable:
+) -> Callable[[jax.Array, jax.Array, jax.Array, jax.Array], jax.Array]:
     mask = None
     if sequence_length is not None and kv_length is not None:
         mask = _causal_mask(sequence_length, kv_length, sliding_window, kv_offset=0)
 
-    def _apply(q, k, v, sinks):
+    def _apply(q: jax.Array, k: jax.Array, v: jax.Array, sinks: jax.Array) -> jax.Array:
         return sdpa(
             q,
             k,
@@ -1053,7 +1055,7 @@ def _build_attention_apply(
     table_length: int,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     module = AttentionBlock(
         config=config,
@@ -1117,7 +1119,7 @@ def _build_mlp_apply(
     config: GPTOSSConfig,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array], jax.Array]:
     sequence_length = 3
     module = MLPBlock(
         config=config,
@@ -1179,7 +1181,7 @@ def _build_transformer_apply(
     table_length: int,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     module = TransformerBlock(
         config=config,
@@ -1253,7 +1255,7 @@ def _build_transformer_model_apply(
     table_length: int,
     init_key: jax.Array,
     dtype: jnp.dtype,
-) -> callable:
+) -> Callable[[jax.Array], jax.Array]:
     cos, sin = _rotary_tables_for_config(config, min_length=table_length)
     mask_sliding = _causal_mask(
         sequence_length, sequence_length, sliding_window=config.sliding_window

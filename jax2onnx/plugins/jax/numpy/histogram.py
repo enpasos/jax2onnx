@@ -14,7 +14,11 @@ from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -35,7 +39,8 @@ def _all_static_ints(shape: tuple[object, ...]) -> bool:
 def _num_elements(shape: tuple[object, ...]) -> int:
     if not _all_static_ints(shape):
         raise TypeError("jnp.histogram lowering requires static input shape")
-    return int(np.prod(tuple(int(dim) for dim in shape), dtype=np.int64))
+    static_shape = cast(tuple[int | np.integer[Any], ...], shape)
+    return int(np.prod(tuple(int(dim) for dim in static_shape), dtype=np.int64))
 
 
 def _as_dtype(
@@ -58,16 +63,16 @@ def _as_dtype(
         and getattr(getattr(val, "type", None), "dtype", None) is None
     ):
         val.type = ir.TensorType(target_enum)
-        _stamp_type_and_shape(val, shape)
+        _stamp_type_and_shape(val, cast(tuple[DimInput, ...], shape))
         _ensure_value_metadata(ctx, val)
         return val
-    result = ctx.builder.Cast(
+    result: ir.Value = ctx.builder.Cast(
         val,
         to=int(target_enum.value),
         _outputs=[ctx.fresh_name(name_hint)],
     )
     result.type = ir.TensorType(target_enum)
-    _stamp_type_and_shape(result, shape)
+    _stamp_type_and_shape(result, cast(tuple[DimInput, ...], shape))
     _ensure_value_metadata(ctx, result)
     return result
 
@@ -84,14 +89,14 @@ def _reshape(
         np.asarray(shape, dtype=np.int64),
         f"{name_hint}_shape",
     )
-    result = ctx.builder.Reshape(
+    result: ir.Value = ctx.builder.Reshape(
         val,
         shape_val,
         _outputs=[ctx.fresh_name(name_hint)],
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
-    _stamp_type_and_shape(result, shape)
+    _stamp_type_and_shape(result, cast(tuple[DimInput, ...], shape))
     _ensure_value_metadata(ctx, result)
     return result
 
@@ -105,14 +110,14 @@ def _unsqueeze(
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.Unsqueeze(
+    result: ir.Value = ctx.builder.Unsqueeze(
         val,
         axes,
         _outputs=[ctx.fresh_name(name_hint)],
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
-    _stamp_type_and_shape(result, shape)
+    _stamp_type_and_shape(result, cast(tuple[DimInput, ...], shape))
     _ensure_value_metadata(ctx, result)
     return result
 
@@ -125,7 +130,7 @@ def _gather_edges(
     name_hint: str,
 ) -> ir.Value:
     idx = _const_i64(ctx, indices, f"{name_hint}_indices")
-    result = ctx.builder.Gather(
+    result: ir.Value = ctx.builder.Gather(
         edges,
         idx,
         axis=0,
@@ -144,7 +149,7 @@ def _bool_initializer(
     *,
     name_hint: str,
 ) -> ir.Value:
-    result = ctx.builder.add_initializer_from_array(
+    result: ir.Value = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(name_hint),
         array=array,
     )
@@ -443,7 +448,9 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
         _stamp_type_and_shape(upper_closed, matrix_shape)
         _ensure_value_metadata(ctx, upper_closed)
 
-        last_bin_mask = np.zeros((bin_count, 1), dtype=np.bool_)
+        last_bin_mask: np.ndarray[Any, np.dtype[np.bool_]] = np.zeros(
+            (bin_count, 1), dtype=np.bool_
+        )
         last_bin_mask[-1, 0] = True
         last_bin = _bool_initializer(ctx, last_bin_mask, name_hint="histogram_last_bin")
         closed_last_bin = ctx.builder.And(

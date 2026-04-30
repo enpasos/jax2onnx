@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import jax
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -63,5 +61,5 @@ if TYPE_CHECKING:  # pragma: no cover
 class ReduceMinPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_min`` via ONNX ReduceMin."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceMin", allow_dtype_param=False)

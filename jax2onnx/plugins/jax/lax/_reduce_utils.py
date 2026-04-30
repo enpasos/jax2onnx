@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Final, Iterable, Optional, Sequence
+from typing import Any, Final, Iterable, Optional, Sequence, cast
 
 import numpy as np
 import onnx_ir as ir
@@ -43,7 +43,7 @@ def _normalize_axes(
 
 
 def _maybe_cast_input(
-    ctx: Any,
+    ctx: LoweringContextProtocol,
     tensor: ir.Value,
     aval_shape: Sequence[Any],
     dtype: Optional[np.dtype],
@@ -52,10 +52,13 @@ def _maybe_cast_input(
         return tensor
 
     dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
-    cast_val = ctx.builder.Cast(
-        tensor,
-        _outputs=[ctx.fresh_name("reduce_cast")],
-        to=int(dtype_enum.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            tensor,
+            _outputs=[ctx.fresh_name("reduce_cast")],
+            to=int(dtype_enum.value),
+        ),
     )
     cast_val.type = ir.TensorType(dtype_enum)
     cast_val.shape = tensor.shape
@@ -114,17 +117,20 @@ def lower_reduction(
         producer = getattr(out_val, "producer", lambda: None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name(op_type)
-        result = ctx.builder.Identity(
-            reduced_input,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Identity(
+                reduced_input,
+                _outputs=[desired_name],
+            ),
         )
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
         aval_dtype = getattr(out_var.aval, "dtype", None)
         if aval_dtype is not None:
-            out_dtype_enum = _dtype_to_ir(
+            identity_dtype_enum = _dtype_to_ir(
                 np.dtype(aval_dtype), ctx.builder.enable_double_precision
             )
-            result.type = ir.TensorType(out_dtype_enum)
+            result.type = ir.TensorType(identity_dtype_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
@@ -201,7 +207,7 @@ def lower_reduction(
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     aval_dtype = getattr(out_var.aval, "dtype", None)
-    out_dtype_enum = None
+    out_dtype_enum: ir.DataType | None = None
     if aval_dtype is not None:
         out_dtype_enum = _dtype_to_ir(
             np.dtype(aval_dtype), ctx.builder.enable_double_precision
@@ -215,10 +221,13 @@ def lower_reduction(
         target_dtype = out_dtype_enum or _dtype_to_ir(
             np.dtype(effective_dtype), ctx.builder.enable_double_precision
         )
-        cast_result = ctx.builder.Cast(
-            result,
-            _outputs=[desired_name],
-            to=int(target_dtype.value),
+        cast_result = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                result,
+                _outputs=[desired_name],
+                to=int(target_dtype.value),
+            ),
         )
         cast_result.type = ir.TensorType(target_dtype)
         _stamp_type_and_shape(cast_result, out_shape)
@@ -253,9 +262,12 @@ def lower_boolean_reduction(
     axes_attr = _normalize_axes(axes, len(operand_shape))
     if axes_attr == ():
         desired_name = ctx.fresh_name(mode)
-        result = ctx.builder.Identity(
-            operand_val,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Identity(
+                operand_val,
+                _outputs=[desired_name],
+            ),
         )
         result.type = ir.TensorType(ir.DataType.BOOL)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
@@ -275,22 +287,31 @@ def lower_boolean_reduction(
         inputs.append(axes_const)
 
     if mode == "reduce_xor":
-        reduce_out = ctx.builder.ReduceSum(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=[ctx.fresh_name("ReduceSum")],
+        reduce_out = cast(
+            ir.Value,
+            ctx.builder.ReduceSum(
+                *inputs,
+                keepdims=keepdims_attr,
+                _outputs=[ctx.fresh_name("ReduceSum")],
+            ),
         )
     elif mode == "reduce_or":
-        reduce_out = ctx.builder.ReduceMax(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=[ctx.fresh_name("ReduceMax")],
+        reduce_out = cast(
+            ir.Value,
+            ctx.builder.ReduceMax(
+                *inputs,
+                keepdims=keepdims_attr,
+                _outputs=[ctx.fresh_name("ReduceMax")],
+            ),
         )
     else:
-        reduce_out = ctx.builder.ReduceMin(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=[ctx.fresh_name("ReduceMin")],
+        reduce_out = cast(
+            ir.Value,
+            ctx.builder.ReduceMin(
+                *inputs,
+                keepdims=keepdims_attr,
+                _outputs=[ctx.fresh_name("ReduceMin")],
+            ),
         )
     reduce_out.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(reduce_out, out_shape)
@@ -298,21 +319,27 @@ def lower_boolean_reduction(
 
     if mode == "reduce_xor":
         two_const = _scalar_i64(ctx, 2, f"{mode}_two")
-        mod_out = ctx.builder.Mod(
-            reduce_out,
-            two_const,
-            fmod=0,
-            _outputs=[ctx.fresh_name(f"{mode}_mod")],
+        mod_out = cast(
+            ir.Value,
+            ctx.builder.Mod(
+                reduce_out,
+                two_const,
+                fmod=0,
+                _outputs=[ctx.fresh_name(f"{mode}_mod")],
+            ),
         )
         mod_out.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(mod_out, out_shape)
         _ensure_value_metadata(ctx, mod_out)
 
         one_const = _scalar_i64(ctx, 1, f"{mode}_one")
-        result = ctx.builder.Equal(
-            mod_out,
-            one_const,
-            _outputs=[ctx.fresh_name(f"{mode}_eq")],
+        result = cast(
+            ir.Value,
+            ctx.builder.Equal(
+                mod_out,
+                one_const,
+                _outputs=[ctx.fresh_name(f"{mode}_eq")],
+            ),
         )
         result.type = ir.TensorType(ir.DataType.BOOL)
         _stamp_type_and_shape(result, out_shape)
@@ -320,10 +347,13 @@ def lower_boolean_reduction(
         ctx.bind_value_for_var(out_var, result)
         return
     else:
-        result = ctx.builder.Cast(
-            reduce_out,
-            _outputs=[ctx.fresh_name(f"{mode}_cast")],
-            to=int(ir.DataType.BOOL.value),
+        result = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                reduce_out,
+                _outputs=[ctx.fresh_name(f"{mode}_cast")],
+                to=int(ir.DataType.BOOL.value),
+            ),
         )
         result.type = ir.TensorType(ir.DataType.BOOL)
         _stamp_type_and_shape(result, out_shape)

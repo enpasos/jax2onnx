@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/linen/dense.py
 
 from __future__ import annotations
-from typing import Any, Callable, ClassVar, Final, Optional
+from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -74,7 +74,7 @@ def _linear_expect(
     counts: dict[str, int],
     symbols: dict[str, Any] | None = None,
     extra_specs: tuple[str, ...] = (),
-):
+) -> Any:
     specs: list[Any] = [(path, {"counts": dict(counts)})]
     specs.extend(extra_specs)
     return EG(specs, symbols=symbols, no_unused_inputs=True)
@@ -106,11 +106,11 @@ EXPECT_DYNAMIC_RGR: Final = _linear_expect(
 
 def _linear_output_dims(
     x_val: ir.Value,
-    x_shape: tuple,
+    x_shape: tuple[Any, ...],
     out_val: ir.Value,
-    out_shape: tuple,
+    out_shape: tuple[Any, ...],
     fallback_last: int,
-):
+) -> tuple[Any, ...]:
     # Derive output dimension labels for a linear layer, preserving batch
     # dimensions and using fallback_last as the final dimension when metadata
     # is unavailable.
@@ -240,16 +240,24 @@ def _linear_output_dims(
 class DensePlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.dense")
     _PRIM.multiple_results = False
-    _ORIGINAL_DENSE_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_DENSE_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x, kernel, bias, *, use_bias: bool, dimension_numbers=None):
-        k0, k1 = kernel.shape
+    def abstract_eval(
+        x: Any,
+        kernel: Any,
+        bias: Any,
+        *,
+        use_bias: bool,
+        dimension_numbers: Any = None,
+    ) -> jax.core.ShapedArray:
+        del bias, use_bias, dimension_numbers
+        _, k1 = kernel.shape
         out_shape = (*x.shape[:-1], k1)
         return jax.core.ShapedArray(out_shape, x.dtype)
 
-    def lower(self, ctx: Any, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder")
@@ -291,7 +299,7 @@ class DensePlugin(PrimitiveLeafPlugin):
             all_batch_static = all(_is_static_int(d) for d in batch_dim_vals)
             if all_batch_static:
                 m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
-                x2d_dims: tuple[Optional[int], int] = (m_size, in_features)
+                x2d_dims: tuple[int | None, int] = (m_size, in_features)
             else:
                 x2d_dims = (None, in_features)
 
@@ -327,7 +335,7 @@ class DensePlugin(PrimitiveLeafPlugin):
         if need_flatten:
             if all_batch_static:
                 m_size = int(np.prod([int(d) for d in batch_dim_vals]) or 1)
-                gemm_dims: tuple[Optional[int], int] = (m_size, out_features)
+                gemm_dims: tuple[int | None, int] = (m_size, out_features)
             else:
                 gemm_dims = (None, out_features)
             _stamp_type_and_shape(gemm_result, gemm_dims)
@@ -422,11 +430,18 @@ class DensePlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final_output)
 
     @staticmethod
-    def get_monkey_patch(orig_fn):
+    def get_monkey_patch(
+        orig_fn: Callable[..., Any] | None,
+    ) -> Callable[..., Any]:
         DensePlugin._ORIGINAL_DENSE_CALL = orig_fn
         prim = DensePlugin._PRIM
 
-        def patched(self, x):
+        def call_orig(self: Any, x: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.Dense.__call__ is not available.")
+            return orig_fn(self, x)
+
+        def patched(self: Any, x: Any) -> Any:
             # Access pre-initialized parameters directly from the module's scope
             # This avoids calling self.param() which would try to compute shapes
             # from traced inputs during JAX tracing.
@@ -458,12 +473,12 @@ class DensePlugin(PrimitiveLeafPlugin):
                     )
 
             # Fallback to original behavior for init or when params not available
-            return orig_fn(self, x)
+            return call_orig(self, x)
 
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "dense_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -475,14 +490,21 @@ class DensePlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @DensePlugin._PRIM.def_impl
-def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+def _impl(
+    x: Any,
+    kernel: Any,
+    bias: Any,
+    *,
+    use_bias: bool,
+    dimension_numbers: Any,
+) -> Any:
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
     if use_bias and bias is not None:
         y = y + bias

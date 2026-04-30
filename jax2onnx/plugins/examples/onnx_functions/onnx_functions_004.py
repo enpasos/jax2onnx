@@ -16,7 +16,7 @@ from jax2onnx.plugins.plugin_system import (
 
 @onnx_function
 class NestedBlock(nnx.Module):
-    def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
+    def __init__(self, num_hiddens: int, mlp_dim: int, rngs: nnx.Rngs):
         self.linear = nnx.Linear(num_hiddens, mlp_dim, rngs=rngs)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
@@ -25,13 +25,13 @@ class NestedBlock(nnx.Module):
 
 @onnx_function
 class SuperBlock(nnx.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         rngs = nnx.Rngs(0)
         num_hiddens = 256
         self.layer_norm2 = nnx.LayerNorm(num_hiddens, rngs=rngs)
         self.mlp = NestedBlock(num_hiddens, mlp_dim=512, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return self.mlp(self.layer_norm2(x))
 
 

@@ -316,7 +316,7 @@ def _const_scalar(value: Any) -> float | int | None:
         return None
     if arr.shape != ():
         return None
-    scalar = arr.item()
+    scalar: object = arr.item()
     if isinstance(scalar, (bool, np.bool_)):
         return int(scalar)
     if isinstance(scalar, (int, np.integer)):

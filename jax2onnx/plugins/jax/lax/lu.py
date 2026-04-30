@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -25,24 +23,30 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -51,7 +55,7 @@ def _gather_mat_elem(
 
 
 def _scatter_mat_elem(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -63,13 +67,16 @@ def _scatter_mat_elem(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _scatter_row_static(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     row_idx: int,
     row_value: ir.Value,
@@ -80,29 +87,38 @@ def _scatter_row_static(
         np.asarray([[row_idx]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, row_value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, row_value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _scatter_row_dynamic(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     row_idx: ir.Value,
     row_value: ir.Value,
     name: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name}_axes")
-    idx = ctx.builder.Unsqueeze(row_idx, axes, _outputs=[ctx.fresh_name(f"{name}_idx")])
+    idx = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(row_idx, axes, _outputs=[ctx.fresh_name(f"{name}_idx")]),
+    )
     idx.type = ir.TensorType(ir.DataType.INT64)
     idx.shape = ir.Shape((1, 1))
-    out = ctx.builder.ScatterND(mat, idx, row_value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, row_value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _cast_int_vector_to_out_dtype(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     vec_i64: ir.Value,
     *,
     out_dtype: np.dtype[Any],
@@ -112,15 +128,18 @@ def _cast_int_vector_to_out_dtype(
     out_dtype_enum = numpy_dtype_to_ir(out_dtype)
 
     if out_dtype_enum == ir.DataType.INT64:
-        out = ctx.builder.Identity(vec_i64, _outputs=[out_name])
+        out = cast(ir.Value, ctx.builder.Identity(vec_i64, _outputs=[out_name]))
         out.type = ir.TensorType(ir.DataType.INT64)
         out.shape = ir.Shape(out_shape)
         return out
 
-    out = ctx.builder.Cast(
-        vec_i64,
-        to=int(out_dtype_enum.value),
-        _outputs=[out_name],
+    out = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            vec_i64,
+            to=int(out_dtype_enum.value),
+            _outputs=[out_name],
+        ),
     )
     out.type = ir.TensorType(out_dtype_enum)
     out.shape = ir.Shape(out_shape)
@@ -196,7 +215,7 @@ def _cast_int_vector_to_out_dtype(
 class LuPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.lu`` with static unrolled partial pivoting."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         lu_var, pivots_var, perm_var = eqn.outvars
 
@@ -242,11 +261,14 @@ class LuPlugin(PrimitiveLeafPlugin):
             col_idx = _const_i64(
                 ctx, np.asarray([i], dtype=np.int64), f"lu_col_idx_{i}"
             )
-            col = ctx.builder.Gather(
-                lu_cur,
-                col_idx,
-                axis=1,
-                _outputs=[ctx.fresh_name(f"lu_col_{i}_2d")],
+            col = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    lu_cur,
+                    col_idx,
+                    axis=1,
+                    _outputs=[ctx.fresh_name(f"lu_col_{i}_2d")],
+                ),
             )
             if getattr(lu_cur, "type", None) is not None:
                 col.type = lu_cur.type
@@ -255,10 +277,13 @@ class LuPlugin(PrimitiveLeafPlugin):
             sq_axes = _const_i64(
                 ctx, np.asarray([1], dtype=np.int64), f"lu_sq_axes_{i}"
             )
-            col = ctx.builder.Squeeze(
-                col,
-                sq_axes,
-                _outputs=[ctx.fresh_name(f"lu_col_{i}")],
+            col = cast(
+                ir.Value,
+                ctx.builder.Squeeze(
+                    col,
+                    sq_axes,
+                    _outputs=[ctx.fresh_name(f"lu_col_{i}")],
+                ),
             )
             if getattr(lu_cur, "type", None) is not None:
                 col.type = lu_cur.type
@@ -277,30 +302,39 @@ class LuPlugin(PrimitiveLeafPlugin):
                 axes = _const_i64(
                     ctx, np.asarray([0], dtype=np.int64), f"lu_slice_axes_{i}"
                 )
-                trailing_col = ctx.builder.Slice(
-                    col,
-                    starts,
-                    ends,
-                    axes,
-                    _outputs=[ctx.fresh_name(f"lu_col_tail_{i}")],
+                trailing_col = cast(
+                    ir.Value,
+                    ctx.builder.Slice(
+                        col,
+                        starts,
+                        ends,
+                        axes,
+                        _outputs=[ctx.fresh_name(f"lu_col_tail_{i}")],
+                    ),
                 )
                 if getattr(col, "type", None) is not None:
                     trailing_col.type = col.type
                 trailing_col.shape = ir.Shape((m - i,))
 
-            abs_col = ctx.builder.Abs(
-                trailing_col,
-                _outputs=[ctx.fresh_name(f"lu_abs_col_{i}")],
+            abs_col = cast(
+                ir.Value,
+                ctx.builder.Abs(
+                    trailing_col,
+                    _outputs=[ctx.fresh_name(f"lu_abs_col_{i}")],
+                ),
             )
             if getattr(trailing_col, "type", None) is not None:
                 abs_col.type = trailing_col.type
             abs_col.shape = trailing_col.shape
 
-            pivot_rel = ctx.builder.ArgMax(
-                abs_col,
-                axis=0,
-                keepdims=1,
-                _outputs=[ctx.fresh_name(f"lu_pivot_rel_{i}")],
+            pivot_rel = cast(
+                ir.Value,
+                ctx.builder.ArgMax(
+                    abs_col,
+                    axis=0,
+                    keepdims=1,
+                    _outputs=[ctx.fresh_name(f"lu_pivot_rel_{i}")],
+                ),
             )
             pivot_rel.type = ir.TensorType(ir.DataType.INT64)
             pivot_rel.shape = ir.Shape((1,))
@@ -312,39 +346,51 @@ class LuPlugin(PrimitiveLeafPlugin):
                     np.asarray([i], dtype=np.int64),
                     f"lu_pivot_off_{i}",
                 )
-                pivot_idx = ctx.builder.Add(
-                    pivot_rel,
-                    offset,
-                    _outputs=[ctx.fresh_name(f"lu_pivot_idx_{i}")],
+                pivot_idx = cast(
+                    ir.Value,
+                    ctx.builder.Add(
+                        pivot_rel,
+                        offset,
+                        _outputs=[ctx.fresh_name(f"lu_pivot_idx_{i}")],
+                    ),
                 )
                 pivot_idx.type = ir.TensorType(ir.DataType.INT64)
                 pivot_idx.shape = ir.Shape((1,))
 
             i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"lu_i_idx_{i}")
-            pivots_i64 = ctx.builder.ScatterElements(
-                pivots_i64,
-                i_idx,
-                pivot_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_set_pivot_{i}")],
+            pivots_i64 = cast(
+                ir.Value,
+                ctx.builder.ScatterElements(
+                    pivots_i64,
+                    i_idx,
+                    pivot_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_set_pivot_{i}")],
+                ),
             )
             pivots_i64.type = ir.TensorType(ir.DataType.INT64)
             pivots_i64.shape = ir.Shape((k,))
 
-            row_i = ctx.builder.Gather(
-                lu_cur,
-                i_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_row_i_{i}")],
+            row_i = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    lu_cur,
+                    i_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_row_i_{i}")],
+                ),
             )
             _stamp_like(row_i, lu_cur)
             row_i.shape = ir.Shape((1, n))
 
-            row_p = ctx.builder.Gather(
-                lu_cur,
-                pivot_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_row_p_{i}")],
+            row_p = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    lu_cur,
+                    pivot_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_row_p_{i}")],
+                ),
             )
             _stamp_like(row_p, lu_cur)
             row_p.shape = ir.Shape((1, n))
@@ -364,38 +410,50 @@ class LuPlugin(PrimitiveLeafPlugin):
                 f"lu_swap_row_p_{i}",
             )
 
-            perm_val_i = ctx.builder.Gather(
-                perm_i64,
-                i_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_perm_val_i_{i}")],
+            perm_val_i = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    perm_i64,
+                    i_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_perm_val_i_{i}")],
+                ),
             )
             perm_val_i.type = ir.TensorType(ir.DataType.INT64)
             perm_val_i.shape = ir.Shape((1,))
-            perm_val_p = ctx.builder.Gather(
-                perm_i64,
-                pivot_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_perm_val_p_{i}")],
+            perm_val_p = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    perm_i64,
+                    pivot_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_perm_val_p_{i}")],
+                ),
             )
             perm_val_p.type = ir.TensorType(ir.DataType.INT64)
             perm_val_p.shape = ir.Shape((1,))
 
-            perm_step = ctx.builder.ScatterElements(
-                perm_i64,
-                i_idx,
-                perm_val_p,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_perm_swap_i_{i}")],
+            perm_step = cast(
+                ir.Value,
+                ctx.builder.ScatterElements(
+                    perm_i64,
+                    i_idx,
+                    perm_val_p,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_perm_swap_i_{i}")],
+                ),
             )
             perm_step.type = ir.TensorType(ir.DataType.INT64)
             perm_step.shape = ir.Shape((m,))
-            perm_i64 = ctx.builder.ScatterElements(
-                perm_step,
-                pivot_idx,
-                perm_val_i,
-                axis=0,
-                _outputs=[ctx.fresh_name(f"lu_perm_swap_p_{i}")],
+            perm_i64 = cast(
+                ir.Value,
+                ctx.builder.ScatterElements(
+                    perm_step,
+                    pivot_idx,
+                    perm_val_i,
+                    axis=0,
+                    _outputs=[ctx.fresh_name(f"lu_perm_swap_p_{i}")],
+                ),
             )
             perm_i64.type = ir.TensorType(ir.DataType.INT64)
             perm_i64.shape = ir.Shape((m,))
@@ -403,10 +461,13 @@ class LuPlugin(PrimitiveLeafPlugin):
             pii = _gather_mat_elem(ctx, lu_cur, i, i, f"lu_pii_{i}")
             for j in range(i + 1, m):
                 pji = _gather_mat_elem(ctx, lu_cur, j, i, f"lu_pji_{i}_{j}")
-                lij = ctx.builder.Div(
-                    pji,
-                    pii,
-                    _outputs=[ctx.fresh_name(f"lu_lij_{i}_{j}")],
+                lij = cast(
+                    ir.Value,
+                    ctx.builder.Div(
+                        pji,
+                        pii,
+                        _outputs=[ctx.fresh_name(f"lu_lij_{i}_{j}")],
+                    ),
                 )
                 _stamp_like(lij, pji)
                 lu_cur = _scatter_mat_elem(
@@ -425,16 +486,22 @@ class LuPlugin(PrimitiveLeafPlugin):
                     pic = _gather_mat_elem(
                         ctx, lu_cur, i, col_j, f"lu_pic_{i}_{j}_{col_j}"
                     )
-                    mul = ctx.builder.Mul(
-                        lij,
-                        pic,
-                        _outputs=[ctx.fresh_name(f"lu_mul_{i}_{j}_{col_j}")],
+                    mul = cast(
+                        ir.Value,
+                        ctx.builder.Mul(
+                            lij,
+                            pic,
+                            _outputs=[ctx.fresh_name(f"lu_mul_{i}_{j}_{col_j}")],
+                        ),
                     )
                     _stamp_like(mul, pic)
-                    upd = ctx.builder.Sub(
-                        pjc,
-                        mul,
-                        _outputs=[ctx.fresh_name(f"lu_upd_{i}_{j}_{col_j}")],
+                    upd = cast(
+                        ir.Value,
+                        ctx.builder.Sub(
+                            pjc,
+                            mul,
+                            _outputs=[ctx.fresh_name(f"lu_upd_{i}_{j}_{col_j}")],
+                        ),
                     )
                     _stamp_like(upd, pjc)
                     lu_cur = _scatter_mat_elem(
@@ -449,7 +516,7 @@ class LuPlugin(PrimitiveLeafPlugin):
         lu_name = getattr(lu_spec, "name", None) or ctx.fresh_name("lu")
         lu_out = lu_cur
         if getattr(lu_out, "name", None) != lu_name:
-            lu_out = ctx.builder.Identity(lu_cur, _outputs=[lu_name])
+            lu_out = cast(ir.Value, ctx.builder.Identity(lu_cur, _outputs=[lu_name]))
         _stamp_like(lu_out, lu_spec if getattr(lu_spec, "type", None) else lu_cur)
         if getattr(lu_spec, "shape", None) is not None:
             lu_out.shape = lu_spec.shape

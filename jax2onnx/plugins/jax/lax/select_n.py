@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _cast_to_i64, _const_i64
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 import jax.numpy as jnp
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -128,12 +130,8 @@ if TYPE_CHECKING:  # pragma: no cover
 class SelectNPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.select_n`` using ``Where`` cascades."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for lax.select_n lowering"
-            )
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        builder = ctx.builder
 
         invars = list(eqn.invars)
         out_var = eqn.outvars[0]
@@ -151,11 +149,13 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             selector_var, name_hint=ctx.fresh_name("select_idx")
         )
 
-        out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        selector_shape = tuple(getattr(selector_var.aval, "shape", ()))
+        out_shape: tuple[DimInput, ...] = tuple(getattr(out_var.aval, "shape", ()))
+        selector_shape: tuple[DimInput, ...] = tuple(
+            getattr(selector_var.aval, "shape", ())
+        )
 
         def _ensure_tensor_metadata(
-            value: ir.Value, shape: tuple[int | str, ...], dtype: ir.DataType | None
+            value: ir.Value, shape: tuple[DimInput, ...], dtype: ir.DataType | None
         ) -> None:
             if dtype is not None:
                 value.type = ir.TensorType(dtype)
@@ -166,10 +166,13 @@ class SelectNPlugin(PrimitiveLeafPlugin):
         if len(case_vars) == 2 and np.issubdtype(selector_var.aval.dtype, np.bool_):
             cond_val = selector_val
             if selector_var.aval.dtype != np.bool_:
-                cond_val = builder.Cast(
-                    cond_val,
-                    _outputs=[ctx.fresh_name("select_cond_bool")],
-                    to=int(ir.DataType.BOOL.value),
+                cond_val = cast(
+                    ir.Value,
+                    builder.Cast(
+                        cond_val,
+                        _outputs=[ctx.fresh_name("select_cond_bool")],
+                        to=int(ir.DataType.BOOL.value),
+                    ),
                 )
                 _ensure_tensor_metadata(cond_val, selector_shape, ir.DataType.BOOL)
 
@@ -181,11 +184,14 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             )
 
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
-            where_out = builder.Where(
-                cond_val,
-                true_val,
-                false_val,
-                _outputs=[desired_name],
+            where_out = cast(
+                ir.Value,
+                builder.Where(
+                    cond_val,
+                    true_val,
+                    false_val,
+                    _outputs=[desired_name],
+                ),
             )
             result_dtype = getattr(getattr(true_val, "type", None), "dtype", None)
             _ensure_tensor_metadata(where_out, out_shape, result_dtype)
@@ -207,9 +213,12 @@ class SelectNPlugin(PrimitiveLeafPlugin):
         current_dtype = getattr(getattr(current_val, "type", None), "dtype", None)
 
         if len(case_vars) == 1:
-            identity_out = builder.Identity(
-                current_val,
-                _outputs=[ctx.fresh_name("select_identity")],
+            identity_out = cast(
+                ir.Value,
+                builder.Identity(
+                    current_val,
+                    _outputs=[ctx.fresh_name("select_identity")],
+                ),
             )
             _ensure_tensor_metadata(identity_out, out_shape, current_dtype)
             ctx.bind_value_for_var(out_var, identity_out)
@@ -227,18 +236,24 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             const_idx = _const_i64(
                 ctx, np.asarray(idx, dtype=np.int64), ctx.fresh_name("select_const")
             )
-            eq_val = builder.Equal(
-                selector_i64,
-                const_idx,
-                _outputs=[ctx.fresh_name("select_eq")],
+            eq_val = cast(
+                ir.Value,
+                builder.Equal(
+                    selector_i64,
+                    const_idx,
+                    _outputs=[ctx.fresh_name("select_eq")],
+                ),
             )
             _ensure_tensor_metadata(eq_val, selector_shape, ir.DataType.BOOL)
 
-            result_val = builder.Where(
-                eq_val,
-                case_val,
-                result_val,
-                _outputs=[ctx.fresh_name("select_where")],
+            result_val = cast(
+                ir.Value,
+                builder.Where(
+                    eq_val,
+                    case_val,
+                    result_val,
+                    _outputs=[ctx.fresh_name("select_where")],
+                ),
             )
             _ensure_tensor_metadata(result_val, out_shape, case_dtype)
             current_dtype = case_dtype

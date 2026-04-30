@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Dict, Final, Tuple, cast
+from typing import Dict, Final, Tuple, cast
 
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     DimValue,
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
-
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 _COMPLEX_PAIR: Final[Dict[ir.DataType, ir.DataType]] = {
@@ -73,7 +71,7 @@ def _complex_dtype_for_base(dtype: ir.DataType) -> ir.DataType:
 
 
 def ensure_complex_dtype(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_dtype: ir.DataType,
     *,
@@ -111,7 +109,10 @@ def ensure_complex_dtype(
 
 
 def pack_native_complex(
-    ctx: "IRContext", tensor: ir.Value, *, name_hint: str = "complex_pack"
+    ctx: LoweringContextProtocol,
+    tensor: ir.Value,
+    *,
+    name_hint: str = "complex_pack",
 ) -> ir.Value:
     """
     View a native complex tensor as a `[... , 2]` float pair without relying on complex ops.
@@ -124,10 +125,7 @@ def pack_native_complex(
         raise ValueError(f"pack_native_complex expects complex dtype, received {dtype}")
 
     base_dtype = _base_dtype_for_complex(dtype)
-    enable_double = getattr(
-        getattr(ctx, "builder", None), "enable_double_precision", False
-    )
-    if enable_double and base_dtype == ir.DataType.FLOAT:
+    if ctx.builder.enable_double_precision and base_dtype == ir.DataType.FLOAT:
         base_dtype = ir.DataType.DOUBLE
     dims = _shape_tuple(tensor)
     packed_shape = dims + (2,)
@@ -146,10 +144,6 @@ def is_packed_complex_tensor(value: ir.Value) -> bool:
     True when `value` already stores real/imag channels in its trailing dimension.
     """
     dtype = value.dtype
-    if dtype is None:
-        type_obj = getattr(value, "type", None)
-        if isinstance(type_obj, ir.TensorType):
-            dtype = type_obj.dtype
     if dtype not in REAL_PAIR_DTYPES:
         return False
     dims = _shape_tuple(value)
@@ -168,7 +162,7 @@ def is_packed_complex_tensor(value: ir.Value) -> bool:
 
 
 def cast_real_tensor(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     target_dtype: ir.DataType,
     *,
@@ -196,16 +190,15 @@ def cast_real_tensor(
 
 
 def ensure_packed_real_pair(
-    ctx: "IRContext", value: ir.Value, *, name_hint: str
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    name_hint: str,
 ) -> tuple[ir.Value, ir.DataType]:
     """
     Return `(packed_tensor, base_dtype)` for complex or packed-complex values.
     """
     dtype = value.dtype
-    if dtype is None:
-        type_obj = getattr(value, "type", None)
-        if isinstance(type_obj, ir.TensorType):
-            dtype = type_obj.dtype
     if dtype is None:
         raise ValueError("Value is missing dtype metadata for complex handling")
     if dtype in _COMPLEX_PAIR:
@@ -219,17 +212,13 @@ def ensure_packed_real_pair(
     if is_packed_complex_tensor(value):
         base_dtype = value.dtype
         if base_dtype is None:
-            type_obj = getattr(value, "type", None)
-            if isinstance(type_obj, ir.TensorType):
-                base_dtype = type_obj.dtype
-        if base_dtype is None:
             raise ValueError("Packed complex tensor missing dtype metadata")
         return value, base_dtype
     if dtype is not None and dtype.is_floating_point():
         base_dtype = (
             ir.DataType.DOUBLE if dtype == ir.DataType.DOUBLE else ir.DataType.FLOAT
         )
-    elif dtype is not None and (dtype.is_integer() or dtype.is_bool()):
+    elif dtype is not None and (dtype.is_integer() or dtype == ir.DataType.BOOL):
         base_dtype = ir.DataType.FLOAT
     else:
         raise ValueError(
@@ -284,7 +273,7 @@ def resolve_common_real_dtype(lhs: ir.DataType, rhs: ir.DataType) -> ir.DataType
 
 
 def split_packed_real_imag(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     base_dtype: ir.DataType,
     *,
@@ -337,7 +326,7 @@ def split_packed_real_imag(
 
 
 def pack_real_imag_pair(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     real: ir.Value,
     imag: ir.Value,
     base_dtype: ir.DataType,
@@ -403,7 +392,7 @@ def pack_real_imag_pair(
 
 
 def conjugate_packed_tensor(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     base_dtype: ir.DataType,
     *,
@@ -439,7 +428,7 @@ def conjugate_packed_tensor(
 
 
 def unpack_to_native_complex(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     tensor: ir.Value,
     *,
     name_hint: str = "complex_unpack",
@@ -473,17 +462,23 @@ def unpack_to_native_complex(
         _stamp_type_and_shape(init, ())
         idx_vals.append(init)
 
-    gather_real = ctx.builder.Gather(
-        tensor,
-        idx_vals[0],
-        axis=axis_index,
-        _outputs=[ctx.fresh_name(f"{name_hint}_real")],
+    gather_real = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            tensor,
+            idx_vals[0],
+            axis=axis_index,
+            _outputs=[ctx.fresh_name(f"{name_hint}_real")],
+        ),
     )
-    gather_imag = ctx.builder.Gather(
-        tensor,
-        idx_vals[1],
-        axis=axis_index,
-        _outputs=[ctx.fresh_name(f"{name_hint}_imag")],
+    gather_imag = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            tensor,
+            idx_vals[1],
+            axis=axis_index,
+            _outputs=[ctx.fresh_name(f"{name_hint}_imag")],
+        ),
     )
     base_dims = dims[:-1]
     dim_values = coerce_dim_values(base_dims)

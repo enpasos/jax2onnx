@@ -5,18 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from flax import nnx
+import jax
 from jax2onnx import to_onnx
 from jax2onnx import onnx_function
 
 
 class MLP(nnx.Module):
-    def __init__(self, din, dmid, dout, *, rngs):
+    def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs) -> None:
         self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
         self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
         self.bn = nnx.BatchNorm(dmid, rngs=rngs)
         self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
         return self.linear2(x)
 
@@ -35,21 +36,21 @@ def export_quickstart_model(output_path: str | Path | None = None) -> Path:
 
 @onnx_function
 class MLPBlock(nnx.Module):
-    def __init__(self, dim: int, *, rngs: nnx.Rngs):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs) -> None:
         self.linear1 = nnx.Linear(dim, dim, rngs=rngs)
         self.linear2 = nnx.Linear(dim, dim, rngs=rngs)
         self.bn = nnx.BatchNorm(dim, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         return nnx.gelu(self.linear2(self.bn(nnx.gelu(self.linear1(x)))))
 
 
 class FnModel(nnx.Module):
-    def __init__(self, dim: int, *, rngs: nnx.Rngs):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs) -> None:
         self.block1 = MLPBlock(dim, rngs=rngs)
         self.block2 = MLPBlock(dim, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         return self.block2(self.block1(x))
 
 

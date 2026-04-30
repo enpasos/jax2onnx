@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import Any, Sequence, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import (
@@ -17,9 +18,6 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _normalize_axis(axis: int, rank: int) -> int:
@@ -37,15 +35,21 @@ def _promote_dtype(dtypes: Sequence[np.dtype]) -> np.dtype:
 
 
 def _cast_value(
-    ctx: "IRContext", value: ir.Value, target: ir.DataType, shape: tuple[int | str, ...]
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    target: ir.DataType,
+    shape: tuple[int | str, ...],
 ) -> ir.Value:
     current = getattr(getattr(value, "type", None), "dtype", None)
     if current == target:
         return value
-    cast_val = ctx.builder.Cast(
-        value,
-        _outputs=[ctx.fresh_name("concat_cast")],
-        to=int(target.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name("concat_cast")],
+            to=int(target.value),
+        ),
     )
     cast_val.type = ir.TensorType(target)
     _stamp_type_and_shape(cast_val, shape)
@@ -125,7 +129,7 @@ def _cast_value(
     ],
 )
 class ConcatenatePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("dimension", 0))
 
@@ -143,6 +147,8 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         rank = len(shapes[0]) if shapes else 0
         norm_axis = _normalize_axis(axis, rank)
         target_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        if target_enum is None:
+            raise TypeError(f"Unsupported concatenate output dtype '{target_dtype}'")
 
         inputs: list[ir.Value] = []
         for var, shape, dtype in zip(in_vars, shapes, dtypes):
@@ -159,10 +165,13 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Concat")
 
-        result = ctx.builder.Concat(
-            *inputs,
-            axis=int(norm_axis),
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                *inputs,
+                axis=int(norm_axis),
+                _outputs=[desired_name],
+            ),
         )
         result.type = ir.TensorType(target_enum)
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
@@ -180,9 +189,12 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
             )
             candidate_overrides: list[int] = []
             for inp in inputs:
-                val = get_axis0_override(inp)
-                if isinstance(val, (int, np.integer)) and int(val) > 1:
-                    candidate_overrides.append(int(val))
+                axis0_candidate = get_axis0_override(inp)
+                if (
+                    isinstance(axis0_candidate, (int, np.integer))
+                    and int(axis0_candidate) > 1
+                ):
+                    candidate_overrides.append(int(axis0_candidate))
             override = max(candidate_overrides, default=None)
             if override is None and isinstance(out_axis0, int) and out_axis0 > 1:
                 override = out_axis0

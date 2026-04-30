@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/reshape.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, Final, Iterable, List, Optional, Union
+from typing import Any, Dict, Final, Iterable, List, Optional, Union, cast
 from functools import reduce
 import operator
 import os
@@ -11,6 +11,7 @@ import jax
 from jax import lax
 
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -29,9 +30,6 @@ from jax2onnx.utils.shape_poly import (
     is_dim_expr,
     symbolic_dim_eq,
 )
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.ir_context import IRContext
 
 
 # --- helper for tests: forbid constant-only Concat as Reshape shape input ---
@@ -259,7 +257,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
     """
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         new_sizes = tuple(eqn.params["new_sizes"])
@@ -296,7 +294,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
             )
             _stamp_type_and_shape(unsqueezed, (1,))
             _ensure_value_metadata(ctx, unsqueezed)
-            return unsqueezed
+            return cast(ir.Value, unsqueezed)
 
         # Build pieces of the shape tensor.
         # We keep two views:
@@ -381,7 +379,12 @@ class ReshapePlugin(PrimitiveLeafPlugin):
                     # This avoids producing multiple -1 dims, which is invalid in ONNX.
                     all_const = False
                     try:
-                        dim_val = ctx.dim_expr_lowerer([dim])
+                        dim_expr_lowerer = getattr(ctx, "dim_expr_lowerer", None)
+                        if not callable(dim_expr_lowerer):
+                            raise AttributeError(
+                                "reshape lowering requires ctx.dim_expr_lowerer"
+                            )
+                        dim_val = cast(ir.Value, dim_expr_lowerer([dim]))
                     except Exception:
                         # Fallback to a single inferred dim only if we haven't used -1 yet.
                         if not inserted_neg1:
@@ -474,7 +477,10 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         sym_label_map: Dict[object, str] = {}
         for i, d in enumerate(x_shape):
             if not isinstance(d, (int, np.integer)):
-                sym_label_map[d] = _dim_label_from_value_or_aval(x_val, x_shape, i)
+                label = _dim_label_from_value_or_aval(x_val, x_shape, i)
+                sym_label_map[d] = (
+                    label if isinstance(label, str) else ctx.fresh_name("dynamic")
+                )
 
         final_dims: List[Union[int, str]] = []
         for d in y_aval_shape:

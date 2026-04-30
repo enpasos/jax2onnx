@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -24,14 +22,17 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        ),
     )
     _stamp_like(row, mat)
     row.shape = ir.Shape(
@@ -47,11 +48,14 @@ def _gather_mat_elem(
     )
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     _stamp_like(elem, row)
     elem.shape = ir.Shape((1, 1))
@@ -59,7 +63,7 @@ def _gather_mat_elem(
 
 
 def _scatter_mat_elem(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -71,18 +75,26 @@ def _scatter_mat_elem(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
+def _gather_vec_elem(
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        vec,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            vec,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     _stamp_like(out, vec)
     out.shape = ir.Shape((1,))
@@ -90,7 +102,7 @@ def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.V
 
 
 def _scatter_vec_elem(
-    ctx: "IRContext", vec: ir.Value, i: int, value: ir.Value, name: str
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, value: ir.Value, name: str
 ) -> ir.Value:
     idx = _const_i64(
         ctx,
@@ -103,10 +115,16 @@ def _scatter_vec_elem(
     ) != (1,):
         # Normalize to rank-1 update payload for vector scatter.
         axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name}_unsq_axes")
-        updates = ctx.builder.Unsqueeze(
-            value, axes, _outputs=[ctx.fresh_name(f"{name}_unsq")]
+        updates = cast(
+            ir.Value,
+            ctx.builder.Unsqueeze(
+                value, axes, _outputs=[ctx.fresh_name(f"{name}_unsq")]
+            ),
         )
-    out = ctx.builder.ScatterND(vec, idx, updates, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(vec, idx, updates, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, vec)
     return out
 
@@ -159,7 +177,7 @@ def _scatter_vec_elem(
 class CholeskyUpdatePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.cholesky_update`` for static rank-2 upper factors."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         r_var, w_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -203,28 +221,46 @@ class CholeskyUpdatePlugin(PrimitiveLeafPlugin):
             rkk = _gather_mat_elem(ctx, r_cur, k, k, f"cholupd_rkk_{k}")
             wk = _gather_vec_elem(ctx, w_cur, k, f"cholupd_wk_{k}")
 
-            rkk_sq = ctx.builder.Mul(
-                rkk, rkk, _outputs=[ctx.fresh_name(f"cholupd_rkk_sq_{k}")]
+            rkk_sq = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    rkk, rkk, _outputs=[ctx.fresh_name(f"cholupd_rkk_sq_{k}")]
+                ),
             )
             _stamp_like(rkk_sq, rkk)
-            wk_sq = ctx.builder.Mul(
-                wk, wk, _outputs=[ctx.fresh_name(f"cholupd_wk_sq_{k}")]
+            wk_sq = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    wk, wk, _outputs=[ctx.fresh_name(f"cholupd_wk_sq_{k}")]
+                ),
             )
             _stamp_like(wk_sq, wk)
-            r_sq = ctx.builder.Add(
-                rkk_sq,
-                wk_sq,
-                _outputs=[ctx.fresh_name(f"cholupd_r_sq_{k}")],
+            r_sq = cast(
+                ir.Value,
+                ctx.builder.Add(
+                    rkk_sq,
+                    wk_sq,
+                    _outputs=[ctx.fresh_name(f"cholupd_r_sq_{k}")],
+                ),
             )
             _stamp_like(r_sq, rkk)
-            r_new = ctx.builder.Sqrt(
-                r_sq, _outputs=[ctx.fresh_name(f"cholupd_r_new_{k}")]
+            r_new = cast(
+                ir.Value,
+                ctx.builder.Sqrt(r_sq, _outputs=[ctx.fresh_name(f"cholupd_r_new_{k}")]),
             )
             _stamp_like(r_new, rkk)
 
-            c = ctx.builder.Div(r_new, rkk, _outputs=[ctx.fresh_name(f"cholupd_c_{k}")])
+            c = cast(
+                ir.Value,
+                ctx.builder.Div(
+                    r_new, rkk, _outputs=[ctx.fresh_name(f"cholupd_c_{k}")]
+                ),
+            )
             _stamp_like(c, rkk)
-            s = ctx.builder.Div(wk, rkk, _outputs=[ctx.fresh_name(f"cholupd_s_{k}")])
+            s = cast(
+                ir.Value,
+                ctx.builder.Div(wk, rkk, _outputs=[ctx.fresh_name(f"cholupd_s_{k}")]),
+            )
             _stamp_like(s, wk)
 
             r_cur = _scatter_mat_elem(ctx, r_cur, k, k, r_new, f"cholupd_set_diag_{k}")
@@ -233,44 +269,62 @@ class CholeskyUpdatePlugin(PrimitiveLeafPlugin):
                 rkj = _gather_mat_elem(ctx, r_cur, k, j, f"cholupd_rkj_{k}_{j}")
                 wj = _gather_vec_elem(ctx, w_cur, j, f"cholupd_wj_{k}_{j}")
 
-                s_mul_wj = ctx.builder.Mul(
-                    s,
-                    wj,
-                    _outputs=[ctx.fresh_name(f"cholupd_s_mul_wj_{k}_{j}")],
+                s_mul_wj = cast(
+                    ir.Value,
+                    ctx.builder.Mul(
+                        s,
+                        wj,
+                        _outputs=[ctx.fresh_name(f"cholupd_s_mul_wj_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(s_mul_wj, wj)
-                num = ctx.builder.Add(
-                    rkj,
-                    s_mul_wj,
-                    _outputs=[ctx.fresh_name(f"cholupd_num_{k}_{j}")],
+                num = cast(
+                    ir.Value,
+                    ctx.builder.Add(
+                        rkj,
+                        s_mul_wj,
+                        _outputs=[ctx.fresh_name(f"cholupd_num_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(num, rkj)
-                rkj_new = ctx.builder.Div(
-                    num,
-                    c,
-                    _outputs=[ctx.fresh_name(f"cholupd_rkj_new_{k}_{j}")],
+                rkj_new = cast(
+                    ir.Value,
+                    ctx.builder.Div(
+                        num,
+                        c,
+                        _outputs=[ctx.fresh_name(f"cholupd_rkj_new_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(rkj_new, rkj)
                 r_cur = _scatter_mat_elem(
                     ctx, r_cur, k, j, rkj_new, f"cholupd_set_rkj_{k}_{j}"
                 )
 
-                c_mul_wj = ctx.builder.Mul(
-                    c,
-                    wj,
-                    _outputs=[ctx.fresh_name(f"cholupd_c_mul_wj_{k}_{j}")],
+                c_mul_wj = cast(
+                    ir.Value,
+                    ctx.builder.Mul(
+                        c,
+                        wj,
+                        _outputs=[ctx.fresh_name(f"cholupd_c_mul_wj_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(c_mul_wj, wj)
-                s_mul_rnew = ctx.builder.Mul(
-                    s,
-                    rkj_new,
-                    _outputs=[ctx.fresh_name(f"cholupd_s_mul_rnew_{k}_{j}")],
+                s_mul_rnew = cast(
+                    ir.Value,
+                    ctx.builder.Mul(
+                        s,
+                        rkj_new,
+                        _outputs=[ctx.fresh_name(f"cholupd_s_mul_rnew_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(s_mul_rnew, rkj_new)
-                wj_new = ctx.builder.Sub(
-                    c_mul_wj,
-                    s_mul_rnew,
-                    _outputs=[ctx.fresh_name(f"cholupd_wj_new_{k}_{j}")],
+                wj_new = cast(
+                    ir.Value,
+                    ctx.builder.Sub(
+                        c_mul_wj,
+                        s_mul_rnew,
+                        _outputs=[ctx.fresh_name(f"cholupd_wj_new_{k}_{j}")],
+                    ),
                 )
                 _stamp_like(wj_new, wj)
                 w_cur = _scatter_vec_elem(
@@ -282,7 +336,9 @@ class CholeskyUpdatePlugin(PrimitiveLeafPlugin):
         )
         result = r_cur
         if getattr(result, "name", None) != desired_name:
-            result = ctx.builder.Identity(result, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(result, _outputs=[desired_name])
+            )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else r_cur)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape

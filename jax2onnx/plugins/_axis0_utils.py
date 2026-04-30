@@ -122,7 +122,7 @@ def _pad_axis0_to_extent(
             dtype_enum = ref_type.dtype
     np_dtype = ir_dtype_to_numpy(dtype_enum, default=None) or np.dtype(np.float32)
 
-    zero_scalar = np.zeros((), dtype=np_dtype)
+    zero_scalar: np.ndarray[Any, np.dtype[Any]] = np.zeros((), dtype=np_dtype)
     zero_init = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name("axis0_pad_zero"),
         array=zero_scalar,
@@ -410,18 +410,21 @@ def maybe_expand_binary_axis0(
         if hasattr(ctx, "_static_loop_extent_axis0")
         else None
     )
-    allow_loop_override = (
-        isinstance(loop_override, (int, np.integer))
-        and int(loop_override) > 1
-        and (out_axis0 is None or int(loop_override) == int(out_axis0))
+    loop_override_int = (
+        int(loop_override)
+        if isinstance(loop_override, (int, np.integer)) and int(loop_override) > 1
+        else None
+    )
+    allow_loop_override = loop_override_int is not None and (
+        out_axis0 is None or loop_override_int == int(out_axis0)
     )
     override_sources = [
         get_axis0_override(lhs),
         get_axis0_override(rhs),
         get_axis0_override(out_val),
     ]
-    if allow_loop_override:
-        override_sources.append(int(loop_override))
+    if allow_loop_override and loop_override_int is not None:
+        override_sources.append(loop_override_int)
     override_candidates = [
         int(val)
         for val in override_sources

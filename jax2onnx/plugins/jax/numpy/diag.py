@@ -109,11 +109,14 @@ def lower_extract_diagonal_2d(
     if callable(producer) and producer() is not None:
         desired_name = ctx.fresh_name(output_hint)
 
-    result = ctx.builder.Gather(
-        flat,
-        idx_val,
-        axis=0,
-        _outputs=[desired_name],
+    result = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            flat,
+            idx_val,
+            axis=0,
+            _outputs=[desired_name],
+        ),
     )
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type

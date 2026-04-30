@@ -211,9 +211,7 @@ def _as_sds_list(
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    return cast(
-        Optional[np.dtype[Any]], maybe_numpy_dtype(getattr(aval, "dtype", None))
-    )
+    return maybe_numpy_dtype(getattr(aval, "dtype", None))
 
 
 def _validate_layout_indices(
@@ -279,31 +277,8 @@ def _optimize_graph_with_failure_policy(
 _IRBuildContext = LoweringContextProtocol
 
 
-def _function_id(func: ir.Function) -> tuple[str, str, str]:
-    return (
-        (func.domain or ""),
-        (func.name or ""),
-        (func.overload or ""),
-    )
-
-
-def _function_store_identifier(fn_ir: ir.Function) -> object:
-    identifier: object | None = None
-    try:
-        identifier_fn = fn_ir.identifier
-    except AttributeError:
-        identifier_fn = None
-
-    if callable(identifier_fn):
-        try:
-            identifier = identifier_fn()
-        except Exception:
-            identifier = None
-    if not identifier and hasattr(fn_ir, "id"):
-        identifier = object.__getattribute__(fn_ir, "id")
-    if not identifier:
-        identifier = _function_id(fn_ir)
-    return identifier
+def _function_store_identifier(fn_ir: ir.Function) -> tuple[str, str, str]:
+    return fn_ir.identifier()
 
 
 def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
@@ -312,26 +287,8 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
         return
 
     functions_store = ir_model.functions
-    if functions_store is None:
-        try:
-            ir_model.functions = {}
-            functions_store = ir_model.functions
-        except Exception:
-            ir_model.functions = []
-            functions_store = ir_model.functions
-
-    if isinstance(functions_store, dict):
-        for fn_ir in ir_funcs:
-            functions_store[_function_store_identifier(fn_ir)] = fn_ir
-    elif isinstance(functions_store, list):
-        existing = {_function_id(func) for func in functions_store}
-        for fn_ir in ir_funcs:
-            func_id = _function_id(fn_ir)
-            if func_id not in existing:
-                functions_store.append(fn_ir)
-                existing.add(func_id)
-    else:
-        ir_model.functions = list(ir_funcs)
+    for fn_ir in ir_funcs:
+        functions_store[_function_store_identifier(fn_ir)] = fn_ir
 
     model_imports: Dict[str, int] = dict(ir_model.opset_imports or {})
     model_imports.setdefault("", int(ctx.builder.opset) or 23)
@@ -339,22 +296,14 @@ def _attach_ir_functions(ir_model: ir.Model, ctx: IRContext) -> None:
         dom = (fn_ir.domain or "").strip()
         if dom and dom not in model_imports:
             model_imports[dom] = 1
-    try:
-        ir_model.opset_imports = model_imports
-    except Exception:
-        try:
-            existing_imports = ir_model.opset_imports
-            if hasattr(existing_imports, "update"):
-                existing_imports.update(model_imports)
-        except Exception:
-            pass
+    ir_model.opset_imports.update(model_imports)
 
 
 def _iter_graph_values(gr: ir.Graph) -> Iterable[ir.Value]:
     seen: set[int] = set()
     staged: list[ir.Value] = []
 
-    def _queue(values: Iterable[ir.Value]) -> None:
+    def _queue(values: Iterable[object]) -> None:
         for val in values:
             if val is None:
                 continue
@@ -392,25 +341,24 @@ def _normalize_value_shape(val: ir.Value) -> None:
     shape_obj = val.shape
     if shape_obj is None:
         return
-    if isinstance(shape_obj, ir.Shape):
-        dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
-    elif isinstance(shape_obj, Iterable):
-        dims_source = tuple(shape_obj)
-    else:
-        return
+    dims_source: Tuple[object, ...] = tuple(shape_obj.dims)
 
-    normalized_dims: List[object] = []
+    normalized_dims: List[int | ir.SymbolicDim | None] = []
     dirty = False
     for dim in dims_source:
-        normalized_dim: object = dim
+        normalized_dim: int | ir.SymbolicDim | None
         if isinstance(dim, (int, np.integer)):
             normalized_dim = int(dim)
+        elif isinstance(dim, ir.SymbolicDim):
+            normalized_dim = dim
         else:
             label = _as_ir_dim_label(dim)
             if isinstance(label, int):
                 normalized_dim = int(label)
             elif isinstance(label, str):
                 normalized_dim = ir.SymbolicDim(label)
+            else:
+                normalized_dim = None
         if normalized_dim is not dim:
             dirty = True
         normalized_dims.append(normalized_dim)

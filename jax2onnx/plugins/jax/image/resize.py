@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, cast
 
 import jax
 import jax.image as jimage
@@ -87,7 +87,10 @@ def _compute_exact_linear_resize_weights(
     resized_basis = jax.vmap(
         lambda x: jax_resize_impl(x, output_shape_tuple, "linear", False, precision)
     )(basis)
-    return np.asarray(resized_basis, dtype=dtype).reshape((input_size, output_size))
+    return cast(
+        np.ndarray[Any, np.dtype[Any]],
+        np.asarray(resized_basis, dtype=dtype).reshape((input_size, output_size)),
+    )
 
 
 @register_primitive(
@@ -280,22 +283,28 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
                         np.asarray([input_size], dtype=np.int64),
                         ctx.fresh_name("resize_flat_shape"),
                     )
-                    flat_val = ctx.builder.Reshape(
-                        image_val,
-                        flat_shape,
-                        _outputs=[ctx.fresh_name("resize_flattened")],
+                    flat_val = cast(
+                        ir.Value,
+                        ctx.builder.Reshape(
+                            image_val,
+                            flat_shape,
+                            _outputs=[ctx.fresh_name("resize_flattened")],
+                        ),
                     )
                     if image_dtype is not None:
                         flat_val.type = ir.TensorType(image_dtype)
                     _stamp_type_and_shape(flat_val, (input_size,))
                     _ensure_value_metadata(ctx, flat_val)
 
-                    matmul_input = flat_val
+                    matmul_input: ir.Value = flat_val
                     if input_np_dtype != weight_dtype:
-                        matmul_input = ctx.builder.Cast(
-                            flat_val,
-                            _outputs=[ctx.fresh_name("resize_linear_cast")],
-                            to=int(weight_dtype_enum.value),
+                        matmul_input = cast(
+                            ir.Value,
+                            ctx.builder.Cast(
+                                flat_val,
+                                _outputs=[ctx.fresh_name("resize_linear_cast")],
+                                to=int(weight_dtype_enum.value),
+                            ),
                         )
                         matmul_input.type = ir.TensorType(weight_dtype_enum)
                         _stamp_type_and_shape(matmul_input, (input_size,))
@@ -305,10 +314,13 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
                         name=ctx.fresh_name("resize_linear_weights"),
                         array=weights,
                     )
-                    matmul_out = ctx.builder.MatMul(
-                        matmul_input,
-                        weights_const,
-                        _outputs=[ctx.fresh_name("resize_linear_flat_out")],
+                    matmul_out = cast(
+                        ir.Value,
+                        ctx.builder.MatMul(
+                            matmul_input,
+                            weights_const,
+                            _outputs=[ctx.fresh_name("resize_linear_flat_out")],
+                        ),
                     )
                     matmul_out.type = ir.TensorType(weight_dtype_enum)
                     _stamp_type_and_shape(matmul_out, (output_size,))
@@ -319,10 +331,13 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
                         np.asarray(shape, dtype=np.int64),
                         ctx.fresh_name("resize_out_shape"),
                     )
-                    exact_out = ctx.builder.Reshape(
-                        matmul_out,
-                        out_shape_const,
-                        _outputs=[ctx.fresh_name("resize_out")],
+                    exact_out = cast(
+                        ir.Value,
+                        ctx.builder.Reshape(
+                            matmul_out,
+                            out_shape_const,
+                            _outputs=[ctx.fresh_name("resize_out")],
+                        ),
                     )
                     exact_out.type = ir.TensorType(weight_dtype_enum)
                     _stamp_type_and_shape(
@@ -336,11 +351,14 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
                 name=ctx.fresh_name("upsample_scales"),
                 array=np.asarray(scales_list, dtype=np.float32),
             )
-            upsample_out = ctx.builder.Upsample(
-                image_val,
-                scales_const,
-                _outputs=[ctx.fresh_name("upsample_out")],
-                mode=method,
+            upsample_out = cast(
+                ir.Value,
+                ctx.builder.Upsample(
+                    image_val,
+                    scales_const,
+                    _outputs=[ctx.fresh_name("upsample_out")],
+                    mode=method,
+                ),
             )
             if image_dtype is not None:
                 upsample_out.type = ir.TensorType(image_dtype)
@@ -373,13 +391,16 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         if method == "cubic":
             resize_kwargs["cubic_coeff_a"] = -0.5
 
-        resize_out = ctx.builder.Resize(
-            image_val,
-            roi,
-            scales,
-            sizes,
-            _outputs=[ctx.fresh_name("resize_out")],
-            **resize_kwargs,
+        resize_out = cast(
+            ir.Value,
+            ctx.builder.Resize(
+                image_val,
+                roi,
+                scales,
+                sizes,
+                _outputs=[ctx.fresh_name("resize_out")],
+                **resize_kwargs,
+            ),
         )
 
         if image_dtype is not None:

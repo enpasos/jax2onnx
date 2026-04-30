@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
-
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -22,8 +21,11 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _lanczos_lgamma_positive(
-    ctx: "IRContext", x: Any, np_dtype: np.dtype[Any], name_prefix: str
-) -> Any:
+    ctx: LoweringContextProtocol,
+    x: ir.Value,
+    np_dtype: np.dtype[Any],
+    name_prefix: str,
+) -> ir.Value:
     # Lanczos approximation, g=7, n=9 (Numerical Recipes coefficients).
     coeffs = [
         0.99999999999980993,
@@ -43,65 +45,101 @@ def _lanczos_lgamma_positive(
         object(), np.asarray(0.9189385332046727, dtype=np_dtype)
     )
 
-    z = ctx.builder.Sub(x, one, _outputs=[ctx.fresh_name(f"{name_prefix}_z")])
+    z = cast(
+        ir.Value,
+        ctx.builder.Sub(x, one, _outputs=[ctx.fresh_name(f"{name_prefix}_z")]),
+    )
     _stamp_like(z, x)
 
     a = ctx.bind_const_for_var(object(), np.asarray(coeffs[0], dtype=np_dtype))
     for i, c in enumerate(coeffs[1:], start=1):
-        zi = ctx.builder.Add(
-            z,
-            ctx.bind_const_for_var(object(), np.asarray(float(i), dtype=np_dtype)),
-            _outputs=[ctx.fresh_name(f"{name_prefix}_zplus_{i}")],
+        zi = cast(
+            ir.Value,
+            ctx.builder.Add(
+                z,
+                ctx.bind_const_for_var(object(), np.asarray(float(i), dtype=np_dtype)),
+                _outputs=[ctx.fresh_name(f"{name_prefix}_zplus_{i}")],
+            ),
         )
         _stamp_like(zi, x)
-        term = ctx.builder.Div(
-            ctx.bind_const_for_var(object(), np.asarray(c, dtype=np_dtype)),
-            zi,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_term_{i}")],
+        term = cast(
+            ir.Value,
+            ctx.builder.Div(
+                ctx.bind_const_for_var(object(), np.asarray(c, dtype=np_dtype)),
+                zi,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_term_{i}")],
+            ),
         )
         _stamp_like(term, x)
-        a = ctx.builder.Add(
-            a,
-            term,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_a_{i}")],
+        a = cast(
+            ir.Value,
+            ctx.builder.Add(
+                a,
+                term,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_a_{i}")],
+            ),
         )
         _stamp_like(a, x)
 
-    t = ctx.builder.Add(
-        z,
-        g_plus_half,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_t")],
+    t = cast(
+        ir.Value,
+        ctx.builder.Add(
+            z,
+            g_plus_half,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_t")],
+        ),
     )
     _stamp_like(t, x)
-    log_t = ctx.builder.Log(t, _outputs=[ctx.fresh_name(f"{name_prefix}_log_t")])
+    log_t = cast(
+        ir.Value,
+        ctx.builder.Log(t, _outputs=[ctx.fresh_name(f"{name_prefix}_log_t")]),
+    )
     _stamp_like(log_t, x)
-    zph = ctx.builder.Add(
-        z,
-        half,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_zph")],
+    zph = cast(
+        ir.Value,
+        ctx.builder.Add(
+            z,
+            half,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_zph")],
+        ),
     )
     _stamp_like(zph, x)
-    zph_logt = ctx.builder.Mul(
-        zph,
-        log_t,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_zph_logt")],
+    zph_logt = cast(
+        ir.Value,
+        ctx.builder.Mul(
+            zph,
+            log_t,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_zph_logt")],
+        ),
     )
     _stamp_like(zph_logt, x)
-    log_a = ctx.builder.Log(a, _outputs=[ctx.fresh_name(f"{name_prefix}_log_a")])
+    log_a = cast(
+        ir.Value,
+        ctx.builder.Log(a, _outputs=[ctx.fresh_name(f"{name_prefix}_log_a")]),
+    )
     _stamp_like(log_a, x)
 
-    out = ctx.builder.Add(
-        log_sqrt_2pi,
-        zph_logt,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tmp_add")],
+    out = cast(
+        ir.Value,
+        ctx.builder.Add(
+            log_sqrt_2pi,
+            zph_logt,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tmp_add")],
+        ),
     )
     _stamp_like(out, x)
-    out = ctx.builder.Sub(out, t, _outputs=[ctx.fresh_name(f"{name_prefix}_tmp_sub")])
+    out = cast(
+        ir.Value,
+        ctx.builder.Sub(out, t, _outputs=[ctx.fresh_name(f"{name_prefix}_tmp_sub")]),
+    )
     _stamp_like(out, x)
-    out = ctx.builder.Add(
-        out,
-        log_a,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+    out = cast(
+        ir.Value,
+        ctx.builder.Add(
+            out,
+            log_a,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+        ),
     )
     _stamp_like(out, x)
     return out
@@ -139,7 +177,7 @@ def _lanczos_lgamma_positive(
 class LGammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.lgamma`` via Lanczos + reflection formula."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -160,43 +198,70 @@ class LGammaPlugin(PrimitiveLeafPlugin):
 
         pos = _lanczos_lgamma_positive(ctx, x, np_dtype, "lgamma_pos")
 
-        one_minus_x = ctx.builder.Sub(one, x, _outputs=[ctx.fresh_name("lgamma_1mx")])
+        one_minus_x = cast(
+            ir.Value,
+            ctx.builder.Sub(one, x, _outputs=[ctx.fresh_name("lgamma_1mx")]),
+        )
         _stamp_like(one_minus_x, x)
         lg_1mx = _lanczos_lgamma_positive(ctx, one_minus_x, np_dtype, "lgamma_refl")
 
-        pi_x = ctx.builder.Mul(pi, x, _outputs=[ctx.fresh_name("lgamma_pi_x")])
+        pi_x = cast(
+            ir.Value,
+            ctx.builder.Mul(pi, x, _outputs=[ctx.fresh_name("lgamma_pi_x")]),
+        )
         _stamp_like(pi_x, x)
-        sin_pi_x = ctx.builder.Sin(pi_x, _outputs=[ctx.fresh_name("lgamma_sin_pi_x")])
+        sin_pi_x = cast(
+            ir.Value,
+            ctx.builder.Sin(pi_x, _outputs=[ctx.fresh_name("lgamma_sin_pi_x")]),
+        )
         _stamp_like(sin_pi_x, x)
-        abs_sin = ctx.builder.Abs(sin_pi_x, _outputs=[ctx.fresh_name("lgamma_abs_sin")])
+        abs_sin = cast(
+            ir.Value,
+            ctx.builder.Abs(sin_pi_x, _outputs=[ctx.fresh_name("lgamma_abs_sin")]),
+        )
         _stamp_like(abs_sin, x)
-        log_abs_sin = ctx.builder.Log(
-            abs_sin,
-            _outputs=[ctx.fresh_name("lgamma_log_abs_sin")],
+        log_abs_sin = cast(
+            ir.Value,
+            ctx.builder.Log(
+                abs_sin,
+                _outputs=[ctx.fresh_name("lgamma_log_abs_sin")],
+            ),
         )
         _stamp_like(log_abs_sin, x)
 
-        refl = ctx.builder.Sub(
-            log_pi,
-            log_abs_sin,
-            _outputs=[ctx.fresh_name("lgamma_refl_sub1")],
+        refl = cast(
+            ir.Value,
+            ctx.builder.Sub(
+                log_pi,
+                log_abs_sin,
+                _outputs=[ctx.fresh_name("lgamma_refl_sub1")],
+            ),
         )
         _stamp_like(refl, x)
-        refl = ctx.builder.Sub(
-            refl,
-            lg_1mx,
-            _outputs=[ctx.fresh_name("lgamma_refl")],
+        refl = cast(
+            ir.Value,
+            ctx.builder.Sub(
+                refl,
+                lg_1mx,
+                _outputs=[ctx.fresh_name("lgamma_refl")],
+            ),
         )
         _stamp_like(refl, x)
 
-        use_refl = ctx.builder.Less(
-            x,
-            half,
-            _outputs=[ctx.fresh_name("lgamma_use_refl")],
+        use_refl = cast(
+            ir.Value,
+            ctx.builder.Less(
+                x,
+                half,
+                _outputs=[ctx.fresh_name("lgamma_use_refl")],
+            ),
         )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("lgamma")
-        result = ctx.builder.Where(use_refl, refl, pos, _outputs=[desired_name])
+        result = cast(
+            ir.Value,
+            ctx.builder.Where(use_refl, refl, pos, _outputs=[desired_name]),
+        )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape

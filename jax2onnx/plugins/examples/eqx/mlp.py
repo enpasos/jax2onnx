@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import equinox as eqx
 import jax
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -53,12 +55,14 @@ def _build_model(
     return eqx.nn.inference_mode(model, value=True) if inference else model
 
 
-def _training_ctor(*, batched: bool):
+def _training_ctor(
+    *, batched: bool
+) -> Callable[[jax.Array, jax.Array, jax.Array], Callable[[jax.Array], jax.Array]]:
     def ctor(
         linear1_key: jax.Array,
         linear2_key: jax.Array,
         dropout_key: jax.Array,
-    ):
+    ) -> Callable[[jax.Array], jax.Array]:
         model = _build_model(linear1_key, linear2_key, inference=False)
         if batched:
             mapped = jax.vmap(model, in_axes=(0, None))
@@ -76,8 +80,12 @@ def _training_ctor(*, batched: bool):
     return ctor
 
 
-def _inference_ctor(*, batched: bool):
-    def ctor(linear1_key: jax.Array, linear2_key: jax.Array):
+def _inference_ctor(
+    *, batched: bool
+) -> Callable[[jax.Array, jax.Array], Callable[[jax.Array], jax.Array]]:
+    def ctor(
+        linear1_key: jax.Array, linear2_key: jax.Array
+    ) -> Callable[[jax.Array], jax.Array]:
         model = _build_model(linear1_key, linear2_key, inference=True)
         if batched:
             mapped = jax.vmap(model, in_axes=(0, None))

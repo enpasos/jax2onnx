@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, List, Optional, Sequence, Tuple, cast
 
+import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from jax.core import ShapedArray
@@ -18,7 +19,8 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
@@ -238,14 +240,17 @@ LAYER_NORM_PRIM.multiple_results = False
 class LayerNormPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive] = LAYER_NORM_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @staticmethod
-    def abstract_eval(x, scale, bias, *, epsilon: float, axis: int):
+    def abstract_eval(
+        x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int
+    ) -> ShapedArray:
+        del scale, bias, epsilon, axis
         x_aval = x if isinstance(x, ShapedArray) else ShapedArray(x.shape, x.dtype)
         return ShapedArray(x_aval.shape, x_aval.dtype)
 
-    def lower(self, ctx, eqn, params: dict[str, Any] | None = None):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_v = ctx.get_value_for_var(eqn.invars[0])
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])
@@ -253,32 +258,35 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         scale_v = cast_param_like(ctx, scale_v, x_v, name_hint="ln_scale_cast")
         bias_v = cast_param_like(ctx, bias_v, x_v, name_hint="ln_bias_cast")
 
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder")
+        builder = ctx.builder
 
-        p = params or getattr(eqn, "params", {}) or {}
-        in_shape = tuple(getattr(eqn.invars[0].aval, "shape", ()))
+        p = getattr(eqn, "params", {}) or {}
+        in_shape: tuple[object, ...] = tuple(getattr(eqn.invars[0].aval, "shape", ()))
         rank = len(in_shape)
         axis = int(p.get("axis", -1))
         if axis < 0:
             axis += rank
         eps = float(p.get("epsilon", 1e-5))
 
-        y_val = builder.LayerNormalization(
-            x_v,
-            scale_v,
-            bias_v,
-            axis=int(axis),
-            epsilon=float(eps),
-            _outputs=[ctx.fresh_name("LayerNorm")],
+        y_val = cast(
+            ir.Value,
+            builder.LayerNormalization(
+                x_v,
+                scale_v,
+                bias_v,
+                axis=int(axis),
+                epsilon=float(eps),
+                _outputs=[ctx.fresh_name("LayerNorm")],
+            ),
         )
 
         x_dtype = getattr(getattr(x_v, "type", None), "dtype", None)
         if x_dtype is not None:
             y_val.type = ir.TensorType(x_dtype)
 
-        out_aval_shape = tuple(getattr(eqn.outvars[0].aval, "shape", ()))
+        out_aval_shape: tuple[object, ...] = tuple(
+            getattr(eqn.outvars[0].aval, "shape", ())
+        )
         if out_aval_shape:
             dims: list[Any] = []
             for idx in range(len(out_aval_shape)):
@@ -287,13 +295,10 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(y_val, tuple(dims))
         _ensure_value_metadata(ctx, y_val)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(eqn.outvars[0], y_val)
+        ctx.bind_value_for_var(eqn.outvars[0], y_val)
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.LayerNorm",
@@ -304,23 +309,28 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig):
+    def _make_patch(orig: Callable[..., Any] | None) -> Callable[..., Any]:
         LayerNormPlugin._ORIGINAL_CALL = orig
         prim = LayerNormPlugin._PRIM
 
-        def patched(self, x, *, mask=None):
+        def call_orig(self: Any, x: Any, *, mask: Any | None = None) -> Any:
+            if orig is None:
+                raise RuntimeError("flax.linen.LayerNorm.__call__ is not available.")
+            return orig(self, x, mask=mask)
+
+        def patched(self: Any, x: Any, *, mask: Any | None = None) -> Any:
             if mask is not None:
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_name", None) is not None:
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if getattr(self, "axis_index_groups", None) is not None:
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             if not getattr(self, "use_fast_variance", True):
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
             variables = scope.variables()
             params = variables.get("params", {})
 
@@ -329,18 +339,18 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
             red_axes = _canonicalize_axes(x.ndim, reduction_axes)
             feat_axes = _canonicalize_axes(x.ndim, feature_axes)
             if tuple(sorted(red_axes)) != tuple(sorted(feat_axes)):
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             axis0 = min(red_axes)
             expected_axes = tuple(range(axis0, x.ndim))
             if tuple(sorted(red_axes)) != expected_axes:
-                return orig(self, x, mask=mask)
+                return call_orig(self, x, mask=mask)
 
             tail_shape = tuple(x.shape[a] for a in red_axes)
             if getattr(self, "use_scale", True):
                 scale_param = params.get("scale")
                 if scale_param is None:
-                    return orig(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 base_scale = (
                     jnp.reshape(scale_param, tail_shape)
                     if tuple(scale_param.shape) != tail_shape
@@ -353,7 +363,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
             if getattr(self, "use_bias", True):
                 bias_param = params.get("bias")
                 if bias_param is None:
-                    return orig(self, x, mask=mask)
+                    return call_orig(self, x, mask=mask)
                 base_bias = (
                     jnp.reshape(bias_param, tail_shape)
                     if tuple(bias_param.shape) != tail_shape
@@ -391,7 +401,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
 
 
 @LayerNormPlugin._PRIM.def_impl
-def _ln_impl(x, scale, bias, *, epsilon: float, axis: int):
+def _ln_impl(x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int) -> Any:
     axis_val: int = int(axis)
     ndim_val: int = int(cast(int, getattr(x, "ndim", 0)))
     normalized_axis: int

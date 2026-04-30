@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -25,23 +27,27 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = _as_value(
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        )
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = _as_value(
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -50,7 +56,7 @@ def _gather_mat_elem(
 
 
 def _cast_if_needed(
-    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+    ctx: LoweringContextProtocol, value: ir.Value, target: ir.DataType, name_hint: str
 ) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
@@ -59,10 +65,12 @@ def _cast_if_needed(
             current = value_type.dtype
     if current == target:
         return value
-    casted = ctx.builder.Cast(
-        value,
-        to=int(target.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    casted = _as_value(
+        ctx.builder.Cast(
+            value,
+            to=int(target.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     casted.type = ir.TensorType(target)
     if getattr(value, "shape", None) is not None:
@@ -70,12 +78,16 @@ def _cast_if_needed(
     return casted
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
+def _reshape_to_1d_len1(
+    ctx: LoweringContextProtocol, value: ir.Value, name_hint: str
+) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
-    out = ctx.builder.Reshape(
-        value,
-        one_shape,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Reshape(
+            value,
+            one_shape,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -84,17 +96,22 @@ def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir
 
 
 def _reshape_to_2d(
-    ctx: "IRContext", value: ir.Value, shape: tuple[int, int], name_hint: str
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    shape: tuple[int, int],
+    name_hint: str,
 ) -> ir.Value:
     target_shape = _const_i64(
         ctx,
         np.asarray([shape[0], shape[1]], dtype=np.int64),
         f"{name_hint}_shape",
     )
-    out = ctx.builder.Reshape(
-        value,
-        target_shape,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Reshape(
+            value,
+            target_shape,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -103,7 +120,7 @@ def _reshape_to_2d(
 
 
 def _slice_1d(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     *,
     start: int,
@@ -121,12 +138,14 @@ def _slice_1d(
         f"{name_hint}_ends",
     )
     axes = _const_i64(ctx, np.asarray([0], dtype=np.int64), f"{name_hint}_axes")
-    out = ctx.builder.Slice(
-        value,
-        starts,
-        ends,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Slice(
+            value,
+            starts,
+            ends,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -135,7 +154,7 @@ def _slice_1d(
 
 
 def _slice_2d_cols(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     value: ir.Value,
     *,
     rows: int,
@@ -154,12 +173,14 @@ def _slice_2d_cols(
         f"{name_hint}_ends",
     )
     axes = _const_i64(ctx, np.asarray([0, 1], dtype=np.int64), f"{name_hint}_axes")
-    out = ctx.builder.Slice(
-        value,
-        starts,
-        ends,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Slice(
+            value,
+            starts,
+            ends,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -283,7 +304,7 @@ def _slice_2d_cols(
 class EighPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.eigh`` for static square ``1x1`` and real symmetric ``2x2``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         lower = bool(params.get("lower", True))
         sort_eigenvalues = bool(params.get("sort_eigenvalues", True))
@@ -369,7 +390,7 @@ class EighPlugin(PrimitiveLeafPlugin):
             vals_name = getattr(val_spec, "name", None) or ctx.fresh_name("eigh_vals")
             vals = vals_1d
             if getattr(vals, "name", None) != vals_name:
-                vals = ctx.builder.Identity(vals_1d, _outputs=[vals_name])
+                vals = _as_value(ctx.builder.Identity(vals_1d, _outputs=[vals_name]))
             vals.type = ir.TensorType(val_dtype_enum)
             vals.shape = ir.Shape((1,))
             _stamp_like(vals, val_spec if getattr(val_spec, "type", None) else vals_1d)
@@ -380,7 +401,7 @@ class EighPlugin(PrimitiveLeafPlugin):
                 object(), np.asarray([[1]], dtype=vec_dtype)
             )
             vec_name = getattr(vec_spec, "name", None) or ctx.fresh_name("eigh_vecs")
-            vecs = ctx.builder.Identity(vec_const, _outputs=[vec_name])
+            vecs = _as_value(ctx.builder.Identity(vec_const, _outputs=[vec_name]))
             _stamp_like(
                 vecs, vec_spec if getattr(vec_spec, "type", None) else vec_const
             )
@@ -423,47 +444,67 @@ class EighPlugin(PrimitiveLeafPlugin):
             const.type = ir.TensorType(val_dtype_enum)
             const.shape = ir.Shape((1, 1))
 
-        trace = ctx.builder.Add(a, d, _outputs=[ctx.fresh_name("eigh_trace")])
+        trace = _as_value(
+            ctx.builder.Add(a, d, _outputs=[ctx.fresh_name("eigh_trace")])
+        )
         trace.type = ir.TensorType(val_dtype_enum)
-        delta = ctx.builder.Sub(a, d, _outputs=[ctx.fresh_name("eigh_delta")])
+        delta = _as_value(
+            ctx.builder.Sub(a, d, _outputs=[ctx.fresh_name("eigh_delta")])
+        )
         delta.type = ir.TensorType(val_dtype_enum)
-        delta2 = ctx.builder.Mul(delta, delta, _outputs=[ctx.fresh_name("eigh_delta2")])
+        delta2 = _as_value(
+            ctx.builder.Mul(delta, delta, _outputs=[ctx.fresh_name("eigh_delta2")])
+        )
         delta2.type = ir.TensorType(val_dtype_enum)
-        b2 = ctx.builder.Mul(b, b, _outputs=[ctx.fresh_name("eigh_b2")])
+        b2 = _as_value(ctx.builder.Mul(b, b, _outputs=[ctx.fresh_name("eigh_b2")]))
         b2.type = ir.TensorType(val_dtype_enum)
-        four_b2 = ctx.builder.Mul(four, b2, _outputs=[ctx.fresh_name("eigh_four_b2")])
+        four_b2 = _as_value(
+            ctx.builder.Mul(four, b2, _outputs=[ctx.fresh_name("eigh_four_b2")])
+        )
         four_b2.type = ir.TensorType(val_dtype_enum)
-        disc2 = ctx.builder.Add(
-            delta2, four_b2, _outputs=[ctx.fresh_name("eigh_disc2")]
+        disc2 = _as_value(
+            ctx.builder.Add(delta2, four_b2, _outputs=[ctx.fresh_name("eigh_disc2")])
         )
         disc2.type = ir.TensorType(val_dtype_enum)
-        disc = ctx.builder.Sqrt(disc2, _outputs=[ctx.fresh_name("eigh_disc")])
+        disc = _as_value(
+            ctx.builder.Sqrt(disc2, _outputs=[ctx.fresh_name("eigh_disc")])
+        )
         disc.type = ir.TensorType(val_dtype_enum)
 
-        lam0_num = ctx.builder.Sub(
-            trace,
-            disc,
-            _outputs=[ctx.fresh_name("eigh_lam0_num")],
+        lam0_num = _as_value(
+            ctx.builder.Sub(
+                trace,
+                disc,
+                _outputs=[ctx.fresh_name("eigh_lam0_num")],
+            )
         )
         lam0_num.type = ir.TensorType(val_dtype_enum)
-        lam1_num = ctx.builder.Add(
-            trace,
-            disc,
-            _outputs=[ctx.fresh_name("eigh_lam1_num")],
+        lam1_num = _as_value(
+            ctx.builder.Add(
+                trace,
+                disc,
+                _outputs=[ctx.fresh_name("eigh_lam1_num")],
+            )
         )
         lam1_num.type = ir.TensorType(val_dtype_enum)
-        lam0 = ctx.builder.Div(lam0_num, two, _outputs=[ctx.fresh_name("eigh_lam0")])
+        lam0 = _as_value(
+            ctx.builder.Div(lam0_num, two, _outputs=[ctx.fresh_name("eigh_lam0")])
+        )
         lam0.type = ir.TensorType(val_dtype_enum)
-        lam1 = ctx.builder.Div(lam1_num, two, _outputs=[ctx.fresh_name("eigh_lam1")])
+        lam1 = _as_value(
+            ctx.builder.Div(lam1_num, two, _outputs=[ctx.fresh_name("eigh_lam1")])
+        )
         lam1.type = ir.TensorType(val_dtype_enum)
 
         lam0_1d = _reshape_to_1d_len1(ctx, lam0, "eigh_lam0_1d")
         lam1_1d = _reshape_to_1d_len1(ctx, lam1, "eigh_lam1_1d")
-        vals_raw = ctx.builder.Concat(
-            lam0_1d,
-            lam1_1d,
-            axis=0,
-            _outputs=[ctx.fresh_name("eigh_vals_raw")],
+        vals_raw = _as_value(
+            ctx.builder.Concat(
+                lam0_1d,
+                lam1_1d,
+                axis=0,
+                _outputs=[ctx.fresh_name("eigh_vals_raw")],
+            )
         )
         vals_raw.type = ir.TensorType(val_dtype_enum)
         vals_raw.shape = ir.Shape((2,))
@@ -479,7 +520,7 @@ class EighPlugin(PrimitiveLeafPlugin):
         vals_name = getattr(val_spec, "name", None) or ctx.fresh_name("eigh_vals")
         vals = vals_full
         if getattr(vals, "name", None) != vals_name:
-            vals = ctx.builder.Identity(vals_full, _outputs=[vals_name])
+            vals = _as_value(ctx.builder.Identity(vals_full, _outputs=[vals_name]))
         vals.type = ir.TensorType(val_dtype_enum)
         vals.shape = ir.Shape((subset_end - subset_start,))
         _stamp_like(vals, val_spec if getattr(val_spec, "type", None) else vals_full)
@@ -488,8 +529,8 @@ class EighPlugin(PrimitiveLeafPlugin):
 
         # Eigenvector columns for ascending eigenvalues:
         # v0 ~ [b, lam0-a], v1 ~ [b, lam1-a], normalized with diagonal fallback.
-        cond_a_le_d = ctx.builder.LessOrEqual(
-            a, d, _outputs=[ctx.fresh_name("eigh_a_le_d")]
+        cond_a_le_d = _as_value(
+            ctx.builder.LessOrEqual(a, d, _outputs=[ctx.fresh_name("eigh_a_le_d")])
         )
         cond_a_le_d.type = ir.TensorType(ir.DataType.BOOL)
 
@@ -497,36 +538,52 @@ class EighPlugin(PrimitiveLeafPlugin):
             lam: ir.Value, prefix: str
         ) -> tuple[ir.Value, ir.Value, ir.Value]:
             vx = b
-            vy = ctx.builder.Sub(lam, a, _outputs=[ctx.fresh_name(f"{prefix}_vy")])
+            vy = _as_value(
+                ctx.builder.Sub(lam, a, _outputs=[ctx.fresh_name(f"{prefix}_vy")])
+            )
             vy.type = ir.TensorType(val_dtype_enum)
-            vx2 = ctx.builder.Mul(vx, vx, _outputs=[ctx.fresh_name(f"{prefix}_vx2")])
-            vy2 = ctx.builder.Mul(vy, vy, _outputs=[ctx.fresh_name(f"{prefix}_vy2")])
+            vx2 = _as_value(
+                ctx.builder.Mul(vx, vx, _outputs=[ctx.fresh_name(f"{prefix}_vx2")])
+            )
+            vy2 = _as_value(
+                ctx.builder.Mul(vy, vy, _outputs=[ctx.fresh_name(f"{prefix}_vy2")])
+            )
             vx2.type = ir.TensorType(val_dtype_enum)
             vy2.type = ir.TensorType(val_dtype_enum)
-            norm2 = ctx.builder.Add(
-                vx2, vy2, _outputs=[ctx.fresh_name(f"{prefix}_norm2")]
+            norm2 = _as_value(
+                ctx.builder.Add(vx2, vy2, _outputs=[ctx.fresh_name(f"{prefix}_norm2")])
             )
             norm2.type = ir.TensorType(val_dtype_enum)
-            norm = ctx.builder.Sqrt(norm2, _outputs=[ctx.fresh_name(f"{prefix}_norm")])
+            norm = _as_value(
+                ctx.builder.Sqrt(norm2, _outputs=[ctx.fresh_name(f"{prefix}_norm")])
+            )
             norm.type = ir.TensorType(val_dtype_enum)
-            is_zero = ctx.builder.Equal(
-                norm,
-                zero,
-                _outputs=[ctx.fresh_name(f"{prefix}_is_zero")],
+            is_zero = _as_value(
+                ctx.builder.Equal(
+                    norm,
+                    zero,
+                    _outputs=[ctx.fresh_name(f"{prefix}_is_zero")],
+                )
             )
             is_zero.type = ir.TensorType(ir.DataType.BOOL)
-            norm_safe = ctx.builder.Where(
-                is_zero,
-                one,
-                norm,
-                _outputs=[ctx.fresh_name(f"{prefix}_norm_safe")],
+            norm_safe = _as_value(
+                ctx.builder.Where(
+                    is_zero,
+                    one,
+                    norm,
+                    _outputs=[ctx.fresh_name(f"{prefix}_norm_safe")],
+                )
             )
             norm_safe.type = ir.TensorType(val_dtype_enum)
-            ux = ctx.builder.Div(
-                vx, norm_safe, _outputs=[ctx.fresh_name(f"{prefix}_ux")]
+            ux = _as_value(
+                ctx.builder.Div(
+                    vx, norm_safe, _outputs=[ctx.fresh_name(f"{prefix}_ux")]
+                )
             )
-            uy = ctx.builder.Div(
-                vy, norm_safe, _outputs=[ctx.fresh_name(f"{prefix}_uy")]
+            uy = _as_value(
+                ctx.builder.Div(
+                    vy, norm_safe, _outputs=[ctx.fresh_name(f"{prefix}_uy")]
+                )
             )
             ux.type = ir.TensorType(val_dtype_enum)
             uy.type = ir.TensorType(val_dtype_enum)
@@ -535,56 +592,72 @@ class EighPlugin(PrimitiveLeafPlugin):
         v0x_u, v0y_u, v0_is_zero = _normalized_vector(lam0, "eigh_v0")
         v1x_u, v1y_u, v1_is_zero = _normalized_vector(lam1, "eigh_v1")
 
-        fb0x = ctx.builder.Where(
-            cond_a_le_d,
-            one,
-            zero,
-            _outputs=[ctx.fresh_name("eigh_fb0x")],
+        fb0x = _as_value(
+            ctx.builder.Where(
+                cond_a_le_d,
+                one,
+                zero,
+                _outputs=[ctx.fresh_name("eigh_fb0x")],
+            )
         )
-        fb0y = ctx.builder.Where(
-            cond_a_le_d,
-            zero,
-            one,
-            _outputs=[ctx.fresh_name("eigh_fb0y")],
+        fb0y = _as_value(
+            ctx.builder.Where(
+                cond_a_le_d,
+                zero,
+                one,
+                _outputs=[ctx.fresh_name("eigh_fb0y")],
+            )
         )
-        fb1x = ctx.builder.Where(
-            cond_a_le_d,
-            zero,
-            one,
-            _outputs=[ctx.fresh_name("eigh_fb1x")],
+        fb1x = _as_value(
+            ctx.builder.Where(
+                cond_a_le_d,
+                zero,
+                one,
+                _outputs=[ctx.fresh_name("eigh_fb1x")],
+            )
         )
-        fb1y = ctx.builder.Where(
-            cond_a_le_d,
-            one,
-            zero,
-            _outputs=[ctx.fresh_name("eigh_fb1y")],
+        fb1y = _as_value(
+            ctx.builder.Where(
+                cond_a_le_d,
+                one,
+                zero,
+                _outputs=[ctx.fresh_name("eigh_fb1y")],
+            )
         )
         for val in (fb0x, fb0y, fb1x, fb1y):
             val.type = ir.TensorType(val_dtype_enum)
 
-        v0x = ctx.builder.Where(
-            v0_is_zero,
-            fb0x,
-            v0x_u,
-            _outputs=[ctx.fresh_name("eigh_v0x")],
+        v0x = _as_value(
+            ctx.builder.Where(
+                v0_is_zero,
+                fb0x,
+                v0x_u,
+                _outputs=[ctx.fresh_name("eigh_v0x")],
+            )
         )
-        v0y = ctx.builder.Where(
-            v0_is_zero,
-            fb0y,
-            v0y_u,
-            _outputs=[ctx.fresh_name("eigh_v0y")],
+        v0y = _as_value(
+            ctx.builder.Where(
+                v0_is_zero,
+                fb0y,
+                v0y_u,
+                _outputs=[ctx.fresh_name("eigh_v0y")],
+            )
         )
-        v1x = ctx.builder.Where(
-            v1_is_zero,
-            fb1x,
-            v1x_u,
-            _outputs=[ctx.fresh_name("eigh_v1x")],
+        v1x = _as_value(
+            ctx.builder.Where(
+                v1_is_zero,
+                fb1x,
+                v1x_u,
+                _outputs=[ctx.fresh_name("eigh_v1x")],
+            )
         )
-        v1y = ctx.builder.Where(
-            v1_is_zero,
-            fb1y,
-            v1y_u,
-            _outputs=[ctx.fresh_name("eigh_v1y")],
+        v1y = _as_value(
+            ctx.builder.Where(
+                v1_is_zero,
+                fb1y,
+                v1y_u,
+                _outputs=[ctx.fresh_name("eigh_v1y")],
+            )
         )
         for val in (v0x, v0y, v1x, v1y):
             val.type = ir.TensorType(val_dtype_enum)
@@ -594,17 +667,21 @@ class EighPlugin(PrimitiveLeafPlugin):
         v1x_1d = _reshape_to_1d_len1(ctx, v1x, "eigh_v1x_1d")
         v1y_1d = _reshape_to_1d_len1(ctx, v1y, "eigh_v1y_1d")
 
-        row0_1d = ctx.builder.Concat(
-            v0x_1d,
-            v1x_1d,
-            axis=0,
-            _outputs=[ctx.fresh_name("eigh_row0_1d")],
+        row0_1d = _as_value(
+            ctx.builder.Concat(
+                v0x_1d,
+                v1x_1d,
+                axis=0,
+                _outputs=[ctx.fresh_name("eigh_row0_1d")],
+            )
         )
-        row1_1d = ctx.builder.Concat(
-            v0y_1d,
-            v1y_1d,
-            axis=0,
-            _outputs=[ctx.fresh_name("eigh_row1_1d")],
+        row1_1d = _as_value(
+            ctx.builder.Concat(
+                v0y_1d,
+                v1y_1d,
+                axis=0,
+                _outputs=[ctx.fresh_name("eigh_row1_1d")],
+            )
         )
         row0_1d.type = ir.TensorType(val_dtype_enum)
         row1_1d.type = ir.TensorType(val_dtype_enum)
@@ -613,11 +690,13 @@ class EighPlugin(PrimitiveLeafPlugin):
 
         row0 = _reshape_to_2d(ctx, row0_1d, (1, 2), "eigh_row0")
         row1 = _reshape_to_2d(ctx, row1_1d, (1, 2), "eigh_row1")
-        vecs_raw = ctx.builder.Concat(
-            row0,
-            row1,
-            axis=0,
-            _outputs=[ctx.fresh_name("eigh_vecs_raw")],
+        vecs_raw = _as_value(
+            ctx.builder.Concat(
+                row0,
+                row1,
+                axis=0,
+                _outputs=[ctx.fresh_name("eigh_vecs_raw")],
+            )
         )
         vecs_raw.type = ir.TensorType(val_dtype_enum)
         vecs_raw.shape = ir.Shape((2, 2))
@@ -636,7 +715,7 @@ class EighPlugin(PrimitiveLeafPlugin):
         vecs_name = getattr(vec_spec, "name", None) or ctx.fresh_name("eigh_vecs")
         vecs = vecs_full
         if getattr(vecs, "name", None) != vecs_name:
-            vecs = ctx.builder.Identity(vecs_full, _outputs=[vecs_name])
+            vecs = _as_value(ctx.builder.Identity(vecs_full, _outputs=[vecs_name]))
         vecs.type = ir.TensorType(vec_dtype_enum)
         vecs.shape = ir.Shape((2, subset_end - subset_start))
         _stamp_like(vecs, vec_spec if getattr(vec_spec, "type", None) else vecs_full)

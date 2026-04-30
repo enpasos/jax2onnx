@@ -10,7 +10,7 @@ from jax.extend.core import Primitive
 
 from jax2onnx.plugins.flax.nnx import prelu as nnx_prelu
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
@@ -75,7 +75,7 @@ class PReluPlugin(nnx_prelu.PReluPlugin):
     _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.PReLU",

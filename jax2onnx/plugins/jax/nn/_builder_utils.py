@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
+import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
@@ -37,7 +38,7 @@ def lower_unary_elementwise(
         raise AttributeError(f"IR builder missing op '{op_name}'")
 
     attrs_dict = dict(attrs or {})
-    result = builder_op(x_val, _outputs=[desired_name], **attrs_dict)
+    result = cast(ir.Value, builder_op(x_val, _outputs=[desired_name], **attrs_dict))
 
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type

@@ -94,7 +94,8 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
         aval = getattr(lhs_var, "aval", None)
         aval_dtype: np.dtype[Any] = np.dtype(getattr(aval, "dtype", np.int32))
         if aval_dtype in _INTEGER_DTYPES:
-            return numpy_dtype_to_ir(aval_dtype)
+            dtype: ir.DataType = numpy_dtype_to_ir(aval_dtype)
+            return dtype
         raise NotImplementedError(
             f"shift_right_arithmetic unsupported dtype '{aval_dtype}'"
         )

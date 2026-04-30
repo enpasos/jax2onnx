@@ -1,28 +1,23 @@
 # jax2onnx/plugins/flax/nnx/leaky_relu.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, List, Union, Optional
+from typing import Any, Callable, ClassVar, Optional, cast
 
-import numpy as np
 import jax
 from jax.extend.core import Primitive
 from flax import nnx
-import onnx_ir as ir
+from numpy.typing import ArrayLike
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins._ir_shapes import (
-    _stamp_type_and_shape,
-    _dim_label_from_value_or_aval,
-    _ensure_value_metadata,
+from jax2onnx.plugins.jax.nn._builder_utils import (
+    lower_unary_elementwise,
 )
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
-
-def _alpha_attr_equals(model, expected: float) -> bool:
+def _alpha_attr_equals(model: Any, expected: float) -> bool:
     node = next(
         (n for n in getattr(model.graph, "node", []) if n.op_type == "LeakyRelu"), None
     )
@@ -51,10 +46,10 @@ def _make_leaky_relu_checker(
     *,
     alpha: float,
     symbols: Optional[dict[str, Optional[int]]] = None,
-):
+) -> Callable[[Any], bool]:
     graph_check = expect_graph([path], symbols=symbols, no_unused_inputs=True)
 
-    def _run(model):
+    def _run(model: Any) -> bool:
         return graph_check(model) and _alpha_attr_equals(model, alpha)
 
     return _run
@@ -111,66 +106,39 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x, negative_slope: float = 0.01):
+    def abstract_eval(
+        x: jax.core.AbstractValue, negative_slope: float = 0.01
+    ) -> jax.core.ShapedArray:
         del negative_slope
         return jax.core.ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
-        (x_var,) = eqn.invars
-        (y_var,) = eqn.outvars
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         negative_slope = float(eqn.params.get("negative_slope", 0.01))
-
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for LeakyRelu lowering"
-            )
-
-        out_name = getattr(out_spec, "name", None) or ctx.fresh_name("LeakyRelu")
-        leaky = builder.LeakyRelu(
-            x_val,
-            _outputs=[out_name],
-            alpha=negative_slope,
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="LeakyRelu",
+            input_hint="leaky_relu_in",
+            output_hint="leaky_relu_out",
+            attrs={"alpha": negative_slope},
         )
-
-        spec_type = getattr(out_spec, "type", None)
-        if spec_type is not None:
-            leaky.type = spec_type
-        else:
-            x_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-            if x_dtype is not None:
-                leaky.type = ir.TensorType(x_dtype)
-
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        final_dims: List[Union[int, str]] = []
-        for i, d in enumerate(x_shape):
-            if isinstance(d, (int, np.integer)):
-                final_dims.append(int(d))
-            else:
-                final_dims.append(_dim_label_from_value_or_aval(x_val, x_shape, i))
-
-        _stamp_type_and_shape(leaky, tuple(final_dims))
-        _ensure_value_metadata(ctx, leaky)
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, leaky)
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(
+        orig_fn: Callable[..., ArrayLike] | None,
+    ) -> Callable[..., ArrayLike]:
+        del orig_fn
         prim = LeakyReluPlugin._PRIM
 
-        def patched_leaky_relu(x, negative_slope: float = 0.01):
-            return prim.bind(x, negative_slope=negative_slope)
+        def patched_leaky_relu(x: ArrayLike, negative_slope: float = 0.01) -> ArrayLike:
+            return cast(ArrayLike, prim.bind(x, negative_slope=negative_slope))
 
         return patched_leaky_relu
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.nnx", "leaky_relu_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -182,7 +150,7 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, *, negative_slope=0.01: cls.abstract_eval(
@@ -194,5 +162,5 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @LeakyReluPlugin._PRIM.def_impl
-def _impl(x, *, negative_slope: float):
+def _impl(x: ArrayLike, *, negative_slope: float) -> ArrayLike:
     return jax.nn.leaky_relu(x, negative_slope=negative_slope)

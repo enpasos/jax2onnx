@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -25,7 +23,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _lower_single_permutation(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     pivots_1d: ir.Value,
     *,
     k: int,
@@ -44,49 +42,64 @@ def _lower_single_permutation(
         i_idx = _const_i64(
             ctx, np.asarray([i], dtype=np.int64), f"{name_prefix}_i_idx_{i}"
         )
-        piv_i = ctx.builder.Gather(
-            pivots_1d,
-            i_idx,
-            axis=0,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_piv_i_{i}")],
+        piv_i = cast(
+            ir.Value,
+            ctx.builder.Gather(
+                pivots_1d,
+                i_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_piv_i_{i}")],
+            ),
         )
         piv_i.type = ir.TensorType(ir.DataType.INT64)
         piv_i.shape = ir.Shape((1,))
 
-        val_i = ctx.builder.Gather(
-            perm,
-            i_idx,
-            axis=0,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_val_i_{i}")],
+        val_i = cast(
+            ir.Value,
+            ctx.builder.Gather(
+                perm,
+                i_idx,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_val_i_{i}")],
+            ),
         )
         val_i.type = ir.TensorType(ir.DataType.INT64)
         val_i.shape = ir.Shape((1,))
 
-        val_j = ctx.builder.Gather(
-            perm,
-            piv_i,
-            axis=0,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_val_j_{i}")],
+        val_j = cast(
+            ir.Value,
+            ctx.builder.Gather(
+                perm,
+                piv_i,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_val_j_{i}")],
+            ),
         )
         val_j.type = ir.TensorType(ir.DataType.INT64)
         val_j.shape = ir.Shape((1,))
 
-        perm = ctx.builder.ScatterElements(
-            perm,
-            i_idx,
-            val_j,
-            axis=0,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_swap_i_{i}")],
+        perm = cast(
+            ir.Value,
+            ctx.builder.ScatterElements(
+                perm,
+                i_idx,
+                val_j,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_swap_i_{i}")],
+            ),
         )
         perm.type = ir.TensorType(ir.DataType.INT64)
         perm.shape = ir.Shape((permutation_size,))
 
-        perm = ctx.builder.ScatterElements(
-            perm,
-            piv_i,
-            val_i,
-            axis=0,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_swap_j_{i}")],
+        perm = cast(
+            ir.Value,
+            ctx.builder.ScatterElements(
+                perm,
+                piv_i,
+                val_i,
+                axis=0,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_swap_j_{i}")],
+            ),
         )
         perm.type = ir.TensorType(ir.DataType.INT64)
         perm.shape = ir.Shape((permutation_size,))
@@ -164,7 +177,7 @@ def _lower_single_permutation(
 class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.lu_pivots_to_permutation`` with sequential swaps."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (pivots_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -187,10 +200,13 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
 
         pivots_i64 = pivots
         if getattr(getattr(pivots, "type", None), "dtype", None) != ir.DataType.INT64:
-            pivots_i64 = ctx.builder.Cast(
-                pivots,
-                to=int(ir.DataType.INT64.value),
-                _outputs=[ctx.fresh_name("lu_pivots_i64")],
+            pivots_i64 = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    pivots,
+                    to=int(ir.DataType.INT64.value),
+                    _outputs=[ctx.fresh_name("lu_pivots_i64")],
+                ),
             )
             pivots_i64.type = ir.TensorType(ir.DataType.INT64)
             if getattr(pivots, "shape", None) is not None:
@@ -251,18 +267,24 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
                     b_idx = _const_i64(
                         ctx, np.asarray([b], dtype=np.int64), f"lu_batch_idx_{b}"
                     )
-                    row_2d = ctx.builder.Gather(
-                        pivots_i64,
-                        b_idx,
-                        axis=0,
-                        _outputs=[ctx.fresh_name(f"lu_batch_row2d_{b}")],
+                    row_2d = cast(
+                        ir.Value,
+                        ctx.builder.Gather(
+                            pivots_i64,
+                            b_idx,
+                            axis=0,
+                            _outputs=[ctx.fresh_name(f"lu_batch_row2d_{b}")],
+                        ),
                     )
                     row_2d.type = ir.TensorType(ir.DataType.INT64)
                     row_2d.shape = ir.Shape((1, k))
-                    row = ctx.builder.Squeeze(
-                        row_2d,
-                        squeeze_axes,
-                        _outputs=[ctx.fresh_name(f"lu_batch_row_{b}")],
+                    row = cast(
+                        ir.Value,
+                        ctx.builder.Squeeze(
+                            row_2d,
+                            squeeze_axes,
+                            _outputs=[ctx.fresh_name(f"lu_batch_row_{b}")],
+                        ),
                     )
                     row.type = ir.TensorType(ir.DataType.INT64)
                     row.shape = ir.Shape((k,))
@@ -274,18 +296,24 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
                         permutation_size=permutation_size,
                         name_prefix=f"lu_b{b}",
                     )
-                    row_perm_2d = ctx.builder.Unsqueeze(
-                        row_perm,
-                        unsqueeze_axes,
-                        _outputs=[ctx.fresh_name(f"lu_row_unsq_{b}")],
+                    row_perm_2d = cast(
+                        ir.Value,
+                        ctx.builder.Unsqueeze(
+                            row_perm,
+                            unsqueeze_axes,
+                            _outputs=[ctx.fresh_name(f"lu_row_unsq_{b}")],
+                        ),
                     )
                     row_perm_2d.type = ir.TensorType(ir.DataType.INT64)
                     row_perm_2d.shape = ir.Shape((1, permutation_size))
                     rows.append(row_perm_2d)
-                perm = ctx.builder.Concat(
-                    *rows,
-                    axis=0,
-                    _outputs=[ctx.fresh_name("lu_perm_batched_i64")],
+                perm = cast(
+                    ir.Value,
+                    ctx.builder.Concat(
+                        *rows,
+                        axis=0,
+                        _outputs=[ctx.fresh_name("lu_perm_batched_i64")],
+                    ),
                 )
                 perm.type = ir.TensorType(ir.DataType.INT64)
                 perm.shape = ir.Shape((batch, permutation_size))
@@ -303,17 +331,22 @@ class LuPivotsToPermutationPlugin(PrimitiveLeafPlugin):
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("lu_perm")
         result = perm
         if out_dtype_enum != ir.DataType.INT64:
-            result = ctx.builder.Cast(
-                perm,
-                to=int(out_dtype_enum.value),
-                _outputs=[desired_name],
+            result = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    perm,
+                    to=int(out_dtype_enum.value),
+                    _outputs=[desired_name],
+                ),
             )
             result.type = ir.TensorType(out_dtype_enum)
             result.shape = ir.Shape(out_i64_shape)
 
         if result is perm:
             # Keep requested output name when no cast is needed.
-            renamed = ctx.builder.Identity(perm, _outputs=[desired_name])
+            renamed = cast(
+                ir.Value, ctx.builder.Identity(perm, _outputs=[desired_name])
+            )
             renamed.type = ir.TensorType(ir.DataType.INT64)
             renamed.shape = ir.Shape(out_i64_shape)
             result = renamed

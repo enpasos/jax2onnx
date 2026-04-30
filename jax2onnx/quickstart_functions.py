@@ -5,26 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 
 from flax import nnx
+import jax
 from jax2onnx import onnx_function, to_onnx
 
 
 @onnx_function
 class MLPBlock(nnx.Module):
-    def __init__(self, dim, *, rngs):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs) -> None:
         self.linear1 = nnx.Linear(dim, dim, rngs=rngs)
         self.linear2 = nnx.Linear(dim, dim, rngs=rngs)
         self.batchnorm = nnx.BatchNorm(dim, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         return nnx.gelu(self.linear2(self.batchnorm(nnx.gelu(self.linear1(x)))))
 
 
 class MyModel(nnx.Module):
-    def __init__(self, dim, *, rngs):
+    def __init__(self, dim: int, *, rngs: nnx.Rngs) -> None:
         self.block1 = MLPBlock(dim, rngs=rngs)
         self.block2 = MLPBlock(dim, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         return self.block2(self.block1(x))
 
 

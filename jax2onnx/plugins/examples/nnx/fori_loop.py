@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import jax
-from typing import Final
+from typing import Final, Protocol, Sequence
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
+
+
+class _NamedValue(Protocol):
+    name: str
+
+
+class _GraphWithProtoIO(Protocol):
+    input: Sequence[_NamedValue]
+    output: Sequence[_NamedValue]
+
+
+class _ModelWithProtoGraph(Protocol):
+    graph: _GraphWithProtoIO
 
 
 def _model(x: jax.Array) -> jax.Array:
@@ -51,7 +64,7 @@ _FORI_LOOP_GRAPH_CHECK: Final = EG(
 )
 
 
-def _check_named_io_and_structure(model) -> bool:
+def _check_named_io_and_structure(model: _ModelWithProtoGraph) -> bool:
     input_names = [value.name for value in model.graph.input]
     output_names = [value.name for value in model.graph.output]
     return (
@@ -61,7 +74,7 @@ def _check_named_io_and_structure(model) -> bool:
     )
 
 
-def _check_named_io_two_inputs_and_structure(model) -> bool:
+def _check_named_io_two_inputs_and_structure(model: _ModelWithProtoGraph) -> bool:
     input_names = [value.name for value in model.graph.input]
     output_names = [value.name for value in model.graph.output]
     return (

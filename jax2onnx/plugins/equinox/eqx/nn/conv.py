@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, Optional, Sequence, Tuple
+from collections.abc import MutableSequence
+from typing import Any, Callable, ClassVar, Final, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -104,7 +105,7 @@ def _conv_shape(
     w_spec = ShapeDtypeStruct(weight_aval.shape, weight_aval.dtype)
     b_spec = ShapeDtypeStruct(bias_aval.shape, bias_aval.dtype)
 
-    def _shape_fn(x, w, b):
+    def _shape_fn(x: jax.Array, w: jax.Array, b: jax.Array) -> jax.Array:
         return _conv_forward(
             x,
             w,
@@ -248,30 +249,30 @@ class ConvPlugin(PrimitiveLeafPlugin):
         else:
             input_dtype = getattr(getattr(input_val, "type", None), "dtype", None)
 
-        bias_val: Optional[ir.Value] = None
+        bias_val: ir.Value | None = None
         if use_bias:
             bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
-            bias_val = b_val
+            working_bias: ir.Value = b_val
             if len(bias_shape) > 1:
-                original_bias_val = bias_val
-                bias_val = inline_reshape_initializer(
+                original_bias_val = working_bias
+                working_bias = inline_reshape_initializer(
                     ctx,
-                    bias_val,
+                    working_bias,
                     (bias_shape[0],),
                     name_hint="eqx_conv_bias_inline",
                 )
-                if bias_val is not original_bias_val:
-                    try:
-                        ctx.builder.initializers.remove(original_bias_val)
-                    except ValueError:
-                        try:
-                            ctx._initializers.remove(original_bias_val)
-                        except Exception:
-                            pass
+                if working_bias is not original_bias_val:
+                    for initializers in (ctx.builder.initializers, ctx._initializers):
+                        if isinstance(initializers, MutableSequence):
+                            try:
+                                initializers.remove(original_bias_val)
+                                break
+                            except ValueError:
+                                pass
                     if input_dtype is not None:
-                        bias_val.type = ir.TensorType(input_dtype)
-                    _stamp_type_and_shape(bias_val, (bias_shape[0],))
-                    _ensure_value_metadata(ctx, bias_val)
+                        working_bias.type = ir.TensorType(input_dtype)
+                    _stamp_type_and_shape(working_bias, (bias_shape[0],))
+                    _ensure_value_metadata(ctx, working_bias)
                 else:
                     squeeze_axes = [
                         idx
@@ -282,15 +283,16 @@ class ConvPlugin(PrimitiveLeafPlugin):
                         squeeze_axes_val = _const_i64(
                             ctx, squeeze_axes, name_hint="eqx_conv_bias_axes"
                         )
-                        bias_val = builder.Squeeze(
-                            bias_val,
+                        working_bias = builder.Squeeze(
+                            working_bias,
                             squeeze_axes_val,
                             _outputs=[ctx.fresh_name("eqx_conv_bias")],
                         )
                         if input_dtype is not None:
-                            bias_val.type = ir.TensorType(input_dtype)
-                        _stamp_type_and_shape(bias_val, (bias_shape[0],))
-                        _ensure_value_metadata(ctx, bias_val)
+                            working_bias.type = ir.TensorType(input_dtype)
+                        _stamp_type_and_shape(working_bias, (bias_shape[0],))
+                        _ensure_value_metadata(ctx, working_bias)
+            bias_val = working_bias
 
         conv_kwargs: dict[str, object] = {
             "strides": [int(s) for s in strides],
@@ -312,9 +314,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             else:
                 raise NotImplementedError(f"Unsupported padding mode {padding!r}")
         else:
-            pad_pairs = tuple(
-                (int(lo), int(hi)) for lo, hi in tuple(padding)  # type: ignore[arg-type]
-            )
+            pad_pairs = tuple((int(lo), int(hi)) for lo, hi in tuple(padding))
             conv_kwargs["pads"] = [p[0] for p in pad_pairs] + [p[1] for p in pad_pairs]
 
         conv_inputs = [input_val, w_val]
@@ -340,10 +340,10 @@ class ConvPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, conv_result)
 
         if not has_batch:
-            squeeze_axes = _const_i64(ctx, [0], name_hint="eqx_conv_squeeze_axes")
+            squeeze_axes_val = _const_i64(ctx, [0], name_hint="eqx_conv_squeeze_axes")
             final_val = builder.Squeeze(
                 conv_result,
-                squeeze_axes,
+                squeeze_axes_val,
                 _outputs=[ctx.fresh_name("eqx_conv_out")],
             )
             if input_dtype is not None:

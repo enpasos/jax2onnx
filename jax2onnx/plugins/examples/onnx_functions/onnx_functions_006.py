@@ -5,7 +5,7 @@ from __future__ import annotations
 from flax import nnx
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins.examples import jnp
+import jax.numpy as jnp
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     onnx_function,
@@ -17,7 +17,7 @@ from jax2onnx.plugins.plugin_system import (
 class MLPBlock(nnx.Module):
     """MLP block for Transformer layers."""
 
-    def __init__(self, num_hiddens, mlp_dim, rngs: nnx.Rngs):
+    def __init__(self, num_hiddens: int, mlp_dim: int, rngs: nnx.Rngs):
         self.layers = nnx.List(
             [
                 nnx.Linear(num_hiddens, mlp_dim, rngs=rngs),
@@ -44,7 +44,7 @@ class SuperBlock(nnx.Module):
 
         self.mlp = MLPBlock(num_hiddens=256, mlp_dim=512, rngs=rngs)
 
-    def __call__(self, x):
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return self.mlp(self.layer_norm2(x))
 
 

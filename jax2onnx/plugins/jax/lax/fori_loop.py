@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from collections.abc import Sequence
+from typing import Any, ClassVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +13,7 @@ import onnx_ir as ir
 from jax import tree_util
 from jax.extend.core import Primitive
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -33,10 +35,6 @@ from jax2onnx.plugins.jax.lax.scan import (
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Sequence
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _canon_int(value: int | np.integer) -> np.integer:
     use_int64 = bool(jax.config.read("jax_enable_x64"))
@@ -56,7 +54,7 @@ def model_fn(x: Any) -> Any:
 
 
 def _build_body_graph(
-    parent_ctx: "IRContext",
+    parent_ctx: LoweringContextProtocol,
     closed_jaxpr: Any,
     state_prototypes: "Sequence[ir.Value]",
     *,
@@ -127,11 +125,7 @@ def _build_body_graph(
         for axis, dim in enumerate(shape_tuple):
             if isinstance(dim, (int, np.integer)):
                 continue
-            try:
-                body_ctx._sym_origin[dim] = (state_input, axis)
-            except TypeError:
-                pass
-            body_ctx._sym_origin_str[str(dim)] = (state_input, axis)
+            body_ctx.record_symbolic_dim_origin(dim, state_input, axis)
         state_input.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(state_input, shape_tuple)
         _ensure_value_metadata(body_ctx, state_input)
@@ -210,7 +204,8 @@ def _build_body_graph(
     opset_imports.setdefault("", opset_version)
     body_graph.opset_imports.clear()
     body_graph.opset_imports.update(opset_imports)
-    return body_graph
+    typed_graph: ir.Graph = body_graph
+    return typed_graph
 
 
 @register_primitive(
@@ -308,7 +303,7 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
     def abstract_eval(*in_avals: Any, **__: Any) -> tuple[Any, ...]:
         return tuple(in_avals)
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
         closed = params.get("body_jaxpr")
         trip_count = int(params.get("trip_count", 0))

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import Optional, cast
 
 import onnx_ir as ir
 import jax
 import numpy as np
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
     stamp_axis0_binary_result,
@@ -28,12 +29,9 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _lower_complex_sub(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: ir.Value,
     rhs: ir.Value,
     *,
@@ -126,7 +124,7 @@ def _lower_complex_sub(
     ],
 )
 class SubPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

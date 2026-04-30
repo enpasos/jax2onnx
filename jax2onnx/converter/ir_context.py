@@ -151,7 +151,7 @@ def _maybe_aval(obj: Any) -> Any | None:
 
 
 def _maybe_dtype(aval: Any) -> Optional[np.dtype[Any]]:
-    return cast(Optional[np.dtype[Any]], maybe_numpy_dtype(_maybe_attr(aval, "dtype")))
+    return maybe_numpy_dtype(_maybe_attr(aval, "dtype"))
 
 
 def _maybe_shape(aval: Any) -> Optional[Tuple[Any, ...]]:

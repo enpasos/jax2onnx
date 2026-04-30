@@ -9,6 +9,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -20,6 +21,7 @@ from jax2onnx.plugins.plugin_system import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _stamp_type_and_shape,
     _prod,
     _to_ir_dim_for_shape,
@@ -33,7 +35,7 @@ from jax2onnx.plugins._ir_shapes import (
 # ------------------------------------------------------------------
 # Helpers used by a testcase's post_check_onnx_graph (shape asserts)
 # ------------------------------------------------------------------
-def _shape_of(coll, name: str):
+def _shape_of(coll: Any, name: str) -> tuple[int | str | None, ...]:
     """Return tuple of dims (int | str | None) for the tensor named `name`.
     Test utilities historically used 'var_0' for the first input. If that exact
     name is not found, fall back sensibly:
@@ -42,7 +44,7 @@ def _shape_of(coll, name: str):
     This keeps checks working across both historical and current naming schemes."""
     for vi in coll:
         if vi.name == name:
-            dims = []
+            dims: list[int | str | None] = []
             for d in vi.type.tensor_type.shape.dim:
                 if d.HasField("dim_param") and d.dim_param:
                     dims.append(d.dim_param)
@@ -66,7 +68,7 @@ def _shape_of(coll, name: str):
     raise KeyError(f"Cannot find '{name}' in ValueInfo collection")
 
 
-def _shape_prefix_of(coll, prefix: str):
+def _shape_prefix_of(coll: Any, prefix: str) -> tuple[int | str | None, ...]:
     """Return dims for the first tensor whose name starts with `prefix`.
     Prefer exact/shortest match to avoid picking e.g. 'input_reshape_shape'."""
     candidates = [vi for vi in coll if vi.name.startswith(prefix)]
@@ -74,7 +76,7 @@ def _shape_prefix_of(coll, prefix: str):
         raise KeyError(f"No tensor name starting with '{prefix}'")
     # prefer the exact name, or otherwise the shortest prefixed one
     vi = min(candidates, key=lambda v: len(v.name))
-    dims = []
+    dims: list[int | str | None] = []
     for d in vi.type.tensor_type.shape.dim:
         if d.HasField("dim_param") and d.dim_param:
             dims.append(d.dim_param)
@@ -87,14 +89,14 @@ def _shape_prefix_of(coll, prefix: str):
 
 def _linear_general_output_dims(
     x_val: ir.Value,
-    x_shape: tuple,
+    x_shape: tuple[object, ...],
     batch_indices: list[int],
     out_val: ir.Value,
-    out_shape: tuple,
+    out_shape: tuple[object, ...],
     fallback_tail: list[int],
-):
+) -> tuple[DimInput, ...]:
     """Derive output dims preserving batch labels and using aval metadata."""
-    dims: list = []
+    dims: list[DimInput] = []
     for idx in batch_indices:
         label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
         if label is None and idx < len(x_shape):
@@ -127,12 +129,12 @@ def _linear_general_output_dims(
     return tuple(dims)
 
 
-def _b_matches(x):
+def _b_matches(x: object) -> bool:
     """Batch dim 'B' is considered equivalent to anonymous dynamic (None)."""
     return x in ("B", None)
 
 
-def _eq_oldworld_input(s):
+def _eq_oldworld_input(s: Any) -> bool:
     """
     Old-world input: B×8×4×16.
     IR may anonymize the non-batch dims; accept 8|None, 4|None, 16|None.
@@ -146,21 +148,21 @@ def _eq_oldworld_input(s):
     )
 
 
-def _eq_oldworld_output(s):
+def _eq_oldworld_output(s: Any) -> bool:
     """Require the old-world output shape B×8×32 (allow 'B'~None only for batch)."""
     return len(s) == 3 and _b_matches(s[0]) and s[1] == 8 and s[2] == 32
 
 
-def _is_qxK(s, K):
+def _is_qxK(s: Any, K: int) -> bool:
     """Internal reshape should be ?×K."""
     return len(s) == 2 and s[0] in (None, "B") and (s[1] == K or s[1] is None)
 
 
-def _first_node(m, op):
+def _first_node(m: Any, op: str) -> Any:
     return next(n for n in m.graph.node if n.op_type == op)
 
 
-def _init_dims(m, name):
+def _init_dims(m: Any, name: str) -> list[Any] | None:
     t = next((t for t in m.graph.initializer if t.name == name), None)
     return list(t.dims) if t is not None else None
 
@@ -407,13 +409,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.linear_general")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x, kernel, bias, *, dimension_numbers):
-        if LinearGeneralPlugin._ORIGINAL_CALL is None:
+    def abstract_eval(
+        x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
+    ) -> jax.core.ShapedArray:
+        orig_call = LinearGeneralPlugin._ORIGINAL_CALL
+        if orig_call is None:
             # Pure shape math fallback.
             ((lhs_contract, rhs_contract), _) = dimension_numbers
             x_batch = tuple(i for i in range(x.ndim) if i not in lhs_contract)
@@ -429,17 +434,23 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             jax.ShapeDtypeStruct(bias.shape, bias.dtype) if bias is not None else None
         )
 
-        def _helper(xv, kv, bv):
+        def _helper(xv: Any, kv: Any, bv: Any) -> Any:
             rhs_contract = dimension_numbers[0][1]
             out_dims = [i for i in range(kv.ndim) if i not in rhs_contract]
             out_features = tuple(kv.shape[i] for i in out_dims)
 
             # match Flax API surface the __call__ expects
-            def promote_dtype(args, dtype=None):
+            def promote_dtype(args: Any, dtype: Any = None) -> Any:
                 # shape-only path: return as-is
                 return args
 
-            def dot_general(a, b, dimension_numbers=None, precision=None, **_):
+            def dot_general(
+                a: Any,
+                b: Any,
+                dimension_numbers: Any = None,
+                precision: Any = None,
+                **_: Any,
+            ) -> Any:
                 return jax.lax.dot_general(
                     a, b, dimension_numbers=dimension_numbers, precision=precision
                 )
@@ -447,10 +458,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             from types import SimpleNamespace
 
             class MockParam:
-                def __init__(self, value):
+                def __init__(self, value: Any) -> None:
                     self.value = value
 
-                def __getitem__(self, item):
+                def __getitem__(self, item: Any) -> Any:
                     return self.value[item]
 
             dummy = SimpleNamespace(
@@ -468,14 +479,14 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 precision=None,
                 preferred_element_type=None,
             )
-            return LinearGeneralPlugin._ORIGINAL_CALL(dummy, xv)
+            return orig_call(dummy, xv)
 
         out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
         out = jax.tree_util.tree_leaves(out)[0]
         return jax.core.ShapedArray(out.shape, out.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: Any, eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
         ((lhs_contract, rhs_contract), _) = eqn.params["dimension_numbers"]
@@ -485,16 +496,12 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         k_val = ctx.get_value_for_var(k_var, name_hint=ctx.fresh_name("kernel"))
         out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("out")
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for LinearGeneral lowering"
-            )
+        builder = ctx.builder
 
         # ---------- ensure graph.input shows the original, unfused shape ----------
         # Preserve symbolic labels like "B" and the literal dims 8,4,16.
         # IMPORTANT: don't overwrite shape labels if the binder already set them.
-        def _all_unknown(shp):
+        def _all_unknown(shp: Any) -> bool:
             if shp is None:
                 return True
             dims = getattr(shp, "dims", None)
@@ -526,14 +533,16 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         desired_k_shape = (int(K), int(Cout))
 
         # Try to inline the kernel reshape if it's a constant initializer
-        k2d = inline_reshape_initializer(ctx, k_val, desired_k_shape, "kernel2d")
+        k2d: ir.Value = inline_reshape_initializer(
+            ctx, k_val, desired_k_shape, "kernel2d"
+        )
 
         if k2d is k_val:
-            kshape_c = ctx.builder.add_initializer_from_array(
+            kshape_c = builder.add_initializer_from_array(
                 name=ctx.fresh_name("kshape"),
                 array=np.asarray(desired_k_shape, dtype=np.int64),
             )
-            k2d = ctx.builder.Reshape(
+            k2d = builder.Reshape(
                 k_val,
                 kshape_c,
                 _outputs=[ctx.fresh_name("kernel2d")],
@@ -551,13 +560,13 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         x_batch_idx = [i for i in range(len(x_shape)) if i not in lhs_contract]
         need_flatten = len(x_shape) > 2
 
-        gemm_in = x_val
+        gemm_in: ir.Value = x_val
         if need_flatten:
-            x2d_shape_c = ctx.builder.add_initializer_from_array(
+            x2d_shape_c = builder.add_initializer_from_array(
                 name=ctx.fresh_name("x2d_shape"),
                 array=np.asarray([-1, int(K)], dtype=np.int64),
             )
-            x2d = ctx.builder.Reshape(
+            x2d: ir.Value = builder.Reshape(
                 x_val,
                 x2d_shape_c,
                 _outputs=[ctx.fresh_name("input_reshape")],
@@ -581,19 +590,20 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                     ctx, b_val, desired_b_shape, "bias_vec"
                 )
                 if b_inline is b_val:
-                    bshape_c = ctx.builder.add_initializer_from_array(
+                    bshape_c = builder.add_initializer_from_array(
                         name=ctx.fresh_name("bshape"),
                         array=np.asarray([int(Cout)], dtype=np.int64),
                     )
-                    b2d = ctx.builder.Reshape(
+                    bias_reshaped: ir.Value = builder.Reshape(
                         b_val,
                         bshape_c,
                         _outputs=[ctx.fresh_name("bias2d")],
                     )
                     if getattr(b_val, "type", None) is not None:
-                        b2d.type = b_val.type
-                    _stamp_type_and_shape(b2d, desired_b_shape)
-                    _ensure_value_metadata(ctx, b2d)
+                        bias_reshaped.type = b_val.type
+                    _stamp_type_and_shape(bias_reshaped, desired_b_shape)
+                    _ensure_value_metadata(ctx, bias_reshaped)
+                    b2d = bias_reshaped
                 else:
                     b2d = b_inline
 
@@ -604,10 +614,11 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         # Gemm
         gemm_output_name = ctx.fresh_name("gemm_output") if need_flatten else out_name
-        if use_bias:
-            inputs = [gemm_in, k2d, b2d]
-            gemm_out = builder.Gemm(
-                *inputs,
+        if use_bias and b2d is not None:
+            gemm_out: ir.Value = builder.Gemm(
+                gemm_in,
+                k2d,
+                b2d,
                 alpha=1.0,
                 beta=1.0,
                 transA=0,
@@ -653,7 +664,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         if all_batch_static:
             final_vals = [int(d) for d in batch_dim_vals] + [int(v) for v in k_out_dims]
-            final_shape_c = ctx.builder.add_initializer_from_array(
+            final_shape_c = builder.add_initializer_from_array(
                 name=ctx.fresh_name("final_shape_c"),
                 array=np.asarray(final_vals, dtype=np.int64),
             )
@@ -667,7 +678,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
                 out_aval_shape,
                 [int(v) for v in k_out_dims],
             )
-            final_val = ctx.builder.Reshape(
+            final_val: ir.Value = builder.Reshape(
                 gemm_out,
                 final_shape_c,
                 _outputs=[out_name],
@@ -680,22 +691,22 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             return
 
         # --- dynamic path: only create Shape/Slice/Concat if a dynamic batch dim exists ---
-        shp = ctx.builder.Shape(
+        shp: ir.Value = builder.Shape(
             x_val,
             _outputs=[ctx.fresh_name("x_shape")],
         )
         shp.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shp, (len(x_shape),))
         _ensure_value_metadata(ctx, shp)
-        starts = ctx.builder.add_initializer_from_array(
+        starts = builder.add_initializer_from_array(
             name=ctx.fresh_name("slice_starts"),
             array=np.asarray([0], dtype=np.int64),
         )
-        ends = ctx.builder.add_initializer_from_array(
+        ends = builder.add_initializer_from_array(
             name=ctx.fresh_name("slice_ends"),
             array=np.asarray([len(x_shape) - len(lhs_contract)], dtype=np.int64),
         )
-        batch_dims = ctx.builder.Slice(
+        batch_dims: ir.Value = builder.Slice(
             shp,
             starts,
             ends,
@@ -704,14 +715,14 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         batch_dims.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(batch_dims, (len(x_shape) - len(lhs_contract),))
         _ensure_value_metadata(ctx, batch_dims)
-        of = ctx.builder.add_initializer_from_array(
+        of = builder.add_initializer_from_array(
             name=ctx.fresh_name("out_features_c"),
             array=np.asarray(k_out_dims, dtype=np.int64),
         )
         # Dynamic path: just reuse the sliced batch vector directly.
         # This matches the “old world” behavior and avoids extra Concat.
         batch_mixed = batch_dims
-        final_shape = ctx.builder.Concat(
+        final_shape: ir.Value = builder.Concat(
             batch_mixed,
             of,
             axis=0,
@@ -729,7 +740,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             out_aval_shape,
             [int(v) for v in k_out_dims],
         )
-        final_val = ctx.builder.Reshape(
+        final_val = builder.Reshape(
             gemm_out,
             final_shape,
             _outputs=[out_name],
@@ -743,7 +754,9 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
     # ---------- explicit binding helper for a testcase ----------
     @staticmethod
-    def _linear_general(x, kernel, bias, *, dimension_numbers):
+    def _linear_general(
+        x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
+    ) -> Any:
         """Direct bind for tests that want to call the primitive without nnx module."""
         return LinearGeneralPlugin._PRIM.bind(
             x, kernel, bias, dimension_numbers=dimension_numbers
@@ -751,11 +764,11 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
     # ---------- monkey-patch & binding specs ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         LinearGeneralPlugin._ORIGINAL_CALL = orig_fn
         prim = LinearGeneralPlugin._PRIM
 
-        def patched(self, x):
+        def patched(self: nnx.LinearGeneral, x: Any) -> Any:
             # normalize possibly-negative axes to positive indices
             rank = max(getattr(x, "ndim", len(x.shape)), 1)
             if isinstance(self.axis, int):
@@ -771,7 +784,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             # Make/override flax.nnx.linear_general_p to point to our private Primitive
             AssignSpec(
@@ -787,7 +800,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, kernel, bias, dimension_numbers=None: cls.abstract_eval(
@@ -799,7 +812,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
 # ---------- concrete impl for eager execution ----------
 @LinearGeneralPlugin._PRIM.def_impl
-def _impl(x, kernel, bias, *, dimension_numbers):
+def _impl(x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any) -> Any:
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
     if bias is not None:
         y = y + bias
