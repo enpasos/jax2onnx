@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/broadcast_in_dim.py
 
 import os
-from typing import TYPE_CHECKING, Any, Callable, Optional, Set, cast
+from typing import Any, Callable, Optional, Set, cast
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -16,6 +16,7 @@ from jax2onnx.converter.typing_support import (
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _ensure_value_metadata,
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
@@ -26,9 +27,6 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.ir_utils import const_value_to_numpy, ir_dtype_to_numpy, tensor_to_numpy
 from jax2onnx.converter.ir_optimizations import _get_attr as _iro_get_attr
 from jax2onnx.converter.ir_optimizations import _node_inputs as _iro_node_inputs
-
-if TYPE_CHECKING:
-    pass  # for hints
 
 
 def _dynamic_or_constant(
@@ -155,9 +153,9 @@ def _materialize_constant_array(
         return arr
     # Fallback: Constant node attributes
     if getattr(node, "op_type", "") == "Constant":
-        attr = _iro_get_attr(node, "value")
-        if attr is not None:
-            return _value_to_numpy(attr)
+        const_attr = _iro_get_attr(node, "value")
+        if const_attr is not None:
+            return _value_to_numpy(const_attr)
     return None
 
 
@@ -349,8 +347,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             if not values:
                 return None
             if isinstance(values, list):
-                return values[-1]
-            return values
+                return cast(ir.Value, values[-1])
+            return cast(ir.Value, values)
 
         allow_hints = bool(bdims)
         allow_loop_hints = bool(loop_extents)
@@ -413,7 +411,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
             values = hints.get(axis)
             if not values:
                 return None
-            return values[-1]
+            return cast(ir.Value, values[-1])
 
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
@@ -668,7 +666,9 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 rs_val,
                 _outputs=[ctx.fresh_name("bcast_reshape_out")],
             )
-            _stamp_type_and_shape(reshaped_val, tuple(reshape_dims))
+            _stamp_type_and_shape(
+                reshaped_val, cast(tuple[DimInput, ...], tuple(reshape_dims))
+            )
             if getattr(x_val, "type", None) is not None:
                 reshaped_val.type = x_val.type
             _ensure_value_metadata(ctx, reshaped_val)
@@ -700,7 +700,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         # Final expanded tensor should match the outvar's jax aval.
         if meta_override_axis0 is None:
             input_override = get_axis0_override(expand_input)
-            if _override_compatible(input_override):
+            if input_override is not None and _override_compatible(input_override):
                 meta_override_axis0 = int(input_override)
 
         if meta_override_axis0 is None:
