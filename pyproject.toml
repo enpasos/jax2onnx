@@ -160,13 +160,6 @@ allow_untyped_globals = true
 disallow_untyped_defs = false
 check_untyped_defs = false
 
-[[tool.mypy.overrides]]
-module = [
-    "jax2onnx.plugins._post_check_onnx_graph",
-]
-disallow_untyped_defs = false
-check_untyped_defs = false
-
 [tool.jax]
 enable_x64 = true
 

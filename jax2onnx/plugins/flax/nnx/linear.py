@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import Any, Callable, ClassVar, Final, Optional, cast
+from typing import Any, Callable, ClassVar, Final, Optional
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -113,9 +113,7 @@ def _linear_expect(
 ) -> Callable[[Any], bool]:
     specs: list[Any] = [(path, {"counts": dict(counts)})]
     specs.extend(extra_specs)
-    return cast(
-        Callable[[Any], bool], EG(specs, symbols=symbols, no_unused_inputs=True)
-    )
+    return EG(specs, symbols=symbols, no_unused_inputs=True)
 
 
 EXPECT_GEMM_ONLY: Final = _linear_expect(

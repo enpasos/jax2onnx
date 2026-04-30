@@ -49,8 +49,8 @@ def _make_expect(
 ) -> Callable[[Any], bool]:
     spec = [(path, {"counts": dict(_POOL_COUNTS)})]
     if symbols is None:
-        return cast(Callable[[Any], bool], EG(spec, no_unused_inputs=True))
-    return cast(Callable[[Any], bool], EG(spec, symbols=symbols, no_unused_inputs=True))
+        return EG(spec, no_unused_inputs=True)
+    return EG(spec, symbols=symbols, no_unused_inputs=True)
 
 
 def _make_global_expect(
@@ -58,8 +58,8 @@ def _make_global_expect(
 ) -> Callable[[Any], bool]:
     spec = [(path, {"counts": dict(_GLOBAL_POOL_COUNTS)})]
     if symbols is None:
-        return cast(Callable[[Any], bool], EG(spec, no_unused_inputs=True))
-    return cast(Callable[[Any], bool], EG(spec, symbols=symbols, no_unused_inputs=True))
+        return EG(spec, no_unused_inputs=True)
+    return EG(spec, symbols=symbols, no_unused_inputs=True)
 
 
 def _static_dim_as_int(dim: object) -> int:

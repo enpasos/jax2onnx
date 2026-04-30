@@ -5,6 +5,7 @@ import json
 import re
 from typing import (
     Any,
+    Callable,
     Dict,
     Final,
     Iterable,
@@ -67,7 +68,7 @@ def expect_graph(
     no_unused_function_inputs: bool = False,
     search_functions: bool = False,  # default: check TOP graph only
     explain_on_fail: bool = True,
-):
+) -> Callable[[Any], bool]:
     """Return a callable(model_or_ir) -> bool for pytest.
 
     **Basic paths**
@@ -179,7 +180,7 @@ def expect_graph(
         # plain string path
         return {"path": item}
 
-    def _run(model) -> bool:
+    def _run(model: Any) -> bool:
         gv = _GraphView(
             model,
             search_functions=search_functions,
@@ -319,7 +320,9 @@ def _parse_shape(s: str | None) -> ShapeTuple:
 
 
 class _GraphView:
-    def __init__(self, model, *, search_functions: bool, passthrough_ops: set[str]):
+    def __init__(
+        self, model: Any, *, search_functions: bool, passthrough_ops: set[str]
+    ) -> None:
         self.model = model
         self.search_functions = search_functions
         self.passthrough_ops = set(passthrough_ops)
@@ -340,11 +343,11 @@ class _GraphView:
             self._shape_index[gname] = _build_shape_index(g)
             self._live_index[gname] = _compute_live_node_indices(g)
 
-    def _add_graph(self, name: str, g: Any):
+    def _add_graph(self, name: str, g: Any) -> None:
         if g is not None:
             self.graphs.append((name, g))
 
-    def _fail(self, msg: str):
+    def _fail(self, msg: str) -> None:
         self.errors.append(msg)
 
     # -- basic queries --
@@ -393,7 +396,7 @@ class _GraphView:
                     out.append((gname, idx))
         return out
 
-    def _unused_inputs_for_graph(self, g) -> List[str]:
+    def _unused_inputs_for_graph(self, g: Any) -> List[str]:
         used = set()
         for n in _nodes(g):
             for v in _inputs_of(n):
@@ -557,7 +560,7 @@ class _GraphView:
 # ---------- helpers for IR/ONNX without importing onnx ----------
 
 
-def _node_has_attrs(node, reqs: Dict[str, Any]) -> bool:
+def _node_has_attrs(node: Any, reqs: Dict[str, Any]) -> bool:
     attrs = getattr(node, "attributes", None)
     if attrs is None:
         attrs = getattr(node, "attribute", None)
@@ -580,11 +583,11 @@ def _node_has_attrs(node, reqs: Dict[str, Any]) -> bool:
     return True
 
 
-def _top_graph(model):
+def _top_graph(model: Any) -> Any:
     return getattr(model, "graph", None)
 
 
-def _function_graphs(model):
+def _function_graphs(model: Any) -> Iterable[Tuple[str, Any]]:
     """
     Return iterable of (name, graph_or_graphlike).
     - onnx_ir: model.functions (dict/list) with .graph
@@ -611,7 +614,7 @@ def _function_graphs(model):
             return
 
 
-def _nodes(g):
+def _nodes(g: Any) -> List[Any]:
     # onnx_ir graphs may use .nodes/_nodes; ONNX uses .node
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
 
@@ -641,7 +644,7 @@ def _normalize_graph_filter(
     prefix_matches: Set[str] = set()
     recorded_entries: Set[str] = set()
 
-    def _add_entry(entry: str):
+    def _add_entry(entry: str) -> None:
         if not entry:
             return
         exact_matches.add(entry)
@@ -670,7 +673,7 @@ def _normalize_graph_filter(
     return exact_matches, prefix_matches, recorded_entries
 
 
-def _graph_inputs(g):
+def _graph_inputs(g: Any) -> List[Any]:
     arr = getattr(g, "inputs", getattr(g, "input", []))
     try:
         return list(arr)
@@ -678,7 +681,7 @@ def _graph_inputs(g):
         return []
 
 
-def _graph_outputs(g):
+def _graph_outputs(g: Any) -> List[Any]:
     arr = getattr(g, "outputs", getattr(g, "output", []))
     try:
         return list(arr)
@@ -686,19 +689,20 @@ def _graph_outputs(g):
         return []
 
 
-def _inputs_of(n):
-    return getattr(n, "inputs", getattr(n, "input", []))
+def _inputs_of(n: Any) -> Sequence[Any]:
+    return cast(Sequence[Any], getattr(n, "inputs", getattr(n, "input", [])))
 
 
-def _outputs_of(n):
-    return getattr(n, "outputs", getattr(n, "output", []))
+def _outputs_of(n: Any) -> Sequence[Any]:
+    return cast(Sequence[Any], getattr(n, "outputs", getattr(n, "output", [])))
 
 
-def _value_name(v) -> str:
-    return getattr(v, "name", v if isinstance(v, str) else "")
+def _value_name(v: Any) -> str:
+    name = getattr(v, "name", v if isinstance(v, str) else "")
+    return "" if name is None else str(name)
 
 
-def _shape_of_value(v) -> Optional[Tuple[ShapeDim, ...]]:
+def _shape_of_value(v: Any) -> Optional[Tuple[ShapeDim, ...]]:
     """onnx_ir Value -> shape tuple; ONNX will use _shape_of_output via index."""
     shp = getattr(v, "shape", None)
     if shp is None:
@@ -720,7 +724,7 @@ def _shape_of_value(v) -> Optional[Tuple[ShapeDim, ...]]:
 # ---------- ONNX shape index (duck-typed) ----------
 
 
-def _build_shape_index(g) -> Dict[str, ShapeTuple]:
+def _build_shape_index(g: Any) -> Dict[str, ShapeTuple]:
     """
     For ONNX graphs: read shapes from value_info / inputs / outputs (duck-typed).
     For onnx_ir graphs: return {} and rely on Value.shape at use sites.
@@ -745,7 +749,7 @@ def _build_shape_index(g) -> Dict[str, ShapeTuple]:
     return idx
 
 
-def _shape_from_value_info(vi) -> Optional[ShapeTuple]:
+def _shape_from_value_info(vi: Any) -> Optional[ShapeTuple]:
     """
     Duck-typed extraction from ONNX ValueInfoProto:
       vi.type.tensor_type.shape.dim -> list of dims with fields dim_value / dim_param
@@ -784,7 +788,9 @@ def _shape_from_value_info(vi) -> Optional[ShapeTuple]:
         return None
 
 
-def _shape_of_output(v, shape_index: Mapping[str, ShapeTuple]) -> Optional[ShapeTuple]:
+def _shape_of_output(
+    v: Any, shape_index: Mapping[str, ShapeTuple]
+) -> Optional[ShapeTuple]:
     """
     v can be a name (ONNX) or a Value (onnx_ir).
     """
@@ -851,7 +857,7 @@ def _unify_shape(
 
 
 def _match_path_on_graph(
-    g,
+    g: Any,
     steps: List[PathStep],
     env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
@@ -893,7 +899,7 @@ def _match_path_on_graph(
 
 
 def _path_from(
-    nodes,
+    nodes: Sequence[Any],
     i0: int,
     steps: List[PathStep],
     env: Dict[str, ShapeDim],
@@ -950,7 +956,7 @@ def _path_from(
     return True, ""
 
 
-def _value_keys(v) -> List[ValueKey]:
+def _value_keys(v: Any) -> List[ValueKey]:
     keys: List[ValueKey] = []
     name = _value_name(v)
     if name:
@@ -977,7 +983,7 @@ def _normalize_input_index(key: Any) -> int:
 
 
 def _check_input_constraints(
-    node, spec: Mapping[Any, Any], nodes, graph
+    node: Any, spec: Mapping[Any, Any], nodes: Sequence[Any], graph: Any
 ) -> Tuple[bool, str]:
     ins = _inputs_of(node)
     for raw_idx, constraint in spec.items():
@@ -1036,7 +1042,7 @@ def _check_input_constraints(
     return True, ""
 
 
-def _is_missing_input(val) -> bool:
+def _is_missing_input(val: Any) -> bool:
     if val is None:
         return True
     if isinstance(val, str):
@@ -1046,7 +1052,7 @@ def _is_missing_input(val) -> bool:
 
 
 def _extract_constant_array(
-    value, nodes, graph, depth: int = 0
+    value: Any, nodes: Sequence[Any], graph: Any, depth: int = 0
 ) -> Optional[NDArrayAny]:
     if depth > 6:
         return None
@@ -1083,7 +1089,7 @@ def _extract_constant_array(
     return None
 
 
-def _value_constant_payload(val) -> Optional[NDArrayAny]:
+def _value_constant_payload(val: Any) -> Optional[NDArrayAny]:
     if isinstance(val, str) or val is None:
         return None
     for attr in ("const_value", "_const_value", "value", "data", "numpy"):
@@ -1100,7 +1106,7 @@ def _value_constant_payload(val) -> Optional[NDArrayAny]:
     return None
 
 
-def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[NDArrayAny]:
+def _initializer_to_numpy(graph: Any, name: Optional[str]) -> Optional[NDArrayAny]:
     if not name:
         return None
     for attr_name in ("initializer", "initializers", "_initializers"):
@@ -1119,7 +1125,7 @@ def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[NDArrayAny]:
     return None
 
 
-def _tensor_to_numpy(tensor) -> Optional[NDArrayAny]:
+def _tensor_to_numpy(tensor: Any) -> Optional[NDArrayAny]:
     if tensor is None:
         return None
     if isinstance(tensor, np.ndarray):
@@ -1178,7 +1184,7 @@ def _onnx_dtype_to_np(code: int) -> np.dtype:
     return np.dtype(mapping.get(code, np.float32))
 
 
-def _node_attr_int(node, name: str) -> Optional[int]:
+def _node_attr_int(node: Any, name: str) -> Optional[int]:
     attrs = getattr(node, "attributes", None)
     if isinstance(attrs, dict) and name in attrs:
         return _attr_to_int(attrs[name])
@@ -1195,7 +1201,7 @@ def _node_attr_int(node, name: str) -> Optional[int]:
     return None
 
 
-def _attr_to_int(attr) -> Optional[int]:
+def _attr_to_int(attr: Any) -> Optional[int]:
     if attr is None:
         return None
     if isinstance(attr, (int, np.integer)):
@@ -1217,7 +1223,7 @@ def _attr_to_int(attr) -> Optional[int]:
         return None
 
 
-def _constant_attr_tensor(node) -> Any:
+def _constant_attr_tensor(node: Any) -> Any:
     attrs = getattr(node, "attributes", None)
     if isinstance(attrs, dict):
         return attrs.get("value")
@@ -1236,7 +1242,7 @@ def _constant_attr_tensor(node) -> Any:
     return None
 
 
-def _find_producer_node(nodes, value) -> Optional[Any]:
+def _find_producer_node(nodes: Sequence[Any], value: Any) -> Optional[Any]:
     target_name = _value_name(value)
     for node in nodes:
         for out in _outputs_of(node):
@@ -1325,7 +1331,7 @@ def _format_step(
     return op_type if not spec_shape else f"{op_type}:{spec_shape}"
 
 
-def _producer_index(nodes) -> Dict[Tuple[str, Any], Tuple[int, Any]]:
+def _producer_index(nodes: Sequence[Any]) -> ProducerMap:
     mapping: Dict[Tuple[str, Any], Tuple[int, Any]] = {}
     for idx, node in enumerate(nodes):
         for out_val in _outputs_of(node):
@@ -1334,7 +1340,9 @@ def _producer_index(nodes) -> Dict[Tuple[str, Any], Tuple[int, Any]]:
     return mapping
 
 
-def _is_constant_value(nodes, producer_map, graph, value) -> bool:
+def _is_constant_value(
+    nodes: Sequence[Any], producer_map: ProducerMap, graph: Any, value: Any
+) -> bool:
     arr = _extract_constant_array(value, nodes, graph)
     if arr is not None:
         return True
@@ -1350,7 +1358,10 @@ def _is_constant_value(nodes, producer_map, graph, value) -> bool:
 
 
 def _pick_chain_input(
-    nodes, producer_map, graph, inputs: Sequence[Any]
+    nodes: Sequence[Any],
+    producer_map: ProducerMap,
+    graph: Any,
+    inputs: Sequence[Any],
 ) -> Optional[Any]:
     if not inputs:
         return None
@@ -1365,10 +1376,10 @@ def _pick_chain_input(
 
 
 def _trace_main_chain(
-    output_val,
-    nodes,
-    producer_map: Dict[Tuple[str, Any], Tuple[int, Any]],
-    graph,
+    output_val: Any,
+    nodes: Sequence[Any],
+    producer_map: ProducerMap,
+    graph: Any,
     *,
     hop_limit: int,
 ) -> List[Tuple[Any, Any]]:
@@ -1402,7 +1413,7 @@ def _trace_main_chain(
 
 
 def _summarize_graph_primary_paths(
-    g,
+    g: Any,
     *,
     shape_index: Mapping[str, ShapeTuple],
     symtab: _SymbolTable,
@@ -1430,7 +1441,7 @@ def _summarize_graph_primary_paths(
 
 
 def auto_expect_graph_spec(
-    model,
+    model: Any,
     *,
     graph: Optional[Union[str, Sequence[str]]] = "top",
     search_functions: Optional[bool] = None,
@@ -1478,7 +1489,7 @@ def auto_expect_graph_spec(
     return result
 
 
-def expect_graph_from_spec(spec: Dict[str, Any]):
+def expect_graph_from_spec(spec: Dict[str, Any]) -> Callable[[Any], bool]:
     """Instantiate expect_graph from a spec generated by auto_expect_graph_spec."""
 
     specs = spec.get("specs", [])
@@ -1495,7 +1506,7 @@ def expect_graph_from_spec(spec: Dict[str, Any]):
     return expect_graph(specs, **kwargs)
 
 
-def expect_graph_from_file(path: str):
+def expect_graph_from_file(path: str) -> Callable[[Any], bool]:
     with open(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     if not isinstance(data, dict):
@@ -1513,7 +1524,7 @@ def _spec_sort_key(item: Any) -> Tuple[str, str]:
     return ("top", str(item))
 
 
-def _build_consumer_map(nodes) -> Dict[ValueKey, List[int]]:
+def _build_consumer_map(nodes: Sequence[Any]) -> Dict[ValueKey, List[int]]:
     mapping: Dict[ValueKey, List[int]] = {}
     for idx, node in enumerate(nodes):
         for inp in _inputs_of(node):
@@ -1523,7 +1534,7 @@ def _build_consumer_map(nodes) -> Dict[ValueKey, List[int]]:
 
 
 def _consumer_indices(
-    nodes, idx: int, consumer_map: Dict[ValueKey, List[int]]
+    nodes: Sequence[Any], idx: int, consumer_map: Dict[ValueKey, List[int]]
 ) -> List[int]:
     outs = _outputs_of(nodes[idx])
     seen: Set[int] = set()
@@ -1539,7 +1550,7 @@ def _consumer_indices(
 
 
 def _walk_to_op(
-    nodes,
+    nodes: Sequence[Any],
     i: int,
     target_op: str,
     passthrough_ops: set[str],
@@ -1585,7 +1596,7 @@ def _walk_to_op(
 # ---------- Liveness (reachable-from-outputs) ----------
 
 
-def _compute_live_node_indices(g) -> Set[int]:
+def _compute_live_node_indices(g: Any) -> Set[int]:
     """
     Compute the set of node indices reachable from graph outputs by walking
     backwards along producer edges (name-based). Works for ONNX and onnx_ir.
