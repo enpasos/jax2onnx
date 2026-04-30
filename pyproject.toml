@@ -262,6 +262,7 @@ files = [
     "jax2onnx/plugins/jax/lax/scatter_min.py",
     "jax2onnx/plugins/jax/lax/scatter_mul.py",
     "jax2onnx/plugins/jax/lax/scatter_sub.py",
+    "jax2onnx/plugins/jax/lax/scatter_utils.py",
     "jax2onnx/plugins/jax/lax/schur.py",
     "jax2onnx/plugins/jax/lax/shard_map.py",
     "jax2onnx/plugins/jax/lax/shift_left.py",
