@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 import equinox as eqx
 import jax
@@ -20,7 +20,11 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -85,11 +89,11 @@ def compute_rope_caches(
 ) -> tuple[np.ndarray, np.ndarray]:
     theta = np.float32(rope.theta)
     embedding_size = int(rope.embedding_size)
-    base = np.arange(0.0, embedding_size, 2, dtype=np.float32)
+    base: np.ndarray = np.arange(0.0, embedding_size, 2, dtype=np.float32)
     freq_exponent = base / np.float32(embedding_size)
     freqs = np.power(theta, freq_exponent).astype(np.float32)
     freqs = np.float32(1.0) / freqs
-    positions = np.arange(float(seq_length), dtype=np.float32)
+    positions: np.ndarray = np.arange(float(seq_length), dtype=np.float32)
     freqs_outer = (positions[:, None] * freqs[None, :]).astype(np.float32)
     rope_dtype = np.dtype(jnp.dtype(rope.dtype))
     cos = np.cos(freqs_outer).astype(rope_dtype)
@@ -99,10 +103,10 @@ def compute_rope_caches(
     return cos, sin
 
 
-def _value_dims(value: ir.Value) -> tuple[object, ...]:
+def _value_dims(value: ir.Value) -> tuple[DimInput, ...]:
     shape = getattr(value, "shape", None)
     if isinstance(shape, ir.Shape):
-        return tuple(shape.dims)
+        return tuple(cast(DimInput, dim) for dim in shape.dims)
     return ()
 
 
@@ -209,7 +213,7 @@ def lower_rotary_application(
         output.type = ir.TensorType(x_dtype)
     _stamp_type_and_shape(output, rotated_shape)
     _ensure_value_metadata(ctx, output)
-    return output
+    return cast(ir.Value, output)
 
 
 @register_primitive(
@@ -525,11 +529,13 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
                 rope_dtype = np.dtype(jnp.dtype(self.dtype))
                 theta = np.float32(self.theta)
                 emb_size = np.float32(self.embedding_size)
-                base = np.arange(0.0, self.embedding_size, 2, dtype=np.float32)
+                base: np.ndarray = np.arange(
+                    0.0, self.embedding_size, 2, dtype=np.float32
+                )
                 freq_exponent = base / emb_size
                 freqs = np.power(theta, freq_exponent).astype(np.float32)
                 freqs = np.float32(1.0) / freqs
-                positions = np.arange(float(seq_len), dtype=np.float32)
+                positions: np.ndarray = np.arange(float(seq_len), dtype=np.float32)
                 freqs_outer = (positions[:, None] * freqs[None, :]).astype(np.float32)
                 cos = np.cos(freqs_outer).astype(rope_dtype)
                 sin = np.sin(freqs_outer).astype(rope_dtype)

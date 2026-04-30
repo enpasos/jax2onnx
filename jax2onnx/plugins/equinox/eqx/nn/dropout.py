@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Optional, cast
 
 import equinox as eqx
 import jax
@@ -32,7 +32,7 @@ def _const_tensor(ctx: LoweringContextProtocol, array: Any, *, name: str) -> ir.
         value = builder.add_initializer_from_array(name=init_name, array=arr)
     _stamp_type_and_shape(value, arr.shape if arr.shape else ())
     _ensure_value_metadata(ctx, value)
-    return value
+    return cast(ir.Value, value)
 
 
 def _ensure_scalar_bool_input(ctx: LoweringContextProtocol, name: str) -> ir.Value:
@@ -41,7 +41,7 @@ def _ensure_scalar_bool_input(ctx: LoweringContextProtocol, name: str) -> ir.Val
         raise AttributeError("IR build context missing builder for dropout input")
     for vi in getattr(builder, "inputs", []):
         if getattr(vi, "name", "") == name:
-            return vi
+            return cast(ir.Value, vi)
     value = ir.Value(
         name=name,
         type=ir.TensorType(ir.DataType.BOOL),
@@ -197,7 +197,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
                 not_val.type = ir.TensorType(ir.DataType.BOOL)
             _stamp_type_and_shape(not_val, ())
             _ensure_value_metadata(ctx, not_val)
-            return not_val
+            return cast(ir.Value, not_val)
 
         if call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
@@ -281,6 +281,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         ) -> jax.Array:
             del key
             call_time = deterministic is not None or inference is not None
+            inference_arg: bool | np.bool_ | jax.Array | None
             if deterministic is not None:
                 inference_arg = deterministic
             elif inference is not None:

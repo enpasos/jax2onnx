@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 
 import equinox as eqx
 import jax
@@ -16,6 +16,7 @@ from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
     _is_static_int,
@@ -71,17 +72,17 @@ def _inline_scalar_bias(
     if arr is None:
         return bias_val
 
-    arr = np.asarray(arr)
+    arr_value = np.asarray(arr)
 
-    if arr.size == 1:
-        broadcast = np.broadcast_to(arr.reshape(()), (out_features,))
-    elif arr.size == out_features:
-        broadcast = arr.reshape((out_features,))
+    if arr_value.size == 1:
+        broadcast = np.broadcast_to(arr_value.reshape(()), (out_features,))
+    elif arr_value.size == out_features:
+        broadcast = arr_value.reshape((out_features,))
     else:
         return bias_val
     bias_type = getattr(bias_val, "type", None)
     if isinstance(bias_type, ir.TensorType):
-        new_type = ir.TensorType(bias_type.dtype)
+        new_type: Any = ir.TensorType(bias_type.dtype)
     else:
         new_type = bias_type
 
@@ -149,7 +150,7 @@ def _inline_scalar_bias(
 
 
 def _flatten_leading_dim_label(
-    x_val, x_shape: tuple[int | str | None, ...]
+    x_val: ir.Value, x_shape: tuple[int | str | None, ...]
 ) -> int | str | None:
     batch_dims = x_shape[:-1]
     if not batch_dims:
@@ -354,7 +355,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             gemm_result.type = ir.TensorType(result_dtype)
 
         if not need_flatten:
-            out_dims: list[object] = []
+            out_dims: list[DimInput] = []
             if x_shape:
                 for idx in range(len(x_shape) - 1):
                     label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
@@ -439,7 +440,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if result_dtype is not None:
             final_output.type = ir.TensorType(result_dtype)
 
-        target_dims: list[object] = []
+        target_dims: list[DimInput] = []
         for idx in range(max(len(x_shape) - 1, 0)):
             label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
             if label is None:
@@ -485,7 +486,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         return wrapped
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(
                 lambda x, weight, bias: cls.abstract_eval(x, weight, bias)
