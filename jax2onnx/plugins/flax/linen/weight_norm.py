@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Sequence
+from typing import Any, Callable, ClassVar, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,7 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
 
 def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
@@ -48,7 +48,7 @@ def _maybe_broadcast(
     return tuple(int(v) for v in x)
 
 
-def _call_dense(layer: nn.Dense, x, kernel, bias):
+def _call_dense(layer: nn.Dense, x: Any, kernel: Any, bias: Any) -> Any:
     from jax2onnx.plugins.flax.linen import dense as linen_dense
 
     use_bias = bool(getattr(layer, "use_bias", True))
@@ -67,7 +67,7 @@ def _call_dense(layer: nn.Dense, x, kernel, bias):
     )
 
 
-def _call_conv(layer: nn.Conv, x, kernel, bias):
+def _call_conv(layer: nn.Conv, x: Any, kernel: Any, bias: Any) -> Any | None:
     from jax2onnx.plugins.flax.linen import conv as linen_conv
 
     kernel_size = (
@@ -153,7 +153,7 @@ class _WeightNormDense(nn.Module):
     features: int
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x: Any) -> Any:
         return nn.WeightNorm(nn.Dense(self.features))(x)
 
 
@@ -189,20 +189,21 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.weight_norm")
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @staticmethod
-    def abstract_eval(x, *args, **kwargs):
+    def abstract_eval(x: Any, *args: Any, **kwargs: Any) -> ShapedArray:
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx, eqn):
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        del ctx, eqn
         raise NotImplementedError(
             "WeightNorm primitive should not reach lowering; it is inlined."
         )
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.WeightNorm",
@@ -213,43 +214,50 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         WeightNormPlugin._ORIGINAL_CALL = orig_fn
 
-        def patched(self, *args, **kwargs):
+        def call_orig(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.WeightNorm.__call__ is not available.")
+            return orig_fn(self, *args, **kwargs)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
             if kwargs:
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
             if len(args) != 1:
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
 
             layer = getattr(self, "layer_instance", None)
             if layer is None:
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
 
             inner_scope = getattr(layer, "scope", None)
             if inner_scope is None or not hasattr(inner_scope, "variables"):
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
             inner_vars = inner_scope.variables()
             inner_params = inner_vars.get("params", {})
 
             kernel = inner_params.get("kernel")
             bias = inner_params.get("bias")
             if kernel is None:
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
 
             variable_filter = getattr(self, "variable_filter", None)
             layer_name = getattr(layer, "name", None)
             if not layer_name:
-                return orig_fn(self, *args, **kwargs)
+                return call_orig(self, *args, **kwargs)
             param_path = f"{layer_name}/kernel"
             if variable_filter is not None:
                 try:
                     if not any(str(v) in param_path for v in variable_filter):
-                        return orig_fn(self, *args, **kwargs)
+                        return call_orig(self, *args, **kwargs)
                 except Exception:
-                    return orig_fn(self, *args, **kwargs)
+                    return call_orig(self, *args, **kwargs)
 
             feature_axes = getattr(self, "feature_axes", -1)
+            feat_axes: tuple[int, ...]
+            reduction_axes: tuple[int, ...]
             if feature_axes is None:
                 feat_axes = ()
                 reduction_axes = tuple(range(kernel.ndim))
@@ -260,7 +268,7 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
                 )
 
             feature_shape = [1] * kernel.ndim
-            reduced_feature_shape = []
+            reduced_feature_shape: list[int] = []
             for ax in feat_axes:
                 feature_shape[ax] = kernel.shape[ax]
                 reduced_feature_shape.append(kernel.shape[ax])
@@ -274,18 +282,18 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
             if bool(getattr(self, "use_scale", True)):
                 scope = getattr(self, "scope", None)
                 if scope is None or not hasattr(scope, "variables"):
-                    return orig_fn(self, *args, **kwargs)
+                    return call_orig(self, *args, **kwargs)
                 wrapper_vars = scope.variables()
                 wrapper_params = wrapper_vars.get("params", {})
                 scale_name = f"{param_path}/scale"
                 scale_param = wrapper_params.get(scale_name)
                 if scale_param is None:
-                    return orig_fn(self, *args, **kwargs)
+                    return call_orig(self, *args, **kwargs)
                 param_dtype = getattr(self, "param_dtype", None) or kernel.dtype
                 scale = jnp.asarray(scale_param, dtype=param_dtype)
                 if reduced_feature_shape:
                     if tuple(scale.shape) != tuple(reduced_feature_shape):
-                        return orig_fn(self, *args, **kwargs)
+                        return call_orig(self, *args, **kwargs)
                     scale = jnp.reshape(scale, tuple(reduced_feature_shape))
                 else:
                     scale = jnp.reshape(scale, ())
@@ -300,6 +308,6 @@ class WeightNormPlugin(PrimitiveLeafPlugin):
                 if out is not None:
                     return out
 
-            return orig_fn(self, *args, **kwargs)
+            return call_orig(self, *args, **kwargs)
 
         return patched
