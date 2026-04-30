@@ -279,6 +279,7 @@ files = [
     "jax2onnx/plugins/jax/lax/stop_gradient.py",
     "jax2onnx/plugins/jax/lax/sub.py",
     "jax2onnx/plugins/jax/lax/symmetric_product.py",
+    "jax2onnx/plugins/jax/lax/svd.py",
     "jax2onnx/plugins/jax/lax/tan.py",
     "jax2onnx/plugins/jax/lax/triangular_solve.py",
     "jax2onnx/plugins/jax/lax/tridiagonal.py",
