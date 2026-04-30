@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, ClassVar, Final, Tuple, Union, cast
+from typing import Any, Callable, ClassVar, Final, Tuple, Union, cast
 
 import numpy as np
 from flax import nnx
@@ -10,6 +10,7 @@ from jax import core
 from jax.extend.core import Primitive
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -24,9 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     register_primitive,
 )
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRContext  # type: ignore
-
 
 DimLike = Union[int, str]
 
@@ -35,10 +33,12 @@ def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
     if isinstance(dim, (int, np.integer)):
         return int(dim), True
     # JAX symbolic dims may still encode a constant value; prefer the concrete int when available.
-    if hasattr(dim, "_is_constant") and callable(getattr(dim, "_is_constant")):
+    is_constant = getattr(dim, "_is_constant", None)
+    to_constant = getattr(dim, "_to_constant", None)
+    if callable(is_constant) and callable(to_constant):
         try:
-            if dim._is_constant():  # type: ignore[attr-defined]
-                const = dim._to_constant()  # type: ignore[attr-defined]
+            if bool(is_constant()):
+                const = to_constant()
                 if isinstance(const, (int, np.integer)):
                     return int(const), True
         except Exception:
@@ -50,7 +50,7 @@ def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     dtype = getattr(getattr(val, "type", None), "dtype", None)
     if dtype is None:
         raise TypeError("Missing dtype on value; ensure inputs are typed.")
-    return dtype
+    return cast(ir.DataType, dtype)
 
 
 def _builder_opset(builder: object) -> int:
@@ -253,14 +253,21 @@ EXPECT_DPA_GQA_NATIVE: Final = EG(
 )
 class DotProductAttentionPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive] = DPA_PRIM
-    _ORIG_CALL: ClassVar[Callable | None] = None
+    _ORIG_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(q, k, v, *_, **__):
+    def abstract_eval(
+        q: core.AbstractValue,
+        k: core.AbstractValue,
+        v: core.AbstractValue,
+        *_: Any,
+        **__: Any,
+    ) -> core.ShapedArray:
+        del k, v
         return core.ShapedArray(q.shape, q.dtype)
 
-    def lower(self, ctx: "IRContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         params_raw = dict(getattr(eqn, "params", {}) or {})
         params = {
             key: (val.value if isinstance(val, _DynamicParamWrapper) else val)
@@ -282,11 +289,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("dpa_out"))
 
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for attention lowering"
-            )
+        builder = ctx.builder
 
         q_shape = tuple(getattr(getattr(q_var, "aval", None), "shape", ()))
         k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
@@ -387,11 +390,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 mask_shape = tuple(
                     getattr(getattr(mask_var, "aval", None), "shape", ())
                 )
-                mask_dims = []
+                native_mask_dims = []
                 for idx, dim in enumerate(mask_shape):
                     dim_val, _ = _coerce_dim(dim, f"mask_dim_{idx}")
-                    mask_dims.append(dim_val)
-                mask_dims_tuple = tuple(mask_dims)
+                    native_mask_dims.append(dim_val)
+                mask_dims_tuple = tuple(native_mask_dims)
                 mask_dtype = np.dtype(
                     getattr(getattr(mask_var, "aval", None), "dtype", np.bool_)
                 )
@@ -407,7 +410,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 attn_mask = mask_val
 
             bias_val: ir.Value | None = None
-            bias_dims: tuple[object, ...] = ()
+            bias_dims: tuple[DimLike, ...] = ()
             if has_bias and bias_var is not None:
                 bias_val = ctx.get_value_for_var(
                     bias_var, name_hint=ctx.fresh_name("dpa_bias")
@@ -415,7 +418,13 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 bias_val = cast_param_like(
                     ctx, bias_val, q_attn, name_hint="dpa_bias_cast"
                 )
-                bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+                bias_shape = tuple(
+                    getattr(getattr(bias_var, "aval", None), "shape", ())
+                )
+                bias_dims = tuple(
+                    _coerce_dim(dim, f"bias_dim_{idx}")[0]
+                    for idx, dim in enumerate(bias_shape)
+                )
                 _stamp_type_and_shape(bias_val, bias_dims)
                 _ensure_value_metadata(ctx, bias_val)
 
@@ -447,7 +456,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 combined_dims = (
                     mask_dims_tuple
                     if len(mask_dims_tuple) >= len(bias_dims)
-                    else tuple(cast(DimLike, d) for d in bias_dims)
+                    else bias_dims
                 )
                 _stamp_type_and_shape(combined_mask, combined_dims)
                 _ensure_value_metadata(ctx, combined_mask)
@@ -553,7 +562,11 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             bias_val = cast_param_like(
                 ctx, bias_val, current_logits, name_hint="dpa_bias_cast"
             )
-            bias_dims = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+            bias_shape = tuple(getattr(getattr(bias_var, "aval", None), "shape", ()))
+            bias_dims = tuple(
+                _coerce_dim(dim, f"bias_dim_{idx}")[0]
+                for idx, dim in enumerate(bias_shape)
+            )
             _stamp_type_and_shape(bias_val, bias_dims)
             biased = builder.Add(
                 current_logits,
@@ -691,11 +704,20 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patch(orig):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patch(
+            orig: Callable[..., Any] | None,
+        ) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def patched(q, k, v, mask=None, bias=None, **kwargs):
+            def patched(
+                q: Any,
+                k: Any,
+                v: Any,
+                mask: Any | None = None,
+                bias: Any | None = None,
+                **kwargs: Any,
+            ) -> Any:
                 operands = [q, k, v]
                 has_mask = mask is not None
                 has_bias = bias is not None
@@ -731,14 +753,14 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @DotProductAttentionPlugin._PRIM.def_impl
-def _dpa_impl(q, k, v, *extra, **params):
+def _dpa_impl(q: Any, k: Any, v: Any, *extra: Any, **params: Any) -> Any:
     has_mask = bool(params.pop("has_mask", False))
     has_bias = bool(params.pop("has_bias", False))
     idx = 0

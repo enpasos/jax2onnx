@@ -142,6 +142,7 @@ files = [
     "jax2onnx/plugins/dm_pix/__init__.py",
     "jax2onnx/plugins/dm_pix/depth_to_space.py",
     "jax2onnx/plugins/dm_pix/space_to_depth.py",
+    "jax2onnx/plugins/flax/nnx/dot_product_attention.py",
     "jax2onnx/plugins/flax/nnx/dropout.py",
     "jax2onnx/plugins/flax/nnx/elu.py",
     "jax2onnx/plugins/flax/nnx/embed.py",
