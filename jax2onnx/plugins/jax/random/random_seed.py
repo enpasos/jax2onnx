@@ -23,10 +23,12 @@ def _shape_dims(shape: ir.Shape | tuple[int, ...] | None) -> tuple[DimInput, ...
     dims = getattr(shape, "dims", None)
     if dims is None:
         try:
-            return cast(tuple[DimInput, ...], tuple(shape))
+            shape_dims: tuple[DimInput, ...] = tuple(shape)
+            return shape_dims
         except TypeError:
             return ()
-    return cast(tuple[DimInput, ...], tuple(dims))
+    shape_dims = tuple(dims)
+    return shape_dims
 
 
 def _const_array(
@@ -47,10 +49,8 @@ def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.V
         ctx, np.asarray([axis], dtype=np.int64), name_hint="unsqueeze_axes"
     )
     base_dims = _shape_dims(value.shape)
-    squeezed_shape = cast(
-        tuple[DimInput, ...],
-        (1,)
-        + tuple(int(d) if isinstance(d, (int, np.integer)) else d for d in base_dims),
+    squeezed_shape: tuple[DimInput, ...] = (1,) + tuple(
+        int(d) if isinstance(d, (int, np.integer)) else d for d in base_dims
     )
     squeezed = cast(
         ir.Value,
