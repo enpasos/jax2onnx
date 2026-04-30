@@ -15,7 +15,7 @@ def cond_scatter_add_mul_f64(
     scatter_indices: jax.Array,
     updates_for_add: jax.Array,
     updates_for_mul: jax.Array,
-):
+) -> tuple[jax.Array, jax.Array]:
     """Scatter add vs mul inside a conditional; regression for scatter lowering."""
     dimension_numbers = jax.lax.ScatterDimensionNumbers(
         update_window_dims=(),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 from flax import linen as nn
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -15,7 +16,7 @@ from jax2onnx.plugins.plugin_system import (
 
 class LinenCNN(nn.Module):
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         x = nn.Conv(features=32, kernel_size=(3, 3))(x)
         x = nn.relu(x)
         x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))

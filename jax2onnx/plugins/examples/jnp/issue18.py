@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -39,7 +41,7 @@ def _while_loop_fn(x: jax.Array) -> jax.Array:
 
 
 def _scan_fn(x: jax.Array) -> jax.Array:
-    def body(carry: jax.Array, _) -> tuple[jax.Array, jax.Array]:
+    def body(carry: jax.Array, _: Any) -> tuple[jax.Array, jax.Array]:
         carry = carry + 1
         return carry, carry
 

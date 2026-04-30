@@ -10,7 +10,9 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
-def scatter_window_function(operand, indices, updates):
+def scatter_window_function(
+    operand: jax.Array, indices: jax.Array, updates: jax.Array
+) -> jax.Array:
     """Depth-3 window-scatter (H×W patch) regression for converter."""
     dnums = ScatterDimensionNumbers(
         update_window_dims=(1, 2, 3, 4),

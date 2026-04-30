@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 from flax import linen as nn
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -21,7 +22,7 @@ class LinenMLP(nn.Module):
     dropout_rate: float = 0.1
 
     @nn.compact
-    def __call__(self, x, *, deterministic: bool = True):
+    def __call__(self, x: jax.Array, *, deterministic: bool = True) -> jax.Array:
         x = nn.Dense(self.dmid)(x)
         x = nn.BatchNorm(use_running_average=True)(x)
         x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)

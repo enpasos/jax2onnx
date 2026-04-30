@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import jax
 import numpy as np
 
 import jax.numpy as jnp
@@ -11,9 +14,11 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import register_example
 
 
-def model_with_cond_and_scatter():
+def model_with_cond_and_scatter() -> tuple[jax.Array, jax.Array]:
     """Reproducer where lax.cond branches capture local scatter operands."""
-    base_vals = np.arange(0.0, 2 * 4 * 1 * 1, 1.0, dtype=np.float64).reshape(2, 4, 1, 1)
+    base_vals: np.ndarray[Any, np.dtype[np.float64]] = np.arange(
+        0.0, 2 * 4 * 1 * 1, 1.0, dtype=np.float64
+    ).reshape(2, 4, 1, 1)
     original_operand_val = jnp.asarray(base_vals, dtype=jnp.float64)
 
     raw_updates_data_val = jnp.ones((1, 4, 1, 1), dtype=jnp.float64) * 100.0
@@ -29,11 +34,15 @@ def model_with_cond_and_scatter():
         reshaped_updates_for_slices_val,
     )
 
-    def true_branch_takes_tuple(operands_tuple):
+    def true_branch_takes_tuple(
+        operands_tuple: tuple[jax.Array, jax.Array, jax.Array],
+    ) -> jax.Array:
         op, idx, upd = operands_tuple
         return op.at[idx].set(upd)
 
-    def false_branch_takes_tuple(operands_tuple):
+    def false_branch_takes_tuple(
+        operands_tuple: tuple[jax.Array, jax.Array, jax.Array],
+    ) -> jax.Array:
         op, _, _ = operands_tuple
         return op + 1.0
 

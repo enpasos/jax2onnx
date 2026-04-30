@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
@@ -25,7 +26,7 @@ class LinenMLPSequential(nn.Module):
     dtype: Any = jnp.float32
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x: jax.Array) -> jax.Array:
         return nn.Sequential(
             [
                 nn.Dense(self.dmid, dtype=self.dtype, param_dtype=self.dtype),
