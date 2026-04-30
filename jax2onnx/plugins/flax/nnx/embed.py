@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax.numpy as jnp
 from flax import nnx
@@ -10,6 +10,7 @@ from jax import core
 from jax.extend.core import Primitive
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -24,9 +25,6 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.plugins.plugin_system import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 EMBED_PRIM: Final[Primitive] = Primitive("nnx.embed")
@@ -92,15 +90,17 @@ EXPECT_EMBED_GATHER: Final = EG(
 )
 class EmbedPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive] = EMBED_PRIM
-    _ORIG_CALL: ClassVar[Callable | None] = None
+    _ORIG_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(indices, embedding):
+    def abstract_eval(
+        indices: core.AbstractValue, embedding: core.AbstractValue
+    ) -> core.ShapedArray:
         features = embedding.shape[-1]
         return core.ShapedArray(indices.shape + (features,), embedding.dtype)
 
-    def lower(self, ctx: "IRBuildContext", eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
         indices_var, embedding_var = eqn.invars[:2]
         (out_var,) = eqn.outvars
 
@@ -117,10 +117,13 @@ class EmbedPlugin(PrimitiveLeafPlugin):
 
         idx_dtype = getattr(getattr(indices_val, "type", None), "dtype", None)
         if idx_dtype not in (ir.DataType.INT64, None):
-            casted = builder.Cast(
-                indices_val,
-                _outputs=[ctx.fresh_name("embed_idx_i64")],
-                to=int(ir.DataType.INT64.value),
+            casted = cast(
+                ir.Value,
+                builder.Cast(
+                    indices_val,
+                    _outputs=[ctx.fresh_name("embed_idx_i64")],
+                    to=int(ir.DataType.INT64.value),
+                ),
             )
             casted.type = ir.TensorType(ir.DataType.INT64)
             casted.shape = indices_val.shape
@@ -133,11 +136,14 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("embed_out"))
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("embed_out")
 
-        result = builder.Gather(
-            embedding_val,
-            indices_val,
-            axis=0,
-            _outputs=[desired_name],
+        result = cast(
+            ir.Value,
+            builder.Gather(
+                embedding_val,
+                indices_val,
+                axis=0,
+                _outputs=[desired_name],
+            ),
         )
         embed_dtype = getattr(getattr(embedding_val, "type", None), "dtype", None)
         if embed_dtype is not None:
@@ -164,11 +170,11 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     @classmethod
-    def binding_specs(cls):
-        def _make_patch(orig):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
+        def _make_patch(orig: Callable[..., Any] | None) -> Callable[..., Any]:
             cls._ORIG_CALL = orig
 
-            def _patched(self: nnx.Embed, indices):
+            def _patched(self: nnx.Embed, indices: Any) -> Any:
                 table = self.embedding.value
                 return cls._PRIM.bind(indices, table)
 
@@ -185,14 +191,14 @@ class EmbedPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @EmbedPlugin._PRIM.def_impl
-def _embed_impl(indices, embedding):
+def _embed_impl(indices: Any, embedding: Any) -> Any:
     return jnp.take(embedding, indices, axis=0)
 
 
