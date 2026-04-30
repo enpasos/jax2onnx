@@ -142,6 +142,7 @@ files = [
     "jax2onnx/plugins/dm_pix",
     "jax2onnx/plugins/flax/nnx",
     "jax2onnx/plugins/flax/linen/avg_pool.py",
+    "jax2onnx/plugins/flax/linen/max_pool.py",
     "jax2onnx/plugins/jax/_autodiff_utils.py",
     "jax2onnx/plugins/jax/_batching_utils.py",
     "jax2onnx/plugins/jax/core",
