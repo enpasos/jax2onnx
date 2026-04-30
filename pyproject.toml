@@ -150,6 +150,7 @@ files = [
     "jax2onnx/plugins/flax/linen/dense.py",
     "jax2onnx/plugins/flax/linen/dense_general.py",
     "jax2onnx/plugins/flax/linen/dropout.py",
+    "jax2onnx/plugins/flax/linen/einsum.py",
     "jax2onnx/plugins/flax/linen/embed.py",
     "jax2onnx/plugins/flax/linen/group_norm.py",
     "jax2onnx/plugins/flax/linen/instance_norm.py",

@@ -112,23 +112,23 @@ EXPECT_EINSUM_WITH_BIAS: Final = EG(
 class EinsumPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.einsum")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
     def abstract_eval(
-        x,
-        kernel,
-        *maybe_bias,
+        x: Any,
+        kernel: Any,
+        *maybe_bias: Any,
         einsum_str: str,
         use_bias: bool,
         broadcasted_bias_shape: tuple[int, ...] | None = None,
         precision: Any | None = None,
         preferred_element_type: Any | None = None,
-    ):
+    ) -> core.ShapedArray:
         bias = maybe_bias[0] if maybe_bias else None
 
-        def _shape_fn(x_arg, kernel_arg, bias_arg=None):
+        def _shape_fn(x_arg: Any, kernel_arg: Any, bias_arg: Any | None = None) -> Any:
             y = jnp.einsum(
                 einsum_str,
                 x_arg,
@@ -159,9 +159,9 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
         return core.ShapedArray(out_spec.shape, out_spec.dtype)
 
-    def lower(self, ctx: Any, eqn):
-        params = dict(getattr(eqn, "params", {}) or {})
-        equation = params["einsum_str"]
+    def lower(self, ctx: Any, eqn: Any) -> None:
+        params: dict[str, Any] = dict(getattr(eqn, "params", {}) or {})
+        equation = str(params["einsum_str"])
         use_bias = bool(params.get("use_bias", False))
         broadcasted_bias_shape = params.get("broadcasted_bias_shape")
 
@@ -254,21 +254,26 @@ class EinsumPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, einsum_out)
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         EinsumPlugin._ORIGINAL_CALL = orig_fn
         prim = EinsumPlugin._PRIM
 
-        def patched(self, inputs, einsum_str=None):
+        def call_orig(self: Any, inputs: Any, einsum_str: Any | None = None) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.Einsum.__call__ is not available.")
+            return orig_fn(self, inputs, einsum_str)
+
+        def patched(self: Any, inputs: Any, einsum_str: Any | None = None) -> Any:
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, inputs, einsum_str)
+                return call_orig(self, inputs, einsum_str)
 
             variables = scope.variables()
             params = variables.get("params", {})
             kernel = params.get("kernel")
             bias = params.get("bias") if self.use_bias else None
             if kernel is None:
-                return orig_fn(self, inputs, einsum_str)
+                return call_orig(self, inputs, einsum_str)
 
             einsum_str = linen_module.merge_param(
                 "einsum_str", self.einsum_str, einsum_str
@@ -289,7 +294,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
             broadcasted_bias_shape = None
             if self.use_bias:
                 if bias is None:
-                    return orig_fn(self, inputs, einsum_str)
+                    return call_orig(self, inputs, einsum_str)
                 _, broadcasted_bias_shape = self._get_bias_shape(
                     einsum_str, inputs, kernel
                 )
@@ -311,7 +316,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "einsum_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -323,7 +328,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
@@ -331,15 +336,15 @@ class EinsumPlugin(PrimitiveLeafPlugin):
 
 @EinsumPlugin._PRIM.def_impl
 def _impl(
-    x,
-    kernel,
-    *maybe_bias,
+    x: Any,
+    kernel: Any,
+    *maybe_bias: Any,
     einsum_str: str,
     use_bias: bool,
     broadcasted_bias_shape: tuple[int, ...] | None = None,
     precision: Any | None = None,
     preferred_element_type: Any | None = None,
-):
+) -> Any:
     bias = maybe_bias[0] if maybe_bias else None
     y = jnp.einsum(
         einsum_str,
