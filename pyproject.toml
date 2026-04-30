@@ -187,6 +187,7 @@ files = [
     "jax2onnx/plugins/jax/lax/concatenate.py",
     "jax2onnx/plugins/jax/lax/convert_element_type.py",
     "jax2onnx/plugins/jax/lax/copy.py",
+    "jax2onnx/plugins/jax/lax/conv.py",
     "jax2onnx/plugins/jax/lax/cos.py",
     "jax2onnx/plugins/jax/lax/cosh.py",
     "jax2onnx/plugins/jax/lax/cumlogsumexp.py",
