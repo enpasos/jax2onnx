@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/nnx/linear.py
 
 from __future__ import annotations
-from typing import Any, Callable, ClassVar, Final, Optional
+from typing import Any, Callable, ClassVar, Final, Optional, cast
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -9,6 +9,7 @@ from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -19,6 +20,7 @@ from jax2onnx.plugins.plugin_system import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
+    DimInput,
     _stamp_type_and_shape,
     _is_static_int,
     _dim_label_from_value_or_aval,
@@ -32,18 +34,18 @@ from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 def _linear_output_dims(
     x_val: ir.Value,
-    x_shape: tuple,
+    x_shape: tuple[object, ...],
     out_val: ir.Value,
-    out_shape: tuple,
+    out_shape: tuple[object, ...],
     fallback_last: int,
-):
+) -> tuple[DimInput, ...]:
     """Return dims tuple for linear outputs preserving batch labels when known."""
     out_rank = len(out_shape)
     batch_rank = max(len(x_shape) - 1, 0)
     if out_rank:
         batch_rank = min(batch_rank, max(out_rank - 1, 0))
 
-    dims: list[Any] = []
+    dims: list[DimInput] = []
     for idx in range(batch_rank):
         label = _dim_label_from_value_or_aval(x_val, x_shape, idx)
         if label is None and idx < len(x_shape):
@@ -108,10 +110,12 @@ def _linear_expect(
     counts: dict[str, int],
     symbols: dict[str, Any] | None = None,
     extra_specs: tuple[str, ...] = (),
-):
+) -> Callable[[Any], bool]:
     specs: list[Any] = [(path, {"counts": dict(counts)})]
     specs.extend(extra_specs)
-    return EG(specs, symbols=symbols, no_unused_inputs=True)
+    return cast(
+        Callable[[Any], bool], EG(specs, symbols=symbols, no_unused_inputs=True)
+    )
 
 
 EXPECT_GEMM_ONLY: Final = _linear_expect(
@@ -272,14 +276,22 @@ class LinearPlugin(PrimitiveLeafPlugin):
     # Private primitive for this world (no import-time global assignment)
     _PRIM: ClassVar[Primitive] = Primitive("nnx.linear")
     _PRIM.multiple_results = False
-    _ORIGINAL_LINEAR_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_LINEAR_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x, kernel, bias, *, use_bias: bool, dimension_numbers=None):
+    def abstract_eval(
+        x: Any,
+        kernel: Any,
+        bias: Any,
+        *,
+        use_bias: bool,
+        dimension_numbers: Any = None,
+    ) -> jax.core.ShapedArray:
         # If we don't have the original __call__, fall back to shape math.
-        if LinearPlugin._ORIGINAL_LINEAR_CALL is None:
+        orig_call = LinearPlugin._ORIGINAL_LINEAR_CALL
+        if orig_call is None:
             if dimension_numbers is None:
                 lhs, rhs = ((x.ndim - 1,), (0,))
                 dimension_numbers = ((lhs, rhs), ((), ()))
@@ -296,20 +308,26 @@ class LinearPlugin(PrimitiveLeafPlugin):
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
         b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype) if use_bias else None
 
-        def _helper(xv, kv, bv):
+        def _helper(xv: Any, kv: Any, bv: Any) -> Any:
             from types import SimpleNamespace
 
-            def promote_dtype(args, dtype=None):
+            def promote_dtype(args: Any, dtype: Any = None) -> Any:
                 return args
 
-            def dot_general(a, b, dimension_numbers=None, precision=None, **kwargs):
+            def dot_general(
+                a: Any,
+                b: Any,
+                dimension_numbers: Any = None,
+                precision: Any = None,
+                **kwargs: Any,
+            ) -> Any:
                 return jax.lax.dot_general(a, b, dimension_numbers)
 
             class MockParam:
-                def __init__(self, value):
+                def __init__(self, value: Any) -> None:
                     self.value = value
 
-                def __getitem__(self, item):
+                def __getitem__(self, item: Any) -> Any:
                     return self.value[item]
 
             dummy = SimpleNamespace(
@@ -325,7 +343,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
                 precision=None,
                 preferred_element_type=None,
             )
-            return LinearPlugin._ORIGINAL_LINEAR_CALL(dummy, xv)
+            return orig_call(dummy, xv)
 
         out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
         out = jax.tree_util.tree_leaves(out)[0]
@@ -333,11 +351,8 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
     # ---------- lowering (IR) ----------
 
-    def lower(self, ctx: Any, eqn):
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder")
-
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        builder = ctx.builder
         x_var, kernel_var, bias_var = eqn.invars
         out_var = eqn.outvars[0]
         use_bias = bool(eqn.params["use_bias"])
@@ -365,7 +380,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         out_features = int(k_shape[1])
 
         need_flatten = len(x_shape) > 2
-        gemm_input = x_val
+        gemm_input: ir.Value = x_val
         batch_dim_vals: list[Any] = []
         all_batch_static = True
 
@@ -395,7 +410,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if use_bias and b_val is not None:
             gemm_inputs.append(b_val)
 
-        gemm_result = builder.Gemm(
+        gemm_result: ir.Value = builder.Gemm(
             *gemm_inputs,
             alpha=1.0,
             beta=0.0 if not use_bias else 1.0,
@@ -435,7 +450,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         if all_batch_static:
             final_vals = [int(d) for d in batch_dim_vals] + [int(out_features)]
             final_shape_c = _const_i64(ctx, final_vals, name_hint="final_shape_c")
-            final_output = builder.Reshape(
+            final_output: ir.Value = builder.Reshape(
                 gemm_result,
                 final_shape_c,
                 _outputs=[ctx.fresh_name("out")],
@@ -454,7 +469,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, final_output)
             return
 
-        shp = builder.Shape(x_val, _outputs=[ctx.fresh_name("x_shape")])
+        shp: ir.Value = builder.Shape(x_val, _outputs=[ctx.fresh_name("x_shape")])
         shp.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(shp, (len(x_shape),))
         _ensure_value_metadata(ctx, shp)
@@ -464,7 +479,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         axes_val = _const_i64(ctx, [0], name_hint="slice_axes")
         steps = _const_i64(ctx, [1], name_hint="slice_steps")
 
-        batch_dims = builder.Slice(
+        batch_dims: ir.Value = builder.Slice(
             shp,
             starts,
             ends,
@@ -477,7 +492,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, batch_dims)
 
         of = _const_i64(ctx, [out_features], name_hint="out_features_c")
-        final_shape = builder.Concat(
+        final_shape: ir.Value = builder.Concat(
             batch_dims,
             of,
             axis=0,
@@ -507,11 +522,11 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
     # ---------- monkey-patch helper (single, non-duplicated) ----------
     @staticmethod
-    def get_monkey_patch(orig_fn):
+    def get_monkey_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
         prim = LinearPlugin._PRIM
 
-        def patched(self, x, *, out_sharding=None):
+        def patched(self: nnx.Linear, x: Any, *, out_sharding: Any = None) -> Any:
             del out_sharding
             dn = (((x.ndim - 1,), (0,)), ((), ()))
             kernel = self.kernel.value
@@ -522,7 +537,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         """Patch bindings while active."""
         return [
             AssignSpec("flax.nnx", "linear_p", cls._PRIM, delete_if_missing=True),
@@ -535,14 +550,21 @@ class LinearPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
 
 @LinearPlugin._PRIM.def_impl
-def _impl(x, kernel, bias, *, use_bias, dimension_numbers):
+def _impl(
+    x: Any,
+    kernel: Any,
+    bias: Any,
+    *,
+    use_bias: bool,
+    dimension_numbers: Any,
+) -> Any:
     y = jax.lax.dot_general(x, kernel, dimension_numbers=dimension_numbers)
     if use_bias and bias is not None:
         y = y + bias

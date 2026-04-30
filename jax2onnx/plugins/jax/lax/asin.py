@@ -45,7 +45,7 @@ class AsinPlugin(PrimitiveLeafPlugin):
 
         # Compute a safe output name: reuse out_spec.name if it has no producer,
         # otherwise allocate a fresh, unique name.
-        desired_name = out_spec.name
+        desired_name = out_spec.name or ctx.fresh_name("asin_out")
         if hasattr(out_spec, "producer"):
             producer_fn = out_spec.producer
             if callable(producer_fn) and producer_fn() is not None:

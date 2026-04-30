@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict, Sequence, Tuple, cast
 
 import numpy as np
 import onnx_ir as ir
 from jax import core
+
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -31,6 +33,21 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _shape_of,
     _unsqueeze_scalar,
 )
+
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
+
+
+def _value_dtype(value: ir.Value) -> ir.DataType | None:
+    return getattr(getattr(value, "type", None), "dtype", None)
+
+
+def _copy_value_dtype(target: ir.Value, source: ir.Value) -> None:
+    dtype = _value_dtype(source)
+    if dtype is not None:
+        target.type = ir.TensorType(dtype)
+        target.dtype = dtype
 
 
 def _maybe_static_extent(value: Any) -> int | None:
@@ -161,13 +178,15 @@ def _compute_window_operand_dims(
 
 def _mul_scalars(ctx: Any, lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.Value:
     dtype = getattr(lhs.type, "dtype", ir.DataType.INT64)
-    return _builder_op(
-        ctx,
-        "Mul",
-        [lhs, rhs],
-        name_hint=name_hint,
-        dtype=dtype,
-        shape=(),
+    return _as_value(
+        _builder_op(
+            ctx,
+            "Mul",
+            [lhs, rhs],
+            name_hint=name_hint,
+            dtype=dtype,
+            shape=(),
+        )
     )
 
 
@@ -177,14 +196,16 @@ def _make_constant_of_shape(
     value: np.ndarray,
     name_hint: str,
 ) -> ir.Value:
-    return _builder_op(
-        ctx,
-        "ConstantOfShape",
-        [shape_tensor],
-        name_hint=name_hint,
-        dtype=ir.DataType.INT64,
-        shape=(None,),
-        attributes={"value": ir.tensor(value)},
+    return _as_value(
+        _builder_op(
+            ctx,
+            "ConstantOfShape",
+            [shape_tensor],
+            name_hint=name_hint,
+            dtype=ir.DataType.INT64,
+            shape=(None,),
+            attributes={"value": ir.tensor(value)},
+        )
     )
 
 
@@ -299,14 +320,16 @@ def _reorder_indices_columns(
         return indices_2d
 
     order_const = _const_i64(ctx, order, "scatter_order")
-    return _builder_op(
-        ctx,
-        "Gather",
-        [indices_2d, order_const],
-        name_hint="scatter_indices_reordered",
-        dtype=ir.DataType.INT64,
-        shape=(None, index_depth),
-        attributes={"axis": 1},
+    return _as_value(
+        _builder_op(
+            ctx,
+            "Gather",
+            [indices_2d, order_const],
+            name_hint="scatter_indices_reordered",
+            dtype=ir.DataType.INT64,
+            shape=(None, index_depth),
+            attributes={"axis": 1},
+        )
     )
 
 
@@ -335,7 +358,7 @@ def _reshape_updates_flat(
         dtype=getattr(updates_val.type, "dtype", None),
         shape=(None,),
     )
-    return updates_flat
+    return _as_value(updates_flat)
 
 
 def _prepare_updates_for_scatternd(
@@ -435,7 +458,7 @@ def _prepare_updates_for_scatternd(
             dtype=getattr(updates_val.type, "dtype", None),
             shape=(None,) + tuple(slice_shape),
         )
-        return updates_shaped
+        return _as_value(updates_shaped)
 
     return _reshape_updates_flat(ctx, updates_val, num_updates)
 
@@ -705,14 +728,16 @@ def _build_window_offsets_matrix(
         )
         axes_range_cols.append(range_col)
 
-    return _builder_op(
-        ctx,
-        "Concat",
-        axes_range_cols,
-        name_hint="scatter_window_offsets",
-        dtype=ir.DataType.INT64,
-        shape=(None, operand_rank),
-        attributes={"axis": 1},
+    return _as_value(
+        _builder_op(
+            ctx,
+            "Concat",
+            axes_range_cols,
+            name_hint="scatter_window_offsets",
+            dtype=ir.DataType.INT64,
+            shape=(None, operand_rank),
+            attributes={"axis": 1},
+        )
     )
 
 
@@ -1024,7 +1049,7 @@ def _build_base_matrix(
         shape=(None, operand_rank),
         attributes={"axis": 1},
     )
-    return base_matrix
+    return _as_value(base_matrix)
 
 
 def _expand_indices_with_offsets(
@@ -1135,7 +1160,7 @@ def _expand_indices_with_offsets(
         dtype=ir.DataType.INT64,
         shape=(None, operand_rank),
     )
-    return indices_flat
+    return _as_value(indices_flat)
 
 
 def _lower_scatter_window_full(
@@ -1315,8 +1340,7 @@ def _lower_scatter_window_full(
     )
 
     _stamp_type_and_shape(out_val, tuple(operand_shape))
-    out_val.type = ir.TensorType(operand_val.type.dtype)
-    out_val.dtype = operand_val.type.dtype
+    _copy_value_dtype(out_val, operand_val)
     _ensure_value_metadata(ctx, out_val)
     axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
     if axis0_extent and axis0_extent > 1:
@@ -1448,16 +1472,17 @@ def lower_scatter_elementwise(
         )
         out_name = out_val.name or ctx.fresh_name("Scatter")
         if unique_indices and _supports_legacy_scatter(ctx):
-            result = ctx.builder.Scatter(
-                operand_val,
-                indices_1d,
-                updates_prepared,
-                axis=0,
-                _outputs=[out_name],
+            result = _as_value(
+                ctx.builder.Scatter(
+                    operand_val,
+                    indices_1d,
+                    updates_prepared,
+                    axis=0,
+                    _outputs=[out_name],
+                )
             )
             _stamp_type_and_shape(result, tuple(operand_shape))
-            result.type = ir.TensorType(operand_val.type.dtype)
-            result.dtype = operand_val.type.dtype
+            _copy_value_dtype(result, operand_val)
             _ensure_value_metadata(ctx, result)
             axis0_extent = _maybe_static_extent(
                 operand_shape[0] if operand_shape else None
@@ -1467,16 +1492,17 @@ def lower_scatter_elementwise(
             ctx.bind_value_for_var(out_var, result)
             return
         out_name = out_val.name or ctx.fresh_name("ScatterElements")
-        result = ctx.builder.ScatterElements(
-            operand_val,
-            indices_1d,
-            updates_prepared,
-            axis=0,
-            _outputs=[out_name],
+        result = _as_value(
+            ctx.builder.ScatterElements(
+                operand_val,
+                indices_1d,
+                updates_prepared,
+                axis=0,
+                _outputs=[out_name],
+            )
         )
         _stamp_type_and_shape(result, tuple(operand_shape))
-        result.type = ir.TensorType(operand_val.type.dtype)
-        result.dtype = operand_val.type.dtype
+        _copy_value_dtype(result, operand_val)
         _ensure_value_metadata(ctx, result)
         axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
         if axis0_extent and axis0_extent > 1:
@@ -1497,8 +1523,7 @@ def lower_scatter_elementwise(
     )
 
     _stamp_type_and_shape(out_val, tuple(operand_shape))
-    out_val.type = ir.TensorType(operand_val.type.dtype)
-    out_val.dtype = operand_val.type.dtype
+    _copy_value_dtype(out_val, operand_val)
     _ensure_value_metadata(ctx, out_val)
     axis0_extent = _maybe_static_extent(operand_shape[0] if operand_shape else None)
     if axis0_extent and axis0_extent > 1:
@@ -1540,7 +1565,7 @@ def ensure_supported_mode(mode: Any) -> None:
 
 
 def lower_scatter_common(
-    ctx: Any,
+    ctx: LoweringContextProtocol,
     eqn: core.JaxprEqn,
     *,
     reduction: str,

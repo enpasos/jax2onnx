@@ -1,10 +1,11 @@
 # jax2onnx/plugins/jax/lax/add.py
 
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 
 import onnx_ir as ir
 import jax
 import numpy as np
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
     stamp_axis0_binary_result,
@@ -26,12 +27,9 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _lower_complex_add(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     lhs: ir.Value,
     rhs: ir.Value,
     *,
@@ -52,10 +50,13 @@ def _lower_complex_add(
         else cast_real_tensor(ctx, rhs_packed, target_dtype, name_hint="add_rhs_cast")
     )
 
-    result: ir.Value = ctx.builder.Add(
-        lhs_ready,
-        rhs_ready,
-        _outputs=[output_name],
+    result = cast(
+        ir.Value,
+        ctx.builder.Add(
+            lhs_ready,
+            rhs_ready,
+            _outputs=[output_name],
+        ),
     )
     result.type = ir.TensorType(target_dtype)
     result.dtype = target_dtype
@@ -65,7 +66,7 @@ def _lower_complex_add(
     return result, target_dtype
 
 
-def lower_add(ctx: "IRContext", eqn: Any) -> None:
+def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
     """Shared lowering routine for lax/jnp Add plugins."""
 
     x_var, y_var = eqn.invars
@@ -200,5 +201,5 @@ def lower_add(ctx: "IRContext", eqn: Any) -> None:
     ],
 )
 class AddPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lower_add(ctx, eqn)

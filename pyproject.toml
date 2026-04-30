@@ -129,12 +129,53 @@ warn_unreachable = true
 incremental = false
 files = [
     "jax2onnx/converter",
+    "jax2onnx/ir_utils.py",
+    "jax2onnx/plugins/_axis0_utils.py",
+    "jax2onnx/plugins/_attention_utils.py",
+    "jax2onnx/plugins/_complex_utils.py",
+    "jax2onnx/plugins/_ir_shapes.py",
+    "jax2onnx/plugins/_loop_extent_meta.py",
+    "jax2onnx/plugins/_patching.py",
+    "jax2onnx/plugins/_post_check_onnx_graph.py",
+    "jax2onnx/plugins/_utils.py",
+    "jax2onnx/plugins/__init__.py",
+    "jax2onnx/plugins/dm_pix",
+    "jax2onnx/plugins/flax/nnx",
+    "jax2onnx/plugins/flax/linen/activation.py",
+    "jax2onnx/plugins/flax/linen/avg_pool.py",
+    "jax2onnx/plugins/flax/linen/batch_norm.py",
+    "jax2onnx/plugins/flax/linen/dropout.py",
+    "jax2onnx/plugins/flax/linen/embed.py",
+    "jax2onnx/plugins/flax/linen/group_norm.py",
+    "jax2onnx/plugins/flax/linen/instance_norm.py",
+    "jax2onnx/plugins/flax/linen/layer_norm.py",
+    "jax2onnx/plugins/flax/linen/max_pool.py",
+    "jax2onnx/plugins/flax/linen/min_pool.py",
+    "jax2onnx/plugins/flax/linen/pool.py",
+    "jax2onnx/plugins/flax/linen/recurrent.py",
+    "jax2onnx/plugins/flax/linen/rms_norm.py",
+    "jax2onnx/plugins/jax/_autodiff_utils.py",
+    "jax2onnx/plugins/jax/_batching_utils.py",
+    "jax2onnx/plugins/jax/core",
+    "jax2onnx/plugins/jax/image",
+    "jax2onnx/plugins/jax/lax",
+    "jax2onnx/plugins/jax/numpy",
+    "jax2onnx/plugins/jax/nn",
+    "jax2onnx/plugins/jax/random",
+    "jax2onnx/plugins/plugin_system.py",
 ]
 follow_imports = "skip"
 allow_untyped_globals = false
 disallow_untyped_defs = true
 disallow_any_generics = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "onnx_ir",
+    "onnx_ir.*",
+]
+follow_imports = "normal"
 
 [[tool.mypy.overrides]]
 module = [

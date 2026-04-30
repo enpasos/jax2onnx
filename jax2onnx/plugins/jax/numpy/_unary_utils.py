@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import jax
 from jax import core
@@ -65,7 +65,7 @@ def lower_unary_elementwise_with_optional_cast(
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name(output_hint)
 
-        result = ctx.builder.Identity(op_input, _outputs=[desired_name])
+        result = cast(ir.Value, ctx.builder.Identity(op_input, _outputs=[desired_name]))
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type
         if getattr(out_spec, "shape", None) is not None:
@@ -76,10 +76,13 @@ def lower_unary_elementwise_with_optional_cast(
     if cast_input_to_output_dtype:
         if in_dtype != out_dtype:
             cast_dtype = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-            cast_val = ctx.builder.Cast(
-                x_val,
-                _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
-                to=int(cast_dtype.value),
+            cast_val = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    x_val,
+                    _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
+                    to=int(cast_dtype.value),
+                ),
             )
             cast_val.type = ir.TensorType(cast_dtype)
             cast_val.shape = getattr(x_val, "shape", None)
@@ -95,7 +98,7 @@ def lower_unary_elementwise_with_optional_cast(
     if builder_op is None:
         raise AttributeError(f"IR builder missing op '{op_name}'")
 
-    result = builder_op(op_input, _outputs=[desired_name])
+    result = cast(ir.Value, builder_op(op_input, _outputs=[desired_name]))
     if getattr(out_spec, "type", None) is not None:
         result.type = out_spec.type
     if getattr(out_spec, "shape", None) is not None:
@@ -122,10 +125,13 @@ def cast_input_to_output_dtype(
         return x_val
 
     cast_dtype = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-    cast_val = ctx.builder.Cast(
-        x_val,
-        _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
-        to=int(cast_dtype.value),
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            x_val,
+            _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
+            to=int(cast_dtype.value),
+        ),
     )
     cast_val.type = ir.TensorType(cast_dtype)
     cast_val.shape = getattr(x_val, "shape", None)

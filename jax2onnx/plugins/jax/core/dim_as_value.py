@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from jax import core
 import numpy as np
@@ -128,9 +128,12 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
             axis = int(origin.axis)
             src_rank = _infer_rank(origin.value, axis)
 
-            shape_vec = ctx.builder.Shape(
-                origin.value,
-                _outputs=[ctx.fresh_name("dim_as_value_shape")],
+            shape_vec = cast(
+                ir.Value,
+                ctx.builder.Shape(
+                    origin.value,
+                    _outputs=[ctx.fresh_name("dim_as_value_shape")],
+                ),
             )
             shape_vec.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_vec, (src_rank,))
@@ -138,11 +141,14 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
             gather_idx = _const_i64(
                 ctx, np.asarray([axis], dtype=np.int64), "dim_as_value_axis"
             )
-            gathered_dim = ctx.builder.Gather(
-                shape_vec,
-                gather_idx,
-                axis=0,
-                _outputs=[ctx.fresh_name("dim_as_value_gather")],
+            gathered_dim = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    shape_vec,
+                    gather_idx,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("dim_as_value_gather")],
+                ),
             )
             gathered_dim.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(gathered_dim, (1,))
@@ -161,23 +167,29 @@ class DimAsValuePlugin(PrimitiveLeafPlugin):
             else ctx.fresh_name("dim_as_value_scalar")
         )
 
-        reshape_result = ctx.builder.Reshape(
-            dim_vec,
-            reshape_shape,
-            _outputs=[reshape_name or ctx.fresh_name("dim_as_value_scalar")],
+        reshape_result = cast(
+            ir.Value,
+            ctx.builder.Reshape(
+                dim_vec,
+                reshape_shape,
+                _outputs=[reshape_name or ctx.fresh_name("dim_as_value_scalar")],
+            ),
         )
         reshape_result.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(reshape_result, ())
 
-        final_val = reshape_result
+        final_val: ir.Value = reshape_result
         if needs_cast and target_dtype is not None:
-            cast_result = ctx.builder.Cast(
-                reshape_result,
-                _outputs=[
-                    getattr(out_spec, "name", None)
-                    or ctx.fresh_name("dim_as_value_cast")
-                ],
-                to=int(target_dtype.value),
+            cast_result = cast(
+                ir.Value,
+                ctx.builder.Cast(
+                    reshape_result,
+                    _outputs=[
+                        getattr(out_spec, "name", None)
+                        or ctx.fresh_name("dim_as_value_cast")
+                    ],
+                    to=int(target_dtype.value),
+                ),
             )
             cast_result.type = ir.TensorType(target_dtype)
             _stamp_type_and_shape(cast_result, ())

@@ -7,7 +7,9 @@ from typing import (
     Any,
     Callable,
     Collection,
+    Iterable,
     Mapping,
+    MutableSequence,
     Protocol,
     Sequence,
     runtime_checkable,
@@ -65,10 +67,79 @@ class SymbolicDimOrigin:
 class SymbolicDimTracker(Protocol):
     def get_symbolic_dim_origin(self, dim: object) -> SymbolicDimOrigin | None: ...
 
+    def record_symbolic_dim_origin(
+        self, dim: object, value: ir.Value, axis: int
+    ) -> None: ...
+
+
+@runtime_checkable
+class IRBuilderProtocol(Protocol):
+    @property
+    def opset(self) -> int: ...
+
+    @property
+    def enable_double_precision(self) -> bool: ...
+
+    @property
+    def graph(self) -> ir.Graph: ...
+
+    @property
+    def inputs(self) -> MutableSequence[ir.Value]: ...
+
+    @property
+    def outputs(self) -> MutableSequence[ir.Value]: ...
+
+    @outputs.setter
+    def outputs(self, values: Iterable[ir.Value]) -> None: ...
+
+    @property
+    def initializers(self) -> Sequence[ir.Value]: ...
+
+    @property
+    def nodes(self) -> Sequence[ir.Node]: ...
+
+    def fresh_name(self, base: str) -> str: ...
+
+    def add_initializer_from_scalar(self, name: str, value: object) -> ir.Value: ...
+
+    def add_initializer_from_array(
+        self,
+        name: str,
+        array: np.ndarray[Any, np.dtype[Any]],
+    ) -> ir.Value: ...
+
+    def const_i64(self, name: str, values: Sequence[int]) -> ir.Value: ...
+
+    def add_node_obj(self, node: ir.Node) -> None: ...
+
+    def add_node(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value],
+        outputs: Sequence[ir.Value],
+        attributes: Mapping[str, Any] | Sequence[ir.Attr] | None = None,
+        name: str | None = None,
+    ) -> ir.Node: ...
+
+    def record_symbol_origin(self, sym: str, src_val: ir.Value, axis: int) -> None: ...
+
+    def get_symbolic_dim_origin(self, sym: str) -> SymbolicDimOrigin | None: ...
+
+    def to_ir_model(
+        self,
+        *,
+        name: str,
+        ir_version: int = 11,
+        protective_clone: bool = True,
+    ) -> ir.Model: ...
+
+    def __getattr__(self, name: str) -> Any: ...
+
 
 @runtime_checkable
 class LoweringContextProtocol(SymbolicDimTracker, Protocol):
-    builder: Any
+    @property
+    def builder(self) -> IRBuilderProtocol: ...
 
     @property
     def opset(self) -> int: ...
@@ -87,6 +158,12 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     @property
     def _nodes(self) -> Sequence[ir.Node]: ...
+
+    @property
+    def _inside_function_scope(self) -> bool: ...
+
+    @property
+    def _call_input_param_names(self) -> set[str]: ...
 
     def fresh_name(self, base: str) -> str: ...
 
@@ -121,6 +198,16 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
     ) -> ir.Value: ...
 
     def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
+
+    def bind_const_for_var(
+        self,
+        var: Any,
+        np_array: np.ndarray[Any, np.dtype[Any]],
+    ) -> ir.Value: ...
+
+    def try_evaluate_const(self, var: Any) -> np.ndarray[Any, np.dtype[Any]] | None: ...
+
+    def ensure_external_flag(self, name: str, var: Any) -> ir.Value: ...
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
 

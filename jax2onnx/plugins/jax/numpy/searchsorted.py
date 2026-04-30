@@ -15,7 +15,11 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
@@ -46,15 +50,18 @@ def _cast_to_dtype(
     from_dtype: np.dtype[Any],
     to_dtype: np.dtype[Any],
     name_hint: str,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
 ) -> ir.Value:
     if from_dtype == to_dtype:
         return val
     target_enum = _dtype_to_ir(to_dtype, ctx.builder.enable_double_precision)
-    cast_val = ctx.builder.Cast(
-        val,
-        to=int(target_enum.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    cast_val = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            val,
+            to=int(target_enum.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     cast_val.type = ir.TensorType(target_enum)
     _stamp_type_and_shape(cast_val, shape)
@@ -67,14 +74,17 @@ def _unsqueeze(
     val: ir.Value,
     *,
     axis: int,
-    shape: tuple[object, ...],
+    shape: tuple[DimInput, ...],
     name_hint: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name_hint}_axes")
-    result = ctx.builder.Unsqueeze(
-        val,
-        axes,
-        _outputs=[ctx.fresh_name(name_hint)],
+    result = cast(
+        ir.Value,
+        ctx.builder.Unsqueeze(
+            val,
+            axes,
+            _outputs=[ctx.fresh_name(name_hint)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         result.type = val.type
@@ -180,8 +190,8 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
         params = getattr(eqn, "params", {})
         side = _validate_side(params.get("side", "left"))
 
-        a_shape = tuple(getattr(a_var.aval, "shape", ()))
-        v_shape = tuple(getattr(v_var.aval, "shape", ()))
+        a_shape: tuple[DimInput, ...] = tuple(getattr(a_var.aval, "shape", ()))
+        v_shape: tuple[DimInput, ...] = tuple(getattr(v_var.aval, "shape", ()))
         if len(a_shape) != 1:
             raise TypeError("jnp.searchsorted lowering requires 1-D sorted input 'a'")
         a_len = a_shape[0]
@@ -216,7 +226,7 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
         )
 
         a_broadcast = a_ready
-        a_broadcast_shape: tuple[object, ...] = (int(a_len),)
+        a_broadcast_shape: tuple[DimInput, ...] = (int(a_len),)
         for _ in range(len(v_shape)):
             a_broadcast_shape = (1, *a_broadcast_shape)
             a_broadcast = _unsqueeze(
@@ -235,7 +245,7 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
             name_hint="searchsorted_v_unsqueeze",
         )
 
-        compare_shape = (*v_shape, int(a_len))
+        compare_shape: tuple[DimInput, ...] = (*v_shape, int(a_len))
         if side == "left":
             comparison = ctx.builder.Less(
                 a_broadcast,

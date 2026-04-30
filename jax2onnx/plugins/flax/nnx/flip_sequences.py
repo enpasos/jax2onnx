@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from flax import nnx
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -65,7 +68,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class FlipSequencesPlugin(PrimitiveLeafPlugin):
     """Metadata plugin for ``flax.nnx.nn.recurrent.flip_sequences`` (inlined)."""
 
-    def lower(self, ctx, eqn):  # type: ignore[override]
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         raise NotImplementedError(
             "nnx.flip_sequences primitive should not reach lowering; it is inlined."
         )

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import (
@@ -15,9 +16,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _shape_of,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from jax2onnx.converter.ir_context import IRContext
 
 
 @register_primitive(
@@ -60,7 +58,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class RevPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.rev`` to a sequence of Gather ops (no Flip dependency)."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -75,9 +73,12 @@ class RevPlugin(PrimitiveLeafPlugin):
             identity_name = getattr(out_spec, "name", None) or ctx.fresh_name(
                 "Identity"
             )
-            identity = ctx.builder.Identity(
-                x_val,
-                _outputs=[identity_name],
+            identity = cast(
+                ir.Value,
+                ctx.builder.Identity(
+                    x_val,
+                    _outputs=[identity_name],
+                ),
             )
             src_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
             if src_dtype is not None:
@@ -108,29 +109,38 @@ class RevPlugin(PrimitiveLeafPlugin):
                 ctx, shape_val, axis, ctx.fresh_name("rev_dim_len")
             )
 
-            start_val = ctx.builder.Sub(
-                dim_len,
-                one,
-                _outputs=[ctx.fresh_name("rev_start")],
+            start_val = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    dim_len,
+                    one,
+                    _outputs=[ctx.fresh_name("rev_start")],
+                ),
             )
             start_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(start_val, ())
             _ensure_value_metadata(ctx, start_val)
 
-            range_val = ctx.builder.Range(
-                _scalar_i64(ctx, 0, "rev_range_start"),
-                dim_len,
-                one,
-                _outputs=[ctx.fresh_name("rev_range")],
+            range_val = cast(
+                ir.Value,
+                ctx.builder.Range(
+                    _scalar_i64(ctx, 0, "rev_range_start"),
+                    dim_len,
+                    one,
+                    _outputs=[ctx.fresh_name("rev_range")],
+                ),
             )
             range_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(range_val, (None,))
             _ensure_value_metadata(ctx, range_val)
 
-            reverse_indices = ctx.builder.Sub(
-                start_val,
-                range_val,
-                _outputs=[ctx.fresh_name("rev_indices")],
+            reverse_indices = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    start_val,
+                    range_val,
+                    _outputs=[ctx.fresh_name("rev_indices")],
+                ),
             )
             reverse_indices.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(reverse_indices, (None,))
@@ -142,11 +152,14 @@ class RevPlugin(PrimitiveLeafPlugin):
                 else ctx.fresh_name("rev_out")
             )
 
-            target_val = ctx.builder.Gather(
-                current_val,
-                reverse_indices,
-                axis=axis,
-                _outputs=[gather_name],
+            target_val = cast(
+                ir.Value,
+                ctx.builder.Gather(
+                    current_val,
+                    reverse_indices,
+                    axis=axis,
+                    _outputs=[gather_name],
+                ),
             )
             target_dtype = getattr(getattr(current_val, "type", None), "dtype", None)
             if target_dtype is not None:

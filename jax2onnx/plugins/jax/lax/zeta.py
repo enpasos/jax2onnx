@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -22,8 +25,12 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _zeta_positive(
-    ctx: "IRContext", s: Any, q: Any, np_dtype: np.dtype[Any], name_prefix: str
-) -> Any:
+    ctx: LoweringContextProtocol,
+    s: ir.Value,
+    q: ir.Value,
+    np_dtype: np.dtype[Any],
+    name_prefix: str,
+) -> ir.Value:
     # Hurwitz zeta via truncated series + Euler-Maclaurin tail.
     n_terms = 8
     one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
@@ -33,227 +40,299 @@ def _zeta_positive(
         object(), np.asarray(float(n_terms), dtype=np_dtype)
     )
 
-    neg_s = ctx.builder.Neg(s, _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s")])
+    neg_s = _as_value(
+        ctx.builder.Neg(s, _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s")])
+    )
     _stamp_like(neg_s, s)
 
     acc = zero
     for k in range(n_terms):
-        qk = ctx.builder.Add(
-            q,
-            ctx.bind_const_for_var(object(), np.asarray(float(k), dtype=np_dtype)),
-            _outputs=[ctx.fresh_name(f"{name_prefix}_qk_{k}")],
+        qk = _as_value(
+            ctx.builder.Add(
+                q,
+                ctx.bind_const_for_var(object(), np.asarray(float(k), dtype=np_dtype)),
+                _outputs=[ctx.fresh_name(f"{name_prefix}_qk_{k}")],
+            )
         )
         _stamp_like(qk, q)
-        term = ctx.builder.Pow(
-            qk,
-            neg_s,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_term_{k}")],
+        term = _as_value(
+            ctx.builder.Pow(
+                qk,
+                neg_s,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_term_{k}")],
+            )
         )
         _stamp_like(term, q)
-        acc = ctx.builder.Add(
-            acc,
-            term,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_acc_{k}")],
+        acc = _as_value(
+            ctx.builder.Add(
+                acc,
+                term,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_acc_{k}")],
+            )
         )
         _stamp_like(acc, q)
 
-    t = ctx.builder.Add(q, n_const, _outputs=[ctx.fresh_name(f"{name_prefix}_t")])
+    t = _as_value(
+        ctx.builder.Add(q, n_const, _outputs=[ctx.fresh_name(f"{name_prefix}_t")])
+    )
     _stamp_like(t, q)
-    s_minus_1 = ctx.builder.Sub(
-        s,
-        one,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s_minus_1")],
+    s_minus_1 = _as_value(
+        ctx.builder.Sub(
+            s,
+            one,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s_minus_1")],
+        )
     )
     _stamp_like(s_minus_1, s)
-    one_minus_s = ctx.builder.Sub(
-        one,
-        s,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_one_minus_s")],
+    one_minus_s = _as_value(
+        ctx.builder.Sub(
+            one,
+            s,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_one_minus_s")],
+        )
     )
     _stamp_like(one_minus_s, s)
 
     # (t^(1-s)) / (s-1)
-    tail_1_num = ctx.builder.Pow(
-        t,
-        one_minus_s,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail1_num")],
+    tail_1_num = _as_value(
+        ctx.builder.Pow(
+            t,
+            one_minus_s,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail1_num")],
+        )
     )
     _stamp_like(tail_1_num, q)
-    tail_1 = ctx.builder.Div(
-        tail_1_num,
-        s_minus_1,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail1")],
+    tail_1 = _as_value(
+        ctx.builder.Div(
+            tail_1_num,
+            s_minus_1,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail1")],
+        )
     )
     _stamp_like(tail_1, q)
 
     # 0.5 * t^-s
-    t_neg_s = ctx.builder.Pow(
-        t,
-        neg_s,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_t_neg_s")],
+    t_neg_s = _as_value(
+        ctx.builder.Pow(
+            t,
+            neg_s,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_t_neg_s")],
+        )
     )
     _stamp_like(t_neg_s, q)
-    tail_2 = ctx.builder.Mul(
-        half,
-        t_neg_s,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail2")],
+    tail_2 = _as_value(
+        ctx.builder.Mul(
+            half,
+            t_neg_s,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail2")],
+        )
     )
     _stamp_like(tail_2, q)
 
     # + (s/12) * t^(-s-1)
-    s_over_12 = ctx.builder.Div(
-        s,
-        ctx.bind_const_for_var(object(), np.asarray(12.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s_over_12")],
+    s_over_12 = _as_value(
+        ctx.builder.Div(
+            s,
+            ctx.bind_const_for_var(object(), np.asarray(12.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s_over_12")],
+        )
     )
     _stamp_like(s_over_12, s)
-    neg_s_minus_1 = ctx.builder.Sub(
-        neg_s,
-        one,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_1")],
+    neg_s_minus_1 = _as_value(
+        ctx.builder.Sub(
+            neg_s,
+            one,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_1")],
+        )
     )
     _stamp_like(neg_s_minus_1, s)
-    t_pow_3 = ctx.builder.Pow(
-        t,
-        neg_s_minus_1,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_3")],
+    t_pow_3 = _as_value(
+        ctx.builder.Pow(
+            t,
+            neg_s_minus_1,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_3")],
+        )
     )
     _stamp_like(t_pow_3, q)
-    tail_3 = ctx.builder.Mul(
-        s_over_12,
-        t_pow_3,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail3")],
+    tail_3 = _as_value(
+        ctx.builder.Mul(
+            s_over_12,
+            t_pow_3,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail3")],
+        )
     )
     _stamp_like(tail_3, q)
 
     # - s(s+1)(s+2)/720 * t^(-s-3)
-    s1 = ctx.builder.Add(
-        s,
-        one,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s1")],
+    s1 = _as_value(
+        ctx.builder.Add(
+            s,
+            one,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s1")],
+        )
     )
     _stamp_like(s1, s)
-    s2 = ctx.builder.Add(
-        s,
-        ctx.bind_const_for_var(object(), np.asarray(2.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s2")],
+    s2 = _as_value(
+        ctx.builder.Add(
+            s,
+            ctx.bind_const_for_var(object(), np.asarray(2.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s2")],
+        )
     )
     _stamp_like(s2, s)
-    num4 = ctx.builder.Mul(
-        s,
-        s1,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_num4a")],
+    num4 = _as_value(
+        ctx.builder.Mul(
+            s,
+            s1,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_num4a")],
+        )
     )
     _stamp_like(num4, s)
-    num4 = ctx.builder.Mul(
-        num4,
-        s2,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_num4b")],
+    num4 = _as_value(
+        ctx.builder.Mul(
+            num4,
+            s2,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_num4b")],
+        )
     )
     _stamp_like(num4, s)
-    coef4 = ctx.builder.Div(
-        num4,
-        ctx.bind_const_for_var(object(), np.asarray(-720.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_coef4")],
+    coef4 = _as_value(
+        ctx.builder.Div(
+            num4,
+            ctx.bind_const_for_var(object(), np.asarray(-720.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_coef4")],
+        )
     )
     _stamp_like(coef4, s)
-    neg_s_minus_3 = ctx.builder.Sub(
-        neg_s,
-        ctx.bind_const_for_var(object(), np.asarray(3.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_3")],
+    neg_s_minus_3 = _as_value(
+        ctx.builder.Sub(
+            neg_s,
+            ctx.bind_const_for_var(object(), np.asarray(3.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_3")],
+        )
     )
     _stamp_like(neg_s_minus_3, s)
-    t_pow_4 = ctx.builder.Pow(
-        t,
-        neg_s_minus_3,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_4")],
+    t_pow_4 = _as_value(
+        ctx.builder.Pow(
+            t,
+            neg_s_minus_3,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_4")],
+        )
     )
     _stamp_like(t_pow_4, q)
-    tail_4 = ctx.builder.Mul(
-        coef4,
-        t_pow_4,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail4")],
+    tail_4 = _as_value(
+        ctx.builder.Mul(
+            coef4,
+            t_pow_4,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail4")],
+        )
     )
     _stamp_like(tail_4, q)
 
     # + s(s+1)(s+2)(s+3)(s+4)/30240 * t^(-s-5)
-    s3 = ctx.builder.Add(
-        s,
-        ctx.bind_const_for_var(object(), np.asarray(3.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s3")],
+    s3 = _as_value(
+        ctx.builder.Add(
+            s,
+            ctx.bind_const_for_var(object(), np.asarray(3.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s3")],
+        )
     )
     _stamp_like(s3, s)
-    s4 = ctx.builder.Add(
-        s,
-        ctx.bind_const_for_var(object(), np.asarray(4.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_s4")],
+    s4 = _as_value(
+        ctx.builder.Add(
+            s,
+            ctx.bind_const_for_var(object(), np.asarray(4.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_s4")],
+        )
     )
     _stamp_like(s4, s)
-    num5 = ctx.builder.Mul(
-        num4,
-        s3,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_num5a")],
+    num5 = _as_value(
+        ctx.builder.Mul(
+            num4,
+            s3,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_num5a")],
+        )
     )
     _stamp_like(num5, s)
-    num5 = ctx.builder.Mul(
-        num5,
-        s4,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_num5b")],
+    num5 = _as_value(
+        ctx.builder.Mul(
+            num5,
+            s4,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_num5b")],
+        )
     )
     _stamp_like(num5, s)
-    coef5 = ctx.builder.Div(
-        num5,
-        ctx.bind_const_for_var(object(), np.asarray(30240.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_coef5")],
+    coef5 = _as_value(
+        ctx.builder.Div(
+            num5,
+            ctx.bind_const_for_var(object(), np.asarray(30240.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_coef5")],
+        )
     )
     _stamp_like(coef5, s)
-    neg_s_minus_5 = ctx.builder.Sub(
-        neg_s,
-        ctx.bind_const_for_var(object(), np.asarray(5.0, dtype=np_dtype)),
-        _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_5")],
+    neg_s_minus_5 = _as_value(
+        ctx.builder.Sub(
+            neg_s,
+            ctx.bind_const_for_var(object(), np.asarray(5.0, dtype=np_dtype)),
+            _outputs=[ctx.fresh_name(f"{name_prefix}_neg_s_minus_5")],
+        )
     )
     _stamp_like(neg_s_minus_5, s)
-    t_pow_5 = ctx.builder.Pow(
-        t,
-        neg_s_minus_5,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_5")],
+    t_pow_5 = _as_value(
+        ctx.builder.Pow(
+            t,
+            neg_s_minus_5,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_t_pow_5")],
+        )
     )
     _stamp_like(t_pow_5, q)
-    tail_5 = ctx.builder.Mul(
-        coef5,
-        t_pow_5,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_tail5")],
+    tail_5 = _as_value(
+        ctx.builder.Mul(
+            coef5,
+            t_pow_5,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_tail5")],
+        )
     )
     _stamp_like(tail_5, q)
 
-    out = ctx.builder.Add(
-        acc,
-        tail_1,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out_a")],
+    out = _as_value(
+        ctx.builder.Add(
+            acc,
+            tail_1,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out_a")],
+        )
     )
     _stamp_like(out, q)
-    out = ctx.builder.Add(
-        out,
-        tail_2,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out_b")],
+    out = _as_value(
+        ctx.builder.Add(
+            out,
+            tail_2,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out_b")],
+        )
     )
     _stamp_like(out, q)
-    out = ctx.builder.Add(
-        out,
-        tail_3,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out_c")],
+    out = _as_value(
+        ctx.builder.Add(
+            out,
+            tail_3,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out_c")],
+        )
     )
     _stamp_like(out, q)
-    out = ctx.builder.Add(
-        out,
-        tail_4,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out_d")],
+    out = _as_value(
+        ctx.builder.Add(
+            out,
+            tail_4,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out_d")],
+        )
     )
     _stamp_like(out, q)
-    out = ctx.builder.Add(
-        out,
-        tail_5,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+    out = _as_value(
+        ctx.builder.Add(
+            out,
+            tail_5,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+        )
     )
     _stamp_like(out, q)
     return out
@@ -300,7 +379,7 @@ def _zeta_positive(
 class ZetaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.zeta`` with an Euler-Maclaurin approximation."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         s_var, q_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -318,41 +397,53 @@ class ZetaPlugin(PrimitiveLeafPlugin):
         inf_const = ctx.bind_const_for_var(object(), np.asarray(np.inf, dtype=np_dtype))
         nan_const = ctx.bind_const_for_var(object(), np.asarray(np.nan, dtype=np_dtype))
 
-        s_gt_one = ctx.builder.Greater(
-            s,
-            one,
-            _outputs=[ctx.fresh_name("zeta_s_gt_one")],
+        s_gt_one = _as_value(
+            ctx.builder.Greater(
+                s,
+                one,
+                _outputs=[ctx.fresh_name("zeta_s_gt_one")],
+            )
         )
-        q_gt_zero = ctx.builder.Greater(
-            q,
-            zero,
-            _outputs=[ctx.fresh_name("zeta_q_gt_zero")],
+        q_gt_zero = _as_value(
+            ctx.builder.Greater(
+                q,
+                zero,
+                _outputs=[ctx.fresh_name("zeta_q_gt_zero")],
+            )
         )
-        valid = ctx.builder.And(
-            s_gt_one,
-            q_gt_zero,
-            _outputs=[ctx.fresh_name("zeta_valid")],
+        valid = _as_value(
+            ctx.builder.And(
+                s_gt_one,
+                q_gt_zero,
+                _outputs=[ctx.fresh_name("zeta_valid")],
+            )
         )
 
-        s_eq_one = ctx.builder.Equal(
-            s,
-            one,
-            _outputs=[ctx.fresh_name("zeta_s_eq_one")],
+        s_eq_one = _as_value(
+            ctx.builder.Equal(
+                s,
+                one,
+                _outputs=[ctx.fresh_name("zeta_s_eq_one")],
+            )
         )
-        invalid_or_pole = ctx.builder.Where(
-            s_eq_one,
-            inf_const,
-            nan_const,
-            _outputs=[ctx.fresh_name("zeta_invalid_or_pole")],
+        invalid_or_pole = _as_value(
+            ctx.builder.Where(
+                s_eq_one,
+                inf_const,
+                nan_const,
+                _outputs=[ctx.fresh_name("zeta_invalid_or_pole")],
+            )
         )
         _stamp_like(invalid_or_pole, approx)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("zeta")
-        result = ctx.builder.Where(
-            valid,
-            approx,
-            invalid_or_pole,
-            _outputs=[desired_name],
+        result = _as_value(
+            ctx.builder.Where(
+                valid,
+                approx,
+                invalid_or_pole,
+                _outputs=[desired_name],
+            )
         )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else approx)
         if getattr(out_spec, "shape", None) is not None:

@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -25,23 +27,27 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = _as_value(
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        )
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = _as_value(
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -50,7 +56,7 @@ def _gather_mat_elem(
 
 
 def _cast_if_needed(
-    ctx: "IRContext", value: ir.Value, target: ir.DataType, name_hint: str
+    ctx: LoweringContextProtocol, value: ir.Value, target: ir.DataType, name_hint: str
 ) -> ir.Value:
     current = getattr(value, "dtype", None)
     if current is None:
@@ -59,10 +65,12 @@ def _cast_if_needed(
             current = value_type.dtype
     if current == target:
         return value
-    casted = ctx.builder.Cast(
-        value,
-        to=int(target.value),
-        _outputs=[ctx.fresh_name(name_hint)],
+    casted = _as_value(
+        ctx.builder.Cast(
+            value,
+            to=int(target.value),
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     casted.type = ir.TensorType(target)
     if getattr(value, "shape", None) is not None:
@@ -70,12 +78,16 @@ def _cast_if_needed(
     return casted
 
 
-def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir.Value:
+def _reshape_to_1d_len1(
+    ctx: LoweringContextProtocol, value: ir.Value, name_hint: str
+) -> ir.Value:
     one_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), f"{name_hint}_shape")
-    out = ctx.builder.Reshape(
-        value,
-        one_shape,
-        _outputs=[ctx.fresh_name(name_hint)],
+    out = _as_value(
+        ctx.builder.Reshape(
+            value,
+            one_shape,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -83,39 +95,51 @@ def _reshape_to_1d_len1(ctx: "IRContext", value: ir.Value, name_hint: str) -> ir
     return out
 
 
-def _gather_col(ctx: "IRContext", mat: ir.Value, j: int, name: str) -> ir.Value:
+def _gather_col(
+    ctx: LoweringContextProtocol, mat: ir.Value, j: int, name: str
+) -> ir.Value:
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    col = ctx.builder.Gather(
-        mat,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    col = _as_value(
+        ctx.builder.Gather(
+            mat,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(mat, "type", None) is not None:
         col.type = mat.type
     return col
 
 
-def _gather_row(ctx: "IRContext", mat: ir.Value, i: int, name: str) -> ir.Value:
+def _gather_row(
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, name: str
+) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    row = _as_value(
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
     return row
 
 
-def _sum_2d_to_scalar(ctx: "IRContext", value: ir.Value, name: str) -> ir.Value:
+def _sum_2d_to_scalar(
+    ctx: LoweringContextProtocol, value: ir.Value, name: str
+) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([0, 1], dtype=np.int64), f"{name}_axes")
-    out = ctx.builder.ReduceSum(
-        value,
-        axes,
-        keepdims=1,
-        _outputs=[ctx.fresh_name(name)],
+    out = _as_value(
+        ctx.builder.ReduceSum(
+            value,
+            axes,
+            keepdims=1,
+            _outputs=[ctx.fresh_name(name)],
+        )
     )
     if getattr(value, "type", None) is not None:
         out.type = value.type
@@ -230,7 +254,7 @@ def _sum_2d_to_scalar(ctx: "IRContext", value: ir.Value, name: str) -> ir.Value:
 class SvdPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.svd`` for static real ``1x1`` and values-only when ``min(m, n)==2``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         compute_uv = bool(params.get("compute_uv", True))
         subset_by_index = params.get("subset_by_index", None)
@@ -302,14 +326,20 @@ class SvdPlugin(PrimitiveLeafPlugin):
                     s_dtype_enum,
                     "svd_col1_cast",
                 )
-                p_prod = ctx.builder.Mul(
-                    col0, col0, _outputs=[ctx.fresh_name("svd2_p_prod")]
+                p_prod = _as_value(
+                    ctx.builder.Mul(
+                        col0, col0, _outputs=[ctx.fresh_name("svd2_p_prod")]
+                    )
                 )
-                q_prod = ctx.builder.Mul(
-                    col0, col1, _outputs=[ctx.fresh_name("svd2_q_prod")]
+                q_prod = _as_value(
+                    ctx.builder.Mul(
+                        col0, col1, _outputs=[ctx.fresh_name("svd2_q_prod")]
+                    )
                 )
-                r_prod = ctx.builder.Mul(
-                    col1, col1, _outputs=[ctx.fresh_name("svd2_r_prod")]
+                r_prod = _as_value(
+                    ctx.builder.Mul(
+                        col1, col1, _outputs=[ctx.fresh_name("svd2_r_prod")]
+                    )
                 )
                 for val in (p_prod, q_prod, r_prod):
                     val.type = ir.TensorType(s_dtype_enum)
@@ -330,14 +360,20 @@ class SvdPlugin(PrimitiveLeafPlugin):
                     s_dtype_enum,
                     "svd_row1_cast",
                 )
-                p_prod = ctx.builder.Mul(
-                    row0, row0, _outputs=[ctx.fresh_name("svd2_p_prod")]
+                p_prod = _as_value(
+                    ctx.builder.Mul(
+                        row0, row0, _outputs=[ctx.fresh_name("svd2_p_prod")]
+                    )
                 )
-                q_prod = ctx.builder.Mul(
-                    row0, row1, _outputs=[ctx.fresh_name("svd2_q_prod")]
+                q_prod = _as_value(
+                    ctx.builder.Mul(
+                        row0, row1, _outputs=[ctx.fresh_name("svd2_q_prod")]
+                    )
                 )
-                r_prod = ctx.builder.Mul(
-                    row1, row1, _outputs=[ctx.fresh_name("svd2_r_prod")]
+                r_prod = _as_value(
+                    ctx.builder.Mul(
+                        row1, row1, _outputs=[ctx.fresh_name("svd2_r_prod")]
+                    )
                 )
                 for val in (p_prod, q_prod, r_prod):
                     val.type = ir.TensorType(s_dtype_enum)
@@ -348,86 +384,108 @@ class SvdPlugin(PrimitiveLeafPlugin):
             q.type = ir.TensorType(s_dtype_enum)
             r.type = ir.TensorType(s_dtype_enum)
 
-            tr = ctx.builder.Add(p, r, _outputs=[ctx.fresh_name("svd2_tr")])
-            pr_diff = ctx.builder.Sub(p, r, _outputs=[ctx.fresh_name("svd2_pr_diff")])
+            tr = _as_value(ctx.builder.Add(p, r, _outputs=[ctx.fresh_name("svd2_tr")]))
+            pr_diff = _as_value(
+                ctx.builder.Sub(p, r, _outputs=[ctx.fresh_name("svd2_pr_diff")])
+            )
             tr.type = ir.TensorType(s_dtype_enum)
             pr_diff.type = ir.TensorType(s_dtype_enum)
 
-            pr_diff2 = ctx.builder.Mul(
-                pr_diff, pr_diff, _outputs=[ctx.fresh_name("svd2_pr_diff2")]
+            pr_diff2 = _as_value(
+                ctx.builder.Mul(
+                    pr_diff, pr_diff, _outputs=[ctx.fresh_name("svd2_pr_diff2")]
+                )
             )
-            q2 = ctx.builder.Mul(q, q, _outputs=[ctx.fresh_name("svd2_q2")])
-            four_q2 = ctx.builder.Mul(
-                four, q2, _outputs=[ctx.fresh_name("svd2_four_q2")]
+            q2 = _as_value(ctx.builder.Mul(q, q, _outputs=[ctx.fresh_name("svd2_q2")]))
+            four_q2 = _as_value(
+                ctx.builder.Mul(four, q2, _outputs=[ctx.fresh_name("svd2_four_q2")])
             )
             pr_diff2.type = ir.TensorType(s_dtype_enum)
             q2.type = ir.TensorType(s_dtype_enum)
             four_q2.type = ir.TensorType(s_dtype_enum)
 
-            disc2 = ctx.builder.Add(
-                pr_diff2,
-                four_q2,
-                _outputs=[ctx.fresh_name("svd2_disc2")],
+            disc2 = _as_value(
+                ctx.builder.Add(
+                    pr_diff2,
+                    four_q2,
+                    _outputs=[ctx.fresh_name("svd2_disc2")],
+                )
             )
             disc2.type = ir.TensorType(s_dtype_enum)
-            disc = ctx.builder.Sqrt(disc2, _outputs=[ctx.fresh_name("svd2_disc")])
+            disc = _as_value(
+                ctx.builder.Sqrt(disc2, _outputs=[ctx.fresh_name("svd2_disc")])
+            )
             disc.type = ir.TensorType(s_dtype_enum)
 
-            mu_max_num = ctx.builder.Add(
-                tr,
-                disc,
-                _outputs=[ctx.fresh_name("svd2_mu_max_num")],
+            mu_max_num = _as_value(
+                ctx.builder.Add(
+                    tr,
+                    disc,
+                    _outputs=[ctx.fresh_name("svd2_mu_max_num")],
+                )
             )
-            mu_min_num = ctx.builder.Sub(
-                tr,
-                disc,
-                _outputs=[ctx.fresh_name("svd2_mu_min_num")],
+            mu_min_num = _as_value(
+                ctx.builder.Sub(
+                    tr,
+                    disc,
+                    _outputs=[ctx.fresh_name("svd2_mu_min_num")],
+                )
             )
             mu_max_num.type = ir.TensorType(s_dtype_enum)
             mu_min_num.type = ir.TensorType(s_dtype_enum)
 
-            mu_max = ctx.builder.Div(
-                mu_max_num,
-                two,
-                _outputs=[ctx.fresh_name("svd2_mu_max")],
+            mu_max = _as_value(
+                ctx.builder.Div(
+                    mu_max_num,
+                    two,
+                    _outputs=[ctx.fresh_name("svd2_mu_max")],
+                )
             )
-            mu_min = ctx.builder.Div(
-                mu_min_num,
-                two,
-                _outputs=[ctx.fresh_name("svd2_mu_min")],
+            mu_min = _as_value(
+                ctx.builder.Div(
+                    mu_min_num,
+                    two,
+                    _outputs=[ctx.fresh_name("svd2_mu_min")],
+                )
             )
             mu_max.type = ir.TensorType(s_dtype_enum)
             mu_min.type = ir.TensorType(s_dtype_enum)
 
-            mu_max_clip = ctx.builder.Max(
-                mu_max,
-                zero,
-                _outputs=[ctx.fresh_name("svd2_mu_max_clip")],
+            mu_max_clip = _as_value(
+                ctx.builder.Max(
+                    mu_max,
+                    zero,
+                    _outputs=[ctx.fresh_name("svd2_mu_max_clip")],
+                )
             )
-            mu_min_clip = ctx.builder.Max(
-                mu_min,
-                zero,
-                _outputs=[ctx.fresh_name("svd2_mu_min_clip")],
+            mu_min_clip = _as_value(
+                ctx.builder.Max(
+                    mu_min,
+                    zero,
+                    _outputs=[ctx.fresh_name("svd2_mu_min_clip")],
+                )
             )
             mu_max_clip.type = ir.TensorType(s_dtype_enum)
             mu_min_clip.type = ir.TensorType(s_dtype_enum)
 
-            s_max = ctx.builder.Sqrt(
-                mu_max_clip, _outputs=[ctx.fresh_name("svd2_s_max")]
+            s_max = _as_value(
+                ctx.builder.Sqrt(mu_max_clip, _outputs=[ctx.fresh_name("svd2_s_max")])
             )
-            s_min = ctx.builder.Sqrt(
-                mu_min_clip, _outputs=[ctx.fresh_name("svd2_s_min")]
+            s_min = _as_value(
+                ctx.builder.Sqrt(mu_min_clip, _outputs=[ctx.fresh_name("svd2_s_min")])
             )
             s_max.type = ir.TensorType(s_dtype_enum)
             s_min.type = ir.TensorType(s_dtype_enum)
 
             s_max_1d = _reshape_to_1d_len1(ctx, s_max, "svd2_s_max_1d")
             s_min_1d = _reshape_to_1d_len1(ctx, s_min, "svd2_s_min_1d")
-            s_val = ctx.builder.Concat(
-                s_max_1d,
-                s_min_1d,
-                axis=0,
-                _outputs=[ctx.fresh_name("svd2_s")],
+            s_val = _as_value(
+                ctx.builder.Concat(
+                    s_max_1d,
+                    s_min_1d,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("svd2_s")],
+                )
             )
             s_val.type = ir.TensorType(s_dtype_enum)
             s_val.shape = ir.Shape((2,))
@@ -435,7 +493,7 @@ class SvdPlugin(PrimitiveLeafPlugin):
             s_name = getattr(s_spec, "name", None) or ctx.fresh_name("svd_s")
             s_out = s_val
             if getattr(s_out, "name", None) != s_name:
-                s_out = ctx.builder.Identity(s_val, _outputs=[s_name])
+                s_out = _as_value(ctx.builder.Identity(s_val, _outputs=[s_name]))
             _stamp_like(s_out, s_spec if getattr(s_spec, "type", None) else s_val)
             if getattr(s_spec, "shape", None) is not None:
                 s_out.shape = s_spec.shape
@@ -448,13 +506,15 @@ class SvdPlugin(PrimitiveLeafPlugin):
             )
 
         x00 = _gather_mat_elem(ctx, x, 0, 0, "svd_x00")
-        s00 = ctx.builder.Abs(x00, _outputs=[ctx.fresh_name("svd_s00")])
+        s00 = _as_value(ctx.builder.Abs(x00, _outputs=[ctx.fresh_name("svd_s00")]))
         _stamp_like(s00, x00)
         s_shape = _const_i64(ctx, np.asarray([1], dtype=np.int64), "svd_s_shape")
-        s_val = ctx.builder.Reshape(
-            s00,
-            s_shape,
-            _outputs=[ctx.fresh_name("svd_s")],
+        s_val = _as_value(
+            ctx.builder.Reshape(
+                s00,
+                s_shape,
+                _outputs=[ctx.fresh_name("svd_s")],
+            )
         )
         if getattr(s00, "type", None) is not None:
             s_val.type = s00.type
@@ -465,7 +525,7 @@ class SvdPlugin(PrimitiveLeafPlugin):
         s_name = getattr(s_spec, "name", None) or ctx.fresh_name("svd_s")
         s_out = s_val
         if getattr(s_out, "name", None) != s_name:
-            s_out = ctx.builder.Identity(s_val, _outputs=[s_name])
+            s_out = _as_value(ctx.builder.Identity(s_val, _outputs=[s_name]))
         _stamp_like(s_out, s_spec if getattr(s_spec, "type", None) else s_val)
         if getattr(s_spec, "shape", None) is not None:
             s_out.shape = s_spec.shape
@@ -479,7 +539,7 @@ class SvdPlugin(PrimitiveLeafPlugin):
         u_spec = ctx.get_value_for_var(u_var, name_hint=ctx.fresh_name("svd_u_out"))
         vh_spec = ctx.get_value_for_var(vh_var, name_hint=ctx.fresh_name("svd_vh_out"))
 
-        sign = ctx.builder.Sign(x00, _outputs=[ctx.fresh_name("svd_sign")])
+        sign = _as_value(ctx.builder.Sign(x00, _outputs=[ctx.fresh_name("svd_sign")]))
         _stamp_like(sign, x00)
         zero = ctx.bind_const_for_var(object(), np.asarray([[0.0]], dtype=x_dtype))
         one = ctx.bind_const_for_var(object(), np.asarray([[1.0]], dtype=x_dtype))
@@ -489,18 +549,22 @@ class SvdPlugin(PrimitiveLeafPlugin):
         zero.shape = ir.Shape((1, 1))
         one.shape = ir.Shape((1, 1))
 
-        sign_is_zero = ctx.builder.Equal(
-            sign,
-            zero,
-            _outputs=[ctx.fresh_name("svd_sign_is_zero")],
+        sign_is_zero = _as_value(
+            ctx.builder.Equal(
+                sign,
+                zero,
+                _outputs=[ctx.fresh_name("svd_sign_is_zero")],
+            )
         )
         sign_is_zero.type = ir.TensorType(ir.DataType.BOOL)
         sign_is_zero.shape = ir.Shape((1, 1))
-        u_val = ctx.builder.Where(
-            sign_is_zero,
-            one,
-            sign,
-            _outputs=[ctx.fresh_name("svd_u")],
+        u_val = _as_value(
+            ctx.builder.Where(
+                sign_is_zero,
+                one,
+                sign,
+                _outputs=[ctx.fresh_name("svd_u")],
+            )
         )
         _stamp_like(u_val, sign)
 
@@ -508,13 +572,15 @@ class SvdPlugin(PrimitiveLeafPlugin):
         if getattr(x, "type", None) is not None:
             vh_const.type = x.type
         vh_const.shape = ir.Shape((1, 1))
-        vh_val = ctx.builder.Identity(vh_const, _outputs=[ctx.fresh_name("svd_vh")])
+        vh_val = _as_value(
+            ctx.builder.Identity(vh_const, _outputs=[ctx.fresh_name("svd_vh")])
+        )
         _stamp_like(vh_val, vh_const)
 
         u_name = getattr(u_spec, "name", None) or ctx.fresh_name("svd_u")
         u_out = u_val
         if getattr(u_out, "name", None) != u_name:
-            u_out = ctx.builder.Identity(u_val, _outputs=[u_name])
+            u_out = _as_value(ctx.builder.Identity(u_val, _outputs=[u_name]))
         _stamp_like(u_out, u_spec if getattr(u_spec, "type", None) else u_val)
         if getattr(u_spec, "shape", None) is not None:
             u_out.shape = u_spec.shape
@@ -522,7 +588,7 @@ class SvdPlugin(PrimitiveLeafPlugin):
         vh_name = getattr(vh_spec, "name", None) or ctx.fresh_name("svd_vh")
         vh_out = vh_val
         if getattr(vh_out, "name", None) != vh_name:
-            vh_out = ctx.builder.Identity(vh_val, _outputs=[vh_name])
+            vh_out = _as_value(ctx.builder.Identity(vh_val, _outputs=[vh_name]))
         _stamp_like(vh_out, vh_spec if getattr(vh_spec, "type", None) else vh_val)
         if getattr(vh_spec, "shape", None) is not None:
             vh_out.shape = vh_spec.shape

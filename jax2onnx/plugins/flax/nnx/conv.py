@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from typing import (
-    TYPE_CHECKING,
     ClassVar,
     Callable,
     Final,
@@ -24,6 +23,10 @@ from flax import nnx
 from flax.nnx.nn import linear as nnx_linear
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import (
+    IRBuilderProtocol,
+    LoweringContextProtocol,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -44,9 +47,6 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from functools import reduce
 from operator import mul
-
-if TYPE_CHECKING:
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.flax.nnx.conv")
 
@@ -122,26 +122,45 @@ _CAUSAL_INPUT_1D: Final[np.ndarray] = np.linspace(
 
 
 # ---------- helper: normalize value metadata so exported graphs show shapes ----------
-def _np_dtype_of(var, fallback=np.float32):
+def _np_dtype_of(var: Any, fallback: Any = np.float32) -> np.dtype[Any]:
     dt = getattr(getattr(var, "aval", None), "dtype", None)
     try:
-        return np.dtype(dt) if dt is not None else np.dtype(fallback)
+        return cast(
+            np.dtype[Any], np.dtype(dt) if dt is not None else np.dtype(fallback)
+        )
     except Exception:
-        return np.dtype(fallback)
+        return cast(np.dtype[Any], np.dtype(fallback))
 
 
-def _is_concrete_shape(shape) -> bool:
+def _is_concrete_shape(shape: Any) -> bool:
     try:
         return all(isinstance(d, (int, np.integer)) for d in shape)
     except Exception:
         return False
 
 
-def _annotate_value(ctx, val: ir.Value, dtype, shape) -> None:
+def _static_dim_as_int(dim: object) -> int:
+    if not isinstance(dim, (int, np.integer)):
+        raise TypeError(f"Expected static dimension, got {dim!r}")
+    return int(dim)
+
+
+def _label_from_meta(
+    val: ir.Value, aval_shape: tuple[object, ...], idx: int
+) -> str | int | None:
+    label: str | int | None = _dim_label_from_value_or_aval(val, aval_shape, idx)
+    if label is None and idx < len(aval_shape):
+        label = _as_ir_dim_label(aval_shape[idx])
+    return label
+
+
+def _annotate_value(
+    ctx: object, val: ir.Value, dtype: Any, shape: Sequence[object]
+) -> None:
     """Ensure the IR Value carries dtype/shape so the exported graph emits ValueInfoProto."""
     if not shape:
         return
-    dims = []
+    dims: list[Any] = []
     for dim in shape:
         label = _as_ir_dim_label(dim)
         if label is not None:
@@ -170,7 +189,7 @@ def _calc_out_spatial(
     k_sp: Sequence[int],
     strides: Sequence[int],
     dilations: Sequence[int],
-    padding,
+    padding: str | Sequence[tuple[int, int]],
 ) -> Tuple[int, ...]:
     """
     ONNX-style output size:
@@ -241,26 +260,27 @@ def _same_upper_pads_static(
     return pads_beg, pads_end
 
 
-def _const_from_array(ctx, arr: np.ndarray, name: str | None = None) -> ir.Value:
-    builder = getattr(ctx, "builder", None)
+def _const_from_array(
+    ctx: LoweringContextProtocol,
+    arr: np.ndarray[Any, np.dtype[Any]],
+    name: str | None = None,
+) -> ir.Value:
+    builder = ctx.builder
     base_name = name or "const"
-    name_hint = ctx.fresh_name(base_name) if hasattr(ctx, "fresh_name") else base_name
+    name_hint = ctx.fresh_name(base_name)
     np_arr = np.asarray(arr)
 
-    builder_mode = (
-        bool(getattr(builder, "_function_mode", False))
-        if builder is not None
-        else False
-    )
+    builder_mode = bool(getattr(builder, "_function_mode", False))
     inside_function = bool(
         getattr(ctx, "_inside_function_scope", False)
         or getattr(ctx, "_function_mode", False)
     )
 
-    if builder is not None and not inside_function and not builder_mode:
-        add_initializer = getattr(builder, "add_initializer_from_array", None)
-        if callable(add_initializer):
-            return add_initializer(name_hint, np_arr)
+    if not inside_function and not builder_mode:
+        init_value: ir.Value = builder.add_initializer_from_array(
+            name=name_hint, array=np_arr
+        )
+        return init_value
 
     value = ir.Value(
         name=name_hint,
@@ -279,23 +299,22 @@ def _const_from_array(ctx, arr: np.ndarray, name: str | None = None) -> ir.Value
         init_list.append(value)
         return value
 
-    if builder is not None:
-        builder_inits = getattr(builder, "initializers", None)
-        if isinstance(builder_inits, list):
-            builder_inits.append(value)
+    builder_inits = getattr(builder, "initializers", None)
+    if isinstance(builder_inits, list):
+        builder_inits.append(value)
 
     return value
 
 
-def _require_builder(ctx):
-    builder = getattr(ctx, "builder", None)
-    if builder is None:
-        raise AttributeError("IR build context missing builder")
-    return builder
+def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
+    return ctx.builder
 
 
 def _maybe_fold_param_transpose(
-    ctx, val: ir.Value, perm: Sequence[int], name: str = "folded_param"
+    ctx: LoweringContextProtocol,
+    val: ir.Value,
+    perm: Sequence[int],
+    name: str = "folded_param",
 ) -> ir.Value:
     const = getattr(val, "const_value", None)
     if const is None:
@@ -314,30 +333,38 @@ def _maybe_fold_param_transpose(
 def _to_int_tuple(x: int | np.integer, rank: int) -> Tuple[int, ...]: ...
 @overload
 def _to_int_tuple(x: Sequence[int], rank: int) -> Tuple[int, ...]: ...
-def _to_int_tuple(x, rank):
+def _to_int_tuple(x: int | np.integer | Sequence[int], rank: int) -> Tuple[int, ...]:
     """Normalize an int-or-sequence hyperparameter to a tuple of length `rank`."""
     if isinstance(x, (int, np.integer)):
         return (int(x),) * int(rank)
     return tuple(int(v) for v in x)
 
 
-def _shape_of(ctx, x: ir.Value) -> ir.Value:
+def _shape_of(ctx: LoweringContextProtocol, x: ir.Value) -> ir.Value:
     builder = _require_builder(ctx)
-    result = builder.Shape(
-        x,
-        _outputs=[ctx.fresh_name("Shape")],
+    result = cast(
+        ir.Value,
+        builder.Shape(
+            x,
+            _outputs=[ctx.fresh_name("Shape")],
+        ),
     )
     result.type = ir.TensorType(ir.DataType.INT64)
     return result
 
 
-def _gather(ctx, data: ir.Value, indices: ir.Value, axis: int = 0) -> ir.Value:
+def _gather(
+    ctx: LoweringContextProtocol, data: ir.Value, indices: ir.Value, axis: int = 0
+) -> ir.Value:
     builder = _require_builder(ctx)
-    result = builder.Gather(
-        data,
-        indices,
-        axis=int(axis),
-        _outputs=[ctx.fresh_name("Gather")],
+    result = cast(
+        ir.Value,
+        builder.Gather(
+            data,
+            indices,
+            axis=int(axis),
+            _outputs=[ctx.fresh_name("Gather")],
+        ),
     )
     dtype = getattr(getattr(data, "type", None), "dtype", None)
     if dtype is not None:
@@ -345,7 +372,9 @@ def _gather(ctx, data: ir.Value, indices: ir.Value, axis: int = 0) -> ir.Value:
     return result
 
 
-def _unsqueeze(ctx, x: ir.Value, axes: Sequence[int]) -> ir.Value:
+def _unsqueeze(
+    ctx: LoweringContextProtocol, x: ir.Value, axes: Sequence[int]
+) -> ir.Value:
     """
     ONNX Unsqueeze (opset >= 13): axes is a second input (INT64 1-D), not an attribute.
     """
@@ -353,10 +382,13 @@ def _unsqueeze(ctx, x: ir.Value, axes: Sequence[int]) -> ir.Value:
         ctx, np.asarray([int(a) for a in axes], dtype=np.int64), name_hint="unsq_axes"
     )
     builder = _require_builder(ctx)
-    result = builder.Unsqueeze(
-        x,
-        axes_v,
-        _outputs=[ctx.fresh_name("Unsqueeze")],
+    result = cast(
+        ir.Value,
+        builder.Unsqueeze(
+            x,
+            axes_v,
+            _outputs=[ctx.fresh_name("Unsqueeze")],
+        ),
     )
     dtype = getattr(getattr(x, "type", None), "dtype", None)
     if dtype is not None:
@@ -364,21 +396,27 @@ def _unsqueeze(ctx, x: ir.Value, axes: Sequence[int]) -> ir.Value:
     return result
 
 
-def _concat0(ctx, parts: Sequence[ir.Value]) -> ir.Value:
+def _concat0(ctx: LoweringContextProtocol, parts: Sequence[ir.Value]) -> ir.Value:
     # Normalize and avoid creating identity Concat nodes
     _parts = [p for p in parts if p is not None]
     if len(_parts) == 0:
         # Explicit empty int64 vector (rare but safe fallback)
-        return _const_i64(ctx, np.asarray([], dtype=np.int64), name_hint="empty_i64")
+        empty: ir.Value = _const_i64(
+            ctx, np.asarray([], dtype=np.int64), name_hint="empty_i64"
+        )
+        return empty
     if len(_parts) == 1:
         # Do not emit a 1-input Concat (it shows up as a spurious node in the graph)
         return _parts[0]
 
     builder = _require_builder(ctx)
-    result = builder.Concat(
-        *_parts,
-        axis=0,
-        _outputs=[ctx.fresh_name("Concat")],
+    result = cast(
+        ir.Value,
+        builder.Concat(
+            *_parts,
+            axis=0,
+            _outputs=[ctx.fresh_name("Concat")],
+        ),
     )
     dtype = getattr(getattr(_parts[0], "type", None), "dtype", None)
     if dtype is not None:
@@ -386,13 +424,18 @@ def _concat0(ctx, parts: Sequence[ir.Value]) -> ir.Value:
     return result
 
 
-def _transpose(ctx, x: ir.Value, perm: Sequence[int]) -> ir.Value:
+def _transpose(
+    ctx: LoweringContextProtocol, x: ir.Value, perm: Sequence[int]
+) -> ir.Value:
     perm_tuple = tuple(int(p) for p in perm)
     builder = _require_builder(ctx)
-    result = builder.Transpose(
-        x,
-        _outputs=[ctx.fresh_name("Transpose")],
-        perm=perm_tuple,
+    result = cast(
+        ir.Value,
+        builder.Transpose(
+            x,
+            _outputs=[ctx.fresh_name("Transpose")],
+            perm=perm_tuple,
+        ),
     )
     dtype = getattr(getattr(x, "type", None), "dtype", None)
     if dtype is not None:
@@ -400,12 +443,15 @@ def _transpose(ctx, x: ir.Value, perm: Sequence[int]) -> ir.Value:
     return result
 
 
-def _reshape(ctx, x: ir.Value, shape: ir.Value) -> ir.Value:
+def _reshape(ctx: LoweringContextProtocol, x: ir.Value, shape: ir.Value) -> ir.Value:
     builder = _require_builder(ctx)
-    result = builder.Reshape(
-        x,
-        shape,
-        _outputs=[ctx.fresh_name("Reshape")],
+    result = cast(
+        ir.Value,
+        builder.Reshape(
+            x,
+            shape,
+            _outputs=[ctx.fresh_name("Reshape")],
+        ),
     )
     dtype = getattr(getattr(x, "type", None), "dtype", None)
     if dtype is not None:
@@ -414,7 +460,11 @@ def _reshape(ctx, x: ir.Value, shape: ir.Value) -> ir.Value:
 
 
 def _conv(
-    ctx, x: ir.Value, w: ir.Value, b: ir.Value | None, attrs: dict[str, Any]
+    ctx: LoweringContextProtocol,
+    x: ir.Value,
+    w: ir.Value,
+    b: ir.Value | None,
+    attrs: dict[str, Any],
 ) -> ir.Value:
     inputs = [x, w] + ([b] if b is not None else [])
     builder = _require_builder(ctx)
@@ -433,10 +483,13 @@ def _conv(
             kwargs[key] = float(value)
         else:
             kwargs[key] = value
-    result = builder.Conv(
-        *inputs,
-        _outputs=[ctx.fresh_name("Conv")],
-        **kwargs,
+    result = cast(
+        ir.Value,
+        builder.Conv(
+            *inputs,
+            _outputs=[ctx.fresh_name("Conv")],
+            **kwargs,
+        ),
     )
     dtype = getattr(getattr(x, "type", None), "dtype", None)
     if dtype is not None:
@@ -1360,23 +1413,25 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.conv")
     _PRIM.multiple_results = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------- monkey patch factory (needed by binding_specs/patch_info) ----------
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any]) -> Callable[..., Any]:
         """
         Replace nnx.Conv.__call__ with a shim that binds our Primitive so
         the jaxpr contains only 'nnx.conv' instead of raw lax convs/reshapes.
         """
         # If we are re-patching (common under reloads), unwrap to the true original
         # so that abstract_eval doesn't accidentally call our shim and recurse.
-        real_orig = getattr(orig_fn, "__j2o_nnx_conv_original__", orig_fn)
+        real_orig = cast(
+            Callable[..., Any], getattr(orig_fn, "__j2o_nnx_conv_original__", orig_fn)
+        )
         ConvPlugin._ORIGINAL_CALL = real_orig
         prim = ConvPlugin._PRIM
 
-        def patched(self, x, out_sharding=None):
+        def patched(self: nnx.Conv, x: Any, out_sharding: Any | None = None) -> Any:
             original_x = x
             kernel_size = getattr(self, "kernel_size", ())
             if isinstance(kernel_size, int):
@@ -1487,17 +1542,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
     # ---------- abstract eval ----------
     @staticmethod
     def abstract_eval(
-        x,
-        kernel,
-        bias,
+        x: Any,
+        kernel: Any,
+        bias: Any,
         *,
         use_bias: bool,
         strides: Sequence[int] | int = 1,
         padding: str | Sequence[Tuple[int, int]] = "VALID",
         dilations: Sequence[int] | int = 1,
-        dimension_numbers=None,
+        dimension_numbers: Any | None = None,
         feature_group_count: int = 1,
-    ):
+    ) -> jax.core.ShapedArray:
         # Compute shapes using ONLY lax.* — never call (patched) nnx.Conv.__call__ here.
         # Calling the original would re-enter prim.bind and recurse.
         x_shape = tuple(x.shape)
@@ -1553,7 +1608,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
             a_flat_shape, k_shape, (in_layout, ker_layout, out_layout)
         )
 
-        def _pure(a, w, b):
+        def _pure(a: Any, w: Any, b: Any) -> Any:
             y = lax.conv_general_dilated(
                 a,
                 w,
@@ -1579,7 +1634,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(y_shape, y_flat.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> ir.Value:
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 
@@ -1592,9 +1647,15 @@ class ConvPlugin(PrimitiveLeafPlugin):
         dilations_param = params.get("dilations", 1)
         groups = int(params.get("feature_group_count", 1))
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        k_shape = tuple(getattr(getattr(k_var, "aval", None), "shape", ()))
-        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()) or ())
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
+        k_shape: tuple[object, ...] = tuple(
+            getattr(getattr(k_var, "aval", None), "shape", ())
+        )
+        y_shape: tuple[object, ...] = tuple(
+            getattr(getattr(y_var, "aval", None), "shape", ()) or ()
+        )
         len(y_shape)
         x_dtype_np = _np_dtype_of(x_var)
 
@@ -1623,7 +1684,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     "Causal padding is only implemented for 1D convolutions."
                 )
-            left_pad = (int(k_shape[0]) - 1) * int(dilations[0])
+            left_pad = (_static_dim_as_int(k_shape[0]) - 1) * int(dilations[0])
             padding_param = ((left_pad, 0),)
 
         # Flatten N + extra spatial dims into batch when input has more spatial dims than kernel
@@ -1634,14 +1695,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if _is_concrete_shape(x_shape):
                 # STATIC reshape shape at convert-time:
                 # x: (N, extra..., part..., C) -> (N*prod(extra...), part..., C)
-                n_flat_static = int(np.prod([int(d) for d in x_shape[: 1 + extra]]))
-                part_dims = [
-                    int(d) for d in x_shape[1 + extra : 1 + extra + conv_spatial]
+                n_flat_static = int(
+                    np.prod([_static_dim_as_int(d) for d in x_shape[: 1 + extra]])
+                )
+                part_dims_static = [
+                    _static_dim_as_int(d)
+                    for d in x_shape[1 + extra : 1 + extra + conv_spatial]
                 ]
-                ch = int(x_shape[-1])
+                ch = _static_dim_as_int(x_shape[-1])
                 reshape_in = _const_i64(
                     ctx,
-                    np.asarray([n_flat_static, *part_dims, ch], dtype=np.int64),
+                    np.asarray([n_flat_static, *part_dims_static, ch], dtype=np.int64),
                     name_hint="reshape_in_static",
                 )
                 x_pre = _reshape(ctx, x_val, reshape_in)
@@ -1676,7 +1740,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                     np.arange(1 + extra, 1 + extra + conv_spatial, dtype=np.int64),
                     name_hint="idx_part",
                 )
-                part_dims = _gather(ctx, sh_x, idx_part, axis=0)  # [conv_spatial]
+                part_dims_val = _gather(ctx, sh_x, idx_part, axis=0)  # [conv_spatial]
 
                 # channel dim (last)
                 idx_ch = _const_i64(
@@ -1687,7 +1751,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 ch_dim = _gather(ctx, sh_x, idx_ch, axis=0)  # [1]
 
                 new_shape = _concat0(
-                    ctx, [n_flat_1d, part_dims, ch_dim]
+                    ctx, [n_flat_1d, part_dims_val, ch_dim]
                 )  # [conv_spatial+2]
                 x_pre = _reshape(ctx, x_val, new_shape)
             x_spatial = conv_spatial  # effective for following layout logic
@@ -1701,16 +1765,20 @@ class ConvPlugin(PrimitiveLeafPlugin):
             in_sp = x_shape[1 : 1 + x_spatial]
             batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
             if batch_dim is None:
-                batch_dim = x_shape[0]
+                batch_dim = _label_from_meta(x_val, x_shape, 0)
             channel_dim = _dim_label_from_value_or_aval(
                 x_val, x_shape, len(x_shape) - 1
             )
             if channel_dim is None:
-                channel_dim = x_shape[-1]
+                channel_dim = _label_from_meta(x_val, x_shape, len(x_shape) - 1)
             spatial_dims = []
             for axis in range(1, 1 + x_spatial):
                 label = _dim_label_from_value_or_aval(x_val, x_shape, axis)
-                spatial_dims.append(label if label is not None else x_shape[axis])
+                spatial_dims.append(
+                    label
+                    if label is not None
+                    else _label_from_meta(x_val, x_shape, axis)
+                )
             _annotate_value(
                 ctx,
                 x_nchw,
@@ -1721,6 +1789,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
         # Match param dtypes to activation statically (no CastLike nodes)
         k_val = cast_param_like(ctx, k_val, x_val)
         if use_bias:
+            if b_val is None:
+                raise ValueError("Conv bias value is missing while use_bias=True")
             b_val = cast_param_like(ctx, b_val, x_val)
 
         # Fold kernel transpose into the initializer when possible
@@ -1758,8 +1828,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
                         k_shape[:conv_spatial]
                     ):
                         beg, end = _same_upper_pads_static(
-                            [int(d) for d in part_in_sp],
-                            [int(k) for k in k_shape[:conv_spatial]],
+                            [_static_dim_as_int(d) for d in part_in_sp],
+                            [_static_dim_as_int(k) for k in k_shape[:conv_spatial]],
                             [int(s) for s in strides],
                             [int(d) for d in dilations],
                         )
@@ -1787,8 +1857,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
             in_sp = x_shape[1 : 1 + conv_spatial]
             k_sp = k_shape[:conv_spatial]
             try:
-                in_sp_ints = [int(d) for d in in_sp]
-                k_sp_ints = [int(d) for d in k_sp]
+                in_sp_ints = [_static_dim_as_int(d) for d in in_sp]
+                k_sp_ints = [_static_dim_as_int(d) for d in k_sp]
                 strides_ints = [int(s) for s in strides]
                 dilations_ints = [int(d) for d in dilations]
                 out_sp = _calc_out_spatial(
@@ -1799,12 +1869,12 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if out_sp is not None:
                 batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
                 if batch_dim is None:
-                    batch_dim = x_shape[0]
+                    batch_dim = _label_from_meta(x_val, x_shape, 0)
                 _annotate_value(
                     ctx,
                     y,
                     x_dtype_np,
-                    (batch_dim, int(k_shape[-1]), *out_sp),
+                    (batch_dim, _static_dim_as_int(k_shape[-1]), *out_sp),
                 )
 
         # Back to NH...C
@@ -1817,13 +1887,17 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if _is_concrete_shape(x_shape) and _is_concrete_shape(k_shape):
                 part_in_sp = x_shape[1 + extra : 1 + extra + conv_spatial]
                 out_sp = _calc_out_spatial(
-                    [int(d) for d in part_in_sp],
-                    [int(k) for k in k_shape[:conv_spatial]],
+                    [_static_dim_as_int(d) for d in part_in_sp],
+                    [_static_dim_as_int(k) for k in k_shape[:conv_spatial]],
                     [int(s) for s in strides],
                     [int(d) for d in dilations],
                     padding_param,
                 )
-                tgt_list = [*x_shape[: 1 + extra], *out_sp, int(k_shape[-1])]
+                tgt_list = [
+                    *[_static_dim_as_int(d) for d in x_shape[: 1 + extra]],
+                    *out_sp,
+                    _static_dim_as_int(k_shape[-1]),
+                ]
                 tgt = _const_i64(
                     ctx,
                     np.asarray(tgt_list, dtype=np.int64),
@@ -1872,8 +1946,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 in_sp = x_shape[1 : 1 + conv_spatial]
                 k_sp = k_shape[:conv_spatial]
                 try:
-                    in_sp_ints = [int(d) for d in in_sp]
-                    k_sp_ints = [int(d) for d in k_sp]
+                    in_sp_ints = [_static_dim_as_int(d) for d in in_sp]
+                    k_sp_ints = [_static_dim_as_int(d) for d in k_sp]
                     strides_ints = [int(s) for s in strides]
                     dilations_ints = [int(d) for d in dilations]
                     out_sp = _calc_out_spatial(
@@ -1888,24 +1962,21 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 if out_sp is not None:
                     batch_dim = _dim_label_from_value_or_aval(x_val, x_shape, 0)
                     if batch_dim is None:
-                        batch_dim = x_shape[0]
+                        batch_dim = _label_from_meta(x_val, x_shape, 0)
                     _annotate_value(
                         ctx,
                         final_value,
                         x_dtype_np,
-                        (batch_dim, *out_sp, int(k_shape[-1])),
+                        (batch_dim, *out_sp, _static_dim_as_int(k_shape[-1])),
                     )
         if y_shape and getattr(final_value, "shape", None) is None:
             _annotate_value(ctx, final_value, x_dtype_np, y_shape)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if not callable(bind_value):
-            raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(y_var, final_value)
+        ctx.bind_value_for_var(y_var, final_value)
         return final_value
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.nnx", "conv_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -1918,13 +1989,13 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
     # --- Back-compat for patching in environments that use `patch_info()` ---
     @staticmethod
-    def patch_info():
+    def patch_info() -> dict[str, Any]:
         """
         Some runners still call `patch_info()` instead of `binding_specs()`.
         Provide a shim that applies the same monkey patch at activation time.
         """
 
-        def _wrapper(orig):
+        def _wrapper(orig: Callable[..., Any]) -> Callable[..., Any]:
             return ConvPlugin._make_patch(orig)
 
         return {
@@ -1938,23 +2009,24 @@ class ConvPlugin(PrimitiveLeafPlugin):
 
 @ConvPlugin._PRIM.def_impl
 def _impl(
-    x,
-    kernel,
-    bias,
+    x: Any,
+    kernel: Any,
+    bias: Any,
     *,
-    use_bias,
-    strides,
-    padding,
-    dilations,
-    dimension_numbers,
-    feature_group_count,
-):
+    use_bias: bool,
+    strides: int | Sequence[int],
+    padding: str | Sequence[Tuple[int, int]],
+    dilations: int | Sequence[int],
+    dimension_numbers: Any,
+    feature_group_count: int,
+) -> Any:
+    del dimension_numbers
     # Fallback: assume NHWC → output NHWC with same batch & rank, compute via lax directly.
     # (We only need the shape/dtype here.)
     num_spatial: int = max(kernel.ndim - 2, 1)
     # Normalize to tuples without reassigning the params (keeps types stable for mypy)
-    win_strides: Tuple[int, ...] = _to_int_tuple(strides, num_spatial)  # type: ignore[arg-type]
-    rhs_dils: Tuple[int, ...] = _to_int_tuple(dilations, num_spatial)  # type: ignore[arg-type]
+    win_strides: Tuple[int, ...] = _to_int_tuple(strides, num_spatial)
+    rhs_dils: Tuple[int, ...] = _to_int_tuple(dilations, num_spatial)
     # Build correct layouts for 1D/2D/3D: N{W|HW|DHW}C and {W|HW|DHW}IO
     layout_token: str = {1: "W", 2: "HW", 3: "DHW"}[num_spatial]
     in_layout = "N" + layout_token + "C"
@@ -2002,13 +2074,13 @@ except Exception as _e:
     # Do not fail import-time; activation will call `ensure_abstract_eval_bound` again.
     logger.debug("conv plugin eager init skipped: %s", _e)
 
-    def patch_info():
+    def patch_info() -> dict[str, Any]:
         """
         Some runners still call `patch_info()` instead of `binding_specs()`.
         Provide a shim that applies the same monkey patch at activation time.
         """
 
-        def _wrapper(orig):
+        def _wrapper(orig: Callable[..., Any]) -> Callable[..., Any]:
             return ConvPlugin._make_patch(orig)
 
         return {

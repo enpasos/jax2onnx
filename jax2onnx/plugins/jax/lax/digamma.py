@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
 
 
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -22,8 +25,11 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _digamma_positive(
-    ctx: "IRContext", x: Any, np_dtype: np.dtype[Any], name_prefix: str
-) -> Any:
+    ctx: LoweringContextProtocol,
+    x: ir.Value,
+    np_dtype: np.dtype[Any],
+    name_prefix: str,
+) -> ir.Value:
     one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=np_dtype))
     half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=np_dtype))
     six = ctx.bind_const_for_var(object(), np.asarray(6.0, dtype=np_dtype))
@@ -35,103 +41,139 @@ def _digamma_positive(
     r = zero
     xw = x
     for i in range(8):
-        cond = ctx.builder.Less(
-            xw,
-            six,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_cond_shift_{i}")],
+        cond = _as_value(
+            ctx.builder.Less(
+                xw,
+                six,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_cond_shift_{i}")],
+            )
         )
-        inv = ctx.builder.Div(
-            one,
-            xw,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_inv_shift_{i}")],
+        inv = _as_value(
+            ctx.builder.Div(
+                one,
+                xw,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_inv_shift_{i}")],
+            )
         )
         _stamp_like(inv, x)
-        r_new = ctx.builder.Sub(
-            r,
-            inv,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_r_new_{i}")],
+        r_new = _as_value(
+            ctx.builder.Sub(
+                r,
+                inv,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_r_new_{i}")],
+            )
         )
         _stamp_like(r_new, x)
-        xw_new = ctx.builder.Add(
-            xw,
-            one,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_xw_new_{i}")],
+        xw_new = _as_value(
+            ctx.builder.Add(
+                xw,
+                one,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_xw_new_{i}")],
+            )
         )
         _stamp_like(xw_new, x)
-        r = ctx.builder.Where(
-            cond,
-            r_new,
-            r,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_r_{i}")],
+        r = _as_value(
+            ctx.builder.Where(
+                cond,
+                r_new,
+                r,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_r_{i}")],
+            )
         )
         _stamp_like(r, x)
-        xw = ctx.builder.Where(
-            cond,
-            xw_new,
-            xw,
-            _outputs=[ctx.fresh_name(f"{name_prefix}_xw_{i}")],
+        xw = _as_value(
+            ctx.builder.Where(
+                cond,
+                xw_new,
+                xw,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_xw_{i}")],
+            )
         )
         _stamp_like(xw, x)
 
-    inv = ctx.builder.Div(one, xw, _outputs=[ctx.fresh_name(f"{name_prefix}_inv")])
+    inv = _as_value(
+        ctx.builder.Div(one, xw, _outputs=[ctx.fresh_name(f"{name_prefix}_inv")])
+    )
     _stamp_like(inv, x)
-    inv2 = ctx.builder.Mul(inv, inv, _outputs=[ctx.fresh_name(f"{name_prefix}_inv2")])
+    inv2 = _as_value(
+        ctx.builder.Mul(inv, inv, _outputs=[ctx.fresh_name(f"{name_prefix}_inv2")])
+    )
     _stamp_like(inv2, x)
 
-    log_xw = ctx.builder.Log(xw, _outputs=[ctx.fresh_name(f"{name_prefix}_log")])
+    log_xw = _as_value(
+        ctx.builder.Log(xw, _outputs=[ctx.fresh_name(f"{name_prefix}_log")])
+    )
     _stamp_like(log_xw, x)
-    half_inv = ctx.builder.Mul(
-        half,
-        inv,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_half_inv")],
+    half_inv = _as_value(
+        ctx.builder.Mul(
+            half,
+            inv,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_half_inv")],
+        )
     )
     _stamp_like(half_inv, x)
-    term = ctx.builder.Sub(
-        log_xw,
-        half_inv,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_term")],
+    term = _as_value(
+        ctx.builder.Sub(
+            log_xw,
+            half_inv,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_term")],
+        )
     )
     _stamp_like(term, x)
 
-    inv2_c252 = ctx.builder.Mul(
-        inv2,
-        c252,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_inv2_c252")],
+    inv2_c252 = _as_value(
+        ctx.builder.Mul(
+            inv2,
+            c252,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_inv2_c252")],
+        )
     )
     _stamp_like(inv2_c252, x)
-    inner = ctx.builder.Sub(
-        c120,
-        inv2_c252,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_inner")],
+    inner = _as_value(
+        ctx.builder.Sub(
+            c120,
+            inv2_c252,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_inner")],
+        )
     )
-    mid = ctx.builder.Mul(
-        inv2,
-        inner,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_mid")],
+    mid = _as_value(
+        ctx.builder.Mul(
+            inv2,
+            inner,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_mid")],
+        )
     )
     _stamp_like(mid, x)
-    outer = ctx.builder.Sub(
-        c12,
-        mid,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_outer")],
+    outer = _as_value(
+        ctx.builder.Sub(
+            c12,
+            mid,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_outer")],
+        )
     )
-    series = ctx.builder.Mul(
-        inv2,
-        outer,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_series")],
+    series = _as_value(
+        ctx.builder.Mul(
+            inv2,
+            outer,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_series")],
+        )
     )
     _stamp_like(series, x)
 
-    base = ctx.builder.Add(
-        r,
-        term,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_base")],
+    base = _as_value(
+        ctx.builder.Add(
+            r,
+            term,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_base")],
+        )
     )
     _stamp_like(base, x)
-    out = ctx.builder.Sub(
-        base,
-        series,
-        _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+    out = _as_value(
+        ctx.builder.Sub(
+            base,
+            series,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+        )
     )
     _stamp_like(out, x)
     return out
@@ -176,7 +218,7 @@ def _digamma_positive(
 class DigammaPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.digamma`` using recurrence + asymptotic + reflection."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -193,46 +235,64 @@ class DigammaPlugin(PrimitiveLeafPlugin):
         pi = ctx.bind_const_for_var(object(), np.asarray(np.pi, dtype=np_dtype))
 
         pos_part = _digamma_positive(ctx, x, np_dtype, "digamma_pos")
-        one_minus_x = ctx.builder.Sub(one, x, _outputs=[ctx.fresh_name("digamma_1mx")])
+        one_minus_x = _as_value(
+            ctx.builder.Sub(one, x, _outputs=[ctx.fresh_name("digamma_1mx")])
+        )
         _stamp_like(one_minus_x, x)
         refl_base = _digamma_positive(ctx, one_minus_x, np_dtype, "digamma_refl")
 
-        pi_x = ctx.builder.Mul(pi, x, _outputs=[ctx.fresh_name("digamma_pi_x")])
+        pi_x = _as_value(
+            ctx.builder.Mul(pi, x, _outputs=[ctx.fresh_name("digamma_pi_x")])
+        )
         _stamp_like(pi_x, x)
-        sin_pi_x = ctx.builder.Sin(pi_x, _outputs=[ctx.fresh_name("digamma_sin_pi_x")])
+        sin_pi_x = _as_value(
+            ctx.builder.Sin(pi_x, _outputs=[ctx.fresh_name("digamma_sin_pi_x")])
+        )
         _stamp_like(sin_pi_x, x)
-        cos_pi_x = ctx.builder.Cos(pi_x, _outputs=[ctx.fresh_name("digamma_cos_pi_x")])
+        cos_pi_x = _as_value(
+            ctx.builder.Cos(pi_x, _outputs=[ctx.fresh_name("digamma_cos_pi_x")])
+        )
         _stamp_like(cos_pi_x, x)
-        cot_pi_x = ctx.builder.Div(
-            cos_pi_x,
-            sin_pi_x,
-            _outputs=[ctx.fresh_name("digamma_cot_pi_x")],
+        cot_pi_x = _as_value(
+            ctx.builder.Div(
+                cos_pi_x,
+                sin_pi_x,
+                _outputs=[ctx.fresh_name("digamma_cot_pi_x")],
+            )
         )
         _stamp_like(cot_pi_x, x)
-        pi_cot = ctx.builder.Mul(
-            pi,
-            cot_pi_x,
-            _outputs=[ctx.fresh_name("digamma_pi_cot")],
+        pi_cot = _as_value(
+            ctx.builder.Mul(
+                pi,
+                cot_pi_x,
+                _outputs=[ctx.fresh_name("digamma_pi_cot")],
+            )
         )
         _stamp_like(pi_cot, x)
-        refl = ctx.builder.Sub(
-            refl_base,
-            pi_cot,
-            _outputs=[ctx.fresh_name("digamma_refl_out")],
+        refl = _as_value(
+            ctx.builder.Sub(
+                refl_base,
+                pi_cot,
+                _outputs=[ctx.fresh_name("digamma_refl_out")],
+            )
         )
         _stamp_like(refl, x)
 
-        is_pos = ctx.builder.Greater(
-            x,
-            zero,
-            _outputs=[ctx.fresh_name("digamma_is_pos")],
+        is_pos = _as_value(
+            ctx.builder.Greater(
+                x,
+                zero,
+                _outputs=[ctx.fresh_name("digamma_is_pos")],
+            )
         )
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("digamma")
-        result = ctx.builder.Where(
-            is_pos,
-            pos_part,
-            refl,
-            _outputs=[desired_name],
+        result = _as_value(
+            ctx.builder.Where(
+                is_pos,
+                pos_part,
+                refl,
+                _outputs=[desired_name],
+            )
         )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else x)
         if getattr(out_spec, "shape", None) is not None:

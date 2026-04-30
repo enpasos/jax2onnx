@@ -1,7 +1,7 @@
 # jax2onnx/plugins/flax/linen/min_pool.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import jax
@@ -10,17 +10,15 @@ from flax.linen import pooling as linen_pooling
 from jax.extend.core import Primitive
 
 import onnx_ir as ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _dim_label_from_value_or_aval,
     _to_ir_dim_for_shape,
     _ensure_value_metadata,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.conversion_api import _IRBuildContext as IRBuildContext  # type: ignore
 
 
 MIN_POOL_PRIM: Primitive = Primitive("linen.min_pool")
@@ -83,7 +81,7 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
     """IR-only plugin for flax.linen.min_pool (lowered via Neg + MaxPool + Neg)."""
 
     _PRIM: ClassVar[Primitive] = MIN_POOL_PRIM
-    _ORIG_CALL: ClassVar[Optional[Callable]] = None
+    _ORIG_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     # ---------------- helpers ----------------
@@ -96,7 +94,9 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         return tuple(int(s) for s in strides)
 
     @staticmethod
-    def _compute_output_dim(length, window, stride, padding: str):
+    def _compute_output_dim(
+        length: object, window: int, stride: int, padding: str
+    ) -> object:
         if isinstance(length, (int, np.integer)):
             if padding.upper() == "SAME":
                 return int(np.ceil(length / stride))
@@ -104,7 +104,13 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         return length
 
     @staticmethod
-    def abstract_eval(x, *, window_shape, strides, padding):
+    def abstract_eval(
+        x: Any,
+        *,
+        window_shape: Sequence[int],
+        strides: Optional[Sequence[int]],
+        padding: str,
+    ) -> jax.core.ShapedArray:
         strides = MinPoolPlugin._normalize_stride(strides, window_shape)
         padding = str(padding)
         shape = list(x.shape)
@@ -119,7 +125,7 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         return jax.core.ShapedArray(tuple(out_shape), x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: "IRBuildContext", eqn):
+    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
         (x_var,) = eqn.invars[:1]
         (y_var,) = eqn.outvars[:1]
 
@@ -133,8 +139,12 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("out"))
 
-        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
-        y_aval_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
+        x_shape: tuple[object, ...] = tuple(
+            getattr(getattr(x_var, "aval", None), "shape", ())
+        )
+        y_aval_shape: tuple[object, ...] = tuple(
+            getattr(getattr(y_var, "aval", None), "shape", ())
+        )
         rank = len(x_shape)
 
         need_layout_convert = rank > 2
@@ -145,23 +155,23 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
             perm = list(range(rank))
             inv_perm = perm
 
-        def _label(idx: int):
-            return _dim_label_from_value_or_aval(x_val, x_shape, idx)
+        def _label(idx: int) -> str | int | None:
+            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
+            return label
 
         nchw_dims_in = tuple(_label(i) for i in perm)
 
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError(
-                "IR build context missing builder for MinPool lowering"
-            )
+        builder = ctx.builder
 
-        pool_in = x_val
+        pool_in: ir.Value = x_val
         if need_layout_convert:
-            pool_in = builder.Transpose(
-                x_val,
-                _outputs=[ctx.fresh_name("minpool_nchw_in")],
-                perm=tuple(perm),
+            pool_in = cast(
+                ir.Value,
+                builder.Transpose(
+                    x_val,
+                    _outputs=[ctx.fresh_name("minpool_nchw_in")],
+                    perm=tuple(perm),
+                ),
             )
             pool_in.type = x_val.type
             _stamp_type_and_shape(
@@ -169,9 +179,12 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
             )
             _ensure_value_metadata(ctx, pool_in)
 
-        neg_in = builder.Neg(
-            pool_in,
-            _outputs=[ctx.fresh_name("minpool_neg_in")],
+        neg_in = cast(
+            ir.Value,
+            builder.Neg(
+                pool_in,
+                _outputs=[ctx.fresh_name("minpool_neg_in")],
+            ),
         )
         if getattr(pool_in, "type", None) is not None:
             neg_in.type = pool_in.type
@@ -180,12 +193,15 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         )
         _ensure_value_metadata(ctx, neg_in)
 
-        pool_result = builder.MaxPool(
-            neg_in,
-            _outputs=[ctx.fresh_name("MinPool")],
-            kernel_shape=tuple(int(v) for v in window_shape),
-            strides=tuple(int(v) for v in strides),
-            auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+        pool_result = cast(
+            ir.Value,
+            builder.MaxPool(
+                neg_in,
+                _outputs=[ctx.fresh_name("MinPool")],
+                kernel_shape=tuple(int(v) for v in window_shape),
+                strides=tuple(int(v) for v in strides),
+                auto_pad="SAME_UPPER" if padding.upper() == "SAME" else "VALID",
+            ),
         )
 
         dtype = getattr(getattr(x_val, "type", None), "dtype", None)
@@ -207,9 +223,12 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
             )
             _ensure_value_metadata(ctx, pool_result)
 
-        neg_out = builder.Neg(
-            pool_result,
-            _outputs=[ctx.fresh_name("minpool_neg_out")],
+        neg_out = cast(
+            ir.Value,
+            builder.Neg(
+                pool_result,
+                _outputs=[ctx.fresh_name("minpool_neg_out")],
+            ),
         )
         if dtype is not None:
             neg_out.type = ir.TensorType(dtype)
@@ -220,31 +239,35 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, neg_out)
 
         if need_layout_convert:
-            final = builder.Transpose(
-                neg_out,
-                _outputs=[
-                    getattr(y_val, "name", None) or ctx.fresh_name("minpool_transpose")
-                ],
-                perm=tuple(inv_perm),
+            final = cast(
+                ir.Value,
+                builder.Transpose(
+                    neg_out,
+                    _outputs=[
+                        getattr(y_val, "name", None)
+                        or ctx.fresh_name("minpool_transpose")
+                    ],
+                    perm=tuple(inv_perm),
+                ),
             )
             if dtype is not None:
                 final.type = ir.TensorType(dtype)
-            _stamp_type_and_shape(final, nhwc_dims)
+            _stamp_type_and_shape(
+                final, tuple(_to_ir_dim_for_shape(d) for d in nhwc_dims)
+            )
             _ensure_value_metadata(ctx, final)
         else:
             final = neg_out
-            _stamp_type_and_shape(final, nhwc_dims[:rank])
+            _stamp_type_and_shape(
+                final, tuple(_to_ir_dim_for_shape(d) for d in nhwc_dims[:rank])
+            )
             _ensure_value_metadata(ctx, final)
 
-        bind_value = getattr(ctx, "bind_value_for_var", None)
-        if callable(bind_value):
-            bind_value(y_var, final)
-        else:
-            raise AttributeError("IR build context missing bind_value_for_var")
+        ctx.bind_value_for_var(y_var, final)
 
     # ---------------- monkey patch & binding ----------------
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             MonkeyPatchSpec(
                 target="flax.linen.pooling",
@@ -255,10 +278,16 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         ]
 
     @classmethod
-    def _make_patch(cls, orig):
+    def _make_patch(cls, orig: Callable[..., Any]) -> Callable[..., Any]:
         cls._ORIG_CALL = orig
 
-        def patched_min_pool(x, *, window_shape, strides=None, padding="VALID"):
+        def patched_min_pool(
+            x: Any,
+            *,
+            window_shape: Sequence[int],
+            strides: Optional[Sequence[int]] = None,
+            padding: str = "VALID",
+        ) -> Any:
             strides_tuple = cls._normalize_stride(strides, window_shape)
             return cls._PRIM.bind(
                 x,
@@ -270,16 +299,23 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         return patched_min_pool
 
     @classmethod
-    def ensure_abstract_eval_bound(cls):
+    def ensure_abstract_eval_bound(cls) -> None:
         if not cls._ABSTRACT_EVAL_BOUND:
             cls._PRIM.def_abstract_eval(cls.abstract_eval)
             cls._ABSTRACT_EVAL_BOUND = True
 
     # ---------------- eager impl ----------------
     @staticmethod
-    def _call_min_pool_eager(x, *, window_shape, strides, padding):
-        if MinPoolPlugin._ORIG_CALL is not None:
-            return MinPoolPlugin._ORIG_CALL(
+    def _call_min_pool_eager(
+        x: Any,
+        *,
+        window_shape: Sequence[int],
+        strides: Sequence[int],
+        padding: str,
+    ) -> Any:
+        orig_call = MinPoolPlugin._ORIG_CALL
+        if orig_call is not None:
+            return orig_call(
                 x,
                 window_shape=window_shape,
                 strides=strides,
@@ -303,7 +339,9 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
 
 
 @MinPoolPlugin._PRIM.def_impl
-def _impl_min_pool(x, *, window_shape, strides, padding):
+def _impl_min_pool(
+    x: Any, *, window_shape: Sequence[int], strides: Sequence[int], padding: str
+) -> Any:
     return MinPoolPlugin._call_min_pool_eager(
         x,
         window_shape=tuple(int(v) for v in window_shape),

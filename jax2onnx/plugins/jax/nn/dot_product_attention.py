@@ -48,24 +48,28 @@ _ORIG_DOT_PRODUCT_ATTENTION: Final = jax_nn.dot_product_attention
 
 def _expect_dpa_mask_where_impl(model: Any) -> bool:
     graph = model.graph
-    consumers: DefaultDict[str, list[ir.Node]] = defaultdict(list)
-    producers: Dict[str, ir.Node] = {}
+    consumers: DefaultDict[str, list[Any]] = defaultdict(list)
+    producers: Dict[str, Any] = {}
     for node in graph.node:
-        for out in node.output:
+        node_outputs = tuple(getattr(node, "output", ()))
+        node_inputs = tuple(getattr(node, "input", ()))
+        for out in node_outputs:
             producers[out] = node
-        for inp in node.input:
+        for inp in node_inputs:
             consumers[inp].append(node)
 
     for node in graph.node:
-        if node.op_type != "Softmax" or not node.output:
+        node_outputs = tuple(getattr(node, "output", ()))
+        if node.op_type != "Softmax" or not node_outputs:
             continue
-        softmax_out = node.output[0]
+        softmax_out = node_outputs[0]
         for consumer in consumers.get(softmax_out, []):
             if consumer.op_type != "Mul":
                 continue
-            if len(consumer.input) < 2:
+            consumer_inputs = tuple(getattr(consumer, "input", ()))
+            if len(consumer_inputs) < 2:
                 continue
-            other_inputs = [inp for inp in consumer.input if inp != softmax_out]
+            other_inputs = [inp for inp in consumer_inputs if inp != softmax_out]
             if not other_inputs:
                 continue
             producer = producers.get(other_inputs[0])
@@ -84,7 +88,7 @@ _EXPECT_DPA_MASK_WHERE: Final = _expect_dpa_mask_where
 def _dtype_enum_from_value(val: ir.Value) -> ir.DataType:
     dtype = getattr(getattr(val, "type", None), "dtype", None)
     if dtype is not None:
-        return dtype
+        return cast(ir.DataType, dtype)
     raise TypeError("Missing dtype on value; ensure inputs are typed.")
 
 
@@ -117,10 +121,13 @@ def _coerce_dim(dim: object, name: str) -> Tuple[DimLike, bool]:
 def _cast_to_int64(
     ctx: LoweringContextProtocol, value: ir.Value, *, base: str
 ) -> ir.Value:
-    casted = ctx.builder.Cast(
-        value,
-        _outputs=[ctx.fresh_name(base)],
-        to=int(ir.DataType.INT64.value),
+    casted = cast(
+        ir.Value,
+        ctx.builder.Cast(
+            value,
+            _outputs=[ctx.fresh_name(base)],
+            to=int(ir.DataType.INT64.value),
+        ),
     )
     casted.type = ir.TensorType(ir.DataType.INT64)
     casted.shape = value.shape
@@ -161,7 +168,7 @@ def _make_range_value(
 ) -> ir.Value:
     start = _scalar_i64(ctx, 0, f"{base}_start")
     step = _scalar_i64(ctx, 1, f"{base}_step")
-    rng = _builder_op(
+    rng: ir.Value = _builder_op(
         ctx,
         "Range",
         [start, limit, step],
@@ -180,7 +187,7 @@ def _logical_and(
     base: str,
     shape_hint: Tuple[DimLike, ...],
 ) -> ir.Value:
-    out = _builder_op(
+    out: ir.Value = _builder_op(
         ctx,
         "And",
         [lhs, rhs],
@@ -221,7 +228,7 @@ def _builder_tensor_op(
     shape_dims = (
         tuple(_to_ir_dim_for_shape(dim) for dim in shape) if shape is not None else None
     )
-    return _builder_op(
+    result: ir.Value = _builder_op(
         ctx,
         op_type,
         list(inputs),
@@ -230,6 +237,7 @@ def _builder_tensor_op(
         shape=shape_dims,
         attributes=attributes,
     )
+    return result
 
 
 def _unsqueeze_leading_batch(
@@ -993,13 +1001,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                     "jax.nn.dot_product_attention with is_causal=True "
                     "requires static num_heads/query/key dimensions"
                 )
-            num_heads_static = int(num_heads_v)
+            causal_num_heads = int(num_heads_v)
             q_len_static = int(q_len_v)
             k_len_static = int(k_len_v)
-            tril = np.tril(np.ones((q_len_static, k_len_static), dtype=bool))
+            tril: np.ndarray[Any, np.dtype[np.bool_]] = np.tril(
+                np.ones((q_len_static, k_len_static), dtype=bool)
+            )
             tril_broadcast = np.broadcast_to(
-                tril, (num_heads_static, q_len_static, k_len_static)
-            ).reshape(1, num_heads_static, q_len_static, k_len_static)
+                tril, (causal_num_heads, q_len_static, k_len_static)
+            ).reshape(1, causal_num_heads, q_len_static, k_len_static)
             mask_const = ctx.builder.add_initializer_from_array(
                 name=ctx.fresh_name("dpa_causal_mask"), array=tril_broadcast
             )
@@ -1064,6 +1074,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(k_idx_broadcast, (1, 1, 1, k_len_i))
 
         if has_query_lengths or has_key_value_lengths:
+            if q_idx_broadcast is None or k_idx_broadcast is None:
+                raise RuntimeError("DPA length masks require query/key indices")
             q_mask: ir.Value | None = None
             if query_len_var is not None:
                 query_len_val = ctx.get_value_for_var(
@@ -1447,8 +1459,8 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 is_causal = bool(kwargs.pop("is_causal", False))
                 query_seq_lengths = kwargs.pop("query_seq_lengths", None)
                 key_value_seq_lengths = kwargs.pop("key_value_seq_lengths", None)
-                scale = kwargs.pop("scale", None)
-                scale = None if scale is None else float(scale)
+                scale_raw = kwargs.pop("scale", None)
+                scale = None if scale_raw is None else float(cast(Any, scale_raw))
                 local_window_size = _normalize_local_window_size(
                     kwargs.pop("local_window_size", None)
                 )

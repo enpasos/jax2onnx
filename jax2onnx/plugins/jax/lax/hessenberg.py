@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -24,7 +22,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 
 
 def _slice_matrix(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     *,
     row_start: int,
@@ -45,12 +43,15 @@ def _slice_matrix(
         f"{name}_ends",
     )
     axes = _const_i64(ctx, np.asarray([0, 1], dtype=np.int64), f"{name}_axes")
-    out = ctx.builder.Slice(
-        mat,
-        starts,
-        ends,
-        axes,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Slice(
+            mat,
+            starts,
+            ends,
+            axes,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         out.type = mat.type
@@ -59,24 +60,30 @@ def _slice_matrix(
 
 
 def _gather_mat_elem(
-    ctx: "IRContext", mat: ir.Value, i: int, j: int, name: str
+    ctx: LoweringContextProtocol, mat: ir.Value, i: int, j: int, name: str
 ) -> ir.Value:
     i_idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_i")
-    row = ctx.builder.Gather(
-        mat,
-        i_idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(f"{name}_row")],
+    row = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            mat,
+            i_idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(f"{name}_row")],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         row.type = mat.type
 
     j_idx = _const_i64(ctx, np.asarray([j], dtype=np.int64), f"{name}_j")
-    elem = ctx.builder.Gather(
-        row,
-        j_idx,
-        axis=1,
-        _outputs=[ctx.fresh_name(name)],
+    elem = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            row,
+            j_idx,
+            axis=1,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(mat, "type", None) is not None:
         elem.type = mat.type
@@ -85,7 +92,7 @@ def _gather_mat_elem(
 
 
 def _scatter_mat_elem(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     mat: ir.Value,
     i: int,
     j: int,
@@ -97,13 +104,16 @@ def _scatter_mat_elem(
         np.asarray([[[i, j]]], dtype=np.int64),
         f"{name}_idx",
     )
-    out = ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(mat, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, mat)
     return out
 
 
 def _scatter_block(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     base: ir.Value,
     block: ir.Value,
     *,
@@ -124,25 +134,36 @@ def _scatter_block(
         np.asarray([rows * cols], dtype=np.int64),
         f"{name}_flat_shape",
     )
-    flat = ctx.builder.Reshape(
-        block, flat_shape, _outputs=[ctx.fresh_name(f"{name}_flat")]
+    flat = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            block, flat_shape, _outputs=[ctx.fresh_name(f"{name}_flat")]
+        ),
     )
     if getattr(block, "type", None) is not None:
         flat.type = block.type
     flat.shape = ir.Shape((rows * cols,))
 
-    out = ctx.builder.ScatterND(base, idx, flat, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(base, idx, flat, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, base)
     return out
 
 
-def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.Value:
+def _gather_vec_elem(
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, name: str
+) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([i], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        vec,
-        idx,
-        axis=0,
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            vec,
+            idx,
+            axis=0,
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(vec, "type", None) is not None:
         out.type = vec.type
@@ -151,10 +172,13 @@ def _gather_vec_elem(ctx: "IRContext", vec: ir.Value, i: int, name: str) -> ir.V
 
 
 def _scatter_vec_elem(
-    ctx: "IRContext", vec: ir.Value, i: int, value: ir.Value, name: str
+    ctx: LoweringContextProtocol, vec: ir.Value, i: int, value: ir.Value, name: str
 ) -> ir.Value:
     idx = _const_i64(ctx, np.asarray([[i]], dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.ScatterND(vec, idx, value, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value,
+        ctx.builder.ScatterND(vec, idx, value, _outputs=[ctx.fresh_name(name)]),
+    )
     _stamp_like(out, vec)
     return out
 
@@ -220,7 +244,7 @@ def _scatter_vec_elem(
 class HessenbergPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.hessenberg`` for static rank-2 square inputs."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (x_var,) = eqn.invars
         if len(eqn.outvars) != 2:
             raise NotImplementedError("hessenberg expects exactly 2 outputs")
@@ -316,86 +340,122 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
             )
 
             alpha = _gather_mat_elem(ctx, a_cur, i + 1, i, f"hess_alpha_{i}")
-            alpha_sq = ctx.builder.Mul(
-                alpha,
-                alpha,
-                _outputs=[ctx.fresh_name(f"hess_alpha_sq_{i}")],
+            alpha_sq = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    alpha,
+                    alpha,
+                    _outputs=[ctx.fresh_name(f"hess_alpha_sq_{i}")],
+                ),
             )
             _stamp_like(alpha_sq, alpha)
 
-            x_tail_t = ctx.builder.Transpose(
-                x_tail,
-                perm=[1, 0],
-                _outputs=[ctx.fresh_name(f"hess_x_tail_t_{i}")],
+            x_tail_t = cast(
+                ir.Value,
+                ctx.builder.Transpose(
+                    x_tail,
+                    perm=[1, 0],
+                    _outputs=[ctx.fresh_name(f"hess_x_tail_t_{i}")],
+                ),
             )
             if getattr(x_tail, "type", None) is not None:
                 x_tail_t.type = x_tail.type
             x_tail_t.shape = ir.Shape((1, p - 1))
-            tail_norm_sq = ctx.builder.MatMul(
-                x_tail_t,
-                x_tail,
-                _outputs=[ctx.fresh_name(f"hess_tail_norm_sq_{i}")],
+            tail_norm_sq = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    x_tail_t,
+                    x_tail,
+                    _outputs=[ctx.fresh_name(f"hess_tail_norm_sq_{i}")],
+                ),
             )
             _stamp_like(tail_norm_sq, alpha)
-            tail_is_zero = ctx.builder.Equal(
-                tail_norm_sq,
-                zero,
-                _outputs=[ctx.fresh_name(f"hess_tail_is_zero_{i}")],
+            tail_is_zero = cast(
+                ir.Value,
+                ctx.builder.Equal(
+                    tail_norm_sq,
+                    zero,
+                    _outputs=[ctx.fresh_name(f"hess_tail_is_zero_{i}")],
+                ),
             )
             tail_is_zero.type = ir.TensorType(ir.DataType.BOOL)
             tail_is_zero.shape = ir.Shape((1, 1))
 
-            x_norm_sq = ctx.builder.Add(
-                alpha_sq,
-                tail_norm_sq,
-                _outputs=[ctx.fresh_name(f"hess_x_norm_sq_{i}")],
+            x_norm_sq = cast(
+                ir.Value,
+                ctx.builder.Add(
+                    alpha_sq,
+                    tail_norm_sq,
+                    _outputs=[ctx.fresh_name(f"hess_x_norm_sq_{i}")],
+                ),
             )
             _stamp_like(x_norm_sq, alpha)
-            x_norm = ctx.builder.Sqrt(
-                x_norm_sq,
-                _outputs=[ctx.fresh_name(f"hess_x_norm_{i}")],
+            x_norm = cast(
+                ir.Value,
+                ctx.builder.Sqrt(
+                    x_norm_sq,
+                    _outputs=[ctx.fresh_name(f"hess_x_norm_{i}")],
+                ),
             )
             _stamp_like(x_norm, alpha)
 
-            less_zero = ctx.builder.Less(
-                alpha,
-                zero,
-                _outputs=[ctx.fresh_name(f"hess_less_zero_{i}")],
+            less_zero = cast(
+                ir.Value,
+                ctx.builder.Less(
+                    alpha,
+                    zero,
+                    _outputs=[ctx.fresh_name(f"hess_less_zero_{i}")],
+                ),
             )
             less_zero.type = ir.TensorType(ir.DataType.BOOL)
             less_zero.shape = ir.Shape((1, 1))
-            sign = ctx.builder.Where(
-                less_zero,
-                one,
-                neg_one,
-                _outputs=[ctx.fresh_name(f"hess_sign_{i}")],
+            sign = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    less_zero,
+                    one,
+                    neg_one,
+                    _outputs=[ctx.fresh_name(f"hess_sign_{i}")],
+                ),
             )
             _stamp_like(sign, alpha)
-            beta = ctx.builder.Mul(
-                sign,
-                x_norm,
-                _outputs=[ctx.fresh_name(f"hess_beta_{i}")],
+            beta = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    sign,
+                    x_norm,
+                    _outputs=[ctx.fresh_name(f"hess_beta_{i}")],
+                ),
             )
             _stamp_like(beta, alpha)
-            beta_eff = ctx.builder.Where(
-                tail_is_zero,
-                alpha,
-                beta,
-                _outputs=[ctx.fresh_name(f"hess_beta_eff_{i}")],
+            beta_eff = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    tail_is_zero,
+                    alpha,
+                    beta,
+                    _outputs=[ctx.fresh_name(f"hess_beta_eff_{i}")],
+                ),
             )
             _stamp_like(beta_eff, alpha)
 
-            denom = ctx.builder.Sub(
-                alpha,
-                beta_eff,
-                _outputs=[ctx.fresh_name(f"hess_denom_{i}")],
+            denom = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    alpha,
+                    beta_eff,
+                    _outputs=[ctx.fresh_name(f"hess_denom_{i}")],
+                ),
             )
             _stamp_like(denom, alpha)
-            denom_eff = ctx.builder.Where(
-                tail_is_zero,
-                one,
-                denom,
-                _outputs=[ctx.fresh_name(f"hess_denom_eff_{i}")],
+            denom_eff = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    tail_is_zero,
+                    one,
+                    denom,
+                    _outputs=[ctx.fresh_name(f"hess_denom_eff_{i}")],
+                ),
             )
             _stamp_like(denom_eff, alpha)
 
@@ -406,48 +466,66 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
                 zero_tail.type = x.type
             zero_tail.shape = ir.Shape((p - 1, 1))
 
-            v_tail_raw = ctx.builder.Div(
-                x_tail,
-                denom_eff,
-                _outputs=[ctx.fresh_name(f"hess_v_tail_raw_{i}")],
+            v_tail_raw = cast(
+                ir.Value,
+                ctx.builder.Div(
+                    x_tail,
+                    denom_eff,
+                    _outputs=[ctx.fresh_name(f"hess_v_tail_raw_{i}")],
+                ),
             )
             if getattr(x_tail, "type", None) is not None:
                 v_tail_raw.type = x_tail.type
             v_tail_raw.shape = ir.Shape((p - 1, 1))
-            v_tail = ctx.builder.Where(
-                tail_is_zero,
-                zero_tail,
-                v_tail_raw,
-                _outputs=[ctx.fresh_name(f"hess_v_tail_{i}")],
+            v_tail = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    tail_is_zero,
+                    zero_tail,
+                    v_tail_raw,
+                    _outputs=[ctx.fresh_name(f"hess_v_tail_{i}")],
+                ),
             )
             if getattr(x_tail, "type", None) is not None:
                 v_tail.type = x_tail.type
             v_tail.shape = ir.Shape((p - 1, 1))
 
-            tau_num = ctx.builder.Sub(
-                beta_eff,
-                alpha,
-                _outputs=[ctx.fresh_name(f"hess_tau_num_{i}")],
+            tau_num = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    beta_eff,
+                    alpha,
+                    _outputs=[ctx.fresh_name(f"hess_tau_num_{i}")],
+                ),
             )
             _stamp_like(tau_num, alpha)
-            beta_div = ctx.builder.Where(
-                tail_is_zero,
-                one,
-                beta_eff,
-                _outputs=[ctx.fresh_name(f"hess_beta_div_{i}")],
+            beta_div = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    tail_is_zero,
+                    one,
+                    beta_eff,
+                    _outputs=[ctx.fresh_name(f"hess_beta_div_{i}")],
+                ),
             )
             _stamp_like(beta_div, alpha)
-            tau_raw = ctx.builder.Div(
-                tau_num,
-                beta_div,
-                _outputs=[ctx.fresh_name(f"hess_tau_raw_{i}")],
+            tau_raw = cast(
+                ir.Value,
+                ctx.builder.Div(
+                    tau_num,
+                    beta_div,
+                    _outputs=[ctx.fresh_name(f"hess_tau_raw_{i}")],
+                ),
             )
             _stamp_like(tau_raw, alpha)
-            tau = ctx.builder.Where(
-                tail_is_zero,
-                zero,
-                tau_raw,
-                _outputs=[ctx.fresh_name(f"hess_tau_{i}")],
+            tau = cast(
+                ir.Value,
+                ctx.builder.Where(
+                    tail_is_zero,
+                    zero,
+                    tau_raw,
+                    _outputs=[ctx.fresh_name(f"hess_tau_{i}")],
+                ),
             )
             _stamp_like(tau, alpha)
 
@@ -456,10 +534,13 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
                 np.asarray([1], dtype=np.int64),
                 f"hess_tau_reshape_shape_{i}",
             )
-            tau_1d = ctx.builder.Reshape(
-                tau,
-                tau_1d_shape,
-                _outputs=[ctx.fresh_name(f"hess_tau_1d_{i}")],
+            tau_1d = cast(
+                ir.Value,
+                ctx.builder.Reshape(
+                    tau,
+                    tau_1d_shape,
+                    _outputs=[ctx.fresh_name(f"hess_tau_1d_{i}")],
+                ),
             )
             if getattr(tau, "type", None) is not None:
                 tau_1d.type = tau.type
@@ -475,10 +556,13 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
                 vr = _gather_mat_elem(ctx, v_tail, r - 1, 0, f"hess_vtail_elem_{i}_{r}")
                 v_full = _scatter_mat_elem(ctx, v_full, r, 0, vr, f"hess_set_v_{i}_{r}")
 
-            v_t = ctx.builder.Transpose(
-                v_full,
-                perm=[1, 0],
-                _outputs=[ctx.fresh_name(f"hess_v_t_{i}")],
+            v_t = cast(
+                ir.Value,
+                ctx.builder.Transpose(
+                    v_full,
+                    perm=[1, 0],
+                    _outputs=[ctx.fresh_name(f"hess_v_t_{i}")],
+                ),
             )
             if getattr(v_full, "type", None) is not None:
                 v_t.type = v_full.type
@@ -494,34 +578,46 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
                 out_shape=(p, n - i),
                 name=f"hess_a_left_{i}",
             )
-            vt_a = ctx.builder.MatMul(
-                v_t,
-                a_left,
-                _outputs=[ctx.fresh_name(f"hess_vt_a_{i}")],
+            vt_a = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    v_t,
+                    a_left,
+                    _outputs=[ctx.fresh_name(f"hess_vt_a_{i}")],
+                ),
             )
             if getattr(a_left, "type", None) is not None:
                 vt_a.type = a_left.type
             vt_a.shape = ir.Shape((1, n - i))
-            tau_vt_a = ctx.builder.Mul(
-                tau,
-                vt_a,
-                _outputs=[ctx.fresh_name(f"hess_tau_vt_a_{i}")],
+            tau_vt_a = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    tau,
+                    vt_a,
+                    _outputs=[ctx.fresh_name(f"hess_tau_vt_a_{i}")],
+                ),
             )
             if getattr(vt_a, "type", None) is not None:
                 tau_vt_a.type = vt_a.type
             tau_vt_a.shape = ir.Shape((1, n - i))
-            left_delta = ctx.builder.MatMul(
-                v_full,
-                tau_vt_a,
-                _outputs=[ctx.fresh_name(f"hess_left_delta_{i}")],
+            left_delta = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    v_full,
+                    tau_vt_a,
+                    _outputs=[ctx.fresh_name(f"hess_left_delta_{i}")],
+                ),
             )
             if getattr(a_left, "type", None) is not None:
                 left_delta.type = a_left.type
             left_delta.shape = ir.Shape((p, n - i))
-            a_left_new = ctx.builder.Sub(
-                a_left,
-                left_delta,
-                _outputs=[ctx.fresh_name(f"hess_a_left_new_{i}")],
+            a_left_new = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    a_left,
+                    left_delta,
+                    _outputs=[ctx.fresh_name(f"hess_a_left_new_{i}")],
+                ),
             )
             if getattr(a_left, "type", None) is not None:
                 a_left_new.type = a_left.type
@@ -547,34 +643,46 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
                 out_shape=(n, p),
                 name=f"hess_a_right_{i}",
             )
-            a_v = ctx.builder.MatMul(
-                a_right,
-                v_full,
-                _outputs=[ctx.fresh_name(f"hess_a_v_{i}")],
+            a_v = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    a_right,
+                    v_full,
+                    _outputs=[ctx.fresh_name(f"hess_a_v_{i}")],
+                ),
             )
             if getattr(a_right, "type", None) is not None:
                 a_v.type = a_right.type
             a_v.shape = ir.Shape((n, 1))
-            tau_a_v = ctx.builder.Mul(
-                tau,
-                a_v,
-                _outputs=[ctx.fresh_name(f"hess_tau_a_v_{i}")],
+            tau_a_v = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    tau,
+                    a_v,
+                    _outputs=[ctx.fresh_name(f"hess_tau_a_v_{i}")],
+                ),
             )
             if getattr(a_v, "type", None) is not None:
                 tau_a_v.type = a_v.type
             tau_a_v.shape = ir.Shape((n, 1))
-            right_delta = ctx.builder.MatMul(
-                tau_a_v,
-                v_t,
-                _outputs=[ctx.fresh_name(f"hess_right_delta_{i}")],
+            right_delta = cast(
+                ir.Value,
+                ctx.builder.MatMul(
+                    tau_a_v,
+                    v_t,
+                    _outputs=[ctx.fresh_name(f"hess_right_delta_{i}")],
+                ),
             )
             if getattr(a_right, "type", None) is not None:
                 right_delta.type = a_right.type
             right_delta.shape = ir.Shape((n, p))
-            a_right_new = ctx.builder.Sub(
-                a_right,
-                right_delta,
-                _outputs=[ctx.fresh_name(f"hess_a_right_new_{i}")],
+            a_right_new = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    a_right,
+                    right_delta,
+                    _outputs=[ctx.fresh_name(f"hess_a_right_new_{i}")],
+                ),
             )
             if getattr(a_right, "type", None) is not None:
                 a_right_new.type = a_right.type
@@ -602,7 +710,7 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
         a_name = getattr(a_spec, "name", None) or ctx.fresh_name("hess_a")
         a_out = a_cur
         if getattr(a_out, "name", None) != a_name:
-            a_out = ctx.builder.Identity(a_cur, _outputs=[a_name])
+            a_out = cast(ir.Value, ctx.builder.Identity(a_cur, _outputs=[a_name]))
         _stamp_like(a_out, a_spec if getattr(a_spec, "type", None) else a_cur)
         if getattr(a_spec, "shape", None) is not None:
             a_out.shape = a_spec.shape
@@ -610,7 +718,9 @@ class HessenbergPlugin(PrimitiveLeafPlugin):
         taus_name = getattr(taus_spec, "name", None) or ctx.fresh_name("hess_taus")
         taus_out = taus_cur
         if getattr(taus_out, "name", None) != taus_name:
-            taus_out = ctx.builder.Identity(taus_cur, _outputs=[taus_name])
+            taus_out = cast(
+                ir.Value, ctx.builder.Identity(taus_cur, _outputs=[taus_name])
+            )
         _stamp_like(
             taus_out, taus_spec if getattr(taus_spec, "type", None) else taus_cur
         )

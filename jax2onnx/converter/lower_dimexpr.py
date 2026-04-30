@@ -60,11 +60,8 @@ class LowerDimExpr:
         if scalar in self.compute_cache:
             return self.compute_cache[scalar]
 
-        val = cast(
-            ir.Value,
-            _const_i64(
-                self.ctx, np.asarray([scalar], dtype=np.int64), "dimexpr_scalar"
-            ),
+        val = _const_i64(
+            self.ctx, np.asarray([scalar], dtype=np.int64), "dimexpr_scalar"
         )
 
         self.compute_cache[scalar] = val

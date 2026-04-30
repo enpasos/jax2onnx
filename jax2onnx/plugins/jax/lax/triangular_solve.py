@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _needs_transpose(transpose_a: object) -> bool:
@@ -27,7 +29,10 @@ def _needs_transpose(transpose_a: object) -> bool:
     return False
 
 
-def _swap_last_two_shape(shape: tuple[object, ...]) -> tuple[object, ...]:
+ShapeDims = tuple[DimInput, ...]
+
+
+def _swap_last_two_shape(shape: ShapeDims) -> ShapeDims:
     if len(shape) < 2:
         return shape
     dims = list(shape)
@@ -36,9 +41,9 @@ def _swap_last_two_shape(shape: tuple[object, ...]) -> tuple[object, ...]:
 
 
 def _swap_last_two(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     val: ir.Value,
-    shape: tuple[object, ...],
+    shape: ShapeDims,
     name: str,
     *,
     output_name: str | None = None,
@@ -47,10 +52,13 @@ def _swap_last_two(
         raise ValueError("triangular_solve transpose requires rank >= 2")
     perm = list(range(len(shape)))
     perm[-1], perm[-2] = perm[-2], perm[-1]
-    out = ctx.builder.Transpose(
-        val,
-        perm=perm,
-        _outputs=[output_name or ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Transpose(
+            val,
+            perm=perm,
+            _outputs=[output_name or ctx.fresh_name(name)],
+        ),
     )
     if getattr(val, "type", None) is not None:
         out.type = val.type
@@ -60,20 +68,23 @@ def _swap_last_two(
 
 
 def _gather_scalar(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     data: ir.Value,
     *,
     axis: int,
     index: int,
-    out_shape: tuple[object, ...],
+    out_shape: ShapeDims,
     name: str,
 ) -> ir.Value:
     idx = _const_i64(ctx, np.asarray(index, dtype=np.int64), f"{name}_idx")
-    out = ctx.builder.Gather(
-        data,
-        idx,
-        axis=int(axis),
-        _outputs=[ctx.fresh_name(name)],
+    out = cast(
+        ir.Value,
+        ctx.builder.Gather(
+            data,
+            idx,
+            axis=int(axis),
+            _outputs=[ctx.fresh_name(name)],
+        ),
     )
     if getattr(data, "type", None) is not None:
         out.type = data.type
@@ -83,15 +94,17 @@ def _gather_scalar(
 
 
 def _unsqueeze(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     data: ir.Value,
     *,
     axis: int,
-    out_shape: tuple[object, ...],
+    out_shape: ShapeDims,
     name: str,
 ) -> ir.Value:
     axes = _const_i64(ctx, np.asarray([axis], dtype=np.int64), f"{name}_axes")
-    out = ctx.builder.Unsqueeze(data, axes, _outputs=[ctx.fresh_name(name)])
+    out = cast(
+        ir.Value, ctx.builder.Unsqueeze(data, axes, _outputs=[ctx.fresh_name(name)])
+    )
     if getattr(data, "type", None) is not None:
         out.type = data.type
     _stamp_type_and_shape(out, out_shape)
@@ -137,7 +150,7 @@ def _unsqueeze(
     ],
 )
 class TriangularSolvePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         (a_var, b_var) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
@@ -152,9 +165,15 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
                 "triangular_solve with conjugate_a=True is not supported yet"
             )
 
-        a_shape = tuple(getattr(getattr(a_var, "aval", None), "shape", ()))
-        b_shape = tuple(getattr(getattr(b_var, "aval", None), "shape", ()))
-        out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        a_shape = cast(
+            ShapeDims, tuple(getattr(getattr(a_var, "aval", None), "shape", ()))
+        )
+        b_shape = cast(
+            ShapeDims, tuple(getattr(getattr(b_var, "aval", None), "shape", ()))
+        )
+        out_shape = cast(
+            ShapeDims, tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
+        )
         if len(a_shape) < 2:
             raise ValueError("triangular_solve requires rank >= 2 for matrix input")
 
@@ -204,7 +223,9 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
 
         if n == 0:
             work_name = desired_name if left_side else ctx.fresh_name("tri_solve_work")
-            empty_work = ctx.builder.Identity(b_work, _outputs=[work_name])
+            empty_work = cast(
+                ir.Value, ctx.builder.Identity(b_work, _outputs=[work_name])
+            )
             if getattr(b_work, "type", None) is not None:
                 empty_work.type = b_work.type
             _stamp_type_and_shape(empty_work, work_out_shape)
@@ -291,10 +312,13 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
                     out_shape=a_elem_shape + (1,),
                     name=f"tri_solve_aik_unsq_{i}_{k}",
                 )
-                term = ctx.builder.Mul(
-                    aik_expanded,
-                    xk,
-                    _outputs=[ctx.fresh_name(f"tri_solve_term_{i}_{k}")],
+                term = cast(
+                    ir.Value,
+                    ctx.builder.Mul(
+                        aik_expanded,
+                        xk,
+                        _outputs=[ctx.fresh_name(f"tri_solve_term_{i}_{k}")],
+                    ),
                 )
                 if getattr(xk, "type", None) is not None:
                     term.type = xk.type
@@ -304,10 +328,13 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
                 if acc is None:
                     acc = term
                 else:
-                    acc = ctx.builder.Add(
-                        acc,
-                        term,
-                        _outputs=[ctx.fresh_name(f"tri_solve_acc_{i}_{k}")],
+                    acc = cast(
+                        ir.Value,
+                        ctx.builder.Add(
+                            acc,
+                            term,
+                            _outputs=[ctx.fresh_name(f"tri_solve_acc_{i}_{k}")],
+                        ),
                     )
                     if getattr(term, "type", None) is not None:
                         acc.type = term.type
@@ -316,10 +343,13 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
 
             rhs_adjusted = rhs
             if acc is not None:
-                rhs_adjusted = ctx.builder.Sub(
-                    rhs,
-                    acc,
-                    _outputs=[ctx.fresh_name(f"tri_solve_rhs_{i}")],
+                rhs_adjusted = cast(
+                    ir.Value,
+                    ctx.builder.Sub(
+                        rhs,
+                        acc,
+                        _outputs=[ctx.fresh_name(f"tri_solve_rhs_{i}")],
+                    ),
                 )
                 if getattr(rhs, "type", None) is not None:
                     rhs_adjusted.type = rhs.type
@@ -337,10 +367,13 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
                     out_shape=a_elem_shape + (1,),
                     name=f"tri_solve_aii_unsq_{i}",
                 )
-                xi = ctx.builder.Div(
-                    rhs_adjusted,
-                    aii_expanded,
-                    _outputs=[ctx.fresh_name(f"tri_solve_x_{i}")],
+                xi = cast(
+                    ir.Value,
+                    ctx.builder.Div(
+                        rhs_adjusted,
+                        aii_expanded,
+                        _outputs=[ctx.fresh_name(f"tri_solve_x_{i}")],
+                    ),
                 )
                 if getattr(rhs_adjusted, "type", None) is not None:
                     xi.type = rhs_adjusted.type
@@ -364,10 +397,13 @@ class TriangularSolvePlugin(PrimitiveLeafPlugin):
             stacked_rows.append(expanded)
 
         work_name = desired_name if left_side else ctx.fresh_name("tri_solve_work")
-        result_work = ctx.builder.Concat(
-            *stacked_rows,
-            axis=unsqueeze_row_axis,
-            _outputs=[work_name],
+        result_work = cast(
+            ir.Value,
+            ctx.builder.Concat(
+                *stacked_rows,
+                axis=unsqueeze_row_axis,
+                _outputs=[work_name],
+            ),
         )
         if left_side and getattr(out_spec, "type", None) is not None:
             result_work.type = out_spec.type

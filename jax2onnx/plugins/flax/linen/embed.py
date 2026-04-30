@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 from flax import linen as nn
@@ -73,27 +73,32 @@ class EmbedPlugin(nnx_embed.EmbedPlugin):
     """IR-only plugin for flax.linen.Embed → ONNX Gather."""
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.embed")
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         EmbedPlugin._ORIGINAL_CALL = orig_fn
         prim = EmbedPlugin._PRIM
 
-        def patched(self, inputs):
+        def call_orig(self: Any, inputs: Any) -> Any:
+            if orig_fn is None:
+                raise RuntimeError("flax.linen.Embed.__call__ is not available.")
+            return orig_fn(self, inputs)
+
+        def patched(self: Any, inputs: Any) -> Any:
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             if int(getattr(self, "num_embeddings", 0)) == 1:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             variables = scope.variables()
             params = variables.get("params", {})
             embedding = params.get("embedding")
             if embedding is None:
-                return orig_fn(self, inputs)
+                return call_orig(self, inputs)
 
             if not jnp.issubdtype(inputs.dtype, jnp.integer):
                 raise ValueError("Input type must be an integer or unsigned integer.")
@@ -107,7 +112,7 @@ class EmbedPlugin(nnx_embed.EmbedPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "embed_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -120,5 +125,5 @@ class EmbedPlugin(nnx_embed.EmbedPlugin):
 
 
 @EmbedPlugin._PRIM.def_impl
-def _embed_impl(indices, embedding):
+def _embed_impl(indices: Any, embedding: Any) -> Any:
     return jnp.take(embedding, indices, axis=0)

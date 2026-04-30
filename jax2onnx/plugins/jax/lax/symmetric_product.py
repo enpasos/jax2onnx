@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
+import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
-
-def _stamp_like(value: Any, ref: Any) -> None:
+def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
     if getattr(ref, "type", None) is not None:
         value.type = ref.type
     if getattr(ref, "shape", None) is not None:
@@ -83,7 +82,7 @@ def _stamp_like(value: Any, ref: Any) -> None:
 class SymmetricProductPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.symmetric_product`` as ``alpha*A*A^T + beta*C``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         a_var, c_var = eqn.invars
         out_var = eqn.outvars[0]
         params = dict(getattr(eqn, "params", {}) or {})
@@ -102,11 +101,17 @@ class SymmetricProductPlugin(PrimitiveLeafPlugin):
         perm = list(range(len(a_shape)))
         perm[-1], perm[-2] = perm[-2], perm[-1]
 
-        a_t = ctx.builder.Transpose(
-            a, perm=perm, _outputs=[ctx.fresh_name("symprod_at")]
+        a_t = cast(
+            ir.Value,
+            ctx.builder.Transpose(
+                a, perm=perm, _outputs=[ctx.fresh_name("symprod_at")]
+            ),
         )
         _stamp_like(a_t, a)
-        aa_t = ctx.builder.MatMul(a, a_t, _outputs=[ctx.fresh_name("symprod_aat")])
+        aa_t = cast(
+            ir.Value,
+            ctx.builder.MatMul(a, a_t, _outputs=[ctx.fresh_name("symprod_aat")]),
+        )
         _stamp_like(aa_t, c if getattr(c, "shape", None) is not None else a)
 
         out = aa_t
@@ -117,10 +122,13 @@ class SymmetricProductPlugin(PrimitiveLeafPlugin):
                     alpha, dtype=np.dtype(getattr(a_var.aval, "dtype", np.float32))
                 ),
             )
-            out = ctx.builder.Mul(
-                out,
-                alpha_c,
-                _outputs=[ctx.fresh_name("symprod_alpha_scaled")],
+            out = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    out,
+                    alpha_c,
+                    _outputs=[ctx.fresh_name("symprod_alpha_scaled")],
+                ),
             )
             _stamp_like(out, aa_t)
 
@@ -130,16 +138,22 @@ class SymmetricProductPlugin(PrimitiveLeafPlugin):
         )
         c_term = c
         if beta != 1.0:
-            c_term = ctx.builder.Mul(
-                c,
-                beta_c,
-                _outputs=[ctx.fresh_name("symprod_beta_scaled")],
+            c_term = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    c,
+                    beta_c,
+                    _outputs=[ctx.fresh_name("symprod_beta_scaled")],
+                ),
             )
             _stamp_like(c_term, c)
-        out = ctx.builder.Add(
-            out,
-            c_term,
-            _outputs=[ctx.fresh_name("symprod_out_raw")],
+        out = cast(
+            ir.Value,
+            ctx.builder.Add(
+                out,
+                c_term,
+                _outputs=[ctx.fresh_name("symprod_out_raw")],
+            ),
         )
         _stamp_like(out, c)
 
@@ -147,7 +161,7 @@ class SymmetricProductPlugin(PrimitiveLeafPlugin):
             "symmetric_product"
         )
         if getattr(out, "name", None) != desired_name:
-            out = ctx.builder.Identity(out, _outputs=[desired_name])
+            out = cast(ir.Value, ctx.builder.Identity(out, _outputs=[desired_name]))
         _stamp_like(out, out_spec if getattr(out_spec, "type", None) else c)
         if getattr(out_spec, "shape", None) is not None:
             out.shape = out_spec.shape

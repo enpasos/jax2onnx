@@ -16,6 +16,7 @@ from typing import (
     Set,
     Tuple,
     Union,
+    cast,
 )
 from collections import deque
 import numpy as np
@@ -24,6 +25,12 @@ import numpy as np
 _onnx_numpy_helper: Final[Any | None] = None
 
 ShapeDim = Optional[Union[int, str]]
+ShapeTuple = Tuple[ShapeDim, ...]
+PathStep = Tuple[str, Optional[ShapeTuple]]
+GraphFilter = Tuple[Set[str], Set[str], Set[str]]
+ValueKey = Tuple[str, Any]
+ProducerMap = Dict[ValueKey, Tuple[int, Any]]
+NDArrayAny = np.ndarray[Any, np.dtype[Any]]
 
 # No onnx imports here by policy — we work via duck-typing only.
 
@@ -279,7 +286,7 @@ def _sanitize_graph_selector(name: str) -> str:
     return ":".join(parts)
 
 
-def _parse_shape(s: str) -> Tuple:
+def _parse_shape(s: str | None) -> ShapeTuple:
     """
     Parse a compact shape string into a tuple:
       - integers -> int
@@ -326,7 +333,7 @@ class _GraphView:
                 self._add_graph(f"fn:{name}", g)
 
         # Build shape indices (name -> tuple dims) for each graph we see (ONNX only).
-        self._shape_index: Dict[str, Dict[str, Tuple[ShapeDim, ...]]] = {}
+        self._shape_index: Dict[str, Dict[str, ShapeTuple]] = {}
         # Live-node indices (reachable from graph outputs) for each graph.
         self._live_index: Dict[str, Set[int]] = {}
         for gname, g in self.graphs:
@@ -440,7 +447,7 @@ class _GraphView:
 
         # Parse path: tokens like "Op[:shape]" split by ->
         tokens = [t.strip() for t in path.strip("^$ ").split("->")]
-        steps: List[Tuple[str, Optional[Tuple]]] = []
+        steps: List[PathStep] = []
         for tok in tokens:
             if ":" in tok:
                 op, sh = tok.split(":", 1)
@@ -609,9 +616,7 @@ def _nodes(g):
     return list(getattr(g, "nodes", getattr(g, "_nodes", getattr(g, "node", []))))
 
 
-def _graph_filter_allows(
-    normalized: Tuple[Set[str], Set[str], Set[str]], graph_name: str
-) -> bool:
+def _graph_filter_allows(normalized: GraphFilter, graph_name: str) -> bool:
     exact, prefixes, _ = normalized
     if graph_name in exact:
         return True
@@ -620,7 +625,7 @@ def _graph_filter_allows(
 
 def _normalize_graph_filter(
     graph_filter: Any,
-) -> Optional[Tuple[Set[str], Set[str], Set[str]]]:
+) -> Optional[GraphFilter]:
     if graph_filter is None:
         return None
     items: List[str]
@@ -649,8 +654,6 @@ def _normalize_graph_filter(
             prefix_matches.add(f"{sanitized}:")
 
     for item in items:
-        if not isinstance(item, str):
-            continue
         if item == "top":
             _add_entry("top")
             continue
@@ -717,12 +720,12 @@ def _shape_of_value(v) -> Optional[Tuple[ShapeDim, ...]]:
 # ---------- ONNX shape index (duck-typed) ----------
 
 
-def _build_shape_index(g) -> Dict[str, Tuple]:
+def _build_shape_index(g) -> Dict[str, ShapeTuple]:
     """
     For ONNX graphs: read shapes from value_info / inputs / outputs (duck-typed).
     For onnx_ir graphs: return {} and rely on Value.shape at use sites.
     """
-    idx: Dict[str, Tuple] = {}
+    idx: Dict[str, ShapeTuple] = {}
     # If there is no 'value_info', we assume onnx_ir and skip.
     has_vi = hasattr(g, "value_info")
     if not has_vi and not hasattr(g, "input") and not hasattr(g, "output"):
@@ -742,7 +745,7 @@ def _build_shape_index(g) -> Dict[str, Tuple]:
     return idx
 
 
-def _shape_from_value_info(vi) -> Optional[Tuple]:
+def _shape_from_value_info(vi) -> Optional[ShapeTuple]:
     """
     Duck-typed extraction from ONNX ValueInfoProto:
       vi.type.tensor_type.shape.dim -> list of dims with fields dim_value / dim_param
@@ -781,7 +784,7 @@ def _shape_from_value_info(vi) -> Optional[Tuple]:
         return None
 
 
-def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
+def _shape_of_output(v, shape_index: Mapping[str, ShapeTuple]) -> Optional[ShapeTuple]:
     """
     v can be a name (ONNX) or a Value (onnx_ir).
     """
@@ -797,8 +800,8 @@ def _shape_of_output(v, shape_index: Dict[str, Tuple]) -> Optional[Tuple]:
 
 
 def _unify_shape(
-    expected: Tuple[ShapeDim, ...],
-    actual: Optional[Tuple[ShapeDim, ...]],
+    expected: ShapeTuple,
+    actual: Optional[ShapeTuple],
     env: Dict[str, ShapeDim],
 ) -> bool:
     """
@@ -832,18 +835,7 @@ def _unify_shape(
                 else:
                     aval = sval
             else:
-                if a is None:
-                    aval = None
-                else:
-                    try:
-                        aval = int(a)  # type: ignore[arg-type]
-                    except Exception:
-                        sval = str(a).strip()
-                        aval = (
-                            None
-                            if sval in ("", "None", "?", "unk", "unknown")
-                            else sval
-                        )
+                aval = None
             if aval is None:
                 return False
             bound = env.get(e)
@@ -852,8 +844,6 @@ def _unify_shape(
             else:
                 if bound != aval:
                     return False
-        else:
-            return False
     return True
 
 
@@ -862,11 +852,11 @@ def _unify_shape(
 
 def _match_path_on_graph(
     g,
-    steps: List[Tuple[str, Optional[Tuple]]],
+    steps: List[PathStep],
     env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
     gname: str,
-    shape_index: Dict[str, Tuple],
+    shape_index: Mapping[str, ShapeTuple],
 ) -> Tuple[bool, str, List[int]]:
     nodes = _nodes(g)
     consumer_map = _build_consumer_map(nodes)
@@ -905,11 +895,11 @@ def _match_path_on_graph(
 def _path_from(
     nodes,
     i0: int,
-    steps: List[Tuple[str, Optional[Tuple]]],
+    steps: List[PathStep],
     env: Dict[str, ShapeDim],
     passthrough_ops: set[str],
-    shape_index: Dict[str, Tuple],
-    consumer_map: Dict[Tuple, List[int]],
+    shape_index: Mapping[str, ShapeTuple],
+    consumer_map: Dict[ValueKey, List[int]],
     matched: Optional[List[int]] = None,
 ) -> Tuple[bool, str]:
     matched_local: List[int] = []
@@ -960,8 +950,8 @@ def _path_from(
     return True, ""
 
 
-def _value_keys(v) -> List[Tuple[str, Any]]:
-    keys: List[Tuple[str, Any]] = []
+def _value_keys(v) -> List[ValueKey]:
+    keys: List[ValueKey] = []
     name = _value_name(v)
     if name:
         keys.append(("name", name))
@@ -1057,7 +1047,7 @@ def _is_missing_input(val) -> bool:
 
 def _extract_constant_array(
     value, nodes, graph, depth: int = 0
-) -> Optional[np.ndarray]:
+) -> Optional[NDArrayAny]:
     if depth > 6:
         return None
     arr = _value_constant_payload(value)
@@ -1093,7 +1083,7 @@ def _extract_constant_array(
     return None
 
 
-def _value_constant_payload(val) -> Optional[np.ndarray]:
+def _value_constant_payload(val) -> Optional[NDArrayAny]:
     if isinstance(val, str) or val is None:
         return None
     for attr in ("const_value", "_const_value", "value", "data", "numpy"):
@@ -1104,13 +1094,13 @@ def _value_constant_payload(val) -> Optional[np.ndarray]:
         if arr is not None:
             return arr
         try:
-            return np.asarray(payload)
+            return cast(NDArrayAny, np.asarray(payload))
         except Exception:
             continue
     return None
 
 
-def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[np.ndarray]:
+def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[NDArrayAny]:
     if not name:
         return None
     for attr_name in ("initializer", "initializers", "_initializers"):
@@ -1129,30 +1119,30 @@ def _initializer_to_numpy(graph, name: Optional[str]) -> Optional[np.ndarray]:
     return None
 
 
-def _tensor_to_numpy(tensor) -> Optional[np.ndarray]:
+def _tensor_to_numpy(tensor) -> Optional[NDArrayAny]:
     if tensor is None:
         return None
     if isinstance(tensor, np.ndarray):
         return tensor
     if _onnx_numpy_helper is not None:
         try:
-            return _onnx_numpy_helper.to_array(tensor)
+            return cast(NDArrayAny, _onnx_numpy_helper.to_array(tensor))
         except Exception:
             pass
     try:
         arr = np.asarray(tensor)
         if arr.dtype != object:
-            return arr
+            return cast(NDArrayAny, arr)
     except Exception:
         pass
     raw = getattr(tensor, "raw_data", None)
     if raw:
-        dtype = _onnx_dtype_to_np(getattr(tensor, "data_type", 0))
-        arr = np.frombuffer(raw, dtype=dtype)
+        raw_dtype = _onnx_dtype_to_np(getattr(tensor, "data_type", 0))
+        arr = np.frombuffer(raw, dtype=raw_dtype)
         dims = getattr(tensor, "dims", None)
         dims = tuple(dims) if dims else ()
-        return arr.reshape(dims) if dims else arr
-    for field, dtype in (
+        return cast(NDArrayAny, arr.reshape(dims) if dims else arr)
+    for field, dtype_like in (
         ("float_data", np.float32),
         ("double_data", np.float64),
         ("int64_data", np.int64),
@@ -1165,10 +1155,10 @@ def _tensor_to_numpy(tensor) -> Optional[np.ndarray]:
     ):
         data = getattr(tensor, field, None)
         if data:
-            arr = np.array(list(data), dtype=dtype)
+            arr = np.array(list(data), dtype=dtype_like)
             dims = getattr(tensor, "dims", None)
             dims = tuple(dims) if dims else ()
-            return arr.reshape(dims) if dims else arr
+            return cast(NDArrayAny, arr.reshape(dims) if dims else arr)
     return None
 
 
@@ -1311,7 +1301,7 @@ def _format_dim(dim: Any, symtab: _SymbolTable) -> str:
     if isinstance(dim, str):
         return symtab.symbol_for(dim)
     try:
-        intval = int(dim)  # type: ignore[arg-type]
+        intval = int(dim)
     except Exception:
         return symtab.symbol_for(dim)
     return str(intval)
@@ -1414,7 +1404,7 @@ def _trace_main_chain(
 def _summarize_graph_primary_paths(
     g,
     *,
-    shape_index: Dict[str, Tuple],
+    shape_index: Mapping[str, ShapeTuple],
     symtab: _SymbolTable,
     hop_limit: int,
 ) -> List[str]:
@@ -1523,8 +1513,8 @@ def _spec_sort_key(item: Any) -> Tuple[str, str]:
     return ("top", str(item))
 
 
-def _build_consumer_map(nodes) -> Dict[Tuple, List[int]]:
-    mapping: Dict[Tuple, List[int]] = {}
+def _build_consumer_map(nodes) -> Dict[ValueKey, List[int]]:
+    mapping: Dict[ValueKey, List[int]] = {}
     for idx, node in enumerate(nodes):
         for inp in _inputs_of(node):
             for key in _value_keys(inp):
@@ -1533,7 +1523,7 @@ def _build_consumer_map(nodes) -> Dict[Tuple, List[int]]:
 
 
 def _consumer_indices(
-    nodes, idx: int, consumer_map: Dict[Tuple, List[int]]
+    nodes, idx: int, consumer_map: Dict[ValueKey, List[int]]
 ) -> List[int]:
     outs = _outputs_of(nodes[idx])
     seen: Set[int] = set()
@@ -1553,7 +1543,7 @@ def _walk_to_op(
     i: int,
     target_op: str,
     passthrough_ops: set[str],
-    consumer_map: Dict[Tuple, List[int]],
+    consumer_map: Dict[ValueKey, List[int]],
 ) -> Tuple[Optional[int], List[str]]:
     candidates = _consumer_indices(nodes, i, consumer_map)
     if not candidates:

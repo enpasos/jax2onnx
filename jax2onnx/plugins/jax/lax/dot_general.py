@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import itertools
 import string
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import Any, Iterator, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     cast_real_tensor,
@@ -25,9 +26,6 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.ir_utils import numpy_dtype_to_ir
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
@@ -196,7 +194,7 @@ def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
 class DotGeneralPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.dot_general`` via MatMul/Gemm fast-path or Einsum fallback."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -273,7 +271,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def _maybe_lower_complex(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         lhs_var: Any,
         rhs_var: Any,
         out_var: Any,
@@ -398,11 +396,14 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         result_dims = coerce_dim_values(out_shape)
 
         def _einsum(left: ir.Value, right: ir.Value, name: str) -> ir.Value:
-            value = ctx.builder.Einsum(
-                left,
-                right,
-                equation=equation,
-                _outputs=[ctx.fresh_name(name)],
+            value = cast(
+                ir.Value,
+                ctx.builder.Einsum(
+                    left,
+                    right,
+                    equation=equation,
+                    _outputs=[ctx.fresh_name(name)],
+                ),
             )
             value.type = ir.TensorType(target_dtype)
             value.dtype = target_dtype
@@ -455,7 +456,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def _try_lower_matmul(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         lhs_var: Any,
         rhs_var: Any,
         out_var: Any,
@@ -612,7 +613,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def _lower_via_einsum(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         lhs_var: Any,
         rhs_var: Any,
         out_var: Any,
@@ -732,7 +733,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def _prepare_operand_for_einsum(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         value: ir.Value,
         shape: tuple[int, ...],
         batch_axes: tuple[int, ...],
@@ -853,7 +854,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     def _pad_operand_front(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         value: ir.Value,
         shape: tuple[int, ...],
         batch_axes: tuple[int, ...],
@@ -873,7 +874,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _unsqueeze_value(
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         value: ir.Value,
         shape: tuple[int, ...],
         axes: tuple[int, ...],

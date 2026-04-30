@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Sequence, cast
+from typing import Any, Final, Sequence, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     cast_real_tensor,
@@ -23,8 +24,16 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
+
+def _as_value(value: Any) -> ir.Value:
+    return cast(ir.Value, value)
+
+
+def _require_dtype(value: ir.Value, *, context: str) -> ir.DataType:
+    dtype = value.dtype
+    if dtype is None:
+        raise ValueError(f"{context} requires typed IR input")
+    return dtype
 
 
 _LAYOUT_MAP: Final[dict[tuple[int, ...] | str, str]] = {
@@ -96,7 +105,7 @@ def _canonical_kernel_layout(layout: str, *, is_transpose: bool) -> str:
 
 
 def _flip_spatial_dims(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     val: ir.Value,
     shape: tuple[int, ...],
     layout: str,
@@ -128,15 +137,17 @@ def _flip_spatial_dims(
         array=np.array(steps, dtype=np.int64),
     )
 
-    flipped = ctx.builder.Slice(
-        val,
-        starts_val,
-        ends_val,
-        axes_val,
-        steps_val,
-        _outputs=[ctx.fresh_name(name_hint)],
+    flipped = _as_value(
+        ctx.builder.Slice(
+            val,
+            starts_val,
+            ends_val,
+            axes_val,
+            steps_val,
+            _outputs=[ctx.fresh_name(name_hint)],
+        )
     )
-    flipped.type = ir.TensorType(val.dtype)
+    flipped.type = ir.TensorType(_require_dtype(val, context="conv spatial flip"))
     _stamp_type_and_shape(flipped, shape)
     _ensure_value_metadata(ctx, flipped)
     return flipped
@@ -378,7 +389,7 @@ def _flip_spatial_dims(
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.conv_general_dilated`` to ONNX ``Conv``."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars[:2]
         out_var = eqn.outvars[0]
 
@@ -537,10 +548,14 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         canonical_input = lhs_val
         if lhs_layout != target_input_layout:
             perm = _perm(lhs_layout, target_input_layout)
-            transposed = ctx.builder.Transpose(
-                lhs_val,
-                _outputs=[ctx.fresh_name(f"conv_lhs_{target_input_layout.lower()}")],
-                perm=perm,
+            transposed = _as_value(
+                ctx.builder.Transpose(
+                    lhs_val,
+                    _outputs=[
+                        ctx.fresh_name(f"conv_lhs_{target_input_layout.lower()}")
+                    ],
+                    perm=perm,
+                )
             )
             lhs_dtype = getattr(getattr(lhs_val, "type", None), "dtype", None)
             if lhs_dtype is not None:
@@ -552,10 +567,14 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         canonical_kernel = rhs_val
         if rhs_layout != target_kernel_layout:
             perm = _perm(rhs_layout, target_kernel_layout)
-            transposed = ctx.builder.Transpose(
-                rhs_val,
-                _outputs=[ctx.fresh_name(f"conv_rhs_{target_kernel_layout.lower()}")],
-                perm=perm,
+            transposed = _as_value(
+                ctx.builder.Transpose(
+                    rhs_val,
+                    _outputs=[
+                        ctx.fresh_name(f"conv_rhs_{target_kernel_layout.lower()}")
+                    ],
+                    perm=perm,
+                )
             )
             rhs_dtype = getattr(getattr(rhs_val, "type", None), "dtype", None)
             if rhs_dtype is not None:
@@ -582,18 +601,22 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             else (getattr(out_spec, "name", None) or ctx.fresh_name(op_type))
         )
         if op_type == "ConvTranspose":
-            conv_result = ctx.builder.ConvTranspose(
-                canonical_input,
-                canonical_kernel,
-                _outputs=[conv_output_name],
-                **conv_kwargs,
+            conv_result = _as_value(
+                ctx.builder.ConvTranspose(
+                    canonical_input,
+                    canonical_kernel,
+                    _outputs=[conv_output_name],
+                    **conv_kwargs,
+                )
             )
         else:
-            conv_result = ctx.builder.Conv(
-                canonical_input,
-                canonical_kernel,
-                _outputs=[conv_output_name],
-                **conv_kwargs,
+            conv_result = _as_value(
+                ctx.builder.Conv(
+                    canonical_input,
+                    canonical_kernel,
+                    _outputs=[conv_output_name],
+                    **conv_kwargs,
+                )
             )
 
         if need_output_transpose:
@@ -608,10 +631,12 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         if need_output_transpose:
             perm_back = _perm(target_input_layout, out_layout)
             final_name = getattr(out_spec, "name", None) or ctx.fresh_name("conv_out")
-            final_val = ctx.builder.Transpose(
-                conv_result,
-                _outputs=[final_name],
-                perm=perm_back,
+            final_val = _as_value(
+                ctx.builder.Transpose(
+                    conv_result,
+                    _outputs=[final_name],
+                    perm=perm_back,
+                )
             )
             final_val.type = ir.TensorType(conv_dtype_enum)
             _stamp_type_and_shape(final_val, out_shape)
@@ -622,7 +647,7 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
 
     def _maybe_lower_complex(
         self,
-        ctx: "IRContext",
+        ctx: LoweringContextProtocol,
         lhs_var: Any,
         rhs_var: Any,
         lhs_val: ir.Value,
@@ -727,10 +752,12 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         ) -> ir.Value:
             if not perm:
                 return value
-            transposed = ctx.builder.Transpose(
-                value,
-                _outputs=[ctx.fresh_name(name_hint)],
-                perm=list(perm),
+            transposed = _as_value(
+                ctx.builder.Transpose(
+                    value,
+                    _outputs=[ctx.fresh_name(name_hint)],
+                    perm=list(perm),
+                )
             )
             perm_shape = tuple(shape[i] for i in perm)
             _stamp_type_and_shape(transposed, perm_shape)
@@ -749,10 +776,12 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         ) -> ir.Value:
             if getattr(value, "dtype", None) == dtype:
                 return value
-            casted = ctx.builder.Cast(
-                value,
-                to=int(dtype.value),
-                _outputs=[ctx.fresh_name(name_hint)],
+            casted = _as_value(
+                ctx.builder.Cast(
+                    value,
+                    to=int(dtype.value),
+                    _outputs=[ctx.fresh_name(name_hint)],
+                )
             )
             casted.type = ir.TensorType(dtype)
             shape_meta = getattr(value, "shape", None)
@@ -810,11 +839,13 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             )
 
         def _conv_op(lhs: ir.Value, rhs: ir.Value, name_hint: str) -> ir.Value:
-            conv = ctx.builder.Conv(
-                lhs,
-                rhs,
-                _outputs=[ctx.fresh_name(name_hint)],
-                **conv_kwargs,
+            conv = _as_value(
+                ctx.builder.Conv(
+                    lhs,
+                    rhs,
+                    _outputs=[ctx.fresh_name(name_hint)],
+                    **conv_kwargs,
+                )
             )
             conv.type = ir.TensorType(conv_compute_dtype)
             _stamp_type_and_shape(conv, conv_shape_nchw)
@@ -826,19 +857,23 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         ar_bi = _conv_op(lhs_real_canon, rhs_imag_canon, "conv_ar_bi")
         ai_br = _conv_op(lhs_imag_canon, rhs_real_canon, "conv_ai_br")
 
-        real_part = ctx.builder.Sub(
-            ar_br,
-            ai_bi,
-            _outputs=[ctx.fresh_name("conv_real_part")],
+        real_part = _as_value(
+            ctx.builder.Sub(
+                ar_br,
+                ai_bi,
+                _outputs=[ctx.fresh_name("conv_real_part")],
+            )
         )
         real_part.type = ir.TensorType(conv_compute_dtype)
         _stamp_type_and_shape(real_part, conv_shape_nchw)
         _ensure_value_metadata(ctx, real_part)
 
-        imag_part = ctx.builder.Add(
-            ar_bi,
-            ai_br,
-            _outputs=[ctx.fresh_name("conv_imag_part")],
+        imag_part = _as_value(
+            ctx.builder.Add(
+                ar_bi,
+                ai_br,
+                _outputs=[ctx.fresh_name("conv_imag_part")],
+            )
         )
         imag_part.type = ir.TensorType(conv_compute_dtype)
         _stamp_type_and_shape(imag_part, conv_shape_nchw)
@@ -868,10 +903,12 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                 value.type = ir.TensorType(target_dtype)
                 _ensure_value_metadata(ctx, value)
                 return value
-            transposed = ctx.builder.Transpose(
-                value,
-                _outputs=[ctx.fresh_name(name_hint)],
-                perm=list(perm),
+            transposed = _as_value(
+                ctx.builder.Transpose(
+                    value,
+                    _outputs=[ctx.fresh_name(name_hint)],
+                    perm=list(perm),
+                )
             )
             _stamp_type_and_shape(transposed, out_shape)
             transposed.type = ir.TensorType(target_dtype)

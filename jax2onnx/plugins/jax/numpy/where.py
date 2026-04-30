@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final
+from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
 from jax import core
@@ -375,10 +375,13 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for where lowering")
-        cast_val = builder.Cast(
-            value,
-            _outputs=[ctx.fresh_name(f"where_{tag}_cast")],
-            to=int(dtype_enum.value),
+        cast_val = cast(
+            ir.Value,
+            builder.Cast(
+                value,
+                _outputs=[ctx.fresh_name(f"where_{tag}_cast")],
+                to=int(dtype_enum.value),
+            ),
         )
         cast_val.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(cast_val, tuple(getattr(var.aval, "shape", ())))

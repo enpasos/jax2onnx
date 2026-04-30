@@ -21,7 +21,7 @@ from jax2onnx.plugins._ir_shapes import (
     _to_ir_dim_for_shape,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -251,7 +251,7 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, final)
 
     @classmethod
-    def binding_specs(cls) -> list[MonkeyPatchSpec]:
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         storage_slot = f"__orig_impl__{cls._FUNC_NAME}"
 
         def _make_value(

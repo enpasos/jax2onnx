@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 import onnx_ir as ir
@@ -30,9 +31,10 @@ def _shape_from_params(shape_param: Sequence[int]) -> tuple[int, ...]:
 
 def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
     arr = np.asarray(value, dtype=np.float32)
-    return ctx.builder.add_initializer_from_scalar(
+    result: ir.Value = ctx.builder.add_initializer_from_scalar(
         name=ctx.fresh_name("const"), value=arr
     )
+    return result
 
 
 @register_primitive(
@@ -84,49 +86,62 @@ class RandomBitsPlugin(PrimitiveLeafPlugin):
         # Force materialisation of the key so upstream RNG nodes stay live.
         ctx.get_value_for_var(key_var, name_hint=ctx.fresh_name("rng_key"))
 
-        uniform_val = ctx.builder.RandomUniform(
-            low=0.0,
-            high=1.0,
-            dtype=int(ir.DataType.FLOAT.value),
-            shape=shape,
-            _outputs=[ctx.fresh_name("rand_bits_uniform_template")],
+        uniform_val = cast(
+            ir.Value,
+            ctx.builder.RandomUniform(
+                low=0.0,
+                high=1.0,
+                dtype=int(ir.DataType.FLOAT.value),
+                shape=shape,
+                _outputs=[ctx.fresh_name("rand_bits_uniform_template")],
+            ),
         )
         uniform_val.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(uniform_val, shape)
 
         # RandomUniformLike uses template shape and keeps ONNX coverage aligned with
         # Random*Like operator families.
-        uniform_like = ctx.builder.RandomUniformLike(
-            uniform_val,
-            low=0.0,
-            high=1.0,
-            dtype=int(ir.DataType.FLOAT.value),
-            _outputs=[ctx.fresh_name("rand_bits_uniform")],
+        uniform_like = cast(
+            ir.Value,
+            ctx.builder.RandomUniformLike(
+                uniform_val,
+                low=0.0,
+                high=1.0,
+                dtype=int(ir.DataType.FLOAT.value),
+                _outputs=[ctx.fresh_name("rand_bits_uniform")],
+            ),
         )
         uniform_like.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(uniform_like, shape)
 
         scale = float(math.ldexp(1.0, bit_width))
         scale_const = _scalar_constant(ctx, scale)
-        scaled_val = ctx.builder.Mul(
-            uniform_like,
-            scale_const,
-            _outputs=[ctx.fresh_name("rand_bits_scaled")],
+        scaled_val = cast(
+            ir.Value,
+            ctx.builder.Mul(
+                uniform_like,
+                scale_const,
+                _outputs=[ctx.fresh_name("rand_bits_scaled")],
+            ),
         )
         scaled_val.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(scaled_val, shape)
 
-        floored_val = ctx.builder.Floor(
-            scaled_val, _outputs=[ctx.fresh_name("rand_bits_floor")]
+        floored_val = cast(
+            ir.Value,
+            ctx.builder.Floor(scaled_val, _outputs=[ctx.fresh_name("rand_bits_floor")]),
         )
         floored_val.type = ir.TensorType(ir.DataType.FLOAT)
         _stamp_type_and_shape(floored_val, shape)
 
         target_dtype = ir.DataType.UINT32 if bit_width <= 32 else ir.DataType.UINT64
-        out_value = ctx.builder.Cast(
-            floored_val,
-            _outputs=[ctx.fresh_name("rand_bits")],
-            to=int(target_dtype.value),
+        out_value = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                floored_val,
+                _outputs=[ctx.fresh_name("rand_bits")],
+                to=int(target_dtype.value),
+            ),
         )
         out_value.type = ir.TensorType(target_dtype)
         _stamp_type_and_shape(out_value, shape)

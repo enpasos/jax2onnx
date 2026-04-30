@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 from flax import linen as nn
 from jax.extend.core import Primitive
@@ -23,7 +23,7 @@ class _DropoutWithDefault(nn.Module):
     deterministic_default: bool = True
 
     @nn.compact
-    def __call__(self, x, *, deterministic: bool | None = None):
+    def __call__(self, x: Any, *, deterministic: bool | None = None) -> Any:
         det = self.deterministic_default if deterministic is None else deterministic
         return nn.Dropout(rate=self.rate)(x, deterministic=det)
 
@@ -77,23 +77,27 @@ class DropoutPlugin(nnx_dropout.DropoutPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.dropout")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
-    _ORIGINAL_CALL: ClassVar[Callable | None] = None
+    _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @staticmethod
-    def _dropout(x, deterministic, *, rate, call_time):
+    def _dropout(x: Any, deterministic: Any, *, rate: float, call_time: bool) -> Any:
         return DropoutPlugin._PRIM.bind(
             x, deterministic, rate=rate, call_time=call_time
         )
 
     @staticmethod
-    def _make_patch(orig_fn: Callable):
+    def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
         DropoutPlugin._ORIGINAL_CALL = orig_fn
         prim = DropoutPlugin._PRIM
 
-        def patched(self, x, deterministic=None, rng=None):
+        def patched(
+            self: Any, x: Any, deterministic: bool | None = None, rng: Any = None
+        ) -> Any:
             try:
                 det = nn.merge_param("deterministic", self.deterministic, deterministic)
             except ValueError:
+                if orig_fn is None:
+                    raise RuntimeError("flax.linen.Dropout.__call__ is not available.")
                 return orig_fn(self, x, deterministic=deterministic, rng=rng)
             call_time = deterministic is not None
             return prim.bind(x, det, rate=float(self.rate), call_time=call_time)
@@ -101,7 +105,7 @@ class DropoutPlugin(nnx_dropout.DropoutPlugin):
         return patched
 
     @classmethod
-    def binding_specs(cls):
+    def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         return [
             AssignSpec("flax.linen", "dropout_p", cls._PRIM, delete_if_missing=True),
             MonkeyPatchSpec(
@@ -114,6 +118,6 @@ class DropoutPlugin(nnx_dropout.DropoutPlugin):
 
 
 @DropoutPlugin._PRIM.def_impl
-def _impl(x, deterministic, *, rate, call_time=False):
+def _impl(x: Any, deterministic: Any, *, rate: float, call_time: bool = False) -> Any:
     del deterministic, rate, call_time
     return x

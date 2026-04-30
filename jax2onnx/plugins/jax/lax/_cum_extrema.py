@@ -8,6 +8,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import _to_ir_dim_for_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
@@ -24,7 +25,8 @@ def _stamp_meta(
     elif ref is not None and getattr(ref, "type", None) is not None:
         value.type = ref.type
     if shape is not None:
-        _stamp_type_and_shape(value, shape)
+        dims = tuple(_to_ir_dim_for_shape(dim) for dim in shape)
+        _stamp_type_and_shape(value, dims)
     _ensure_value_metadata(ctx, value)
 
 

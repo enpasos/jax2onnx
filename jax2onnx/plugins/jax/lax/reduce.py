@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import jax
 import numpy as np
 import jax.numpy as jnp
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import (
     lower_boolean_reduction,
     lower_reduction,
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
 
 
 def _canonical_reducer_name(name: str | None) -> str | None:
@@ -150,7 +148,7 @@ def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bo
 class ReducePlugin(PrimitiveLeafPlugin):
     """Lower selected ``lax.reduce`` reducers to ONNX reductions."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         reducer = _extract_reducer_primitive_name(params)
         if reducer not in {"add", "mul", "max", "min", "and", "or", "xor"}:
@@ -175,10 +173,13 @@ class ReducePlugin(PrimitiveLeafPlugin):
             )
 
         dimensions = tuple(int(d) for d in (params.get("dimensions", ()) or ()))
-        proxy_eqn = SimpleNamespace(
-            invars=[eqn.invars[0]],
-            outvars=eqn.outvars,
-            params={"axes": dimensions, "keepdims": False},
+        proxy_eqn = cast(
+            Any,
+            SimpleNamespace(
+                invars=[eqn.invars[0]],
+                outvars=eqn.outvars,
+                params={"axes": dimensions, "keepdims": False},
+            ),
         )
 
         if reducer == "add":

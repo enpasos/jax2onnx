@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.householder_product import (
     _gather_mat_elem,
@@ -17,24 +18,23 @@ from jax2onnx.plugins.jax.lax.householder_product import (
 )
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
-if TYPE_CHECKING:  # pragma: no cover
-    from jax2onnx.converter.ir_context import IRContext
-
 
 def _make_householder_vector(
-    ctx: "IRContext",
+    ctx: LoweringContextProtocol,
     a_val: ir.Value,
     *,
     idx: int,
     m: int,
     np_dtype: np.dtype[Any],
 ) -> ir.Value:
-    v = ctx.bind_const_for_var(object(), np.zeros((m, 1), dtype=np_dtype))
+    v: ir.Value = ctx.bind_const_for_var(object(), np.zeros((m, 1), dtype=np_dtype))
     if getattr(a_val, "type", None) is not None:
         v.type = a_val.type
     v.shape = ir.Shape((m, 1))
 
-    one = ctx.bind_const_for_var(object(), np.asarray([[1.0]], dtype=np_dtype))
+    one: ir.Value = ctx.bind_const_for_var(
+        object(), np.asarray([[1.0]], dtype=np_dtype)
+    )
     if getattr(a_val, "type", None) is not None:
         one.type = a_val.type
     one.shape = ir.Shape((1, 1))
@@ -46,11 +46,16 @@ def _make_householder_vector(
     return v
 
 
-def _transpose_vector(ctx: "IRContext", v: ir.Value, *, m: int, idx: int) -> ir.Value:
-    v_t = ctx.builder.Transpose(
-        v,
-        perm=[1, 0],
-        _outputs=[ctx.fresh_name(f"ormqr_vt_{idx}")],
+def _transpose_vector(
+    ctx: LoweringContextProtocol, v: ir.Value, *, m: int, idx: int
+) -> ir.Value:
+    v_t = cast(
+        ir.Value,
+        ctx.builder.Transpose(
+            v,
+            perm=[1, 0],
+            _outputs=[ctx.fresh_name(f"ormqr_vt_{idx}")],
+        ),
     )
     if getattr(v, "type", None) is not None:
         v_t.type = v.type
@@ -168,7 +173,7 @@ def _transpose_vector(ctx: "IRContext", v: ir.Value, *, m: int, idx: int) -> ir.
 class OrmqrPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.linalg.ormqr`` for static rank-2 real inputs."""
 
-    def lower(self, ctx: "IRContext", eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         left = bool(params.get("left", True))
         transpose = bool(params.get("transpose", False))
@@ -231,61 +236,81 @@ class OrmqrPlugin(PrimitiveLeafPlugin):
             tau_i.shape = ir.Shape((1,))
 
             if left:
-                vtc = ctx.builder.MatMul(
-                    v_t,
-                    result,
-                    _outputs=[ctx.fresh_name(f"ormqr_vtc_{idx}")],
+                vtc = cast(
+                    ir.Value,
+                    ctx.builder.MatMul(
+                        v_t,
+                        result,
+                        _outputs=[ctx.fresh_name(f"ormqr_vtc_{idx}")],
+                    ),
                 )
                 if getattr(result, "type", None) is not None:
                     vtc.type = result.type
                 vtc.shape = ir.Shape((1, c_cols))
 
-                update = ctx.builder.MatMul(
-                    v,
-                    vtc,
-                    _outputs=[ctx.fresh_name(f"ormqr_update_{idx}")],
+                update = cast(
+                    ir.Value,
+                    ctx.builder.MatMul(
+                        v,
+                        vtc,
+                        _outputs=[ctx.fresh_name(f"ormqr_update_{idx}")],
+                    ),
                 )
                 if getattr(result, "type", None) is not None:
                     update.type = result.type
                 update.shape = ir.Shape((m, c_cols))
             else:
-                cv = ctx.builder.MatMul(
-                    result,
-                    v,
-                    _outputs=[ctx.fresh_name(f"ormqr_cv_{idx}")],
+                cv = cast(
+                    ir.Value,
+                    ctx.builder.MatMul(
+                        result,
+                        v,
+                        _outputs=[ctx.fresh_name(f"ormqr_cv_{idx}")],
+                    ),
                 )
                 if getattr(result, "type", None) is not None:
                     cv.type = result.type
                 cv.shape = ir.Shape((c_rows, 1))
 
-                update = ctx.builder.MatMul(
-                    cv,
-                    v_t,
-                    _outputs=[ctx.fresh_name(f"ormqr_update_{idx}")],
+                update = cast(
+                    ir.Value,
+                    ctx.builder.MatMul(
+                        cv,
+                        v_t,
+                        _outputs=[ctx.fresh_name(f"ormqr_update_{idx}")],
+                    ),
                 )
                 if getattr(result, "type", None) is not None:
                     update.type = result.type
                 update.shape = ir.Shape((c_rows, m))
 
-            scaled = ctx.builder.Mul(
-                tau_i,
-                update,
-                _outputs=[ctx.fresh_name(f"ormqr_scaled_update_{idx}")],
+            scaled = cast(
+                ir.Value,
+                ctx.builder.Mul(
+                    tau_i,
+                    update,
+                    _outputs=[ctx.fresh_name(f"ormqr_scaled_update_{idx}")],
+                ),
             )
             if getattr(update, "type", None) is not None:
                 scaled.type = update.type
             scaled.shape = update.shape
 
-            result = ctx.builder.Sub(
-                result,
-                scaled,
-                _outputs=[ctx.fresh_name(f"ormqr_result_{idx}")],
+            result = cast(
+                ir.Value,
+                ctx.builder.Sub(
+                    result,
+                    scaled,
+                    _outputs=[ctx.fresh_name(f"ormqr_result_{idx}")],
+                ),
             )
             _stamp_like(result, c_val)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("ormqr")
         if getattr(result, "name", None) != desired_name:
-            result = ctx.builder.Identity(result, _outputs=[desired_name])
+            result = cast(
+                ir.Value, ctx.builder.Identity(result, _outputs=[desired_name])
+            )
         _stamp_like(result, out_spec if getattr(out_spec, "type", None) else c_val)
         if getattr(out_spec, "shape", None) is not None:
             result.shape = out_spec.shape
