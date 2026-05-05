@@ -76,6 +76,9 @@ to_onnx(
 
 🔎 See it visualized: [`model_with_function.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/model_with_function.onnx)
 
+See [ONNX Functions](onnx_functions.md) for naming, namespaces, and reuse
+options.
+
 ## Troubleshooting
 
 If conversion doesn't work out of the box, it could be due to:

@@ -1,46 +1,64 @@
-# Typing Improvements Roadmap
+# Typing Guardrails
 
-Long-running effort to keep the converter + plugin stack type-safe under mypy. This
-mirrors the guardrails in `AGENTS.md` (PRNG discipline, ONNX-only IR builders) and
-keeps metadata/regressions visible earlier in CI.
+The converter and plugin stack is typed as first-party code. Treat typing as a
+guardrail for IR ownership, shape/dtype metadata, PRNG discipline, and plugin
+metadata contracts rather than as a separate cleanup project.
 
-## Goals
+## Current Check
 
-- Strengthen static typing in converter + plugin subsystems so shape/dtype drift,
-  PRNG misuse, and metadata mismatches fail fast.
-- Use shared protocols/helpers (`LoweringContextProtocol`, `SymbolicDimOrigin`,
-  `PrimitiveLowering`, `FunctionLowering`, etc.) instead of ad-hoc `dict`/`Any`.
-- Keep strict mypy coverage rolling forward via `scripts/check_typing.sh`.
+Run:
 
-## Strategy
+```bash
+./scripts/check_typing.sh
+```
 
-1. Review mypy config regularly and identify the next converter/plugin hot paths
-   to bring under strict overrides.
-2. Introduce shared typed helpers for IR builders, lowering contexts, and PRNG
-   metadata so new modules inherit concrete signatures.
-3. Tighten mypy settings (per-package strict overrides + CI helper) so coverage
-   ratchets forward without regressing performance.
-4. Annotate prioritized modules, land the strict override, and resolve new typing
-   errors immediately.
+The wrapper runs:
 
-## Completed Milestones
+```bash
+poetry run mypy --config-file pyproject.toml
+poetry run python scripts/report_rng_traces.py
+```
 
-- mapped the converter/plugin modules most affected by stricter mypy in
-  `pyproject.toml`.
-- Added shared typing helpers (`SymbolicDimOrigin`, `LoweringContextProtocol`,
-  `AxisOverrideInfo`, `RngTrace`, `PrimitiveLowering`, `FunctionLowering`) and
-  migrated converter + registry infrastructure to use them.
-- Verified the converter no longer touches ONNX protobufs directly; IR-only flow
-  stays intact after removing the old serde shim.
-- Hardened typing around the plugin registry + Issue52 fixtures/sandboxes; the
-  scatter/broadcast/loop-concat helpers exercise the new protocols.
-- Added `scripts/check_typing.sh` so CI runs `poetry run mypy --config-file
-  pyproject.toml`; wired in `scripts/report_rng_traces.py` so RNG helpers stay visible.
-- Simplified mypy config so `files` currently tracks `jax2onnx/converter`, while
-  follow-up strict coverage continues through the curated helper/override work.
-- Extended strict coverage across high-traffic numpy/nn/random/attention plugins
-  (reshape/tile/einsum/stack/split/take/transpose/squeeze/select/prod/outer/sort,
-  activations, RNG primitives, attention shims, etc.) by annotating lowers, binding
-  specs, and batch rules with shared protocols.
-- Brought image/linear/conv/layer_norm/equinox helpers under strict overrides so
-  conversion guardrails also apply to Equinox modules.
+`pyproject.toml` currently checks the `jax2onnx` package, skips optional SOTA
+example integrations and sandbox repros, and follows `onnx_ir` imports normally
+so ONNX IR annotations are enforced.
+
+## Shared Types
+
+Use the shared protocols and dataclasses in
+`jax2onnx.converter.typing_support` instead of local `Any`/`dict` shapes:
+
+| Type | Use |
+| --- | --- |
+| `LoweringContextProtocol` | Plugin `lower(...)` methods and helpers that need the converter context. |
+| `IRBuilderProtocol` | Helpers that only need builder operations, constants, graph containers, or names. |
+| `SymbolicDimOrigin` | Provenance for symbolic dimensions materialized by `dim_as_value`. |
+| `AxisOverrideInfo` / `AxisOverrideMap` | Loop/scan axis-0 extent metadata that must survive nested graph rewrites. |
+| `RngTrace` | Metadata used by RNG trace reporting. |
+| `PrimitiveLowering` / `FunctionLowering` | Dispatch protocols for primitive and ONNX Function plugin instances. |
+
+## Authoring Rules
+
+- Annotate new plugin `lower(...)` methods with `LoweringContextProtocol` and the
+  concrete JAX equation type when it is available.
+- Keep helper signatures narrow. If a helper only needs `ctx.builder`, accept
+  `IRBuilderProtocol` or pass the builder directly.
+- Prefer `ir.Value`, `ir.Node`, `ir.Graph`, `ir.Attr`, and `ir.DataType`
+  annotations over protobuf types in converter/plugin code.
+- Use shared shape/dtype helpers from `plugins/_ir_shapes.py`,
+  `jax2onnx.ir_utils`, and `converter/typing_support.py`.
+- Add a shared protocol/helper when the same `cast(...)` or duck-typed fallback
+  appears in more than one module.
+
+## Boundary Exceptions
+
+Some code is intentionally less strict:
+
+- `jax2onnx/plugins/examples/maxtext` and `jax2onnx/plugins/examples/maxdiffusion`
+  depend on optional external checkouts.
+- `jax2onnx/sandbox` contains exploratory repros.
+- Structural test helpers may accept both ONNX IR and ONNX `ModelProto`-like
+  objects.
+
+Keep exceptions in those boundaries; do not let them leak into normal lowering
+modules.

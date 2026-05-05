@@ -1,6 +1,8 @@
 # ONNX Operator Coverage
 
 This matrix starts from the official ONNX operator index and shows which operators are referenced in `jax2onnx/plugins`.
+It is a public reference for coverage analysis; `Next Action` classifies gaps
+and metadata/lowering drift, but it is not a per-release commitment list.
 
 - `Metadata`: at least one `onnx__<Op>.html` operator link was found in plugin metadata.
 - `Lowering`: at least one `builder.<Op>(...)` call was found in plugin code.

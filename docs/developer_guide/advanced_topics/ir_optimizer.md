@@ -52,6 +52,32 @@ Current order:
 16. `remove_orphan_transposes`
 17. `prune_unused_graph_inputs`
 
+Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
+Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
+dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
+
+## Pass Summary
+
+| Pass | Scope | Purpose |
+| --- | --- | --- |
+| `name_fix` | model | Normalize generated names through the ONNX Script pass stack. |
+| `remove_redundant_casts` | graph + functions | Drop casts whose input already has the target dtype, and fold immediate cast pairs with no net dtype change. |
+| `remove_redundant_transpose_reduce` | graph + functions | Remove transpose/reduce patterns where axes and shapes prove the transpose has no semantic effect. |
+| `remove_redundant_transpose_add_forests` | graph + functions | Collapse broadcast-add forests introduced by layout conversions when every branch can be safely rewired. |
+| `remove_redundant_transpose_pairs` | graph + functions | Fold inverse transpose pairs across shape-preserving elementwise chains. |
+| `remove_redundant_reshape_pairs` | graph + functions | Fold flatten/unflatten pairs across shape-preserving elementwise chains. |
+| `remove_identity_reshapes` | graph + functions | Drop reshapes whose requested static shape exactly matches the input shape. |
+| `common_subexpression_elimination` | model | Run the ONNX Script CSE pass on the top-level model. |
+| `lift_constants_to_initializers` | model | Lift eligible `Constant` nodes to graph initializers. |
+| `rewrite_mul_rsqrt_as_div` | graph + functions | Rewrite multiplication by reciprocal square root into direct division where the producer chain is exact. |
+| `inline_dropout_training_mode_constants` | graph + functions | Inline static Dropout `training_mode` inputs so inference exports stay compact. |
+| `propagate_elementwise_shapes` | graph + functions | Propagate known shape metadata through elementwise operators. |
+| `propagate_unary_shapes` | graph + functions | Propagate known shape metadata through unary operators. |
+| `remove_redundant_casts_after_propagation` | graph + functions | Re-run cast cleanup after shape/dtype propagation may have exposed new no-op casts. |
+| `remove_dead_nodes` | model | Remove nodes that are unreachable from graph outputs. |
+| `remove_orphan_transposes` | graph + functions | Remove layout transposes whose outputs no longer feed live consumers. |
+| `prune_unused_graph_inputs` | graph only | Remove unused top-level graph inputs while preserving ONNX Function signatures. |
+
 ---
 
 ## Transpose Pair Folding
@@ -135,8 +161,10 @@ Both Reshape nodes are removed. The elementwise ops are rewired to consume `A` d
 ## Authoring new passes
 
 - Keep logic IR-only—never import ONNX protobuf utilities.
-- Verify mutations persist across in the graph (`graph`).
-- Use `graph` directly as a node container.
-- Avoid creating unnecessary helper functions. Prefer builtin IR methods instead.
+- Prefer `ir.Value` ownership helpers (`producer()`, `consumers()`,
+  `ir.convenience.replace_all_uses_with`, `graph.remove(...)`) over private
+  mirror mutation.
+- Preserve graph outputs and function signatures explicitly when rewiring.
+- Use shared optimizer utilities before adding new local graph-walking helpers.
 - Add focused regression tests under `tests/extra_tests/framework/`.
 - Document the new rule here and reference the guide from `architecture.md`.

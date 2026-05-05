@@ -1,6 +1,9 @@
 # ONNX IR Builder Guide
 
-This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: how to wire values, record initializers, and keep tests green now that the IR pipeline is builder-first.
+This guide distills the guardrails we enforce around `onnx_ir._tape.Builder` and
+the project wrapper `jax2onnx.converter.ir_builder.IRBuilder`: how to wire
+values, record constants, and keep tests green now that the converter is
+IR-first.
 
 ## Policy Checklist
 - Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` verifies this.
@@ -9,17 +12,21 @@ This guide distills the guardrails we enforce around `onnx_ir._tape.Builder`: ho
 - Run `scripts/check_ir_builder_usage.py` before sending patches (it is also wired into the pre-commit stack).
 
 ## Quick Checklist
-- Emit ops through `ctx.builder` (or `_tape.Builder`) rather than constructing `ir.Node` manually. Fall back only in function-mode/legacy paths where the builder cannot express the behaviour.
+- Emit ops through `ctx.builder` (or `_tape.Builder`) rather than constructing `ir.Node` manually. Fall back only when the builder cannot express the behaviour.
 - After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and run `_ensure_value_metadata(...)` so the `ir.Value` carries normalized shape/type metadata (no separate `value_info` bucket).
 - Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
-- When defining plugin metadata, use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` to honour the single-use RNG policy and keep tests deterministic across f32/f64 runs.
+- When defining plugin metadata, use `construct_and_call(...)` with placeholder
+  arguments such as `with_requested_dtype()` and `with_rng_seed(...)` to honour
+  the single-use RNG policy and keep tests deterministic across f32/f64 runs.
 - Run the validation hooks listed below (Ruff, builder usage checker, pytest) before landing a change; the pre-commit stack invokes them automatically.
 
 ## Plugin Metadata Requirements
 - Construct callable metadata with `construct_and_call(...)` so the test harness can rebuild modules for each dtype. Pair it with `with_requested_dtype()` and `with_rng_seed(...)`/`with_prng_key(...)` helpers instead of inlining lambdas or seeding at import time.
 - Avoid `callable_factory`. The test generator now raises if metadata still relies on factories—`callable` entries must be concrete `construct_and_call(...)` results.
 - When you need constants inside plugin lowers, prefer shared helpers (for example, `_const_i64`) that delegate to `ctx.builder` so they participate in initializer bookkeeping.
-- Respect the single-use RNG rule: split keys per consumer and never cache module instances inside traced calls—`construct_and_call(...).with_dtype(...)` already handles per-dtype reuse.
+- Respect the single-use RNG rule: split keys per consumer and never cache
+  module instances inside traced calls. `construct_and_call(...)` plus
+  `with_requested_dtype()` placeholders handles per-dtype rebuilds.
 
 ## Validation Hooks
 - `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` enforces both the "no protobuf" policy and initializer naming for every builder call.
@@ -38,7 +45,7 @@ import onnx_ir as ir
 from onnx_ir._tape import Builder
 ```
 
-> **Stability note**: `_tape.Builder` is currently internal API (the leading underscore is intentional) and can change. Keep the wrapper that instantiates it confined to XY so updates are easy.
+> **Stability note**: `_tape.Builder` is currently internal API (the leading underscore is intentional) and can change. Keep direct use confined to the project builder layer where possible so updates are easy.
 
 > **Legacy note**: The converter no longer maintains a `builder.value_info` list. Plugins should rely exclusively on `_ensure_value_metadata(...)` and the fields on each `ir.Value` when they need shape/type information. Avoid appending to or expecting a global `value_info` registry.
 
@@ -137,10 +144,16 @@ Keep these signatures in mind when deciding between builder convenience and dire
 
 ## Handling Multi-Output Operators
 ```python
-values = builder.If(condition, _outputs=["then_out", "else_out"], _version=18)
-then_out, else_out = values
+values, indices = builder.TopK(
+    X,
+    K,
+    axis=-1,
+    _outputs=["top_values", "top_indices"],
+    _version=18,
+)
 ```
-- The return type is a tuple of `ir.Value`. Pull out the node again with `then_out.producer()` if you need to mutate metadata.
+- The return type is a tuple of `ir.Value`. Pull out the node again with
+  `values.producer()` if you need to mutate metadata.
 - For heterogeneous arity where ONNX requires empty slots, pass `None` in the positional inputs (for example, `builder.MaxPool(X, None, strides=[1, 1], _outputs=2)`).
 
 ## Managing Attributes Explicitly
@@ -187,7 +200,10 @@ Because `_make_node` forwards the remaining keyword arguments into the attribute
 - **Multiple opset versions**: if two builder calls request different versions for the same domain, detect and reconcile before finishing the graph.
 - **Optional inputs**: include explicit `None` placeholders to maintain positional semantics.
 - **Attribute values of `None`**: build an `ir.Attr` with an explicit `AttributeType`; automatic conversion rejects bare `None`.
-- **Graph ownership**: do not reuse a builder-generated node inside another graph without detaching it first (`graph.remove(node)`), because each node tracks its owning graph.
+- **Graph ownership**: do not reuse a builder-generated node or value inside
+  another graph directly. Clone staged graphs with
+  `jax2onnx.converter.ir_clone.clone_graph` before moving them into a model,
+  control-flow body, or graph-typed attribute.
 
 ## Initializer Deduplication
 - Prefer `ctx.builder.add_initializer_from_scalar/array(...)` or `ctx.builder.const_i64(...)` to create constants. Avoid writing directly to `graph.initializers[...]`.
@@ -218,7 +234,8 @@ Rationale
   - Duplicate policy: attempting to re-add an initializer with the same name and different data raises. Re-adding an identical initializer reuses the existing value without replacing it, preserving value connections.
 - `graph.opset_imports` reflects the versions implied by `builder.used_opsets`.
 - Any node-level metadata (names, doc strings, annotations, overloads) is set on the node objects after creation.
-- Perform optional validation such as `ir.to_proto(model)`, ONNX checker runs, or `onnx_ir.load` round-trips if XY integrates them.
+- Perform optional validation such as `ir.to_proto(model)`, ONNX checker runs,
+  or `onnx_ir.load` round-trips when the code path serializes models.
 
 Keeping these conventions in one place ensures the "builder" layer stays predictable for Codex agents and humans alike, reducing churn when the upstream library evolves.
 

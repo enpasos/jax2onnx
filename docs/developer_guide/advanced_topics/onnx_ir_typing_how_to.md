@@ -1,127 +1,99 @@
-# Using the `onnx_ir` Type Information (PEP 561)
+# Using `onnx_ir` Types
 
-The `onnx_ir` package ships inline types and a `py.typed` marker so static type checkers know the annotations are part of the public API. Downstream projects can opt into these types without copying stubs or tweaking search paths—the package already complies with [PEP 561](https://peps.python.org/pep-0561/).
+`jax2onnx` depends on `onnx-ir>=0.2.1`. The package ships inline type
+information and a `py.typed` marker, so mypy can check converter and plugin code
+against the public ONNX IR API.
 
-## What the PEP 561 marker gives you
+## Project Configuration
 
-- `onnx_ir` publishes `src/onnx_ir/py.typed`, signalling to type checkers that the runtime package contains type information.
-- All exports rebind their `__module__` to `onnx_ir` (see `src/onnx_ir/__init__.py`), so hover information and error messages reference the public surface instead of private modules.
-- Because the marker file is empty, the project advertises itself as “fully typed”. If you discover gaps, report them or mark them with `typing.cast` to keep the promise tidy.
-
-## Install the package as usual
-
-```bash
-pip install onnx-ir
-```
-
-You do not need extra stub packages. If you vendor the source, be sure to keep the `py.typed` file alongside the `onnx_ir` directory.
-
-For pyproject-based projects, declare the dependency in `pyproject.toml`:
+The repository keeps `onnx_ir` imports typed in `pyproject.toml`:
 
 ```toml
-[project]
-dependencies = [
-  "onnx-ir>=0.1.11",
+[tool.mypy]
+python_version = "3.11"
+files = ["jax2onnx"]
+follow_imports = "skip"
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "onnx_ir",
+    "onnx_ir.*",
 ]
+follow_imports = "normal"
 ```
 
-Pin to at least the version you tested with so the exported types stay stable.
-
-## Configure your type checker
-
-### mypy
-
-```ini
-# mypy.ini
-[mypy]
-python_version = 3.11
-strict = True
-
-[mypy-onnx_ir.*]
-ignore_missing_imports = False  # default, kept for clarity
-```
-
-Run it with:
+Run the project typing check with:
 
 ```bash
-mypy src
+./scripts/check_typing.sh
 ```
 
-Because `py.typed` lives next to the package, mypy discovers the types automatically.
+That wrapper runs mypy with the repo config and then reports RNG metadata traces.
 
-### Pyright / Pylance
+## Constructing Typed IR Objects
 
-Add the package to the `venv` you use for analysis. Pyright picks up the marker automatically; no `"typeCheckingMode": "strict"` toggle is required but is recommended:
-
-```json
-// pyproject.toml or pyrightconfig.json (whichever you use)
-{
-  "pythonVersion": "3.11",
-  "typeCheckingMode": "strict",
-  "reportMissingTypeStubs": "warning"
-}
-```
-
-### Other tools
-
-- **Pytype**: as long as `onnx_ir` is importable, Pytype reads the inline annotations.
-- **Ruff** (`ruff check --select PYI`): uses the same metadata when linting.
-
-## Working with the API in a typed codebase
-
-### Constructing a model
+Prefer `ir.val(...)`, `ir.tensor(...)`, `ir.Node`, `ir.Graph`, and `ir.Model`
+directly when writing low-level tests or utility code:
 
 ```python
-from __future__ import annotations
+import numpy as np
+import onnx_ir as ir
 
-from onnx_ir import Model, Node, tensor, val
 
-
-def build_constant_add() -> Model:
-    weight = tensor([1.0, 2.0, 3.0], name="weight")
-    bias = tensor([0.1, 0.2, 0.3], name="bias")
-    add_node: Node = Node(
-        op_type="Add",
-        inputs=[weight.value, bias.value],
-        outputs=[val("sum", elem_type=weight.type.elem_type, shape=weight.type.shape)],
+def build_constant_add() -> ir.Model:
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[3])
+    weight = ir.val(
+        "weight",
+        dtype=ir.DataType.FLOAT,
+        shape=[3],
+        const_value=ir.tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32)),
     )
-    return Model.from_nodes([add_node])
+    y = ir.val("y", dtype=ir.DataType.FLOAT, shape=[3])
+
+    node = ir.Node("", "Add", [x, weight], outputs=[y])
+    graph = ir.Graph(
+        inputs=[x],
+        outputs=[y],
+        nodes=[node],
+        initializers=[weight],
+        opset_imports={"": 23},
+        name="constant_add",
+    )
+    return ir.Model(graph=graph, ir_version=10, producer_name="jax2onnx-test")
 ```
 
-Key points:
+For plugin lowering, prefer `ctx.builder` instead of constructing `ir.Node`
+manually. The builder keeps graph containers, initializers, names, and metadata
+aligned with project policy.
 
-- `tensor()`, `node()`, and `val()` return fully typed objects so attribute access is safe.
-- Structural protocols such as `TensorProtocol` can type-annotate third-party tensor objects accepted by the API.
+## Typing Patterns
 
-### Leveraging protocols for interop
+- Annotate lowerings with `LoweringContextProtocol` from
+  `jax2onnx.converter.typing_support`.
+- Use `IRBuilderProtocol` for helpers that only need the builder surface.
+- Use `SymbolicDimOrigin` when passing symbolic-dimension provenance between the
+  converter, `dim_as_value`, and shape helpers.
+- Use `AxisOverrideInfo` / `AxisOverrideMap` only for loop/scan extent metadata
+  where axis-0 overrides must survive nested graph rewrites.
+- Use `PrimitiveLowering` and `FunctionLowering` protocols when dispatch code
+  needs to accept plugin instances without depending on concrete base classes.
 
-```python
-from typing import Iterable
+## What to Avoid
 
-from onnx_ir import TensorProtocol
-
-
-def unwrap_tensor(tensor: TensorProtocol) -> Iterable[float]:
-    return list(tensor.tolist())
-```
-
-If you pass a NumPy array that implements `TensorProtocol`, the checker confirms compatibility without extra casts.
-
-## Best practices for downstream libraries
-
-- **Adopt future annotations**: add `from __future__ import annotations` at the top of new modules to reduce runtime typing overhead.
-- **Preserve type information**: if you re-export `onnx_ir` objects, rebind them in your own `__all__` so IDEs surface the right module path.
-- **Avoid untyped opt-outs**: instead of `type: ignore[assignment]`, prefer `typing.cast` with explanatory comments; this keeps you aligned with the library’s declared typing coverage.
-- **Test your types**: run `mypy --strict` or `pyright --level strict` in CI to detect API changes early when you upgrade `onnx_ir`.
+- Do not add local stubs for `onnx_ir`; rely on the package marker.
+- Do not use `Any` to bypass IR types in normal lowering code. If a compatibility
+  boundary needs duck typing, isolate it and document why.
+- Do not copy ONNX protobuf access patterns into converter/plugin code. Keep
+  protobuf compatibility inside test helpers and serialization boundaries.
+- Do not mutate private graph mirrors when public containers or helpers exist.
 
 ## Troubleshooting
 
-- **Checker cannot find the package**: confirm the environment where the checker runs has `onnx_ir` installed—`python -m site` helps locate `site-packages`.
-- **Marker missing after vendoring**: ensure `onnx_ir/py.typed` ships with your wheel or editable install. Without it, consumers see “Missing type stubs” warnings even though annotations exist.
-- **Encountering `Any` leaks**: file an issue with a minimal example; the maintainers mark problematic sections using `typing.cast` or `Protocol` adjustments rather than dropping the marker.
-
-## Further reading
-
-- [PEP 561 – Distributing and Packaging Type Information](https://peps.python.org/pep-0561/)
-- [Typing best practices in the Python docs](https://docs.python.org/3/howto/typing.html)
-- [mypy configuration reference](https://mypy.readthedocs.io/en/stable/config_file.html)
+- **mypy cannot find `onnx_ir` types:** confirm dependencies are installed in the
+  Poetry environment and that `onnx-ir>=0.2.1` is active.
+- **A helper needs both ONNX IR and ONNX `ModelProto`:** keep the typed IR path
+  first, then add a narrow duck-typed fallback at the boundary.
+- **A plugin suddenly needs `cast(...)`:** prefer a small typed helper in
+  `converter/typing_support.py`, `plugins/_ir_shapes.py`, or `jax2onnx.ir_utils`
+  if the pattern will recur.

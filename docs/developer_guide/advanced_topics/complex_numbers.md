@@ -4,7 +4,11 @@ This guide explains how `jax2onnx` handles complex tensors while staying within 
 
 ## Why we need a strategy
 
-ONNX (up to opset 21) does not provide native `tensor(complex*)` types for most operators. Arithmetic, shape, and control-flow primitives all expect real-valued tensors. The only complex-aware operator we rely on is `DFT`, which represents complex inputs and outputs as real tensors whose trailing dimension packs the real and imaginary channels (`[..., 2]`).
+ONNX has only limited native complex-tensor support across operators. Most
+arithmetic, shape, and control-flow primitives expect real-valued tensors. The
+main complex-aware operator we rely on is `DFT`, which represents complex inputs
+and outputs as real tensors whose trailing dimension packs the real and imaginary
+channels (`[..., 2]`).
 
 To stay portable across runtimes we represent every complex tensor as a real tensor with that trailing size-2 channel. Conversion never emits `Real`, `Imag`, or other custom operators—everything is expressed in terms of standard ONNX ops on real tensors.
 
@@ -12,6 +16,7 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 
 | Helper | Purpose |
 | --- | --- |
+| `ensure_complex_dtype(ctx, value, target_dtype)` | Cast native complex tensors between `COMPLEX64` and `COMPLEX128` when a lowering needs an exact complex dtype. |
 | `pack_native_complex(ctx, tensor)` | Reinterpret a native `complex64/complex128` value as a packed real tensor (`[..., 2]`). Handles double-precision upgrades automatically when `enable_double_precision=True`.
 | `is_packed_complex_tensor(value)` | Detect whether a value already uses the packed representation.
 | `ensure_packed_real_pair(ctx, value, *, name_hint)` | Return `(packed_tensor, base_dtype)` for both native complex inputs and already-packed tensors. Raises if the value is neither.
@@ -27,6 +32,12 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 
 ## Supported operations
 
+- **Construction and projection** (`lax.complex`, `lax.real`, `lax.imag`):
+  - `lax.complex` packs matching real and imaginary tensors into the shared
+    trailing-channel representation.
+  - `lax.real` and `lax.imag` gather the corresponding channel for packed or
+    native complex inputs; real inputs pass through the real path.
+
 - **Elementwise arithmetic** (`lax.add`, `lax.sub`, `lax.mul`, `lax.div`):
   - Detection logic looks at the JAX avals and value metadata. When a complex value is involved we normalise operands through `ensure_packed_real_pair`, align their base dtype (`FLOAT` ↔ `DOUBLE`) via `resolve_common_real_dtype` / `cast_real_tensor`, run the real-valued formulas, and use `pack_real_imag_pair` to rebuild the packed output.
   - Outputs inherit the packed representation and expose real metadata (`tensor(float)` / `tensor(double)` with trailing `2`).
@@ -34,7 +45,10 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 - **FFT pipeline** (`lax.fft`, `jnp.fft` for FFT/IFFT/RFFT):
   - Complex inputs (FFT/IFFT) are packed, reshaped if needed, and lowered to ONNX `DFT` with `inverse` / `onesided` flags. Real inputs (RFFT) receive the trailing channel before invoking `DFT`.
   - `IRFFT` currently requires explicit `fft_lengths`. The implementation reconstructs the missing half of the spectrum, flips the imaginary channel, and runs a forward packed `DFT` before gathering the real component.
-  - For `jnp.fft`, we register metadata-only primitives that reuse the same lowering when the call matches the canonical 1-D form (`axis=-1`, optional length). `irfft` keeps the original NumPy behaviour until we finish integrating the dtype-safe reconstruction path.
+  - For `jnp.fft`, metadata-only primitives reuse the same `lax.fft` lowering
+    for canonical 1-D forms (`axis=-1`, optional length). `jnp.fft.irfft`
+    follows the same packed reconstruction path as `lax.fft` and currently needs
+    static length information.
 
 - **MatMul / Einsum family** (`jax.lax.dot_general`, `jnp.matmul`):
   - Operands are normalised via `ensure_packed_real_pair` and cast to a shared real dtype. The real/imag channels are split with `split_packed_real_imag`, the real-valued contraction (`Einsum` or `MatMul`) runs four times, and `pack_real_imag_pair` stitches the results back together.
@@ -48,7 +62,13 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 - **Conjugation** (`jax.lax.conj`, `jnp.conj`):
   - Normalise packed/native complex inputs with `ensure_packed_real_pair`, call `conjugate_packed_tensor` to negate the imaginary channel, and return the packed output. Real inputs bypass through an `Identity`.
 
-- **Tests**: regression coverage lives under `tests/primitives/test_lax.py::Test_fft`, `Test_add`, `Test_sub`, `Test_mul`, `Test_div`, and `tests/primitives/test_jnp.py::Test_fft/ifft/rfft`.
+- **Complex-valued outputs** (`lax.linalg.eig`, `jnp.roots`):
+  - Plugins that naturally produce complex results should emit the same packed
+    representation and use `_complex_utils` helpers for dtype and shape metadata.
+
+- **Tests**: regression coverage is generated from plugin metadata and exercised
+  through `tests/primitives/test_lax.py`, `tests/primitives/test_jnp.py`, and
+  focused helper tests under `tests/extra_tests/converter/test_complex_utils.py`.
 
 ## Authoring new plugins with complex inputs
 
@@ -60,10 +80,15 @@ These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookke
 
 ## Current limitations
 
-- `jnp.fft.irfft` still delegates to the upstream implementation. The packed-real helpers need a dtype-clean reconstruction path before we can reuse the ONNX `DFT` lowering safely; track this separately if IRFFT metadata is required.
-- When new primitives handle complex data (e.g., transcendental ops), follow the same recipe outlined above: convert to packed real tensors, run the pure-real arithmetic, and emit `[... , 2]` outputs.
-- Convolution transpose / deconvolution paths are not yet implemented in `jax2onnx`; once a plugin lands it should reuse the same four-real structure (split, canonicalise layout, regroup, repack).
-- Additional regression coverage (broadcasted shapes, reduced-precision dtypes such as `bfloat16`, and multi-group convolutions) is staged in `work_notes_complex.md` and will be brought online incrementally.
+- The packed representation is the only supported ONNX-side complex convention.
+  Do not introduce native complex ONNX tensors for general arithmetic paths.
+- Not every JAX primitive that accepts complex inputs has a complex-aware
+  lowering. Several linear-algebra paths still reject complex inputs explicitly;
+  add support case by case using the same packed-real recipe.
+- `IRFFT` needs static onesided length information. If a new frontend path hides
+  that length, add metadata/tests before claiming coverage.
+- Convolution transpose / deconvolution paths should reuse the same four-real
+  structure if complex support is added there.
 
 
 ## Potential optimizations

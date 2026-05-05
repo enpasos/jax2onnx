@@ -1,23 +1,54 @@
 # IR Reflection & Typed API Guidelines
 
-These notes capture the durable lessons from the reflection cleanup completed in PR 96. Use them when extending the converter, optimizer, or plugin helpers so we stay aligned with the typed `onnx_ir` APIs and keep future audits small.
+Use typed `onnx_ir` APIs by default. Reflection and duck typing are still useful
+at compatibility boundaries, but they should be deliberate and isolated so the
+converter remains maintainable across `onnx_ir` releases.
 
-## Cleanup Workflow
+## Default Rule
 
-17. Introduce or reuse typed utility helpers (e.g. leveraging `val.dtype` or `val.shape`) and migrate one module at a time instead of broad rewrites.  
-2. Run `scripts/audit_ir_dynamic_access.py` after each sweep. Classify remaining hits as either *expected* (document why) or *needs follow-up*.  
-3. Re-run `mypy` together with a focused `pytest` slice before marking the sweep complete.
+- Treat `ir.Model`, `ir.Graph`, `ir.Node`, `ir.Value`, `ir.Attr`, and `ir.Shape`
+  as the canonical runtime model inside `converter/` and `plugins/`.
+- Prefer `value.dtype`, `value.shape`, `value.producer()`,
+  `value.consumers()`, `value.is_graph_input()`, and
+  `value.is_graph_output()` over probing private fields.
+- Prefer graph/container helpers such as `graph.all_nodes()`, `graph.remove(...)`,
+  `graph.subgraphs(...)`, and `ir.convenience.replace_all_uses_with(...)`.
+- Keep lowering code ONNX-IR only. Do not import ONNX protobuf types in
+  `converter/` or `plugins/`.
 
-Document ONNX proto shims that still require reflection (`plugins/_post_check_onnx_graph.py`, `plugins/_patching.py`) so the audit trail stays actionable.
+## Allowed Reflection Boundaries
 
-## Core Rules
+Reflection is acceptable when the code is intentionally bridging multiple graph
+representations:
 
-- **Typed APIs first** — Treat `ir.Attr`, `ir.Value`, and `ir.Graph` as immutable, typed objects. Avoid `getattr`, private field mutation, or redundant `None` guards; rely on the documented accessors instead.
-- **Use built-in graph iterators** — Iterate via `graph.nodes`, `graph.all_nodes()`, `value.consumers()`, `value.producer()`, and `ir.convenience.replace_all_uses_with` instead of constructing custom maps.
-- When working with `onnx_ir` graphs, prefer `graph.all_nodes()` so nested functions and control-flow subgraphs are traversed with the typed iterator. Only fall back to the ONNX proto mirrors (`function.node`) when you truly need the raw proto objects.
-- **Reuse shape & dtype helpers** — Use `onnx_ir.Shape.is_unknown_dim`, `ir.Shape(...)`, and `value.dtype` rather than cloning dtype/shape logic manually.
-- **Prefer existing passes** — Before adding bespoke optimizations, check the available ONNX Script passes (e.g., `fold_constants.FoldConstantsPass`, `LiftConstantsToInitializersPass`) and the IR optimizer docs.
-- **Keep helpers focused & typed** — Provide clear function signatures (e.g., `_attribute_iter(node: ir.Node) -> Iterable[ir.Attr]`) and avoid over-engineered utilities. Document non-obvious helpers.
-- **Lean on `onnx_ir` containers** — Use live `Attributes`, `Functions`, and other containers instead of proto mirrors; drop shims now that typed APIs are universal.
-- **Graph rewrites** — When eliminating nodes (e.g., identity removal), check `Value.is_graph_input/output`, rename the surviving value, update `graph.outputs` with `Value` objects, call `ir.convenience.replace_all_uses_with`, and remove the node via `graph.remove(..., safe=True)`.
-- **Annotate aggressively** — Keep explicit type annotations in converter and plugin code so mypy enforces alignment with IR interfaces.
+- Structural test helpers such as `plugins/_post_check_onnx_graph.py`, which
+  accept both ONNX IR objects and ONNX `ModelProto`-like objects.
+- Patching and plugin-discovery code that must inspect optional JAX/Flax/Equinox
+  attributes across versions.
+- Narrow compatibility shims where an `onnx_ir` release exposes equivalent state
+  through different public containers.
+
+Keep those shims close to the boundary. Do not copy their duck-typed access
+patterns into normal lowering code.
+
+## Rewrite Rules
+
+- When eliminating or replacing nodes, preserve graph outputs first, then call
+  `ir.convenience.replace_all_uses_with(...)`, then remove nodes through
+  `graph.remove(...)`.
+- When traversing nested graphs, prefer `graph.subgraphs(...)` or
+  `graph.all_nodes()` where that gives the required scope. If a helper only
+  supports top-level graphs or imported ONNX Functions, say so in its docs.
+- When reading shape/dtype metadata, use shared helpers from
+  `plugins/_ir_shapes.py`, `jax2onnx.ir_utils`, and `converter/typing_support.py`
+  instead of cloning conversion logic locally.
+- When a fallback `getattr(...)` is necessary, make the expected shapes explicit
+  with type annotations and keep the fallback branch small.
+
+## Audit Workflow
+
+1. Run `poetry run python scripts/audit_ir_dynamic_access.py` when changing
+   converter/plugin graph manipulation.
+2. Classify new dynamic access as either a boundary shim or a typing gap.
+3. Replace typing gaps with typed helpers before broadening mypy coverage.
+4. Verify with the focused pytest target plus `./scripts/check_typing.sh`.

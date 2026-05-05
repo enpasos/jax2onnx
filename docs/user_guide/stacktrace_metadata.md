@@ -21,7 +21,7 @@ JAX2ONNX_ENABLE_STACKTRACE_METADATA=1 python -m your_export_script
 
 To convert a function inline:
 
-```python
+```bash
 JAX2ONNX_ENABLE_STACKTRACE_METADATA=1 python - <<'PY'
 import jax
 import jax.numpy as jnp
@@ -62,7 +62,7 @@ python -m your_export_script
 
 Or inline:
 
-```python
+```bash
 JAX2ONNX_ENABLE_STACKTRACE_METADATA=1 \
 JAX2ONNX_STACKTRACE_DETAIL=full \
 python - <<'PY'
@@ -93,4 +93,4 @@ Use Level 1 for routine debugging, and switch to Level 2 when you need to dril
 - Originated from [issue #109](https://github.com/enpasos/jax2onnx/issues/109), requesting stacktrace metadata to help debug exported ONNX graphs.
 - Metadata keys live under the `pkg.jax2onnx.*` namespace and are attached per ONNX node during lowering.
 - Level 1 keeps exports lightweight (`callsite` + `plugin`), while Level 2 adds full Python/JAX stack dumps.
-- Tests/fixtures must be regenerated whenever metadata changes (`JAX2ONNX_ENABLE_STACKTRACE_METADATA=1` during updates) to keep `expect_graph` references in sync.
+- Maintainer fixture refreshes are covered in the [coverage generation notes](../developer_guide/maintainer/coverage_generation.md).

@@ -1,8 +1,8 @@
-# ONNX Function Decorator Guidelines
+# ONNX Functions
 
-This guide summarizes the current behaviour and guardrails for the `@onnx_function`
-decorator. It complements the plugin quickstart by detailing how function reuse,
-namespacing, and testing conventions work in practice.
+Use `@onnx_function` when a callable should appear as a named, reusable function
+boundary in the exported ONNX model. This keeps repeated subgraphs readable in
+tools such as Netron and lets you give important model blocks stable names.
 
 ## Goals and Defaults
 
@@ -13,6 +13,34 @@ namespacing, and testing conventions work in practice.
 - Optional flags allow you to reuse function bodies (`unique=True`) and control the
   domain prefix (`namespace=...`), without sacrificing readability in tools like
   Netron.
+
+## Minimal Example
+
+```python
+import jax
+import jax.numpy as jnp
+
+from jax2onnx import onnx_function, to_onnx
+
+
+@onnx_function
+def block(x):
+    return jnp.tanh(x) + 1.0
+
+
+def model(x):
+    return block(block(x))
+
+
+to_onnx(
+    model,
+    [jax.ShapeDtypeStruct((2, 4), jnp.float32)],
+    return_mode="file",
+    output_path="model_with_function.onnx",
+)
+```
+
+Open the exported model in Netron to inspect the function boundary.
 
 ## Flags
 
@@ -63,24 +91,27 @@ Produces `domain="my.model.square.unique"` for all reused call-sites.
 - When `unique=True`, call-sites with identical captures share the same
   `FunctionProto`; otherwise each cooperative invocation gets its own domain suffix.
 
-## Testing & Examples
+## Examples
 
-- The regression suite lives at
-  `tests/extra_tests/converter/test_onnx_function_unique.py`.
-  It covers duplicate reuse, distinct captures, and custom namespaces.
-- Example `onnx_functions_017` demonstrates two call-sites sharing a unique function.
-- Regenerate fixtures after behaviour changes:
-  ```bash
-  poetry run python scripts/generate_tests.py
-  ```
+The [Examples](examples.md) reference table contains two kinds of ONNX
+Function exports:
+
+- Dedicated decorator examples in the `onnx_functions_*` rows. These cover
+  function boundaries, nested functions, call parameters, and `unique=True`
+  reuse.
+- Larger model-family examples that use `@onnx_function` internally. These rows
+  are named after their exported components, not after the decorator feature.
+  Look for GPT, ViT, DINOv3, GPT-OSS, `Flax*`, and `NnxDino*` examples.
+
+Those links open representative ONNX models in Netron.
 
 ## Best Practices
 
-- Use `construct_and_call(...).with_requested_dtype(...).with_rng_seed(...)` in
-  metadata so tests can rebuild deterministic f32/f64 variants.
-- Keep `post_check_onnx_graph` expectations focused on meaningful structural
-  checks. Function selectors accept either the exact `domain:name` or a domain
-  prefix (e.g. `"custom.MyFn.1"` matches `"custom.MyFn.1:MyFn"`).
+- Use `type="..."` when you want a stable display name that is independent of
+  the Python callable name.
+- Use `namespace="..."` when several model families or libraries may define
+  functions with similar names.
+- Use `unique=True` for repeated call-sites that should share one function body.
 - When migrating existing decorators, ensure no conflicting namespace choices are
   applied to the same target; the decorator raises if mixed namespacing is detected.
 - Keep display-name overrides stable on repeated decoration. The decorator accepts

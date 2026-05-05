@@ -27,6 +27,8 @@ Use string dimensions such as `"B"` when you want symbolic dynamic axes. For dir
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
 
-Use `@onnx_function` when repeated callables should become reusable ONNX functions, and `allclose(...)` when you want a quick numerical check against ONNX Runtime after export.
+Use [`@onnx_function`](onnx_functions.md) when repeated callables should become
+reusable ONNX functions, and `allclose(...)` when you want a quick numerical
+check against ONNX Runtime after export.
 
 ::: jax2onnx.user_interface

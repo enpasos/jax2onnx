@@ -58,15 +58,9 @@ nav:
   - User Guide:
       - Getting Started: user_guide/getting_started.md
       - API Reference: user_guide/api.md
+      - ONNX Functions: user_guide/onnx_functions.md
       - Layout Optimization: user_guide/layout_optimization.md
       - Stacktrace Metadata: user_guide/stacktrace_metadata.md
-      - Supported Components: user_guide/supported_components.md
-      - ONNX Operator Coverage: user_guide/onnx_operator_coverage.md
-      - JAX LAX Coverage: user_guide/jax_lax_coverage.md
-      - JAX NumPy Coverage: user_guide/jax_numpy_coverage.md
-      - Flax API Coverage: user_guide/flax_api_coverage.md
-      - Equinox NN Coverage: user_guide/equinox_nn_coverage.md
-      - Examples: user_guide/examples.md
       - SotA Examples:
           - GPT-OSS: user_guide/sota_examples/gpt_oss/getting_weights.md
           - MaxText: user_guide/sota_examples/maxtext.md
@@ -75,21 +69,30 @@ nav:
               - Weights Workflow: user_guide/sota_examples/dinov3/getting_weights.md
               - Compare Meta vs ONNX: user_guide/sota_examples/dinov3/compare_meta_vs_jax2onnx.md
               - Flax/NNX Exports: user_guide/sota_examples/dinov3/nnx_exports.md
+  - Reference:
+      - Supported Components: user_guide/supported_components.md
+      - Examples: user_guide/examples.md
+      - ONNX Operator Coverage: user_guide/onnx_operator_coverage.md
+      - JAX LAX Coverage: user_guide/jax_lax_coverage.md
+      - JAX NumPy Coverage: user_guide/jax_numpy_coverage.md
+      - Flax API Coverage: user_guide/flax_api_coverage.md
+      - Equinox NN Coverage: user_guide/equinox_nn_coverage.md
   - Developer Guide:
       - Architecture: developer_guide/architecture.md
-      - Converter Design Review: developer_guide/converter_design.md
       - Plugin System: developer_guide/plugin_system.md
       - Advanced Topics:
           - Complex Numbers: developer_guide/advanced_topics/complex_numbers.md
           - Expected Graph Reference: developer_guide/advanced_topics/expect_graph_reference.md
           - IR Optimizer: developer_guide/advanced_topics/ir_optimizer.md
           - IR Reflection: developer_guide/advanced_topics/ir_reflection_guidelines.md
-          - Linen Support: developer_guide/advanced_topics/linen_support.md
-          - ONNX Functions: developer_guide/advanced_topics/onnx_function_usage.md
           - ONNX IR Builder: developer_guide/advanced_topics/onnx_ir_builder.md
           - ONNX IR Typing: developer_guide/advanced_topics/onnx_ir_typing_how_to.md
           - Subgraph Input Handling: developer_guide/advanced_topics/subgraph_input_handling.md
-          - Typing Improvements: developer_guide/advanced_topics/typing_improvements.md
+          - Typing Guardrails: developer_guide/advanced_topics/typing_improvements.md
+      - Maintainer Notes:
+          - Coverage Generation: developer_guide/maintainer/coverage_generation.md
+          - Artifact Publishing: developer_guide/maintainer/artifact_publishing.md
+          - SotA Example Maintenance: developer_guide/maintainer/sota_example_maintenance.md
   - About:
       - Roadmap: about/roadmap.md
       - Past Versions: about/past_versions.md

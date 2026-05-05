@@ -59,11 +59,10 @@
   iteration, nested JAXPR error reporting, function override isolation,
   builder-routed node insertion, constant-folder scoping, and `@onnx_function`
   conflict cases.
-* **Document the converter design changes:** Add the converter design review,
-  update the IR optimizer guide with the declarative pass list and strict failure
-  mode, link the review from the architecture guide and docs navigation,
-  document shared lowering-dispatch responsibilities, and clarify
-  `@onnx_function` override and conflict rules.
+* **Separate public docs from maintainer workflows:** Keep user-facing guides
+  focused on stable export, validation, and reference material; move coverage
+  generation, sample-model publishing, pinned refs, and SotA maintenance notes
+  into maintainer documentation.
 
 
 ## Current Version
