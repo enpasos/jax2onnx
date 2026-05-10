@@ -364,7 +364,7 @@ class PoolPlugin(PrimitiveLeafPlugin):
             if aval_dtype is None:
                 raise TypeError("linen.pool(add) requires a known input dtype.")
             np_dtype = np.dtype(aval_dtype)
-            if not np.issubdtype(np_dtype, np.floating):
+            if not jnp.issubdtype(np_dtype, jnp.floating):
                 raise TypeError(
                     "linen.pool(add) currently supports floating-point inputs only."
                 )
