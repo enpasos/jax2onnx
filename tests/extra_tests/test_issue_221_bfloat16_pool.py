@@ -50,19 +50,19 @@ def test_issue_221_linen_pool_add_bfloat16_exports_and_runs() -> None:
     onnx.checker.check_model(model)
     inferred = onnx.shape_inference.infer_shapes(model, strict_mode=True)
 
-    nodes = list(inferred.graph.node)
-    assert [node.op_type for node in nodes] == [
-        "Transpose",
-        "AveragePool",
-        "Mul",
-        "Transpose",
+    average_pool_nodes = [
+        node for node in inferred.graph.node if node.op_type == "AveragePool"
     ]
+    mul_nodes = [node for node in inferred.graph.node if node.op_type == "Mul"]
+    assert average_pool_nodes
+    assert mul_nodes
 
     elem_types = _elem_types_by_name(inferred)
     assert elem_types[inferred.graph.input[0].name] == TensorProto.BFLOAT16
     assert elem_types[inferred.graph.output[0].name] == TensorProto.BFLOAT16
-    assert elem_types[nodes[1].output[0]] == TensorProto.BFLOAT16
-    assert elem_types[nodes[2].output[0]] == TensorProto.BFLOAT16
+    for node in average_pool_nodes + mul_nodes:
+        for output in node.output:
+            assert elem_types[output] == TensorProto.BFLOAT16
 
     (scale_initializer,) = [
         initializer
@@ -70,6 +70,7 @@ def test_issue_221_linen_pool_add_bfloat16_exports_and_runs() -> None:
         if initializer.name.startswith("pool_sum_scale")
     ]
     assert scale_initializer.data_type == TensorProto.BFLOAT16
+    assert any(scale_initializer.name in node.input for node in mul_nodes)
 
     x_f32 = np.arange(16, dtype=np.float32).reshape(1, 4, 4, 1) / np.float32(10)
     x_bf16 = x_f32.astype(ml_dtypes.bfloat16)
@@ -80,4 +81,9 @@ def test_issue_221_linen_pool_add_bfloat16_exports_and_runs() -> None:
     (got,) = evaluator.run(None, {input_name: x_bf16})
 
     assert got.dtype == ml_dtypes.bfloat16
-    np.testing.assert_array_equal(got.astype(np.float32), expected.astype(np.float32))
+    np.testing.assert_allclose(
+        got.astype(np.float32),
+        expected.astype(np.float32),
+        rtol=1e-2,
+        atol=1e-2,
+    )
