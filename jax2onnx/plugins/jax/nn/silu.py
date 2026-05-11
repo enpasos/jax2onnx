@@ -187,6 +187,18 @@ class SiluPlugin(PrimitiveLeafPlugin):
                 make_value=_make_value,
                 delete_if_missing=False,
             ),
+            MonkeyPatchSpec(
+                target="flax.nnx",
+                attr="silu",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
+            MonkeyPatchSpec(
+                target="flax.nnx",
+                attr="swish",
+                make_value=_make_value,
+                delete_if_missing=False,
+            ),
         ]
 
 
