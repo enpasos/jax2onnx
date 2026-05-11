@@ -42,6 +42,7 @@ ALLOWED_ELEMENTWISE_OPS: Set[str] = {
     "gelu",
     "relu",
     "sigmoid",
+    "swish",
     "tanh",
     "leakyrelu",
     "identity",
@@ -58,6 +59,7 @@ ALLOWED_ELEMWISE: Set[str] = {
     "Gelu",
     "Relu",
     "Sigmoid",
+    "Swish",
     "Tanh",
     "LeakyRelu",
     "Identity",
@@ -75,6 +77,7 @@ ELEMENTWISE_UNARY_OPS: Set[str] = {
     "Gelu",
     "Relu",
     "Sigmoid",
+    "Swish",
     "Tanh",
     "LeakyRelu",
     "Identity",
@@ -103,6 +106,7 @@ UNARY_DATAFLOW_OPS: Set[str] = {
     "Gelu",
     "Relu",
     "Sigmoid",
+    "Swish",
     "Tanh",
     "Dropout",
     "LeakyRelu",
@@ -1811,6 +1815,107 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
     return None
 
 
+def _graph_default_opset(graph: ir.Graph) -> int:
+    opset_imports = getattr(graph, "opset_imports", None) or {}
+    try:
+        return int(opset_imports.get("", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _same_value(left: ir.Value | None, right: ir.Value | None) -> bool:
+    if left is None or right is None:
+        return False
+    if left is right:
+        return True
+    left_name = _v_name(left)
+    return bool(left_name and left_name == _v_name(right))
+
+
+def _match_mul_sigmoid_silu_inputs(
+    nodes: Sequence[ir.Node],
+    lhs: ir.Value | None,
+    rhs: ir.Value | None,
+) -> tuple[ir.Value, ir.Node] | None:
+    for sigmoid_output, passthrough in ((lhs, rhs), (rhs, lhs)):
+        sigmoid_node = _producer_node(nodes, sigmoid_output)
+        if sigmoid_node is None or sigmoid_node.op_type != "Sigmoid":
+            continue
+        sigmoid_inputs = _node_inputs(sigmoid_node)
+        if len(sigmoid_inputs) != 1:
+            continue
+        sigmoid_input = sigmoid_inputs[0]
+        if isinstance(sigmoid_input, ir.Value) and _same_value(
+            sigmoid_input, passthrough
+        ):
+            return sigmoid_input, sigmoid_node
+    return None
+
+
+def _value_is_graph_output(graph: ir.Graph, value: ir.Value | None) -> bool:
+    if value is None:
+        return False
+    value_name = _v_name(value)
+    for output in graph.outputs:
+        if output is value:
+            return True
+        if value_name and value_name == _v_name(output):
+            return True
+    return False
+
+
+def rewrite_mul_sigmoid_as_swish_ir(graph: ir.Graph) -> None:
+    """Rewrite the exact ``x * Sigmoid(x)`` pattern to ONNX Swish for opset 24+."""
+    if _graph_default_opset(graph) < 24:
+        return
+
+    changed = True
+    while changed:
+        changed = False
+        nodes = list(graph)
+        for node in nodes:
+            if node.op_type != "Mul":
+                continue
+            inputs = _node_inputs(node)
+            if len(inputs) != 2:
+                continue
+            match = _match_mul_sigmoid_silu_inputs(nodes, inputs[0], inputs[1])
+            if match is None:
+                continue
+            x_val, sigmoid_node = match
+            out_val = _node_output(node)
+            if out_val is None:
+                continue
+            sigmoid_out = _node_output(sigmoid_node)
+
+            new_out = ir.Value(
+                name=out_val.name,
+                shape=getattr(out_val, "shape", None),
+                type=getattr(out_val, "type", None),
+                metadata_props=dict(getattr(out_val, "metadata_props", {}) or {}),
+            )
+            swish_node = ir.Node(
+                "",
+                "Swish",
+                inputs=[x_val],
+                outputs=[new_out],
+                name=f"{node.name}_swish" if node.name else None,
+                metadata_props=dict(getattr(node, "metadata_props", {}) or {}),
+            )
+            graph.insert_before(node, swish_node)
+            ir.convenience.replace_all_uses_with(
+                out_val, new_out, replace_graph_outputs=True
+            )
+            graph.remove(node)
+            remaining_nodes = list(graph)
+            if not _value_is_graph_output(graph, sigmoid_out) and not _consumer_nodes(
+                remaining_nodes, sigmoid_out
+            ):
+                graph.remove(sigmoid_node)
+            changed = True
+            break
+
+
 def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
     """
     Rewrite Mul/Div(rsqrt) patterns into a single Div for cleaner graphs.
@@ -2225,6 +2330,7 @@ _OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
     _model_pass(
         "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
     ),
+    _graph_pass("rewrite_mul_sigmoid_as_swish", rewrite_mul_sigmoid_as_swish_ir),
     _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
     _graph_pass(
         "inline_dropout_training_mode_constants",
