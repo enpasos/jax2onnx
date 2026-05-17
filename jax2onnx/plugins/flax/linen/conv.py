@@ -55,6 +55,7 @@ EXPECT_TCT: Final = nnx_conv.EXPECT_TCT
                 strides=(1, 1),
                 padding="SAME",
                 dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
                 rngs=with_rng_seed(0),
             ),
             "run_only_f32_variant": True,
@@ -73,6 +74,7 @@ EXPECT_TCT: Final = nnx_conv.EXPECT_TCT
                 padding="VALID",
                 use_bias=False,
                 dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
                 rngs=with_rng_seed(0),
             ),
             "run_only_f32_variant": True,
@@ -91,6 +93,7 @@ EXPECT_TCT: Final = nnx_conv.EXPECT_TCT
                 strides=(2, 2),
                 padding="SAME",
                 dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
                 rngs=with_rng_seed(0),
             ),
             "run_only_f32_variant": True,
@@ -183,16 +186,11 @@ class ConvPlugin(nnx_conv.ConvPlugin):
                 padding_lax = tuple(tuple(int(v) for v in pair) for pair in padding_lax)
 
             scope = getattr(self, "scope", None)
-            print(f"DEBUG: ConvPlugin patched called. self={self}")
             if scope is not None and hasattr(scope, "variables"):
                 variables = scope.variables()
-                print(f"DEBUG: Scope found. Variables keys: {variables.keys()}")
                 params = variables.get("params", {})
                 kernel = params.get("kernel")
                 bias = params.get("bias") if self.use_bias else None
-                print(
-                    f"DEBUG: kernel={kernel is not None}, bias={bias is not None}, use_bias={self.use_bias}"
-                )
 
                 if kernel is not None:
                     feature_group_count = int(getattr(self, "feature_group_count", 1))
