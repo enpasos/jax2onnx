@@ -2,9 +2,46 @@
 
 ## Planned
 
-* Broaden coverage of JAX, Flax NNX/Linen, and Equinox components.
-* Expand SotA example support for vision and language models.
-* Improve support for **physics-based simulations**.
+* Explore deployment-readiness reports for exported models: ONNX checker,
+  strict shape inference, operator inventory, dtype/shape summaries, and
+  numeric parity checks.
+* Add target-oriented validation guidance for ONNX Runtime CPU, web, and mobile
+  deployments where practical.
+* Broaden capability-matrix coverage across dtype and shape variants, including
+  BF16, dynamic dimensions, and non-square inputs.
+* Add focused end-to-end deployment examples for small vision, RL-style, and
+  numerical models.
+* Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
+  examples, and physics/simulation use cases.
+
+
+## Upcoming Version
+
+### **jax2onnx 0.13.2**
+
+* **Fix BF16 Linen pool exports:** Treat `jnp.bfloat16` as a floating dtype in
+  `flax.linen.pool(..., reduce_fn=jax.lax.add)` by using JAX dtype
+  classification, and add an end-to-end issue #221 regression test covering
+  ONNX export, strict shape inference, BF16 type preservation, and Reference
+  Evaluator execution.
+* **Broaden BF16 capability coverage:** Add a reusable capability-matrix test
+  helper that reuses existing plugin/export metadata, runs ONNX checker plus
+  strict shape inference, verifies public IO and all floating graph tensors keep
+  the requested dtype, and compares ONNX ReferenceEvaluator output against JAX.
+* **Validate representative BF16 surfaces:** Cover BF16 export/runtime behavior
+  across JAX NumPy arithmetic, reductions, transpose/concat/take/matmul, and
+  Flax Linen Dense, Conv, AvgPool, MaxPool, pool-add, LayerNorm, and GroupNorm,
+  including non-square Conv and AvgPool shape variants.
+* **Tighten Linen Conv dtype metadata:** Propagate the requested dtype to
+  `nn.Conv` parameters via `param_dtype=with_requested_dtype()` in Linen Conv
+  test metadata so BF16 capability checks exercise BF16 weights as well as BF16
+  inputs; remove leftover Conv debug prints.
+* **Fix NNX SiLU/Swish lowering:** Patch `flax.nnx.silu` and `flax.nnx.swish`
+  alongside `jax.nn.silu`, add Flax NNX metadata coverage, and rewrite captured
+  `Mul(x, Sigmoid(x))` patterns to ONNX `Swish` for opset 24+ while preserving
+  opset <24 behavior and multi-consumer `Sigmoid` cases.
+* **Refresh roadmap state:** Move the completed `0.13.1` notes into the current
+  version section and reserve the upcoming section for `0.13.2`.
 
 
 ## Current Version
@@ -64,7 +101,6 @@
   generation, sample-model publishing, pinned refs, and SotA maintenance notes
   into maintainer documentation.
 
- 
 ## Past Versions
 
 See [Past Versions](past_versions.md) for the full release archive.
