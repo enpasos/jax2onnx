@@ -12,6 +12,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._sort_utils import (
+    gather_original_by_sort_indices,
+    make_nan_last_sort_key,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -34,7 +38,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "callable": lambda x: jax.lax.sort(x),
             "input_shapes": [(3,)],
             "post_check_onnx_graph": EG(
-                ["TopK:3 -> Identity:3"],
+                ["IsNaN:3 -> Where:3 -> TopK:3 -> GatherElements:3 -> Identity:3"],
                 no_unused_inputs=True,
             ),
         },
@@ -43,7 +47,9 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "callable": lambda x: jax.lax.sort(x, dimension=0),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
-                ["TopK:3x4 -> Identity:3x4"],
+                [
+                    "IsNaN:3x4 -> Where:3x4 -> TopK:3x4 -> GatherElements:3x4 -> Identity:3x4"
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -134,6 +140,12 @@ class SortPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(key_input, key_shape)
                 _ensure_value_metadata(ctx, key_input)
 
+            key_input, key_was_sanitized = make_nan_last_sort_key(
+                ctx,
+                key_input,
+                key_shape,
+                name_hint="sort_nan_last",
+            )
             values, indices = cast(
                 tuple[ir.Value, ir.Value],
                 ctx.builder.TopK(
@@ -149,7 +161,13 @@ class SortPlugin(PrimitiveLeafPlugin):
                 ),
             )
 
-            if key_is_bool:
+            if key_was_sanitized:
+                if getattr(key_input, "type", None) is not None:
+                    values.type = key_input.type
+                    values.dtype = getattr(key_input.type, "dtype", None)
+                _stamp_type_and_shape(values, key_shape)
+                _ensure_value_metadata(ctx, values)
+            elif key_is_bool:
                 values = cast(
                     ir.Value,
                     ctx.builder.Cast(
@@ -166,12 +184,23 @@ class SortPlugin(PrimitiveLeafPlugin):
 
             _stamp_type_and_shape(values, key_shape)
             _ensure_value_metadata(ctx, values)
-            current_values[key_idx] = values
 
             indices.type = ir.TensorType(ir.DataType.INT64)
             indices.dtype = ir.DataType.INT64
             _stamp_type_and_shape(indices, key_shape)
             _ensure_value_metadata(ctx, indices)
+
+            if key_was_sanitized:
+                current_values[key_idx] = gather_original_by_sort_indices(
+                    ctx,
+                    current_values[key_idx],
+                    indices,
+                    axis=int(axis),
+                    shape=key_shape,
+                    name_hint="sort_original_key",
+                )
+            else:
+                current_values[key_idx] = values
 
             for value_idx, value in enumerate(current_values):
                 if value_idx == key_idx:

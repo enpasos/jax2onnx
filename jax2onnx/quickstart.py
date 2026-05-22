@@ -22,6 +22,15 @@ class MLP(nnx.Module):
         return self.linear2(x)
 
 
+class WebMLP(nnx.Module):
+    def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs) -> None:
+        self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
+        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.linear2(nnx.gelu(self.linear1(x)))
+
+
 def _default_output_path() -> Path:
     return Path(__file__).resolve().parents[1] / "onnx" / "my_callable.onnx"
 
@@ -31,6 +40,28 @@ def export_quickstart_model(output_path: str | Path | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     model = MLP(din=30, dmid=20, dout=10, rngs=nnx.Rngs(0))
     to_onnx(model, [("B", 30)], return_mode="file", output_path=target)
+    return target
+
+
+def build_quickstart_web_model() -> WebMLP:
+    return WebMLP(din=8, dmid=6, dout=3, rngs=nnx.Rngs(0))
+
+
+def export_quickstart_web_model(output_path: str | Path | None = None) -> Path:
+    target = (
+        Path(output_path)
+        if output_path is not None
+        else Path(__file__).resolve().parents[1] / "onnx" / "web_mlp.onnx"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    model = build_quickstart_web_model()
+    to_onnx(
+        model,
+        [("B", 8)],
+        return_mode="file",
+        output_path=target,
+        export_mode="web",
+    )
     return target
 
 
@@ -68,6 +99,7 @@ def export_quickstart_functions(output_path: str | Path | None = None) -> Path:
 
 def main() -> None:
     export_quickstart_model()
+    export_quickstart_web_model()
     export_quickstart_functions()
 
 

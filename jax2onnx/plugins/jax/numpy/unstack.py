@@ -18,7 +18,11 @@ from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
+    register_primitive,
+)
 
 
 _UNSTACK_PRIM: Final = make_jnp_primitive("jax.numpy.unstack")
@@ -241,7 +245,8 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jnp.unstack not found")
-            setattr(cls._PRIM, storage_slot, orig)
+            if getattr(cls._PRIM, storage_slot, None) is None:
+                setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(x: ArrayLike, axis: int = 0) -> ArrayLike:
                 return cls._PRIM.bind(x, axis=axis)
@@ -259,6 +264,11 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
                 delete_if_missing=False,
             ),
         ]
+
+
+# JAX AD paths can emit the raw primitive name "unstack" even when the original
+# user call was patched through jax.numpy.unstack. Reuse the same lowering.
+PLUGIN_REGISTRY.setdefault("unstack", PLUGIN_REGISTRY[JnpUnstackPlugin._PRIM.name])
 
 
 @JnpUnstackPlugin._PRIM.def_impl

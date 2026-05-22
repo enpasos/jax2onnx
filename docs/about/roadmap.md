@@ -17,8 +17,42 @@
 
 ## Upcoming Version
 
-### **jax2onnx 0.13.2**
+### **jax2onnx 0.14.0**
 
+* **Add a browser/WASM export profile:** Introduce `export_mode="web"` for
+  `to_onnx(...)`, reject unknown export-mode values, and serialize browser
+  artifacts as a single self-contained `.onnx` file without a stale
+  `.onnx.data` sidecar so exported models can be served directly to
+  `onnxruntime-web/wasm`.
+* **Expose ONNX Runtime Web parity checks:** Add
+  `allclose_onnxruntime_web(...)` to compare Python ONNX Runtime CPU output
+  with `onnxruntime-web/wasm` in Node.js or a Playwright-driven
+  Chrome/Chromium browser, including JSON-safe tensor specs for float16,
+  float32/float64 special values, integer, boolean, and string feeds.
+* **Document and test browser deployment flows:** Add a Quickstart Web MLP
+  export helper, API/getting-started guidance for `export_mode="web"`, Node.js
+  validation instructions, `onnxruntime-web` dependency documentation, and
+  regression tests for return modes, Quickstart artifacts, and Web runtime
+  validation.
+* **Wire Web validation into CI without slowing PR checks:** Add explicit
+  `onnxruntime-web` smoke scripts for quick local probes, a small Node.js smoke
+  PR CI job, opt-in full-suite
+  `JAX2ONNX_RUN_ONNXRUNTIME_WEB=1 ./scripts/run_all_checks.sh` and
+  `JAX2ONNX_RUN_ONNXRUNTIME_WEB_CHROME=1 ./scripts/run_all_checks.sh` gates,
+  generated test support via `JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1`, and a
+  scheduled/manual full Web validation workflow for both Node.js and
+  Chrome/Chromium runners that skips the heavy run when no recent commits
+  landed.
+* **Harden browser-facing shape metadata:** Preserve precise intermediate
+  shapes for broadcasted `jnp.copysign`, ellipsis/labeled-broadcast
+  `jnp.einsum`, singleton axis-0 expansion, `lax.symmetric_product`, `lax.zeta`
+  predicate tensors, and `lax.fft` IRFFT `DFT` output metadata so Web export and
+  `expect_graph` checks see the same graph structure as the runtime.
+* **Preserve JAX sort NaN ordering through ONNX TopK:** Sanitize floating sort
+  keys with `IsNaN`/`Where`, run `TopK` on the sanitized keys, and gather the
+  original values back by sorted indices for both `jax.lax.sort` and
+  `jax.numpy.sort`, while keeping the new shared sort helper strictly typed for
+  mypy.
 * **Fix BF16 Linen pool exports:** Treat `jnp.bfloat16` as a floating dtype in
   `flax.linen.pool(..., reduce_fn=jax.lax.add)` by using JAX dtype
   classification, and add an end-to-end issue #221 regression test covering
@@ -40,8 +74,7 @@
   alongside `jax.nn.silu`, add Flax NNX metadata coverage, and rewrite captured
   `Mul(x, Sigmoid(x))` patterns to ONNX `Swish` for opset 24+ while preserving
   opset <24 behavior and multi-consumer `Sigmoid` cases.
-* **Refresh roadmap state:** Move the completed `0.13.1` notes into the current
-  version section and reserve the upcoming section for `0.13.2`.
+
 
 
 ## Current Version

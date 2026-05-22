@@ -7,6 +7,11 @@ RUN_MAXTEXT="${JAX2ONNX_RUN_MAXTEXT:-0}"
 RUN_MAXTEXT_ACTIVE=0
 RUN_MAXDIFFUSION="${JAX2ONNX_RUN_MAXDIFFUSION:-0}"
 RUN_MAXDIFFUSION_ACTIVE=0
+RUN_ONNXRUNTIME_WEB="${JAX2ONNX_RUN_ONNXRUNTIME_WEB:-0}"
+RUN_ONNXRUNTIME_WEB_ACTIVE=0
+RUN_ONNXRUNTIME_WEB_CHROME="${JAX2ONNX_RUN_ONNXRUNTIME_WEB_CHROME:-0}"
+RUN_ONNXRUNTIME_WEB_CHROME_ACTIVE=0
+ONNXRUNTIME_WEB_RUNNER=""
 PYTEST_DURATION_ARGS=(--durations=50 --durations-min=1)
 
 cd "${REPO_ROOT}"
@@ -40,6 +45,32 @@ if [[ "${RUN_MAXDIFFUSION}" == "1" ]]; then
   else
     RUN_MAXDIFFUSION_ACTIVE=1
   fi
+fi
+
+if [[ "${RUN_ONNXRUNTIME_WEB}" == "1" || "${RUN_ONNXRUNTIME_WEB_CHROME}" == "1" ]]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Error: onnxruntime-web checks require Node.js." >&2
+    exit 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Error: onnxruntime-web checks require npm." >&2
+    exit 1
+  fi
+fi
+
+if [[ "${RUN_ONNXRUNTIME_WEB}" == "1" ]]; then
+  RUN_ONNXRUNTIME_WEB_ACTIVE=1
+  ONNXRUNTIME_WEB_RUNNER="node"
+fi
+
+if [[ "${RUN_ONNXRUNTIME_WEB_CHROME}" == "1" ]]; then
+  RUN_ONNXRUNTIME_WEB_CHROME_ACTIVE=1
+  ONNXRUNTIME_WEB_RUNNER="chrome"
+fi
+
+if [[ "${RUN_ONNXRUNTIME_WEB_ACTIVE}" == "1" && "${RUN_ONNXRUNTIME_WEB_CHROME_ACTIVE}" == "1" ]]; then
+  echo "Error: choose either JAX2ONNX_RUN_ONNXRUNTIME_WEB=1 or JAX2ONNX_RUN_ONNXRUNTIME_WEB_CHROME=1, not both." >&2
+  exit 1
 fi
 
 if [[ "${RUN_MAXTEXT_ACTIVE}" == "1" ]]; then
@@ -108,6 +139,12 @@ if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
   step=$((step + 1))
 fi
 
+if [[ "${RUN_ONNXRUNTIME_WEB_ACTIVE}" == "1" || "${RUN_ONNXRUNTIME_WEB_CHROME_ACTIVE}" == "1" ]]; then
+  echo "[${step}] Preparing full onnxruntime-web checks..."
+  npm ci
+  step=$((step + 1))
+fi
+
 echo "[${step}] Generating tests..."
 poetry run python scripts/generate_tests.py
 step=$((step + 1))
@@ -125,6 +162,14 @@ if [[ "${RUN_MAXDIFFUSION_ACTIVE}" == "1" ]]; then
 fi
 
 echo "[${step}] Running pytest..."
+if [[ -n "${ONNXRUNTIME_WEB_RUNNER}" ]]; then
+  echo "Full pytest will run with onnxruntime-web runner: ${ONNXRUNTIME_WEB_RUNNER}"
+  echo "Generated tests will use export_mode=web."
+  export JAX2ONNX_EXPORT_MODE=web
+  export JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1
+  export JAX2ONNX_ONNXRUNTIME_WEB_RUNNER="${ONNXRUNTIME_WEB_RUNNER}"
+fi
+
 if poetry run python -c "import xdist" >/dev/null 2>&1; then
   echo "Using pytest-xdist: -n auto --dist=loadscope"
   poetry run pytest -n auto --dist=loadscope "${PYTEST_DURATION_ARGS[@]}"

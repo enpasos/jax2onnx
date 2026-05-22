@@ -13,7 +13,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
@@ -72,6 +72,18 @@ def _cast_to_dtype(
     return cast_val
 
 
+def _stamp_shape_like(
+    value: ir.Value,
+    source: ir.Value,
+    fallback_dims: tuple[Any, ...],
+) -> None:
+    source_shape = getattr(source, "shape", None)
+    if source_shape is not None:
+        value.shape = source_shape
+        return
+    _stamp_type_and_shape(value, fallback_dims)
+
+
 @register_primitive(
     jaxpr_primitive=_COPYSIGN_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.copysign.html",
@@ -119,7 +131,7 @@ def _cast_to_dtype(
             "input_shapes": [(2, 1), (1, 3)],
             "expected_output_shapes": [(2, 3)],
             "post_check_onnx_graph": EG(
-                ["Abs:2x3 -> Neg:2x3 -> Where:2x3"],
+                ["Abs:2x1 -> Neg:2x1 -> Where:2x3"],
                 no_unused_inputs=True,
             ),
         },
@@ -151,6 +163,8 @@ class JnpCopysignPlugin(PrimitiveLeafPlugin):
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
 
+        x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+        y_shape = tuple(getattr(getattr(y_var, "aval", None), "shape", ()))
         out_dtype: np.dtype[Any] = np.dtype(
             getattr(getattr(out_var, "aval", None), "dtype", np.float32)
         )
@@ -189,14 +203,14 @@ class JnpCopysignPlugin(PrimitiveLeafPlugin):
 
         abs_x = ctx.builder.Abs(x_ready, _outputs=[ctx.fresh_name("jnp_copysign_abs")])
         abs_x.type = x_ready.type
-        abs_x.shape = getattr(out_spec, "shape", None)
+        _stamp_shape_like(abs_x, x_ready, x_shape)
         _ensure_value_metadata(ctx, abs_x)
 
         neg_abs_x = ctx.builder.Neg(
             abs_x, _outputs=[ctx.fresh_name("jnp_copysign_neg_abs")]
         )
         neg_abs_x.type = abs_x.type
-        neg_abs_x.shape = abs_x.shape
+        _stamp_shape_like(neg_abs_x, abs_x, x_shape)
         _ensure_value_metadata(ctx, neg_abs_x)
 
         zero = ctx.bind_const_for_var(object(), np.asarray(0, dtype=out_dtype))
@@ -205,6 +219,9 @@ class JnpCopysignPlugin(PrimitiveLeafPlugin):
             zero,
             _outputs=[ctx.fresh_name("jnp_copysign_y_negative")],
         )
+        y_negative.type = ir.TensorType(ir.DataType.BOOL)
+        _stamp_shape_like(y_negative, y_ready, y_shape)
+        _ensure_value_metadata(ctx, y_negative)
 
         result = ctx.builder.Where(
             y_negative, neg_abs_x, abs_x, _outputs=[desired_name]

@@ -19,6 +19,40 @@ on:
       - 'work_notes**'
 
 jobs:
+  onnxruntime-web-smoke:
+    name: onnxruntime-web smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: npm
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install Python dependencies
+      run: poetry install --no-interaction
+
+    - name: Install Node dependencies
+      run: npm ci
+
+    - name: Generate tests
+      run: poetry run python scripts/generate_tests.py
+
+    - name: Run onnxruntime-web smoke checks
+      run: scripts/run_onnxruntime_web_smoke.sh
+
   test: 
     runs-on: ubuntu-latest
     strategy:

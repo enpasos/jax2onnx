@@ -9,8 +9,15 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+
+def _transpose_last_two_shape(shape: tuple[Any, ...]) -> tuple[Any, ...]:
+    dims = list(shape)
+    dims[-1], dims[-2] = dims[-2], dims[-1]
+    return tuple(dims)
 
 
 def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
@@ -53,7 +60,7 @@ def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
                 ),
             ],
             "post_check_onnx_graph": EG(
-                ["Transpose", "MatMul"],
+                ["Transpose:2x3 -> MatMul:3x3"],
                 no_unused_inputs=True,
             ),
         },
@@ -107,7 +114,10 @@ class SymmetricProductPlugin(PrimitiveLeafPlugin):
                 a, perm=perm, _outputs=[ctx.fresh_name("symprod_at")]
             ),
         )
-        _stamp_like(a_t, a)
+        if getattr(a, "type", None) is not None:
+            a_t.type = a.type
+        _stamp_type_and_shape(a_t, _transpose_last_two_shape(a_shape))
+        _ensure_value_metadata(ctx, a_t)
         aa_t = cast(
             ir.Value,
             ctx.builder.MatMul(a, a_t, _outputs=[ctx.fresh_name("symprod_aat")]),

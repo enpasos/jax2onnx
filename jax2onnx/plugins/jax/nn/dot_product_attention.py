@@ -1351,16 +1351,15 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
                 normalized_weights, (batch_dim_i, num_heads_i, q_len_i, k_len_i)
             )
 
-            nan_value = np.nan if np_dtype == np.float64 else 0.0
-            nan_scalar = ctx.builder.add_initializer_from_scalar(
-                name=ctx.fresh_name("dpa_nan"),
-                value=np.asarray(nan_value, dtype=np_dtype),
+            zero_weights = ctx.builder.add_initializer_from_scalar(
+                name=ctx.fresh_name("dpa_zero_weights"),
+                value=np.asarray(0.0, dtype=np_dtype),
             )
             weights = _builder_tensor_op(
                 ctx,
                 "Where",
-                [denom_nonzero, normalized_weights, nan_scalar],
-                base="dpa_weights_norm_nan",
+                [denom_nonzero, normalized_weights, zero_weights],
+                base="dpa_weights_norm_zero",
                 dtype_like=weights,
                 shape=(batch_dim, num_heads, q_len, k_len),
             )

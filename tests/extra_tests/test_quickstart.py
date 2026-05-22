@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
+import numpy as np
 import onnx
+import pytest
 
 from flax import nnx
 
 import jax2onnx.quickstart
 
 from jax2onnx import onnx_function
-from jax2onnx.user_interface import to_onnx
+from jax2onnx.user_interface import allclose, allclose_onnxruntime_web, to_onnx
 
 
 class _QuickstartMLP(nnx.Module):
@@ -63,12 +66,58 @@ class TestQuickstart:
         assert len(graph.input) == 1
         assert len(graph.output) == 1
 
+    def test_quickstart_web_model_runs_in_onnxruntime_web_wasm(self, tmp_path):
+        if shutil.which("node") is None:
+            pytest.skip("Node.js is required for the web quickstart test")
+        repo_root = Path(__file__).resolve().parents[2]
+        if not (
+            repo_root / "node_modules" / "onnxruntime-web" / "package.json"
+        ).is_file():
+            pytest.skip("Run `npm install` to enable onnxruntime-web tests")
+
+        out_file = tmp_path / "web_mlp.onnx"
+        sidecar = tmp_path / "web_mlp.onnx.data"
+        model = jax2onnx.quickstart.build_quickstart_web_model()
+        exported = jax2onnx.quickstart.export_quickstart_web_model(out_file)
+
+        assert exported == out_file
+        assert out_file.is_file()
+        assert not sidecar.exists()
+
+        loaded = onnx.load(out_file)
+        onnx.checker.check_model(loaded)
+        assert not any(init.external_data for init in loaded.graph.initializer)
+        assert len(loaded.graph.input) == 1
+        assert len(loaded.graph.output) == 1
+
+        xs = [np.arange(16, dtype=np.float32).reshape(2, 8) / np.float32(8.0)]
+        passed_jax, jax_msg = allclose(
+            model,
+            str(out_file),
+            xs,
+            rtol=1e-5,
+            atol=1e-5,
+        )
+        assert passed_jax, jax_msg
+
+        passed_web, web_msg = allclose_onnxruntime_web(
+            str(out_file),
+            xs,
+            rtol=1e-5,
+            atol=1e-5,
+        )
+        assert passed_web, web_msg
+
     def test_quickstart_docs_models_exist(self):
         # Generate artifacts if missing to avoid failures on fresh clones.
         jax2onnx.quickstart.main()
 
         docs_dir = Path(__file__).resolve().parents[2] / "onnx"
-        for filename in ("my_callable.onnx", "model_with_function.onnx"):
+        for filename in (
+            "my_callable.onnx",
+            "web_mlp.onnx",
+            "model_with_function.onnx",
+        ):
             onnx_path = docs_dir / filename
             assert onnx_path.exists(), f"{onnx_path} is missing"
             loaded = onnx.load(onnx_path)

@@ -1,0 +1,122 @@
+name: Nightly full QS
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-qs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Check for recent commits
+      id: check
+      run: |
+        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          echo "Manual run requested. Full QS will start."
+          echo "should_run=true" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        # Use a slightly wider window than 24h to tolerate schedule delays.
+        COMMIT_COUNT=$(git log --since="26 hours ago" --oneline | wc -l | tr -d ' ')
+
+        if [[ "${COMMIT_COUNT}" -gt 0 ]]; then
+          echo "Found ${COMMIT_COUNT} recent commit(s). Full QS will start."
+          echo "should_run=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "No recent commits. Skipping full QS."
+          echo "should_run=false" >> "${GITHUB_OUTPUT}"
+        fi
+
+  onnxruntime-web-full:
+    name: onnxruntime-web full pytest
+    runs-on: ubuntu-latest
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    timeout-minutes: 180
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v6
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: npm
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install Python dependencies
+      run: |
+        poetry install --no-interaction
+        poetry run pip install pytest-xdist
+
+    - name: Install Node dependencies
+      run: npm ci
+
+    - name: Generate tests
+      run: poetry run python scripts/generate_tests.py
+
+    - name: Run onnxruntime-web full validation
+      run: scripts/run_onnxruntime_web_full.sh -n auto --dist=loadscope -q --ff -x
+
+  onnxruntime-web-chrome-full:
+    name: onnxruntime-web Chrome full pytest
+    runs-on: ubuntu-latest
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    timeout-minutes: 240
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v6
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: npm
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install Python dependencies
+      run: |
+        poetry install --no-interaction
+        poetry run pip install pytest-xdist
+
+    - name: Install Node dependencies
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Generate tests
+      run: poetry run python scripts/generate_tests.py
+
+    - name: Run onnxruntime-web Chrome full validation
+      run: scripts/run_onnxruntime_web_chrome_full.sh -n auto --dist=loadscope -q --ff -x
