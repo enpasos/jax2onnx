@@ -9,12 +9,26 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
+def _aval_shape(var: Any) -> tuple[Any, ...]:
+    return tuple(getattr(getattr(var, "aval", None), "shape", ()) or ())
+
+
 def _as_value(value: Any) -> ir.Value:
     return cast(ir.Value, value)
+
+
+def _stamp_bool(
+    ctx: LoweringContextProtocol, value: ir.Value, shape: tuple[Any, ...]
+) -> None:
+    value.type = ir.TensorType(ir.DataType.BOOL)
+    value.dtype = ir.DataType.BOOL
+    _stamp_type_and_shape(value, shape)
+    _ensure_value_metadata(ctx, value)
 
 
 def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
@@ -382,6 +396,9 @@ class ZetaPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         s_var, q_var = eqn.invars
         out_var = eqn.outvars[0]
+        s_shape = _aval_shape(s_var)
+        q_shape = _aval_shape(q_var)
+        out_shape = _aval_shape(out_var)
 
         s = ctx.get_value_for_var(s_var, name_hint=ctx.fresh_name("zeta_s"))
         q = ctx.get_value_for_var(q_var, name_hint=ctx.fresh_name("zeta_q"))
@@ -404,6 +421,7 @@ class ZetaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("zeta_s_gt_one")],
             )
         )
+        _stamp_bool(ctx, s_gt_one, s_shape)
         q_gt_zero = _as_value(
             ctx.builder.Greater(
                 q,
@@ -411,6 +429,7 @@ class ZetaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("zeta_q_gt_zero")],
             )
         )
+        _stamp_bool(ctx, q_gt_zero, q_shape)
         valid = _as_value(
             ctx.builder.And(
                 s_gt_one,
@@ -418,6 +437,7 @@ class ZetaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("zeta_valid")],
             )
         )
+        _stamp_bool(ctx, valid, out_shape)
 
         s_eq_one = _as_value(
             ctx.builder.Equal(
@@ -426,6 +446,7 @@ class ZetaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("zeta_s_eq_one")],
             )
         )
+        _stamp_bool(ctx, s_eq_one, s_shape)
         invalid_or_pole = _as_value(
             ctx.builder.Where(
                 s_eq_one,
@@ -434,7 +455,10 @@ class ZetaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("zeta_invalid_or_pole")],
             )
         )
-        _stamp_like(invalid_or_pole, approx)
+        if getattr(approx, "type", None) is not None:
+            invalid_or_pole.type = approx.type
+        _stamp_type_and_shape(invalid_or_pole, s_shape)
+        _ensure_value_metadata(ctx, invalid_or_pole)
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("zeta")
         result = _as_value(

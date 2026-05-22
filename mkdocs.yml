@@ -57,6 +57,7 @@ nav:
   - Home: index.md
   - User Guide:
       - Getting Started: user_guide/getting_started.md
+      - Browser/WASM Deployment: user_guide/browser_wasm.md
       - API Reference: user_guide/api.md
       - ONNX Functions: user_guide/onnx_functions.md
       - Layout Optimization: user_guide/layout_optimization.md

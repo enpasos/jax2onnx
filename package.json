@@ -1,0 +1,12 @@
+{
+  "name": "jax2onnx",
+  "private": true,
+  "scripts": {
+    "validate:onnxruntime-web": "node scripts/validate_onnxruntime_web.mjs",
+    "validate:onnxruntime-web:chrome": "node scripts/validate_onnxruntime_web_chrome.mjs"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.26.0",
+    "playwright": "^1.60.0"
+  }
+}

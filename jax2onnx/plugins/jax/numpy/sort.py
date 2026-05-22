@@ -8,6 +8,7 @@ import jax
 from jax import core
 import jax.numpy as jnp
 import numpy as np
+import onnx_ir as ir
 from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
@@ -17,6 +18,10 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._sort_utils import (
+    gather_original_by_sort_indices,
+    make_nan_last_sort_key,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -45,7 +50,7 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
             "callable": lambda x: jnp.sort(x),
             "input_shapes": [(5,)],
             "post_check_onnx_graph": EG(
-                ["TopK:5 -> Identity:5"],
+                ["IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5 -> Identity:5"],
                 no_unused_inputs=True,
             ),
         },
@@ -54,7 +59,9 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
             "callable": lambda x: jnp.sort(x, axis=0),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
-                ["TopK:3x4 -> Identity:3x4"],
+                [
+                    "IsNaN:3x4 -> Where:3x4 -> TopK:3x4 -> GatherElements:3x4 -> Identity:3x4"
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -63,7 +70,9 @@ def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
             "callable": lambda x: jnp.sort(x, axis=1),
             "input_shapes": [(3, 4)],
             "post_check_onnx_graph": EG(
-                ["TopK:3x4 -> Identity:3x4"],
+                [
+                    "IsNaN:3x4 -> Where:3x4 -> TopK:3x4 -> GatherElements:3x4 -> Identity:3x4"
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -126,8 +135,15 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
         if not isinstance(axis_size, (int, np.integer)):
             raise TypeError("jnp.sort requires static axis length")
         k_val = _const_i64(ctx, np.asarray([axis_size], dtype=np.int64), "sort_k")
-        values, _indices = builder.TopK(
+        target_shape = tuple(getattr(out_var.aval, "shape", ()))
+        sort_key, key_was_sanitized = make_nan_last_sort_key(
+            ctx,
             arr_val,
+            target_shape,
+            name_hint="sort_nan_last",
+        )
+        values, indices = builder.TopK(
+            sort_key,
             k_val,
             _outputs=[
                 ctx.fresh_name("sort_values"),
@@ -137,11 +153,24 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
             largest=0,
             sorted=1,
         )
-        target_shape = tuple(getattr(out_var.aval, "shape", ()))
-        if getattr(arr_val, "type", None) is not None:
-            values.type = arr_val.type
+        if getattr(sort_key, "type", None) is not None:
+            values.type = sort_key.type
         _stamp_type_and_shape(values, target_shape)
         _ensure_value_metadata(ctx, values)
+
+        if key_was_sanitized:
+            indices.type = ir.TensorType(ir.DataType.INT64)
+            indices.dtype = ir.DataType.INT64
+            _stamp_type_and_shape(indices, target_shape)
+            _ensure_value_metadata(ctx, indices)
+            values = gather_original_by_sort_indices(
+                ctx,
+                arr_val,
+                indices,
+                axis=int(axis),
+                shape=target_shape,
+                name_hint="sort_original_values",
+            )
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("sort_out")
         result = builder.Identity(

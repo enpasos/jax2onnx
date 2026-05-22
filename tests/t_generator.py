@@ -15,7 +15,7 @@ import onnx
 from onnx import TensorProto
 
 from logging_config import configure_logging
-from jax2onnx import allclose
+from jax2onnx import allclose, allclose_onnxruntime_web
 from jax2onnx.plugins.plugin_system import (
     EXAMPLE_REGISTRY,
     PLUGIN_REGISTRY,
@@ -84,6 +84,19 @@ logger = logging.getLogger("jax2onnx.tests.t_generator")
 # Basic logging configuration if not set elsewhere
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _generated_export_mode() -> str:
+    configured = os.getenv("JAX2ONNX_EXPORT_MODE", "").strip().lower()
+    if configured:
+        return configured
+    if _env_flag("JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB"):
+        return "web"
+    return "standard"
 
 
 def _cast_output_types_need_fix(model: onnx.ModelProto) -> bool:
@@ -632,6 +645,38 @@ def make_test_function(tp: dict[str, Any]):
         onnx_output_names_from_testcase = tp.get("output_names")
         inputs_as_nchw = tp.get("inputs_as_nchw")
         outputs_as_nchw = tp.get("outputs_as_nchw")
+        export_mode = _generated_export_mode()
+
+        def _validate_onnxruntime_web_if_enabled(
+            xs_for_num_check: Sequence[Any],
+            *,
+            rtol: float,
+            atol: float,
+        ) -> None:
+            if not _env_flag("JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB"):
+                return
+            web_runner = os.getenv("JAX2ONNX_ONNXRUNTIME_WEB_RUNNER", "node").strip()
+            logger.info(
+                "Running onnxruntime-web/%s check for '%s'...",
+                web_runner,
+                testcase_name,
+            )
+            passed_web, web_msg = allclose_onnxruntime_web(
+                model_path,
+                list(xs_for_num_check),
+                input_params_from_testcase,
+                rtol=rtol,
+                atol=atol,
+                inputs_as_nchw=inputs_as_nchw,
+            )
+            assert (
+                passed_web
+            ), f"onnxruntime-web/{web_runner} check failed for {testcase_name}: {web_msg}"
+            logger.info(
+                "onnxruntime-web/%s check passed for %s.",
+                web_runner,
+                testcase_name,
+            )
 
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 23)
@@ -642,7 +687,8 @@ def make_test_function(tp: dict[str, Any]):
         logger.info(
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
             f"enable_double_precision: {current_enable_double_precision}, "
-            f"inputs_as_nchw: {inputs_as_nchw}, outputs_as_nchw: {outputs_as_nchw}"
+            f"inputs_as_nchw: {inputs_as_nchw}, outputs_as_nchw: {outputs_as_nchw}, "
+            f"export_mode: {export_mode}"
         )
         try:
             to_onnx_kwargs = dict(
@@ -658,6 +704,7 @@ def make_test_function(tp: dict[str, Any]):
                 outputs_as_nchw=outputs_as_nchw,
                 input_names=onnx_input_names_from_testcase,
                 output_names=onnx_output_names_from_testcase,
+                export_mode=export_mode,
             )
             written_model_path = to_onnx(**to_onnx_kwargs)
             if written_model_path != model_path:
@@ -759,6 +806,11 @@ def make_test_function(tp: dict[str, Any]):
                 )
                 assert passed, f"Numerical check failed for {testcase_name}: {msg}"
                 logger.info(f"Numerical check passed for {testcase_name}.")
+                _validate_onnxruntime_web_if_enabled(
+                    xs_for_num_check,
+                    rtol=rtol,
+                    atol=atol,
+                )
 
         # ------------------------------------------------------------------
         # ✅  NUMERICAL CHECK – fall-back to default float32 dtypes
@@ -828,6 +880,11 @@ def make_test_function(tp: dict[str, Any]):
                 passed_numerical
             ), f"Numerical check failed for {testcase_name}: {validation_message}"
             logger.info(f"Numerical check passed for {testcase_name}.")
+            _validate_onnxruntime_web_if_enabled(
+                xs_for_num_check,
+                rtol=rtol,
+                atol=atol,
+            )
 
         # ------------------------------------------------------------------
         # If we reach here, it means numeric validation was skipped or not applicable.

@@ -39,6 +39,51 @@ to_onnx(
  
 🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/my_callable.onnx)
 
+## Browser/WASM Export
+
+For browser deployment with `onnxruntime-web/wasm`, export a self-contained ONNX
+file with `export_mode="web"`:
+
+```python
+from jax2onnx import to_onnx
+from jax2onnx.quickstart import build_quickstart_web_model
+
+model = build_quickstart_web_model()
+to_onnx(
+    model,
+    [("B", 8)],
+    return_mode="file",
+    output_path="web_mlp.onnx",
+    export_mode="web",
+)
+```
+
+Generated test runs can validate the same model with Python ONNX Runtime CPU and
+`onnxruntime-web/wasm`:
+
+```bash
+npm install
+JAX2ONNX_VALIDATE_ONNXRUNTIME_WEB=1 poetry run pytest -q tests/extra_tests/test_quickstart.py
+```
+
+For a broader but still lightweight smoke run, use the explicit smoke scripts:
+
+```bash
+scripts/run_onnxruntime_web_smoke.sh
+scripts/run_onnxruntime_web_chrome_smoke.sh
+```
+
+The central repository check runner performs full pytest Web runtime validation
+when either Web runtime flag is enabled:
+
+```bash
+JAX2ONNX_RUN_ONNXRUNTIME_WEB=1 ./scripts/run_all_checks.sh
+JAX2ONNX_RUN_ONNXRUNTIME_WEB_CHROME=1 ./scripts/run_all_checks.sh
+```
+
+See [Browser/WASM Deployment](browser_wasm.md) for browser loading code,
+Node.js/Chrome validation, CI usage, and troubleshooting.
+
 ## ONNX Functions — Minimal Example
 
 ONNX functions help encapsulate reusable subgraphs. Simply use the `@onnx_function` decorator to make your callable an ONNX function.

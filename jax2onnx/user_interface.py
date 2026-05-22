@@ -25,9 +25,13 @@ Example:
 
 import logging
 import importlib
+import json
 import os
 import re
+import subprocess
+import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -66,6 +70,8 @@ from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
 
 ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
+ExportMode = Literal["standard", "web"]
+_VALID_EXPORT_MODES = {"standard", "web"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
@@ -92,6 +98,15 @@ def _normalize_return_mode(value: str) -> ReturnMode:
             f"Unsupported return_mode '{value}'. Expected one of: {sorted(_VALID_RETURN_MODES)}"
         )
     return cast(ReturnMode, mode)
+
+
+def _normalize_export_mode(value: str) -> ExportMode:
+    mode = value.lower().strip()
+    if mode not in _VALID_EXPORT_MODES:
+        raise ValueError(
+            f"Unsupported export_mode '{value}'. Expected one of: {sorted(_VALID_EXPORT_MODES)}"
+        )
+    return cast(ExportMode, mode)
 
 
 @runtime_checkable
@@ -384,6 +399,7 @@ if TYPE_CHECKING:
         outputs_as_nchw: Optional[Sequence[int]] = ...,
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
+        export_mode: ExportMode = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -402,6 +418,7 @@ if TYPE_CHECKING:
         outputs_as_nchw: Optional[Sequence[int]] = ...,
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
+        export_mode: ExportMode = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -420,6 +437,7 @@ if TYPE_CHECKING:
         outputs_as_nchw: Optional[Sequence[int]] = ...,
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
+        export_mode: ExportMode = ...,
     ) -> str: ...
 
 
@@ -438,6 +456,7 @@ def to_onnx(
     outputs_as_nchw: Optional[Sequence[int]] = None,
     input_names: Optional[Sequence[str]] = None,
     output_names: Optional[Sequence[str]] = None,
+    export_mode: ExportMode = "standard",
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
@@ -480,6 +499,10 @@ def to_onnx(
             These names do not apply to entries supplied through `input_params`.
         output_names: Optional sequence of names for model outputs (0-based).
             Names are assigned after conversion in output order.
+        export_mode: Serialization profile. `"standard"` preserves the existing
+            file behavior, spilling large initializers into `.onnx.data` sidecars
+            when needed. `"web"` writes a single self-contained `.onnx` file for
+            browser/WASM deployment via `onnxruntime-web`.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -525,11 +548,13 @@ def to_onnx(
         f"record_primitive_calls_file={record_primitive_calls_file}, "
         f"return_mode={return_mode}, output_path={output_path}, "
         f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
-        f"input_names={input_names}, output_names={output_names}"
+        f"input_names={input_names}, output_names={output_names}, "
+        f"export_mode={export_mode}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
     normalized_mode = _normalize_return_mode(return_mode)
+    normalized_export_mode = _normalize_export_mode(export_mode)
 
     file_path: Optional[str] = None
     if normalized_mode == "file":
@@ -605,6 +630,7 @@ def to_onnx(
         model_proto: onnx.ModelProto,
         dest: str,
         *,
+        mode: ExportMode,
         external_threshold: int = 1_048_576,  # 1 MB default before spilling to .data
     ) -> str:
         dest_dir = os.path.dirname(dest)
@@ -612,6 +638,17 @@ def to_onnx(
             os.makedirs(dest_dir, exist_ok=True)
         data_location = os.path.basename(dest) + ".data"
         data_path = os.path.join(dest_dir or ".", data_location)
+
+        if mode == "web":
+            onnx.save_model(model_proto, dest, save_as_external_data=False)
+            # A previous standard export to the same path may have left a sidecar.
+            try:
+                if os.path.exists(data_path):
+                    os.remove(data_path)
+            except OSError:
+                pass
+            return dest
+
         onnx.save_model(
             model_proto,
             dest,
@@ -644,7 +681,7 @@ def to_onnx(
     model_proto = ir.to_proto(result)
     if normalized_mode == "file":
         assert file_path is not None
-        return _save_model_proto(model_proto, file_path)
+        return _save_model_proto(model_proto, file_path, mode=normalized_export_mode)
     return model_proto
 
 
@@ -794,21 +831,7 @@ def allclose(
         atol,
     )
 
-    def _is_shape(x: Any) -> bool:
-        return isinstance(x, (tuple, list)) and all(
-            isinstance(dim, (int, str)) for dim in x
-        )
-
-    xs: List[Any]
-    if all(_is_shape(x) for x in inputs):
-        xs = [
-            np.random.rand(*[d if isinstance(d, int) else 2 for d in shape]).astype(
-                np.float32
-            )
-            for shape in inputs
-        ]
-    else:
-        xs = list(inputs)
+    xs = _validation_inputs_to_arrays(inputs)
 
     params = dict(input_params or {})
     with _temporary_x64(enable_double_precision):
@@ -823,6 +846,230 @@ def allclose(
                 inputs_as_nchw=inputs_as_nchw,
                 outputs_as_nchw=outputs_as_nchw,
             )
+
+
+def allclose_onnxruntime_web(
+    onnx_model_path: str,
+    inputs: List[Any],
+    input_params: Optional[Dict[str, Any]] = None,
+    rtol: float = 1e-3,
+    atol: float = 1e-5,
+    *,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    node_command: str = "node",
+    runner: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Validate that `onnxruntime-web/wasm` matches Python ONNX Runtime CPU output.
+
+    This helper is intended for deployment-readiness checks. It executes the
+    serialized model once with Python `onnxruntime` on `CPUExecutionProvider`,
+    then executes the same model and feeds through `onnxruntime-web/wasm`.
+    The default runner is Node.js; pass `runner="chrome"` or set
+    `JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=chrome` to validate in a real browser via
+    Playwright/Chromium.
+    """
+
+    xs = _validation_inputs_to_arrays(inputs)
+    params = dict(input_params or {})
+
+    try:
+        ort = cast(Any, importlib.import_module("onnxruntime"))
+    except ImportError as exc:
+        return False, f"onnxruntime is required for CPU reference execution: {exc}"
+
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    sess_options.enable_mem_pattern = False
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
+
+    try:
+        session = ort.InferenceSession(
+            onnx_model_path,
+            sess_options=sess_options,
+            providers=["CPUExecutionProvider"],
+        )
+    except Exception as exc:  # pragma: no cover - defensive aid
+        return False, f"Failed to create CPU ONNX Runtime session: {exc}"
+
+    ort_xs = list(xs)
+    if inputs_as_nchw:
+        nhwc_to_nchw = [0, 3, 1, 2]
+        for idx in inputs_as_nchw:
+            if 0 <= idx < len(ort_xs):
+                val = ort_xs[idx]
+                if hasattr(val, "ndim") and val.ndim == 4:
+                    ort_xs[idx] = np.transpose(val, nhwc_to_nchw)
+
+    try:
+        ort_inputs = _build_ort_inputs(session, ort_xs, params)
+        expected_outputs = session.run(None, ort_inputs)
+    except Exception as exc:  # pragma: no cover - defensive aid
+        return False, f"Failed to run CPU ONNX Runtime reference: {exc}"
+
+    output_names = [output_meta.name for output_meta in session.get_outputs()]
+    if len(output_names) != len(expected_outputs):
+        return (
+            False,
+            f"Output metadata mismatch (names={len(output_names)} outputs={len(expected_outputs)})",
+        )
+
+    try:
+        spec = {
+            "modelPath": str(Path(onnx_model_path).resolve()),
+            "rtol": float(rtol),
+            "atol": float(atol),
+            "inputs": [
+                _array_to_onnxruntime_web_tensor(name, value)
+                for name, value in ort_inputs.items()
+            ],
+            "outputs": [
+                _array_to_onnxruntime_web_tensor(name, value)
+                for name, value in zip(output_names, expected_outputs, strict=True)
+            ],
+        }
+    except TypeError as exc:
+        return False, str(exc)
+
+    configured_runner = (
+        runner
+        if runner is not None
+        else os.getenv("JAX2ONNX_ONNXRUNTIME_WEB_RUNNER", "node")
+    )
+    runner_name = configured_runner.strip().lower()
+    if runner_name == "node":
+        script_name = "validate_onnxruntime_web.mjs"
+    elif runner_name in {"browser", "chrome"}:
+        script_name = "validate_onnxruntime_web_chrome.mjs"
+        runner_name = "chrome"
+    else:
+        return (
+            False,
+            "Unsupported onnxruntime-web runner "
+            f"'{runner_name}'. Use 'node' or 'chrome'.",
+        )
+
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
+    if not script_path.is_file():
+        return (
+            False,
+            f"onnxruntime-web/{runner_name} validation script not found: {script_path}",
+        )
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", encoding="utf-8", delete=False
+    ) as tmp:
+        spec_path = Path(tmp.name)
+        json.dump(spec, tmp, allow_nan=False)
+
+    try:
+        completed = subprocess.run(
+            [node_command, str(script_path), str(spec_path)],
+            cwd=str(script_path.parent.parent),
+            text=True,
+            capture_output=True,
+            check=False,
+            env=os.environ.copy(),
+        )
+    except FileNotFoundError:
+        return False, f"Node.js command not found: {node_command}"
+    finally:
+        try:
+            spec_path.unlink()
+        except OSError:
+            pass
+
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        stdout = completed.stdout.strip()
+        details = stderr or stdout or f"exit code {completed.returncode}"
+        return False, f"onnxruntime-web/{runner_name} validation failed: {details}"
+
+    summary = (
+        completed.stdout.strip() or f"onnxruntime-web/{runner_name} outputs match."
+    )
+    return True, summary
+
+
+def _validation_inputs_to_arrays(inputs: List[Any]) -> List[Any]:
+    def _is_shape(x: Any) -> bool:
+        return isinstance(x, (tuple, list)) and all(
+            isinstance(dim, (int, str)) for dim in x
+        )
+
+    if all(_is_shape(x) for x in inputs):
+        return [
+            np.random.rand(*[d if isinstance(d, int) else 2 for d in shape]).astype(
+                np.float32
+            )
+            for shape in inputs
+        ]
+    return list(inputs)
+
+
+def _array_to_onnxruntime_web_tensor(name: str, value: Any) -> Dict[str, Any]:
+    arr = np.asarray(value)
+    tensor_type = _onnxruntime_web_tensor_type(arr.dtype)
+    if arr.dtype == np.dtype(np.float16):
+        data: list[Any] = (
+            np.ascontiguousarray(arr).view(np.uint16).reshape(-1).astype(int).tolist()
+        )
+    else:
+        data = [_json_safe_scalar(item, arr.dtype) for item in arr.reshape(-1)]
+    return {
+        "name": name,
+        "type": tensor_type,
+        "dims": [int(dim) for dim in arr.shape],
+        "data": data,
+    }
+
+
+def _onnxruntime_web_tensor_type(dtype: np.dtype[Any]) -> str:
+    np_dtype = np.dtype(dtype)
+    dtype_map = {
+        np.dtype(np.float16): "float16",
+        np.dtype(np.float32): "float32",
+        np.dtype(np.float64): "float64",
+        np.dtype(np.uint8): "uint8",
+        np.dtype(np.int8): "int8",
+        np.dtype(np.uint16): "uint16",
+        np.dtype(np.int16): "int16",
+        np.dtype(np.uint32): "uint32",
+        np.dtype(np.int32): "int32",
+        np.dtype(np.uint64): "uint64",
+        np.dtype(np.int64): "int64",
+        np.dtype(np.bool_): "bool",
+    }
+    mapped = dtype_map.get(np_dtype)
+    if mapped is not None:
+        return mapped
+    if np_dtype.kind in ("U", "S"):
+        return "string"
+    raise TypeError(f"onnxruntime-web validation does not support dtype {np_dtype}.")
+
+
+def _json_safe_scalar(value: Any, dtype: np.dtype[Any]) -> Any:
+    np_dtype = np.dtype(dtype)
+    if np_dtype.kind == "b":
+        return bool(value)
+    if np_dtype.kind in ("i", "u"):
+        as_int = int(value)
+        if np_dtype.itemsize >= 8:
+            return str(as_int)
+        return as_int
+    if np_dtype.kind == "f":
+        as_float = float(value)
+        if np.isnan(as_float):
+            return "NaN"
+        if np.isposinf(as_float):
+            return "Infinity"
+        if np.isneginf(as_float):
+            return "-Infinity"
+        return as_float
+    if np_dtype.kind in ("U", "S"):
+        return str(value)
+    raise TypeError(f"Cannot serialize dtype {np_dtype} for onnxruntime-web.")
 
 
 def _run_allclose(

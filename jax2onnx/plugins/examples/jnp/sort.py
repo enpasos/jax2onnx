@@ -28,7 +28,9 @@ register_example(
             "input_dtypes": [jnp.float32],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Slice:5 -> TopK:5 -> Identity:5 -> Mul:5"],
+                [
+                    "Slice:5 -> IsNaN:5 -> Where:5 -> TopK:5 -> GatherElements:5 -> Identity:5 -> Mul:5"
+                ],
                 no_unused_inputs=True,
             ),
         },

@@ -41,6 +41,111 @@ def _normalize_equation(equation: object) -> str:
     return "".join(equation.split())
 
 
+def _static_int_dim(dim: object) -> int | None:
+    if isinstance(dim, (int, np.integer)):
+        return int(dim)
+    return None
+
+
+def _axis_labels_for_spec(spec: str, ellipsis_rank: int) -> list[str]:
+    if "..." not in spec:
+        return list(spec)
+    prefix, suffix = spec.split("...", 1)
+    return (
+        list(prefix)
+        + [f"__ellipsis_{idx}" for idx in range(ellipsis_rank)]
+        + list(suffix)
+    )
+
+
+def _broadcast_target_dim(dims: Sequence[object]) -> int | None:
+    static_dims = [_static_int_dim(dim) for dim in dims]
+    if any(dim is None for dim in static_dims):
+        return None
+    non_one = {dim for dim in static_dims if dim is not None and dim != 1}
+    if len(non_one) > 1:
+        return None
+    if non_one:
+        return non_one.pop()
+    return 1
+
+
+def _expand_broadcasted_einsum_inputs(
+    ctx: LoweringContextProtocol,
+    inputs: Sequence[ir.Value],
+    specs: Sequence[str],
+    shapes: Sequence[tuple[Any, ...]],
+    *,
+    ellipsis_rank: int,
+) -> tuple[list[ir.Value], list[tuple[Any, ...]]]:
+    labels_by_input = [
+        _axis_labels_for_spec(spec, ellipsis_rank if "..." in spec else 0)
+        for spec in specs
+    ]
+    label_dims: dict[str, list[object]] = {}
+    for labels, shape in zip(labels_by_input, shapes):
+        if len(labels) != len(shape):
+            continue
+        for label, dim in zip(labels, shape):
+            label_dims.setdefault(label, []).append(dim)
+
+    target_by_label = {
+        label: target
+        for label, dims in label_dims.items()
+        if len(dims) > 1 and (target := _broadcast_target_dim(dims)) is not None
+    }
+
+    adjusted_inputs: list[ir.Value] = []
+    adjusted_shapes: list[tuple[Any, ...]] = []
+    for val, labels, shape in zip(inputs, labels_by_input, shapes):
+        if len(labels) != len(shape):
+            adjusted_inputs.append(val)
+            adjusted_shapes.append(shape)
+            continue
+
+        target_shape: list[int] = []
+        needs_expand = False
+        for label, dim in zip(labels, shape):
+            target = target_by_label.get(label)
+            current = _static_int_dim(dim)
+            if target is not None:
+                target_shape.append(target)
+                if current == 1 and target != 1:
+                    needs_expand = True
+            elif current is not None:
+                target_shape.append(current)
+            else:
+                break
+        else:
+            if needs_expand:
+                shape_const = _const_i64(
+                    ctx,
+                    np.asarray(target_shape, dtype=np.int64),
+                    ctx.fresh_name("einsum_broadcast_shape"),
+                )
+                _stamp_type_and_shape(shape_const, (len(target_shape),))
+                _ensure_value_metadata(ctx, shape_const)
+                expanded = ctx.builder.Expand(
+                    val,
+                    shape_const,
+                    _outputs=[ctx.fresh_name("einsum_broadcast")],
+                )
+                val_dtype = getattr(getattr(val, "type", None), "dtype", None)
+                if val_dtype is not None:
+                    expanded.type = ir.TensorType(val_dtype)
+                expanded_shape = tuple(target_shape)
+                _stamp_type_and_shape(expanded, expanded_shape)
+                _ensure_value_metadata(ctx, expanded)
+                adjusted_inputs.append(expanded)
+                adjusted_shapes.append(expanded_shape)
+                continue
+
+        adjusted_inputs.append(val)
+        adjusted_shapes.append(shape)
+
+    return adjusted_inputs, adjusted_shapes
+
+
 @register_primitive(
     jaxpr_primitive=_EINSUM_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.einsum.html",
@@ -254,6 +359,7 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                 adjusted_specs.append(spec)
 
         adjusted_inputs: list[ir.Value] = []
+        adjusted_shapes: list[tuple[Any, ...]] = []
         for spec, val, shape, er in zip(
             in_specs, input_vals, var_shapes, ellipsis_ranks
         ):
@@ -280,10 +386,19 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
                     _stamp_type_and_shape(padded_val, padded_shape)
                     _ensure_value_metadata(ctx, padded_val)
                     adjusted_inputs.append(padded_val)
+                    adjusted_shapes.append(padded_shape)
                     continue
             adjusted_inputs.append(val)
+            adjusted_shapes.append(shape)
 
         adjusted_equation = ",".join(adjusted_specs) + "->" + rhs
+        adjusted_inputs, adjusted_shapes = _expand_broadcasted_einsum_inputs(
+            ctx,
+            adjusted_inputs,
+            adjusted_specs,
+            adjusted_shapes,
+            ellipsis_rank=max_ellipsis_rank,
+        )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("einsum_out")
         producer = getattr(out_spec, "producer", None)

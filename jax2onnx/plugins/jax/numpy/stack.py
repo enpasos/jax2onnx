@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax.interpreters import batching
+from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -21,7 +21,11 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins.jax._autodiff_utils import register_fallback_jvp_rule
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PLUGIN_REGISTRY,
+    PrimitiveLeafPlugin,
+    register_primitive,
+)
 
 
 _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
@@ -249,7 +253,8 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., jax.Array]:
             if orig is None:
                 raise RuntimeError("Original jnp.stack not found")
-            setattr(cls._PRIM, storage_slot, orig)
+            if getattr(cls._PRIM, storage_slot, None) is None:
+                setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(arrays: object, axis: int = 0) -> jax.Array:
                 flat, _ = tree_util.tree_flatten(arrays)
@@ -270,6 +275,12 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
                 delete_if_missing=False,
             ),
         ]
+
+
+# JAX AD paths can emit the raw primitive name "stack" even when the original
+# user call was patched through jax.numpy.stack. The parameters and operand
+# layout match this plugin's lowering, so reuse it for both names.
+PLUGIN_REGISTRY.setdefault("stack", PLUGIN_REGISTRY[JnpStackPlugin._PRIM.name])
 
 
 def _stack_batch_rule(
@@ -325,4 +336,34 @@ JnpStackPlugin._PRIM.def_abstract_eval(JnpStackPlugin.abstract_eval)
 batching.primitive_batchers[JnpStackPlugin._PRIM] = _stack_batch_rule
 
 
-register_fallback_jvp_rule(JnpStackPlugin._PRIM, _stack_fallback_jvp_impl)
+def _stack_transpose_rule(
+    ct: jax.Array, *args: object, axis: int = 0
+) -> tuple[object, ...]:
+    if isinstance(ct, ad.Zero):
+        return tuple(
+            (
+                ad.Zero(arg.aval.to_tangent_aval())
+                if isinstance(arg, ad.UndefinedPrimal)
+                else None
+            )
+            for arg in args
+        )
+
+    pieces = tuple(jnp.unstack(ct, axis=axis))
+    if len(pieces) != len(args):
+        raise RuntimeError(
+            f"stack transpose arity mismatch: expected {len(args)} pieces, "
+            f"got {len(pieces)}"
+        )
+    return tuple(
+        piece if isinstance(arg, ad.UndefinedPrimal) else None
+        for arg, piece in zip(args, pieces)
+    )
+
+
+register_fallback_jvp_rule(
+    JnpStackPlugin._PRIM,
+    _stack_fallback_jvp_impl,
+    register_transpose=False,
+)
+ad.primitive_transposes[JnpStackPlugin._PRIM] = _stack_transpose_rule

@@ -4,4 +4,5 @@ from jax2onnx.user_interface import (  # noqa: F401
     to_onnx,
     onnx_function,
     allclose,
+    allclose_onnxruntime_web,
 )

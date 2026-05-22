@@ -1,4 +1,5 @@
 debugvenv
+node_modules/
 tmp
 data
 artifacts

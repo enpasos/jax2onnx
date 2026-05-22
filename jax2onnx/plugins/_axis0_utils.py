@@ -190,123 +190,13 @@ def _pad_axis0_to_extent(
     return padded
 
 
-def ensure_axis0_extent(
-    ctx: Any, value: Any, override: int | None, reference: Any | None = None
+def _expand_axis0_to_extent(
+    ctx: Any,
+    value: Any,
+    *,
+    override: int,
+    dims: list[Any],
 ) -> Any:
-    if override is None or override <= 1:
-        _axis0_debug(
-            f"ensure_axis0_extent skip override={override} value={_value_name(value)}"
-        )
-        return value
-
-    dims_tuple = _shape_dims(value)
-    if not dims_tuple or len(dims_tuple) == 0:
-        # Rank-0 values already broadcast correctly in ONNX; forcing axis-0
-        # expansion from a scalar introduces trailing-axis broadcasts and shape
-        # metadata conflicts.
-        _axis0_debug(
-            "ensure_axis0_extent scalar-like value, skip "
-            f"override={override} value={_value_name(value)}"
-        )
-        return value
-    dims = list(dims_tuple) if dims_tuple else None
-    if (not dims or len(dims) == 0) and reference is not None:
-        ref_dims = _shape_dims(reference)
-        if ref_dims and len(ref_dims) > 0:
-            dims = list(ref_dims)
-    if not dims or len(dims) == 0:
-        _axis0_debug(
-            f"ensure_axis0_extent no dims override={override} value={_value_name(value)}"
-        )
-        return value
-    if not dims_tuple or len(dims_tuple) == 0:
-        try:
-            stamp_dims = tuple(_to_ir_dim_for_shape(dim) for dim in dims)
-            _stamp_type_and_shape(value, stamp_dims)
-        except Exception:
-            _axis0_debug(
-                f"ensure_axis0_extent failed to stamp input shape value={_value_name(value)}"
-            )
-    dim0 = dims[0]
-    existing = get_axis0_override(value)
-    if isinstance(existing, (int, np.integer)) and int(existing) == override:
-        dim0_int = _static_dim_as_int(dim0)
-        if dim0_int is None or dim0_int != override:
-            padded = _pad_axis0_to_extent(
-                ctx,
-                value,
-                override=override,
-                dims=list(dims) if dims is not None else [],
-                reference=reference,
-            )
-            if padded is not None:
-                return padded
-            try:
-                new_dims = list(dims)
-                new_dims[0] = override
-                stamped_dims = tuple(_to_ir_dim_for_shape(dim) for dim in new_dims)
-                _stamp_type_and_shape(value, stamped_dims)
-                _ensure_value_metadata(ctx, value)
-            except Exception:
-                _axis0_debug(
-                    "ensure_axis0_extent failed to restamp existing override "
-                    f"value={_value_name(value)}"
-                )
-        _axis0_debug(
-            f"ensure_axis0_extent existing override matches override={override} value={_value_name(value)}"
-        )
-        return value
-
-    dim0_int = _static_dim_as_int(dim0)
-    if dim0_int is not None:
-        if dim0_int == override:
-            set_axis0_override(value, override)
-            _axis0_debug(
-                f"ensure_axis0_extent dim0 already {override} value={_value_name(value)}"
-            )
-            return value
-        if dim0_int > override:
-            _axis0_debug(
-                f"ensure_axis0_extent dim0={dim0_int} incompatible with override={override} value={_value_name(value)}"
-            )
-            return value
-        if dim0_int < override:
-            padded = _pad_axis0_to_extent(
-                ctx,
-                value,
-                override=override,
-                dims=dims,
-                reference=reference,
-            )
-            if padded is not None:
-                return padded
-            _axis0_debug(
-                "ensure_axis0_extent unable to pad "
-                f"value={_value_name(value)} "
-                f"dim0={dim0_int} override={override}"
-            )
-        set_axis0_override(value, override)
-        _axis0_debug(
-            "ensure_axis0_extent metadata override only "
-            f"value={_value_name(value)} override={override}"
-        )
-        try:
-            new_dims = list(dims)
-            new_dims[0] = override
-            stamped_dims = tuple(_to_ir_dim_for_shape(dim) for dim in new_dims)
-            _stamp_type_and_shape(value, stamped_dims)
-            _ensure_value_metadata(ctx, value)
-        except Exception:
-            _axis0_debug(
-                "ensure_axis0_extent failed to stamp override-only shape "
-                f"value={_value_name(value)}"
-            )
-        return value
-    else:
-        _axis0_debug(
-            f"ensure_axis0_extent non-static dim0 override={override} value={_value_name(value)}"
-        )
-
     rank = len(dims)
     override_vec = _const_i64(
         ctx,
@@ -380,10 +270,10 @@ def ensure_axis0_extent(
     if hasattr(value, "type") and value.type is not None:
         expanded.type = value.type
     try:
-        original_dims = list(dims)
-        if original_dims:
-            original_dims[0] = override
-            _stamp_type_and_shape(expanded, tuple(original_dims))
+        expanded_dims = list(dims)
+        if expanded_dims:
+            expanded_dims[0] = override
+            _stamp_type_and_shape(expanded, tuple(expanded_dims))
     except Exception:
         _axis0_debug(
             f"ensure_axis0_extent failed to stamp shape for value={_value_name(expanded)}"
@@ -394,6 +284,140 @@ def ensure_axis0_extent(
         f"ensure_axis0_extent produced expand value={_value_name(expanded)} override={override}"
     )
     return expanded
+
+
+def ensure_axis0_extent(
+    ctx: Any, value: Any, override: int | None, reference: Any | None = None
+) -> Any:
+    if override is None or override <= 1:
+        _axis0_debug(
+            f"ensure_axis0_extent skip override={override} value={_value_name(value)}"
+        )
+        return value
+
+    dims_tuple = _shape_dims(value)
+    if not dims_tuple or len(dims_tuple) == 0:
+        # Rank-0 values already broadcast correctly in ONNX; forcing axis-0
+        # expansion from a scalar introduces trailing-axis broadcasts and shape
+        # metadata conflicts.
+        _axis0_debug(
+            "ensure_axis0_extent scalar-like value, skip "
+            f"override={override} value={_value_name(value)}"
+        )
+        return value
+    dims = list(dims_tuple) if dims_tuple else None
+    if (not dims or len(dims) == 0) and reference is not None:
+        ref_dims = _shape_dims(reference)
+        if ref_dims and len(ref_dims) > 0:
+            dims = list(ref_dims)
+    if not dims or len(dims) == 0:
+        _axis0_debug(
+            f"ensure_axis0_extent no dims override={override} value={_value_name(value)}"
+        )
+        return value
+    if not dims_tuple or len(dims_tuple) == 0:
+        try:
+            stamp_dims = tuple(_to_ir_dim_for_shape(dim) for dim in dims)
+            _stamp_type_and_shape(value, stamp_dims)
+        except Exception:
+            _axis0_debug(
+                f"ensure_axis0_extent failed to stamp input shape value={_value_name(value)}"
+            )
+    dim0 = dims[0]
+    existing = get_axis0_override(value)
+    if isinstance(existing, (int, np.integer)) and int(existing) == override:
+        dim0_int = _static_dim_as_int(dim0)
+        if dim0_int is None or dim0_int != override:
+            padded = _pad_axis0_to_extent(
+                ctx,
+                value,
+                override=override,
+                dims=list(dims) if dims is not None else [],
+                reference=reference,
+            )
+            if padded is not None:
+                return padded
+            if dim0_int == 1:
+                return _expand_axis0_to_extent(
+                    ctx,
+                    value,
+                    override=override,
+                    dims=list(dims),
+                )
+            try:
+                new_dims = list(dims)
+                new_dims[0] = override
+                stamped_dims = tuple(_to_ir_dim_for_shape(dim) for dim in new_dims)
+                _stamp_type_and_shape(value, stamped_dims)
+                _ensure_value_metadata(ctx, value)
+            except Exception:
+                _axis0_debug(
+                    "ensure_axis0_extent failed to restamp existing override "
+                    f"value={_value_name(value)}"
+                )
+        _axis0_debug(
+            f"ensure_axis0_extent existing override matches override={override} value={_value_name(value)}"
+        )
+        return value
+
+    dim0_int = _static_dim_as_int(dim0)
+    if dim0_int is not None:
+        if dim0_int == override:
+            set_axis0_override(value, override)
+            _axis0_debug(
+                f"ensure_axis0_extent dim0 already {override} value={_value_name(value)}"
+            )
+            return value
+        if dim0_int > override:
+            _axis0_debug(
+                f"ensure_axis0_extent dim0={dim0_int} incompatible with override={override} value={_value_name(value)}"
+            )
+            return value
+        if dim0_int < override:
+            padded = _pad_axis0_to_extent(
+                ctx,
+                value,
+                override=override,
+                dims=dims,
+                reference=reference,
+            )
+            if padded is not None:
+                return padded
+            if dim0_int == 1:
+                return _expand_axis0_to_extent(
+                    ctx,
+                    value,
+                    override=override,
+                    dims=dims,
+                )
+            _axis0_debug(
+                "ensure_axis0_extent unable to pad "
+                f"value={_value_name(value)} "
+                f"dim0={dim0_int} override={override}"
+            )
+        set_axis0_override(value, override)
+        _axis0_debug(
+            "ensure_axis0_extent metadata override only "
+            f"value={_value_name(value)} override={override}"
+        )
+        try:
+            new_dims = list(dims)
+            new_dims[0] = override
+            stamped_dims = tuple(_to_ir_dim_for_shape(dim) for dim in new_dims)
+            _stamp_type_and_shape(value, stamped_dims)
+            _ensure_value_metadata(ctx, value)
+        except Exception:
+            _axis0_debug(
+                "ensure_axis0_extent failed to stamp override-only shape "
+                f"value={_value_name(value)}"
+            )
+        return value
+    else:
+        _axis0_debug(
+            f"ensure_axis0_extent non-static dim0 override={override} value={_value_name(value)}"
+        )
+
+    return _expand_axis0_to_extent(ctx, value, override=override, dims=dims)
 
 
 def maybe_expand_binary_axis0(

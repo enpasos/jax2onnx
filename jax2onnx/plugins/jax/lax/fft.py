@@ -463,7 +463,7 @@ def _gather_channel(
                 [
                     {
                         "inputs": {1: {"const": 8.0}},
-                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT -> Gather -> Reshape:1x8 -> Reshape:8",
+                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT:1x8x2 -> Gather:1x8 -> Reshape:8",
                     }
                 ],
                 no_unused_inputs=True,
@@ -490,7 +490,7 @@ def _gather_channel(
                 [
                     {
                         "inputs": {1: {"const": 8.0}},
-                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT -> Gather -> Reshape:1x8 -> Reshape:8",
+                        "path": "Reshape:1x5x2 -> Concat:1x8x2 -> DFT:1x8x2 -> Gather:1x8 -> Reshape:8",
                     }
                 ],
                 no_unused_inputs=True,
@@ -806,6 +806,7 @@ class FFTPlugin(PrimitiveLeafPlugin):
             )
         )
         dft_out.type = ir.TensorType(base_dtype)
+        _stamp_type_and_shape(dft_out, _as_dim_tuple(packed_dims))
         _ensure_value_metadata(ctx, dft_out)
 
         real_vals = _gather_channel(
