@@ -1,6 +1,9 @@
 # API Reference
 
-`jax2onnx` exposes three public entry points: `to_onnx(...)` for export, `@onnx_function` for reusable subgraphs, and `allclose(...)` for JAX-vs-ONNX validation.
+`jax2onnx` exposes four public entry points: `to_onnx(...)` for export,
+`@onnx_function` for reusable subgraphs, `allclose(...)` for JAX-vs-ONNX
+validation, and `allclose_onnxruntime_web(...)` for ONNX Runtime Web/WASM
+parity checks.
 
 ## Common Export Flow
 

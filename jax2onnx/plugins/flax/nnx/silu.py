@@ -25,7 +25,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
         },
         {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
     ],
-    since="0.13.2",
+    since="0.14.0",
     context="primitives.nnx",
     component="silu",
     testcases=[

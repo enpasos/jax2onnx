@@ -11,6 +11,5 @@
 | [`onnx`](https://github.com/onnx/onnx) | 1.21.0 |
 | [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.26.0 |
 | [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.26.0 |
-| [`Playwright`](https://playwright.dev/) | 1.60.0 |
 
 *For minimum supported versions and optional extras, see [`pyproject.toml`](https://github.com/enpasos/jax2onnx/blob/main/pyproject.toml). For the fully resolved Poetry environment, see `poetry.lock`.*

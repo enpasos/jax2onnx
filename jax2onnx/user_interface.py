@@ -4,14 +4,16 @@
 User-facing API for converting JAX functions and models to ONNX.
 
 This module provides the primary interface for exporting JAX/Flax models to the
-ONNX format. It supports dynamic shapes, runtime parameters, and numerical
-validation against ONNX Runtime.
+ONNX format. It supports dynamic shapes, runtime parameters, file-oriented export
+profiles, and numerical validation against ONNX Runtime.
 
 Key Functions:
 
 - **to_onnx**: Convert a JAX function or Flax module to an ONNX model.
 - **onnx_function**: Decorator to mark a function or class as an ONNX function node.
 - **allclose**: Validate numerical equivalence between JAX and ONNX Runtime outputs.
+- **allclose_onnxruntime_web**: Validate ONNX Runtime Web/WASM output against
+  Python ONNX Runtime CPU output.
 
 Example:
     >>> from jax2onnx import to_onnx
@@ -21,6 +23,13 @@ Example:
     ...     return jnp.sin(x)
     >>>
     >>> to_onnx(my_model, inputs=[('B', 10)], return_mode="file", output_path="model.onnx")
+    >>> to_onnx(
+    ...     my_model,
+    ...     inputs=[('B', 10)],
+    ...     return_mode="file",
+    ...     output_path="model.web.onnx",
+    ...     export_mode="web",
+    ... )
 """
 
 import logging
@@ -502,7 +511,8 @@ def to_onnx(
         export_mode: Serialization profile. `"standard"` preserves the existing
             file behavior, spilling large initializers into `.onnx.data` sidecars
             when needed. `"web"` writes a single self-contained `.onnx` file for
-            browser/WASM deployment via `onnxruntime-web`.
+            browser/WASM deployment via `onnxruntime-web`. This only affects
+            `return_mode="file"`; `"proto"` and `"ir"` return values are unchanged.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -775,7 +785,7 @@ def onnx_function(
 def allclose(
     fn: Callable[..., Any],
     onnx_model_path: str,
-    inputs: List[Any],
+    inputs: Sequence[Any],
     input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
@@ -850,7 +860,7 @@ def allclose(
 
 def allclose_onnxruntime_web(
     onnx_model_path: str,
-    inputs: List[Any],
+    inputs: Sequence[Any],
     input_params: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-3,
     atol: float = 1e-5,
@@ -868,6 +878,24 @@ def allclose_onnxruntime_web(
     The default runner is Node.js; pass `runner="chrome"` or set
     `JAX2ONNX_ONNXRUNTIME_WEB_RUNNER=chrome` to validate in a real browser via
     Playwright/Chromium.
+
+    Args:
+        onnx_model_path: Path to a serialized ONNX model, typically produced with
+            `to_onnx(..., return_mode="file", export_mode="web")`.
+        inputs: Concrete input arrays (or shape tuples, which will be sampled).
+        input_params: Optional named ONNX inputs that correspond to runtime
+            parameters materialized during export.
+        rtol: Relative tolerance for output comparison.
+        atol: Absolute tolerance for output comparison.
+        inputs_as_nchw: Optional sequence of input indices that should be
+            transposed from NHWC validation arrays to NCHW ONNX feeds.
+        node_command: Node.js executable used to run the Web/WASM validator.
+        runner: Optional runtime selector. Use `"node"` for Node.js WASM
+            validation or `"chrome"`/`"browser"` for Playwright Chromium.
+
+    Returns:
+        `(is_match, message)` where `is_match` indicates success and `message`
+        contains the Web runner result or failure details.
     """
 
     xs = _validation_inputs_to_arrays(inputs)
@@ -992,7 +1020,7 @@ def allclose_onnxruntime_web(
     return True, summary
 
 
-def _validation_inputs_to_arrays(inputs: List[Any]) -> List[Any]:
+def _validation_inputs_to_arrays(inputs: Sequence[Any]) -> List[Any]:
     def _is_shape(x: Any) -> bool:
         return isinstance(x, (tuple, list)) and all(
             isinstance(dim, (int, str)) for dim in x
