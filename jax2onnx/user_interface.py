@@ -16,20 +16,31 @@ Key Functions:
   Python ONNX Runtime CPU output.
 
 Example:
-    >>> from jax2onnx import to_onnx
-    >>> import jax.numpy as jnp
-    >>>
-    >>> def my_model(x):
-    ...     return jnp.sin(x)
-    >>>
-    >>> to_onnx(my_model, inputs=[('B', 10)], return_mode="file", output_path="model.onnx")
-    >>> to_onnx(
-    ...     my_model,
-    ...     inputs=[('B', 10)],
-    ...     return_mode="file",
-    ...     output_path="model.web.onnx",
-    ...     export_mode="web",
-    ... )
+    ```python
+    import jax.numpy as jnp
+
+    from jax2onnx import to_onnx
+
+
+    def my_model(x):
+        return jnp.sin(x)
+
+
+    to_onnx(
+        my_model,
+        inputs=[("B", 10)],
+        return_mode="file",
+        output_path="model.onnx",
+    )
+
+    to_onnx(
+        my_model,
+        inputs=[("B", 10)],
+        return_mode="file",
+        output_path="model.web.onnx",
+        export_mode="web",
+    )
+    ```
 """
 
 import logging
@@ -525,29 +536,30 @@ def to_onnx(
         TypeError: If `input_params` keys are not strings.
 
     Example:
-        >>> import jax
-        >>> import jax.numpy as jnp
-        >>> from jax2onnx import to_onnx
-        >>>
-        >>> # Define a simple JAX function
-        >>> def linear(x, w, b):
-        ...     return jnp.dot(x, w) + b
-        >>>
-        >>> # Define input shapes: 'B' indicates a dynamic batch dimension
-        >>> input_specs = [
-        ...     ('B', 32),  # x: [Batch, 32]
-        ...     (32, 10),   # w: [32, 10]
-        ...     (10,)       # b: [10]
-        ... ]
-        >>>
-        >>> # Convert and save to file directly (Recommended)
-        >>> to_onnx(
-        ...     linear,
-        ...     inputs=input_specs,
-        ...     model_name="linear_model",
-        ...     return_mode="file",
-        ...     output_path="linear_model.onnx"
-        ... )
+        ```python
+        import jax.numpy as jnp
+
+        from jax2onnx import to_onnx
+
+
+        def linear(x, w, b):
+            return jnp.dot(x, w) + b
+
+
+        input_specs = [
+            ("B", 32),  # x: [Batch, 32]
+            (32, 10),  # w: [32, 10]
+            (10,),  # b: [10]
+        ]
+
+        to_onnx(
+            linear,
+            inputs=input_specs,
+            model_name="linear_model",
+            return_mode="file",
+            output_path="linear_model.onnx",
+        )
+        ```
     """
 
     logging.info(
@@ -754,24 +766,27 @@ def onnx_function(
         The decorated function or class with ONNX function capabilities.
 
     Example:
-        >>> from jax2onnx import onnx_function
-        >>> import jax.numpy as jnp
-        >>>
-        >>> @onnx_function
-        >>> def my_custom_op(x, y):
-        ...     return jnp.sin(x) * y
-        >>>
-        >>> # Also works with Flax modules:
-        >>> from flax import nnx
-        >>>
-        >>> @onnx_function
-        >>> class MLPBlock(nnx.Module):
-        >>>     def __init__(self, features, rngs):
-        >>>         self.dense = nnx.Linear(features, rngs=rngs)
-        >>>         self.activation = nnx.relu
-        >>>
-        >>>     def __call__(self, x):
-        >>>         return self.activation(self.dense(x))
+        ```python
+        import jax.numpy as jnp
+        from flax import nnx
+
+        from jax2onnx import onnx_function
+
+
+        @onnx_function
+        def my_custom_op(x, y):
+            return jnp.sin(x) * y
+
+
+        @onnx_function
+        class MLPBlock(nnx.Module):
+            def __init__(self, features, rngs):
+                self.dense = nnx.Linear(features, rngs=rngs)
+                self.activation = nnx.relu
+
+            def __call__(self, x):
+                return self.activation(self.dense(x))
+        ```
     """
 
     return cast(
@@ -812,26 +827,33 @@ def allclose(
         provides context when a mismatch occurs.
 
     Example:
-        >>> import jax.numpy as jnp
-        >>> from jax2onnx import to_onnx, allclose
-        >>>
-        >>> # 1. Define and Export
-        >>> def my_func(x):
-        ...     return jnp.sin(x)
-        >>>
-        >>> model_path = to_onnx(
-        ...     my_func,
-        ...     inputs=[('B', 10)],
-        ...     return_mode="file",
-        ...     output_path="my_model.onnx"
-        ... )
-        >>>
-        >>> # 2. Validate
-        >>> # Provide concrete shapes for validation (replacing dynamic dim 'B')
-        >>> validation_inputs = [(5, 10)]
-        >>> is_match, msg = allclose(my_func, model_path, inputs=validation_inputs, atol=1e-5)
-        >>>
-        >>> assert is_match, f"Validation failed: {msg}"
+        ```python
+        import jax.numpy as jnp
+
+        from jax2onnx import allclose, to_onnx
+
+
+        def my_func(x):
+            return jnp.sin(x)
+
+
+        model_path = to_onnx(
+            my_func,
+            inputs=[("B", 10)],
+            return_mode="file",
+            output_path="my_model.onnx",
+        )
+
+        validation_inputs = [(5, 10)]
+        is_match, msg = allclose(
+            my_func,
+            model_path,
+            inputs=validation_inputs,
+            atol=1e-5,
+        )
+
+        assert is_match, f"Validation failed: {msg}"
+        ```
     """
 
     logging.info(
@@ -896,6 +918,24 @@ def allclose_onnxruntime_web(
     Returns:
         `(is_match, message)` where `is_match` indicates success and `message`
         contains the Web runner result or failure details.
+
+    Example:
+        ```python
+        import numpy as np
+
+        from jax2onnx import allclose_onnxruntime_web
+
+
+        is_match, message = allclose_onnxruntime_web(
+            "model.web.onnx",
+            inputs=[np.zeros((2, 10), dtype=np.float32)],
+            rtol=1e-5,
+            atol=1e-5,
+            runner="node",
+        )
+
+        assert is_match, message
+        ```
     """
 
     xs = _validation_inputs_to_arrays(inputs)

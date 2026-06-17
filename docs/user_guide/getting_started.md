@@ -14,15 +14,18 @@ Convert your JAX callable to ONNX in just a few lines:
 from flax import nnx
 from jax2onnx import to_onnx
 
-# Define a simple MLP (from Flax docs)
+# Define a simple inference MLP
 class MLP(nnx.Module):
-    def __init__(self, din, dmid, dout, *, rngs): 
+    def __init__(self, din, dmid, dout, *, rngs):
         self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
-        self.bn = nnx.BatchNorm(dmid, rngs=rngs)
-        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs) 
-    def __call__(self, x): 
-        x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
+        self.dropout = nnx.Dropout(rate=0.1, deterministic=True, rngs=rngs)
+        self.bn = nnx.BatchNorm(dmid, use_running_average=True, rngs=rngs)
+        self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+
+    def __call__(self, x):
+        x = self.bn(self.linear1(x))
+        x = self.dropout(x, deterministic=True)
+        x = nnx.gelu(x)
         return self.linear2(x)
 
 # Instantiate model
@@ -36,7 +39,13 @@ to_onnx(
     output_path="my_callable.onnx",
 )
 ```
- 
+
+For a basic structural and numerical validation workflow, see
+[Validation & Deployment Readiness](validation.md).
+
+For modules with dropout, batch normalization, mutable state, or RNG-dependent
+behavior, make the intended inference behavior explicit before export.
+
 🔎 See it visualized:  [`my_callable.onnx`](https://netron.app/?url=https://huggingface.co/enpasos/jax2onnx-models/resolve/main/my_callable.onnx)
 
 ## Browser/WASM Export
@@ -138,5 +147,7 @@ If conversion doesn't work out of the box, it could be due to:
 - **Unsupported primitives:**  
   The callable may use a primitive not yet or not fully supported by `jax2onnx`.  
   **Solution:** Write a [plugin](../developer_guide/plugin_system.md) to handle the unsupported function (this is straightforward!).
+
+For broader support boundaries, see [Known Limitations](known_limitations.md).
 
 Looking for provenance details while debugging? Check out the new [Stacktrace Metadata guide](stacktrace_metadata.md).

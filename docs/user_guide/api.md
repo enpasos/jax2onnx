@@ -1,9 +1,11 @@
 # API Reference
 
-`jax2onnx` exposes four public entry points: `to_onnx(...)` for export,
-`@onnx_function` for reusable subgraphs, `allclose(...)` for JAX-vs-ONNX
-validation, and `allclose_onnxruntime_web(...)` for ONNX Runtime Web/WASM
-parity checks.
+`jax2onnx` exposes four public entry points:
+
+- `to_onnx(...)` for export
+- `@onnx_function` for reusable subgraphs
+- `allclose(...)` for JAX-vs-ONNX validation
+- `allclose_onnxruntime_web(...)` for ONNX Runtime Web/WASM parity checks
 
 ## Common Export Flow
 
@@ -19,7 +21,12 @@ model_path = to_onnx(
 )
 ```
 
-Use string dimensions such as `"B"` when you want symbolic dynamic axes. For direct file export, set `return_mode="file"` and provide `output_path`.
+Use string dimensions such as `"B"` when you want symbolic dynamic axes.
+
+For direct file export, set `return_mode="file"` and provide `output_path`.
+
+For a full export validation checklist, see
+[Validation & Deployment Readiness](validation.md).
 
 For browser deployment with [`onnxruntime-web`](https://onnxruntime.ai/docs/tutorials/web/), use the Web export profile:
 

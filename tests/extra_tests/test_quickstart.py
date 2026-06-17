@@ -20,12 +20,14 @@ from jax2onnx.user_interface import allclose, allclose_onnxruntime_web, to_onnx
 class _QuickstartMLP(nnx.Module):
     def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
         self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=0.1, rngs=rngs)
-        self.bn = nnx.BatchNorm(dmid, rngs=rngs)
+        self.dropout = nnx.Dropout(rate=0.1, deterministic=True, rngs=rngs)
+        self.bn = nnx.BatchNorm(dmid, use_running_average=True, rngs=rngs)
         self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
 
     def __call__(self, x):
-        x = nnx.gelu(self.dropout(self.bn(self.linear1(x))))
+        x = self.bn(self.linear1(x))
+        x = self.dropout(x, deterministic=True)
+        x = nnx.gelu(x)
         return self.linear2(x)
 
 

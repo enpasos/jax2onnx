@@ -2,11 +2,11 @@
 
 ## Planned
 
-* Explore deployment-readiness reports for exported models: ONNX checker,
-  strict shape inference, operator inventory, dtype/shape summaries, and
-  numeric parity checks.
-* Add target-oriented validation guidance for ONNX Runtime CPU, web, and mobile
-  deployments where practical.
+* Expand deployment-readiness reporting beyond the basic validation guide:
+  operator inventory, dtype/shape summaries, stricter shape-inference checks,
+  and reusable report artifacts for exported models.
+* Extend target-oriented validation guidance beyond the documented ONNX Runtime
+  CPU and Web/WASM flows, especially for mobile deployments where practical.
 * Broaden capability-matrix coverage across dtype and shape variants, including
   BF16, dynamic dimensions, and non-square inputs.
 * Add focused end-to-end deployment examples for small vision, RL-style, and

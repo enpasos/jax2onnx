@@ -57,6 +57,8 @@ nav:
   - Home: index.md
   - User Guide:
       - Getting Started: user_guide/getting_started.md
+      - Validation & Deployment Readiness: user_guide/validation.md
+      - Known Limitations: user_guide/known_limitations.md
       - Browser/WASM Deployment: user_guide/browser_wasm.md
       - API Reference: user_guide/api.md
       - ONNX Functions: user_guide/onnx_functions.md
