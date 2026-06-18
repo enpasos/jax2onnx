@@ -9,13 +9,12 @@ from typing import Any, cast
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 
-from jax import core
-
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax._jax_compat import Jaxpr
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
@@ -99,7 +98,7 @@ def builder_loop(
 
 def lower_jaxpr_eqns(
     ctx: LoweringContextProtocol,
-    jaxpr: core.Jaxpr,
+    jaxpr: Jaxpr,
     *,
     source: str = "control_flow",
 ) -> None:

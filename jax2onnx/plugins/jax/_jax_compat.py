@@ -13,7 +13,7 @@ try:  # JAX 0.10+ exposes this through jax.errors.
 except ImportError:  # pragma: no cover - compatibility with older JAX versions
     from jax.core import InconclusiveDimensionOperation
 from jax.extend import core as jax_core_ext
-from jax.extend.core import ClosedJaxpr, JaxprEqn, Literal, Primitive
+from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Literal, Primitive
 from jax.interpreters import ad, batching
 
 
@@ -49,6 +49,7 @@ __all__ = [
     "AbstractValue",
     "ClosedJaxpr",
     "InconclusiveDimensionOperation",
+    "Jaxpr",
     "JaxprEqn",
     "Literal",
     "NOT_MAPPED",
