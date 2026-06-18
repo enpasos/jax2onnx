@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import lax
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,

@@ -19,7 +19,7 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._jax_compat import DropVar, Var
+from jax2onnx._compat.jax import DropVar, Var
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, ClassVar, Final
 
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,

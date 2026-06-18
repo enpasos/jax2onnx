@@ -6,7 +6,7 @@ from collections.abc import Sequence as _Seq
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,

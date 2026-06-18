@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any, TypeAlias
 
 import jax
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     Primitive,
     ShapedArray,

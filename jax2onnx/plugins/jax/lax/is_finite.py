@@ -3,7 +3,7 @@
 
 import jax
 import numpy as np
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG

@@ -35,7 +35,7 @@ import numpy as np
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     NOT_MAPPED,
     Primitive,
     ShapedArray,

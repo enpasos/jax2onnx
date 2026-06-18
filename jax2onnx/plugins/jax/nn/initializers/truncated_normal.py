@@ -6,7 +6,7 @@ from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     JaxprEqn,
     Primitive,
     ShapedArray,

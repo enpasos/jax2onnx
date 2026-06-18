@@ -5,7 +5,7 @@ from typing import Callable, ClassVar, cast
 
 import jax
 import jax.numpy as jnp  # noqa: F401  (kept for parity with other plugins)
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     Primitive,

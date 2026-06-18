@@ -32,7 +32,7 @@ from jax2onnx.plugins.jax.lax.scan import (
     _jaxpr_contains_scatter,
     _static_scatter_extent,
 )
-from jax2onnx.plugins.jax._jax_compat import Primitive
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 

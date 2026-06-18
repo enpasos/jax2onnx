@@ -16,7 +16,7 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._control_flow_utils import builder_cast, builder_identity
 
 

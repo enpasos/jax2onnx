@@ -12,7 +12,7 @@ from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn, Primitive, ShapedArray
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,

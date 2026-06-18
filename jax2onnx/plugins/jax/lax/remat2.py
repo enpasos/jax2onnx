@@ -11,7 +11,7 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._jax_compat import Primitive
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 

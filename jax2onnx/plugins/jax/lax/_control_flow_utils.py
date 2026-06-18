@@ -14,7 +14,7 @@ from jax2onnx.converter.lowering_dispatch import (
 )
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins.jax._jax_compat import Jaxpr
+from jax2onnx._compat.jax import Jaxpr
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 

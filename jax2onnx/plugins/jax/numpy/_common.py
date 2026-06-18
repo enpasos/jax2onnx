@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, cast
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax._jax_compat import Primitive
+from jax2onnx._compat.jax import Primitive
 
 
 BoundCallable = Callable[..., Any]

@@ -7,7 +7,7 @@ from typing import Any, Sequence, Callable, cast
 import numpy as np
 from jax import lax
 
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     NOT_MAPPED,
     batching,
     ensure_batching_not_mapped_attr,

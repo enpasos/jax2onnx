@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,

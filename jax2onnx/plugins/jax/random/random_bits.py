@@ -14,7 +14,7 @@ import jax
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 

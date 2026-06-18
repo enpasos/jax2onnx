@@ -7,7 +7,7 @@ from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.extend.core as jax_core_ext
-from jax2onnx.plugins.jax._jax_compat import (
+from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,

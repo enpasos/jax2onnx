@@ -12,7 +12,7 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
 
 

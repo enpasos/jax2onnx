@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from jax2onnx.plugins.jax import _jax_compat as compat
+from jax2onnx._compat import jax as compat
 
 
 def test_jax_compat_exports_core_types() -> None:

@@ -17,7 +17,7 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
 from jax2onnx.plugins.plugin_system import register_primitive
 

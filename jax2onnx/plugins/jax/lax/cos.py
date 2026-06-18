@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Any, List
 
-from jax2onnx.plugins.jax._jax_compat import JaxprEqn
+from jax2onnx._compat.jax import JaxprEqn
 from jax import lax
 
 import onnx_ir as ir

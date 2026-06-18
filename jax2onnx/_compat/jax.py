@@ -1,4 +1,4 @@
-# jax2onnx/plugins/jax/_jax_compat.py
+# jax2onnx/_compat/jax.py
 
 """Compatibility helpers for JAX APIs that are moving across releases."""
 

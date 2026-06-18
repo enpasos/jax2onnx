@@ -8,7 +8,7 @@ from flax import nnx
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.jax._jax_compat import Primitive, ShapedArray
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
