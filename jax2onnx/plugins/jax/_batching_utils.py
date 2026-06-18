@@ -8,6 +8,10 @@ import numpy as np
 from jax import lax
 from jax.interpreters import batching
 
+from jax2onnx.plugins.jax._batching_compat import ensure_batching_not_mapped_attr
+
+ensure_batching_not_mapped_attr()
+
 
 def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
     try:  # Prefer the internal helper when available (moved in newer JAX versions).

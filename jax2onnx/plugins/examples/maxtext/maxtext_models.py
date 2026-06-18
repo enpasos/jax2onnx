@@ -1405,28 +1405,30 @@ def _patch_random_normal_to_zero() -> callable:
 
     orig_normal = jax.random.normal
     orig_truncated = jax.random.truncated_normal
-    orig_module_normal = _random.normal
-    orig_module_truncated = _random.truncated_normal
-    orig_internal_normal = _random._normal
-    orig_internal_normal_real = _random._normal_real
-    orig_internal_truncated = _random._truncated_normal
+    missing = object()
+    random_module_patches = (
+        ("normal", _zero_normal),
+        ("truncated_normal", _zero_truncated_normal),
+        ("_normal", _zero_normal),
+        ("_normal_real", _zero_normal_real),
+        ("_truncated_normal", _zero_truncated_normal),
+    )
+    random_module_originals: list[tuple[str, object]] = []
 
     jax.random.normal = _zero_normal
     jax.random.truncated_normal = _zero_truncated_normal
-    _random.normal = _zero_normal
-    _random.truncated_normal = _zero_truncated_normal
-    _random._normal = _zero_normal
-    _random._normal_real = _zero_normal_real
-    _random._truncated_normal = _zero_truncated_normal
+    for name, replacement in random_module_patches:
+        original = getattr(_random, name, missing)
+        if original is missing:
+            continue
+        random_module_originals.append((name, original))
+        setattr(_random, name, replacement)
 
     def _restore() -> None:
         jax.random.normal = orig_normal
         jax.random.truncated_normal = orig_truncated
-        _random.normal = orig_module_normal
-        _random.truncated_normal = orig_module_truncated
-        _random._normal = orig_internal_normal
-        _random._normal_real = orig_internal_normal_real
-        _random._truncated_normal = orig_internal_truncated
+        for name, original in random_module_originals:
+            setattr(_random, name, original)
 
     return _restore
 

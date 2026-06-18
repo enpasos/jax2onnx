@@ -40,24 +40,29 @@ def _normalize_method(method: str | jimage.ResizeMethod) -> str:
 
 
 def _canonical_method(method: str) -> str:
+    method = method.replace("_", "-")
     alias_map = {
         "bilinear": "linear",
         "trilinear": "linear",
         "triangle": "linear",
         "bicubic": "cubic",
         "tricubic": "cubic",
+        "cubic-pytorch": "cubic_pytorch",
+        "bicubic-pytorch": "cubic_pytorch",
     }
     return alias_map.get(method, method)
 
 
-def _compute_exact_linear_resize_weights(
+def _compute_exact_resize_weights(
     *,
     input_shape: Sequence[int],
     output_shape: Sequence[int],
+    method: str,
+    antialias: bool,
     dtype: np.dtype[Any],
     precision: object,
 ) -> np.ndarray:
-    """Build an exact static linear resize matrix from the original JAX op."""
+    """Build an exact static resize matrix from the original JAX op."""
     try:
         from jax._src.image.scale import _resize as jax_resize_impl  # noqa: PLC0415
     except Exception:
@@ -83,14 +88,144 @@ def _compute_exact_linear_resize_weights(
     input_size = int(np.prod(input_shape_tuple, dtype=np.int64))
     output_size = int(np.prod(output_shape_tuple, dtype=np.int64))
     basis = np.eye(input_size, dtype=dtype).reshape((input_size,) + input_shape_tuple)
+    jax_method = "cubic-pytorch" if method == "cubic_pytorch" else method
 
     resized_basis = jax.vmap(
-        lambda x: jax_resize_impl(x, output_shape_tuple, "linear", False, precision)
+        lambda x: jax_resize_impl(
+            x, output_shape_tuple, jax_method, antialias, precision
+        )
     )(basis)
     return cast(
         np.ndarray[Any, np.dtype[Any]],
         np.asarray(resized_basis, dtype=dtype).reshape((input_size, output_size)),
     )
+
+
+def _resize_weight_dtype_enum(dtype: np.dtype[Any]) -> ir.DataType:
+    if dtype == np.float64:
+        return ir.DataType.DOUBLE
+    if dtype == np.float16:
+        return ir.DataType.FLOAT16
+    if dtype.name == "bfloat16":
+        return ir.DataType.BFLOAT16
+    return ir.DataType.FLOAT
+
+
+def _emit_exact_static_resize(
+    ctx: LoweringContextProtocol,
+    *,
+    image_var: Any,
+    image_val: ir.Value,
+    image_dtype: ir.DataType | None,
+    output_shape: Sequence[int],
+    method: str,
+    antialias: bool,
+    precision: object,
+    out_var: Any,
+    name_prefix: str,
+) -> bool:
+    input_shape = tuple(getattr(getattr(image_var, "aval", None), "shape", ()))
+    if len(input_shape) != len(output_shape):
+        return False
+
+    input_shape_ints: list[int] = []
+    for dim in input_shape:
+        normalized = _normalized_dim(dim)
+        if normalized is None or normalized <= 0:
+            return False
+        input_shape_ints.append(normalized)
+
+    input_size = int(np.prod(tuple(input_shape_ints), dtype=np.int64))
+    output_size = int(np.prod(tuple(output_shape), dtype=np.int64))
+    if input_size * output_size > _MAX_EXACT_LINEAR_OPSET9_WEIGHTS:
+        return False
+
+    input_np_dtype = np.dtype(
+        getattr(getattr(image_var, "aval", None), "dtype", np.float32)
+    )
+    weight_dtype = (
+        input_np_dtype
+        if np.issubdtype(input_np_dtype, np.floating)
+        else np.dtype(np.float32)
+    )
+    weights = _compute_exact_resize_weights(
+        input_shape=tuple(input_shape_ints),
+        output_shape=output_shape,
+        method=method,
+        antialias=antialias,
+        dtype=weight_dtype,
+        precision=precision,
+    )
+    weight_dtype_enum = _resize_weight_dtype_enum(weight_dtype)
+
+    flat_shape = _const_i64(
+        ctx,
+        np.asarray([input_size], dtype=np.int64),
+        ctx.fresh_name(f"{name_prefix}_flat_shape"),
+    )
+    flat_val = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            image_val,
+            flat_shape,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_flattened")],
+        ),
+    )
+    if image_dtype is not None:
+        flat_val.type = ir.TensorType(image_dtype)
+    _stamp_type_and_shape(flat_val, (input_size,))
+    _ensure_value_metadata(ctx, flat_val)
+
+    matmul_input: ir.Value = flat_val
+    if input_np_dtype != weight_dtype:
+        matmul_input = cast(
+            ir.Value,
+            ctx.builder.Cast(
+                flat_val,
+                _outputs=[ctx.fresh_name(f"{name_prefix}_cast")],
+                to=int(weight_dtype_enum.value),
+            ),
+        )
+        matmul_input.type = ir.TensorType(weight_dtype_enum)
+        _stamp_type_and_shape(matmul_input, (input_size,))
+        _ensure_value_metadata(ctx, matmul_input)
+
+    weights_const = ctx.builder.add_initializer_from_array(
+        name=ctx.fresh_name(f"{name_prefix}_weights"),
+        array=weights,
+    )
+    matmul_out = cast(
+        ir.Value,
+        ctx.builder.MatMul(
+            matmul_input,
+            weights_const,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_flat_out")],
+        ),
+    )
+    matmul_out.type = ir.TensorType(weight_dtype_enum)
+    _stamp_type_and_shape(matmul_out, (output_size,))
+    _ensure_value_metadata(ctx, matmul_out)
+
+    out_shape_const = _const_i64(
+        ctx,
+        np.asarray(output_shape, dtype=np.int64),
+        ctx.fresh_name(f"{name_prefix}_out_shape"),
+    )
+    exact_out = cast(
+        ir.Value,
+        ctx.builder.Reshape(
+            matmul_out,
+            out_shape_const,
+            _outputs=[ctx.fresh_name(f"{name_prefix}_out")],
+        ),
+    )
+    exact_out.type = ir.TensorType(weight_dtype_enum)
+    _stamp_type_and_shape(
+        exact_out, tuple(_normalized_dim(dim) for dim in output_shape)
+    )
+    _ensure_value_metadata(ctx, exact_out)
+    ctx.bind_value_for_var(out_var, exact_out)
+    return True
 
 
 @register_primitive(
@@ -176,6 +311,32 @@ def _compute_exact_linear_resize_weights(
             "post_check_onnx_graph": EG(["Upsample"], no_unused_inputs=True),
             "run_only_f32_variant": True,
         },
+        {
+            "testcase": "resize_area_static_exact",
+            "callable": lambda x: jimage.resize(
+                x, (2, 2), method="area", antialias=False
+            ),
+            "input_shapes": [(4, 4)],
+            "expected_output_shapes": [(2, 2)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:16 -> MatMul:4 -> Reshape:2x2"],
+                no_unused_inputs=True,
+            ),
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "resize_cubic_pytorch_static_exact",
+            "callable": lambda x: jimage.resize(
+                x, (3, 5), method="cubic-pytorch", antialias=False
+            ),
+            "input_shapes": [(2, 2)],
+            "expected_output_shapes": [(3, 5)],
+            "post_check_onnx_graph": EG(
+                ["Reshape:4 -> MatMul:15 -> Reshape:3x5"],
+                no_unused_inputs=True,
+            ),
+            "run_only_f32_variant": True,
+        },
     ],
 )
 class ImageResizePlugin(PrimitiveLeafPlugin):
@@ -186,7 +347,11 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         "nearest": "nearest",
         "linear": "linear",
         "cubic": "cubic",
+        "cubic_pytorch": "cubic",
     }
+    _STATIC_EXACT_METHODS: ClassVar[frozenset[str]] = frozenset(
+        {"area", "cubic_pytorch"}
+    )
 
     @staticmethod
     def abstract_eval(
@@ -217,20 +382,42 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         antialias = bool(params.get("antialias", False))
         precision = params.get("precision", None)
 
-        if method not in self._SUPPORTED_MODES:
+        if (
+            method not in self._SUPPORTED_MODES
+            and method not in self._STATIC_EXACT_METHODS
+        ):
             raise NotImplementedError(f"resize method '{method}' is not supported")
         if method == "nearest":
             antialias = False
             precision = None
-        if antialias:
-            raise NotImplementedError("resize with antialias=True is not supported yet")
-        if precision not in (None, jax.lax.Precision.DEFAULT):
-            raise NotImplementedError("resize precision overrides are not supported")
 
         image_val = ctx.get_value_for_var(
             image_var, name_hint=ctx.fresh_name("resize_input")
         )
         image_dtype = getattr(getattr(image_val, "type", None), "dtype", None)
+
+        if method in self._STATIC_EXACT_METHODS and _emit_exact_static_resize(
+            ctx,
+            image_var=image_var,
+            image_val=image_val,
+            image_dtype=image_dtype,
+            output_shape=shape,
+            method=method,
+            antialias=antialias,
+            precision=precision,
+            out_var=out_var,
+            name_prefix=f"resize_{method}",
+        ):
+            return
+        if method == "area":
+            raise NotImplementedError(
+                "resize method 'area' requires static positive dimensions small "
+                "enough for exact matrix lowering"
+            )
+        if antialias:
+            raise NotImplementedError("resize with antialias=True is not supported yet")
+        if precision not in (None, jax.lax.Precision.DEFAULT):
+            raise NotImplementedError("resize precision overrides are not supported")
 
         opset = int(getattr(ctx.builder, "opset", 21))
         if opset <= 9:
@@ -266,9 +453,11 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
                         if np.issubdtype(input_np_dtype, np.floating)
                         else np.dtype(np.float32)
                     )
-                    weights = _compute_exact_linear_resize_weights(
+                    weights = _compute_exact_resize_weights(
                         input_shape=input_shape_ints,
                         output_shape=shape,
+                        method="linear",
+                        antialias=False,
                         dtype=weight_dtype,
                         precision=precision,
                     )
@@ -384,12 +573,16 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
 
         resize_kwargs: dict[str, object] = {
             "mode": self._SUPPORTED_MODES[method],
-            "coordinate_transformation_mode": "half_pixel",
+            "coordinate_transformation_mode": (
+                "pytorch_half_pixel" if method == "cubic_pytorch" else "half_pixel"
+            ),
         }
         if method == "nearest":
             resize_kwargs["nearest_mode"] = "round_prefer_floor"
-        if method == "cubic":
-            resize_kwargs["cubic_coeff_a"] = -0.5
+        if method in {"cubic", "cubic_pytorch"}:
+            resize_kwargs["cubic_coeff_a"] = (
+                -0.75 if method == "cubic_pytorch" else -0.5
+            )
 
         resize_out = cast(
             ir.Value,

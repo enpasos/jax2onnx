@@ -22,6 +22,12 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
 _JNP_ARANGE_ORIG: Final = jnp.arange
+_OPSET27_NATIVE_RANGE_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
+    {
+        np.dtype(np.float16),
+        np.dtype(jnp.bfloat16),
+    }
+)
 
 
 def _resolve_symbolic_dynamic_dim() -> Any | None:
@@ -658,6 +664,20 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             avals, dtype_param, enable_x64
         )
         target_enum: ir.DataType = numpy_dtype_to_ir(result_dtype)
+        builder = getattr(ctx, "builder", None)
+        if builder is None:
+            raise AttributeError("IR build context missing builder for arange lowering")
+        use_native_range_dtype = (
+            int(getattr(builder, "opset", 0) or 0) >= 27
+            and result_dtype in _OPSET27_NATIVE_RANGE_DTYPES
+        )
+        range_dtype = (
+            result_dtype
+            if result_dtype not in _OPSET27_NATIVE_RANGE_DTYPES
+            or use_native_range_dtype
+            else np.dtype(np.float32)
+        )
+        range_enum: ir.DataType = numpy_dtype_to_ir(range_dtype)
 
         literal_args: list[float | int] | None = []
         input_vals: list[ir.Value] = []
@@ -665,10 +685,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             val = ctx.get_value_for_var(
                 var,
                 name_hint=ctx.fresh_name("arange_arg"),
-                prefer_np_dtype=result_dtype,
+                prefer_np_dtype=range_dtype,
             )
             input_vals.append(
-                _maybe_cast_value(ctx, val, target_enum, f"arange_cast_{idx}")
+                _maybe_cast_value(ctx, val, range_enum, f"arange_cast_{idx}")
             )
             if literal_args is not None and isinstance(var, JaxLiteral):
                 literal_value = cast(float | int, np.asarray(var.val).item())
@@ -677,7 +697,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 literal_args = None
 
         def _const(value: float | int, tag: str) -> ir.Value:
-            arr = np.asarray(value, dtype=result_dtype)
+            arr = np.asarray(value, dtype=range_dtype)
             const_value: ir.Value = ctx.bind_const_for_var(object(), arr)
             return const_value
 
@@ -695,13 +715,9 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 f"jnp.arange lowering expects 1 to 3 inputs, got {len(input_vals)}"
             )
 
-        start_val = _maybe_cast_value(ctx, start_val, target_enum, "arange_start")
-        limit_val = _maybe_cast_value(ctx, limit_val, target_enum, "arange_limit")
-        delta_val = _maybe_cast_value(ctx, delta_val, target_enum, "arange_delta")
-
-        builder = getattr(ctx, "builder", None)
-        if builder is None:
-            raise AttributeError("IR build context missing builder for arange lowering")
+        start_val = _maybe_cast_value(ctx, start_val, range_enum, "arange_start")
+        limit_val = _maybe_cast_value(ctx, limit_val, range_enum, "arange_limit")
+        delta_val = _maybe_cast_value(ctx, delta_val, range_enum, "arange_delta")
 
         out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(
@@ -710,13 +726,16 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             prefer_np_dtype=result_dtype,
         )
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("arange_out")
+        range_output_name = (
+            out_name if range_enum == target_enum else ctx.fresh_name("arange_range")
+        )
         result = builder.Range(
             start_val,
             limit_val,
             delta_val,
-            _outputs=[out_name],
+            _outputs=[range_output_name],
         )
-        result.type = ir.TensorType(target_enum)
+        result.type = ir.TensorType(range_enum)
 
         length_hint: int | None = None
         if literal_args is not None:
@@ -745,10 +764,25 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
         _stamp_type_and_shape(result, final_shape)
         _ensure_value_metadata(ctx, result)
+
+        final_result = result
+        if range_enum != target_enum:
+            final_result = cast(
+                ir.Value,
+                builder.Cast(
+                    result,
+                    _outputs=[out_name],
+                    to=int(target_enum.value),
+                ),
+            )
+            final_result.type = ir.TensorType(target_enum)
+            _stamp_type_and_shape(final_result, final_shape)
+            _ensure_value_metadata(ctx, final_result)
+
         bind_value = getattr(ctx, "bind_value_for_var", None)
         if not callable(bind_value):
             raise AttributeError("IR build context missing bind_value_for_var")
-        bind_value(out_var, result)
+        bind_value(out_var, final_result)
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:

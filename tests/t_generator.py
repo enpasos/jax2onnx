@@ -45,6 +45,8 @@ _FALLBACK_NP_TYPE_TO_TENSOR_TYPE = {
     np.dtype(np.complex64): TensorProto.COMPLEX64,
     np.dtype(np.complex128): TensorProto.COMPLEX128,
 }
+if hasattr(TensorProto, "BFLOAT16"):
+    _FALLBACK_NP_TYPE_TO_TENSOR_TYPE[np.dtype(jnp.bfloat16)] = TensorProto.BFLOAT16
 
 
 @contextmanager

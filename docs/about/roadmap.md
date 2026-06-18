@@ -14,7 +14,17 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
+## Upcoming Version
 
+### **jax2onnx 0.14.1**
+
+* **Add targeted Opset 27 coverage:** Preserve the Opset 23 default while using
+  native FP16/BF16 `Range` for `opset=27` exports and keeping older exports on
+  the cast fallback; cover new JAX 0.10 resize methods where the ONNX mapping is
+  exact.
+* **Refresh the validation stack:** Update the upcoming documented runtime
+  stack to JAX `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, ONNX Runtime
+  `1.27.0`, and the matching `onnxruntime-web` versions for Web validation.
 
 ## Current Version
 
