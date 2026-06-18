@@ -18,12 +18,12 @@ from typing import Any, Dict, Sequence, Tuple, cast
 
 import numpy as np
 import onnx_ir as ir
-from jax import core
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import (
     _builder_op,
     _cast_to_i64,
@@ -1566,7 +1566,7 @@ def ensure_supported_mode(mode: Any) -> None:
 
 def lower_scatter_common(
     ctx: LoweringContextProtocol,
-    eqn: core.JaxprEqn,
+    eqn: JaxprEqn,
     *,
     reduction: str,
     updates_override: ir.Value | None = None,
