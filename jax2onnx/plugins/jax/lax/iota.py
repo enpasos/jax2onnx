@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Final, cast
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 
@@ -36,9 +37,25 @@ _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
         np.dtype(np.uint64),
         np.dtype(np.float32),
         np.dtype(np.float64),
+        np.dtype(np.float16),
+        np.dtype(jnp.bfloat16),
         np.dtype(np.bool_),
     }
 )
+_OPSET27_NATIVE_RANGE_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
+    {
+        np.dtype(np.float16),
+        np.dtype(jnp.bfloat16),
+    }
+)
+
+
+def _const_scalar_of_dtype(
+    ctx: LoweringContextProtocol,
+    value: int | float,
+    dtype: np.dtype[Any],
+) -> ir.Value:
+    return ctx.bind_const_for_var(object(), np.asarray(value, dtype=dtype))
 
 
 @register_primitive(
@@ -71,6 +88,61 @@ _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
                 ["Range:10 -> Cast:10"],
                 no_unused_inputs=True,
             ),
+        },
+        {
+            "testcase": "iota_bfloat16_opset23_cast_fallback",
+            "callable": lambda: jax.lax.iota(jnp.bfloat16, 5),
+            "input_shapes": [],
+            "opset_version": 23,
+            "expected_output_dtypes": [jnp.bfloat16],
+            "post_check_onnx_graph": EG(
+                ["Range:5 -> Cast:5"],
+                no_unused_inputs=True,
+            ),
+            "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "iota_bfloat16_opset27_native_range",
+            "callable": lambda: jax.lax.iota(jnp.bfloat16, 5),
+            "input_shapes": [],
+            "opset_version": 27,
+            "expected_output_dtypes": [jnp.bfloat16],
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Range:5",
+                        {
+                            "counts": {"Range": 1},
+                            "must_absent": ["Cast"],
+                        },
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+            "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
+        },
+        {
+            "testcase": "iota_float16_opset27_native_range",
+            "callable": lambda: jax.lax.iota(np.float16, 5),
+            "input_shapes": [],
+            "opset_version": 27,
+            "expected_output_dtypes": [np.float16],
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Range:5",
+                        {
+                            "counts": {"Range": 1},
+                            "must_absent": ["Cast"],
+                        },
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+            "skip_numeric_validation": True,
+            "run_only_f32_variant": True,
         },
         {
             "testcase": "iota_uint8",
@@ -118,26 +190,54 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 f"iota dimension {dimension} out of range for shape {shape}"
             )
 
+        if dtype not in _SUPPORTED_IOTA_DTYPES:
+            raise TypeError(f"Unsupported dtype for lax.iota: {dtype}")
+        target_dtype = numpy_dtype_to_ir(dtype)
+        use_native_range_dtype = (
+            int(getattr(builder, "opset", 0) or 0) >= 27
+            and dtype in _OPSET27_NATIVE_RANGE_DTYPES
+        )
+        range_dtype = target_dtype if use_native_range_dtype else ir.DataType.INT64
+
         dim_extent = shape[dimension]
-        limit_vec = _lower_i64_vector(ctx, [dim_extent], "iota_limit_vec")
-        squeeze_axes = _const_i64(
-            ctx, np.asarray([0], dtype=np.int64), "iota_limit_squeeze_axes"
-        )
-        limit = cast(
-            ir.Value,
-            builder.Squeeze(
-                limit_vec,
-                squeeze_axes,
-                _outputs=[ctx.fresh_name("iota_limit")],
-            ),
-        )
-        limit.type = ir.TensorType(ir.DataType.INT64)
-        _stamp_type_and_shape(limit, ())
-        _ensure_value_metadata(ctx, limit)
+        if use_native_range_dtype and isinstance(dim_extent, (int, np.integer)):
+            limit = _const_scalar_of_dtype(ctx, int(dim_extent), dtype)
+        else:
+            limit_vec = _lower_i64_vector(ctx, [dim_extent], "iota_limit_vec")
+            squeeze_axes = _const_i64(
+                ctx, np.asarray([0], dtype=np.int64), "iota_limit_squeeze_axes"
+            )
+            limit = cast(
+                ir.Value,
+                builder.Squeeze(
+                    limit_vec,
+                    squeeze_axes,
+                    _outputs=[ctx.fresh_name("iota_limit")],
+                ),
+            )
+            limit.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(limit, ())
+            _ensure_value_metadata(ctx, limit)
+            if use_native_range_dtype:
+                limit = cast(
+                    ir.Value,
+                    builder.Cast(
+                        limit,
+                        _outputs=[ctx.fresh_name("iota_limit_cast")],
+                        to=int(target_dtype.value),
+                    ),
+                )
+                limit.type = ir.TensorType(target_dtype)
+                _stamp_type_and_shape(limit, ())
+                _ensure_value_metadata(ctx, limit)
 
         # Build the 1-D range along the chosen axis.
-        start = _scalar_i64(ctx, 0, "iota_start")
-        delta = _scalar_i64(ctx, 1, "iota_delta")
+        if use_native_range_dtype:
+            start = _const_scalar_of_dtype(ctx, 0, dtype)
+            delta = _const_scalar_of_dtype(ctx, 1, dtype)
+        else:
+            start = _scalar_i64(ctx, 0, "iota_start")
+            delta = _scalar_i64(ctx, 1, "iota_delta")
 
         range_out = cast(
             ir.Value,
@@ -148,7 +248,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
                 _outputs=[ctx.fresh_name("iota_range")],
             ),
         )
-        range_out.type = ir.TensorType(ir.DataType.INT64)
+        range_out.type = ir.TensorType(range_dtype)
         _stamp_type_and_shape(range_out, (dim_extent,))
         _ensure_value_metadata(ctx, range_out)
 
@@ -171,7 +271,7 @@ class IotaPlugin(PrimitiveLeafPlugin):
                         _outputs=[ctx.fresh_name("iota_unsq")],
                     ),
                 )
-                current_unsq.type = ir.TensorType(ir.DataType.INT64)
+                current_unsq.type = ir.TensorType(range_dtype)
                 _stamp_type_and_shape(current_unsq, tuple(unsq_shape))
                 _ensure_value_metadata(ctx, current_unsq)
                 current = current_unsq
@@ -185,16 +285,12 @@ class IotaPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("iota_expanded")],
                 ),
             )
-            expanded.type = ir.TensorType(ir.DataType.INT64)
+            expanded.type = ir.TensorType(range_dtype)
             _stamp_type_and_shape(expanded, tuple(shape))
             _ensure_value_metadata(ctx, expanded)
             current = expanded
 
-        if dtype not in _SUPPORTED_IOTA_DTYPES:
-            raise TypeError(f"Unsupported dtype for lax.iota: {dtype}")
-        target_dtype = numpy_dtype_to_ir(dtype)
-
-        if target_dtype != ir.DataType.INT64:
+        if target_dtype != range_dtype:
             cast_out = cast(
                 ir.Value,
                 builder.Cast(

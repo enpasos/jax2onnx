@@ -109,6 +109,13 @@ _ALLOWED_SKIP_CASES: set[tuple[str, str, str]] = {
     # JAX 0.10 removed the legacy a_min/a_max keyword spelling, so this testcase
     # only verifies converter/plugin compatibility during export.
     ("primitives.jnp", "clip", "clip_keyword_legacy_a_min_a_max_aliases"),
+    # ORT/NumPy cannot run the BF16 zero-input parity path in the generated
+    # numeric harness yet; keep structural and dtype coverage enabled.
+    ("primitives.lax", "iota", "iota_bfloat16_opset23_cast_fallback"),
+    # ORT 1.27 does not execute ai.onnx opset 27 models yet; these cases verify
+    # native Range structure and output dtype while runtime support catches up.
+    ("primitives.lax", "iota", "iota_bfloat16_opset27_native_range"),
+    ("primitives.lax", "iota", "iota_float16_opset27_native_range"),
 }
 _ALLOWED_SKIP_CONTEXTS: set[str] = {
     "examples.maxtext",  # ORT cannot execute MaxText graphs yet.

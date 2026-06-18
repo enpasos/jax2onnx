@@ -39,6 +39,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
+from jax2onnx.plugins.jax._batching_compat import ensure_batching_not_mapped_attr
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -52,6 +53,8 @@ from jax2onnx.converter.typing_support import (
 )
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
+
+ensure_batching_not_mapped_attr()
 
 # ------------------------------------------------------------------------------
 # Registries and state
