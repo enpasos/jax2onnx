@@ -9,11 +9,10 @@ from typing import Any, Final, Iterable, Optional, Sequence, cast
 import numpy as np
 import onnx_ir as ir
 
-from jax import core
-
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
 
 
@@ -69,7 +68,7 @@ def _maybe_cast_input(
 
 def lower_reduction(
     ctx: LoweringContextProtocol,
-    eqn: core.JaxprEqn,
+    eqn: JaxprEqn,
     *,
     op_type: str,
     allow_dtype_param: bool = True,
@@ -244,7 +243,7 @@ def lower_reduction(
 
 
 def lower_boolean_reduction(
-    ctx: LoweringContextProtocol, eqn: core.JaxprEqn, *, mode: str
+    ctx: LoweringContextProtocol, eqn: JaxprEqn, *, mode: str
 ) -> None:
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]

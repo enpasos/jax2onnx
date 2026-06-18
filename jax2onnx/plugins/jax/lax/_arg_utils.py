@@ -9,8 +9,6 @@ from typing import Any, Sequence
 import numpy as np
 import onnx_ir as ir
 
-from jax import core
-
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import (
@@ -18,12 +16,13 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _to_ir_dim_for_shape,
 )
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.jax.lax._control_flow_utils import builder_cast, builder_identity
 
 
 def lower_arg_reduction(
     ctx: LoweringContextProtocol,
-    eqn: core.JaxprEqn,
+    eqn: JaxprEqn,
     *,
     op_name: str,
     name_prefix: str,
