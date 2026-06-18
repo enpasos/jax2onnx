@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, cast
 
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import Primitive
 
 
 BoundCallable = Callable[..., Any]
