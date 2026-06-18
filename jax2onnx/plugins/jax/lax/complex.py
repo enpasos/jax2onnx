@@ -13,6 +13,7 @@ from jax2onnx.plugins._complex_utils import (
     resolve_common_real_dtype,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -66,7 +67,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class ComplexPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.complex`` to ONNX ops, returning a packed [..., 2] tensor."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (real_var, imag_var) = eqn.invars
         (out_var,) = eqn.outvars
 

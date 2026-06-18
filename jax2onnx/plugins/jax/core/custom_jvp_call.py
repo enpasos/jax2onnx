@@ -4,24 +4,17 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from jax import core
 import numpy as np
+import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn, Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
 )
-
-
-import jax
-
-try:  # JAX 0.4+ lives in jax.extend.core
-    from jax.extend.core import Primitive as JaxPrimitive
-except ImportError:  # pragma: no cover - fallback for older JAX
-    from jax.core import Primitive as JaxPrimitive
 
 
 @jax.custom_jvp
@@ -57,9 +50,9 @@ def _square_jvp(primals: tuple[Any, ...], tangents: tuple[Any, ...]) -> tuple[An
 class CustomJvpCallPlugin(PrimitiveLeafPlugin):
     """Inline the body of a ``custom_jvp_call`` primitive into the current IR."""
 
-    _PRIM: ClassVar[JaxPrimitive | None] = None
+    _PRIM: ClassVar[Primitive | None] = None
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         closed = eqn.params.get("call_jaxpr")
         if closed is None:
             raise ValueError("custom_jvp_call missing call_jaxpr parameter")

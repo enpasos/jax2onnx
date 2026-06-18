@@ -11,6 +11,7 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -38,7 +39,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 )
 class RsqrtPlugin(PrimitiveLeafPlugin):
     def lower(
-        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
+        self, ctx: LoweringContextProtocol, eqn: JaxprEqn
     ) -> None:  # pragma: no cover - exercised via tests
         builder = ctx.builder
 

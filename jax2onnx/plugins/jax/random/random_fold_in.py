@@ -14,10 +14,10 @@ from typing import cast
 
 import numpy as np
 import onnx_ir as ir
-import jax
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -66,7 +66,7 @@ def _identity(
 class RandomFoldInPlugin(PrimitiveLeafPlugin):
     """Forward the incoming key; sufficient for deterministic inference paths."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

@@ -8,12 +8,17 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
@@ -203,14 +208,14 @@ class RandomCategoricalPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        key: jax.core.AbstractValue,
-        logits: jax.core.AbstractValue,
+        key: AbstractValue,
+        logits: AbstractValue,
         *,
         axis: int = -1,
         shape: tuple[int, ...] | None = None,
         replace: bool = True,
         mode: str | None = None,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del key, replace, mode
         logits_shape = tuple(getattr(logits, "shape", ()))
         logits_rank = len(logits_shape)
@@ -219,9 +224,9 @@ class RandomCategoricalPlugin(PrimitiveLeafPlugin):
             out_shape = logits_shape[:axis_norm] + logits_shape[axis_norm + 1 :]
         else:
             out_shape = tuple(int(d) for d in shape)
-        return jax.core.ShapedArray(out_shape, np.dtype(np.int32))
+        return ShapedArray(out_shape, np.dtype(np.int32))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         key_var, logits_var = eqn.invars
         (out_var,) = eqn.outvars
 
