@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from jax import core
 import numpy as np
 import onnx_ir as ir
 
@@ -13,8 +12,9 @@ from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     SymbolicDimOrigin,
 )
-from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
@@ -97,7 +97,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
     ],
 )
 class DimAsValuePlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         out_var = eqn.outvars[0]
         out_spec = ctx.get_value_for_var(
             out_var, name_hint=ctx.fresh_name("dim_as_value_out")

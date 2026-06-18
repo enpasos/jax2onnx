@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from jax import core
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -13,6 +12,7 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -33,7 +33,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class NamePlugin(PrimitiveLeafPlugin):
     """Lower the ad_checkpoint name primitive to an ONNX Identity node."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         inp_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
