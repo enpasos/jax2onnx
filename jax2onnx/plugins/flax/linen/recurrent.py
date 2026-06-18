@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import jax
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
 from flax import linen as nn
 
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.flax.test_utils import (
     linen_bidirectional_to_nnx,
@@ -75,7 +73,7 @@ class SimpleCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "SimpleCell primitive should not reach lowering; it is inlined."
         )
@@ -120,7 +118,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "GRUCell primitive should not reach lowering; it is inlined."
         )
@@ -166,7 +164,7 @@ class MGUCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "MGUCell primitive should not reach lowering; it is inlined."
         )
@@ -211,7 +209,7 @@ class LSTMCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "LSTMCell primitive should not reach lowering; it is inlined."
         )
@@ -256,7 +254,7 @@ class OptimizedLSTMCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "OptimizedLSTMCell primitive should not reach lowering; it is inlined."
         )
@@ -309,7 +307,7 @@ class ConvLSTMCellPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "ConvLSTMCell primitive should not reach lowering; it is inlined."
         )
@@ -359,7 +357,7 @@ class RNNPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "RNN primitive should not reach lowering; it is inlined."
         )
@@ -413,7 +411,7 @@ class BidirectionalPlugin(PrimitiveLeafPlugin):
         del args, kwargs
         return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "Bidirectional primitive should not reach lowering; it is inlined."
         )
