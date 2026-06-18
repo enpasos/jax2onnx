@@ -5,10 +5,10 @@ from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import linen as nn
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_primitive,
@@ -251,11 +251,11 @@ class DensePlugin(PrimitiveLeafPlugin):
         *,
         use_bias: bool,
         dimension_numbers: Any = None,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del bias, use_bias, dimension_numbers
         _, k1 = kernel.shape
         out_shape = (*x.shape[:-1], k1)
-        return jax.core.ShapedArray(out_shape, x.dtype)
+        return ShapedArray(out_shape, x.dtype)
 
     def lower(self, ctx: Any, eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)

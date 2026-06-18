@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar
 
 from flax import linen as nn
-from jax.extend.core import Primitive
 
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import dropout as nnx_dropout
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx

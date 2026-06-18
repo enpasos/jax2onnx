@@ -6,10 +6,10 @@ from typing import Any, Callable, ClassVar, Final, Sequence
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import linen as nn
 from flax.linen import linear as linen_linear
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import linear_general as nnx_linear_general
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
@@ -160,7 +160,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
     @staticmethod
     def abstract_eval(
         x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del bias
         ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = dimension_numbers
         lhs_contract = tuple(lhs_contract)
@@ -179,7 +179,7 @@ class DenseGeneralPlugin(nnx_linear_general.LinearGeneralPlugin):
         out_shape = tuple(x.shape[i] for i in lhs_batch)
         out_shape += tuple(x.shape[i] for i in lhs_other)
         out_shape += tuple(kernel.shape[i] for i in rhs_other)
-        return jax.core.ShapedArray(out_shape, x.dtype)
+        return ShapedArray(out_shape, x.dtype)
 
     @staticmethod
     def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
