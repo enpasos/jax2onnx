@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -142,13 +147,13 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        lhs: jax.core.AbstractValue,
-        rhs: jax.core.AbstractValue,
-        lhs_scales: jax.core.AbstractValue,
-        rhs_scales: jax.core.AbstractValue,
+        lhs: AbstractValue,
+        rhs: AbstractValue,
+        lhs_scales: AbstractValue,
+        rhs_scales: AbstractValue,
         *,
         preferred_element_type: np.dtype[Any] | type[Any],
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         lhs_spec = jax.ShapeDtypeStruct(lhs.shape, lhs.dtype)
         rhs_spec = jax.ShapeDtypeStruct(rhs.shape, rhs.dtype)
         lhs_scales_spec = jax.ShapeDtypeStruct(lhs_scales.shape, lhs_scales.dtype)
@@ -166,9 +171,9 @@ class ScaledMatmulPlugin(PrimitiveLeafPlugin):
             lhs_scales_spec,
             rhs_scales_spec,
         )
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var, lhs_scales_var, rhs_scales_var = eqn.invars
         out_var = eqn.outvars[0]
         preferred_element_type = eqn.params.get("preferred_element_type", np.float32)

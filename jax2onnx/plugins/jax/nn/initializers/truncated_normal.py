@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
 import jax.numpy as jnp
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 import numpy as np
 
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
@@ -96,7 +99,7 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
         shape: tuple[int, ...],
         dtype: Any,
         **_: Any,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del key_av, lower_av, upper_av
 
         def _safe_dim(dim: Any) -> Any:
@@ -107,9 +110,9 @@ class TruncatedNormalPlugin(PrimitiveLeafPlugin):
                 return None
 
         safe_shape = tuple(_safe_dim(dim) for dim in shape)
-        return core.ShapedArray(safe_shape, dtype)
+        return ShapedArray(safe_shape, dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = eqn.params or {}
         shape_param = tuple(params.get("shape", ()))

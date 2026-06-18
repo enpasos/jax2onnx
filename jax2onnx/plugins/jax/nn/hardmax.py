@@ -6,9 +6,14 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax.interpreters import batching
 import jax.numpy as jnp
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -103,13 +108,13 @@ class HardmaxPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         axis: int = -1,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         _normalize_axis(int(axis), len(x.shape))
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         axis = int(eqn.params.get("axis", -1))
 
         x_var = eqn.invars[0]

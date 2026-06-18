@@ -5,8 +5,13 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -67,17 +72,17 @@ class SquareplusPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
-        b: jax.core.AbstractValue,
-    ) -> jax.core.ShapedArray:
+        x: AbstractValue,
+        b: AbstractValue,
+    ) -> ShapedArray:
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         b_spec = jax.ShapeDtypeStruct(b.shape, b.dtype)
         out = jax.eval_shape(
             lambda xv, bv: _JAX_SQUAREPLUS_ORIG(xv, b=bv), x_spec, b_spec
         )
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, b_var = eqn.invars
         out_var = eqn.outvars[0]
 

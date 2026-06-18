@@ -5,8 +5,13 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 from numpy.typing import ArrayLike
 
@@ -98,11 +103,11 @@ class LogSumExpPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: tuple[int, ...] | None,
         keepdims: bool,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         axis_arg = LogSumExpPlugin._axis_arg(axes)
         out = jax.eval_shape(
@@ -116,9 +121,9 @@ class LogSumExpPlugin(PrimitiveLeafPlugin):
             ),
             spec,
         )
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

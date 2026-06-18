@@ -6,8 +6,13 @@ from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -102,12 +107,12 @@ class ScaledDotGeneralPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        lhs: jax.core.AbstractValue,
-        rhs: jax.core.AbstractValue,
+        lhs: AbstractValue,
+        rhs: AbstractValue,
         *,
         dimension_numbers: DotDimensionNumbers,
         preferred_element_type: np.dtype[Any] | type[Any],
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         lhs_spec = jax.ShapeDtypeStruct(lhs.shape, lhs.dtype)
         rhs_spec = jax.ShapeDtypeStruct(rhs.shape, rhs.dtype)
         out = jax.eval_shape(
@@ -122,9 +127,9 @@ class ScaledDotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_spec,
             rhs_spec,
         )
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         dimension_numbers = params.get("dimension_numbers")
         if dimension_numbers is None:

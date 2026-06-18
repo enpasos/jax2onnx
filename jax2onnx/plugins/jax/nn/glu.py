@@ -5,8 +5,13 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -81,14 +86,12 @@ class GluPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, *, axis: int = -1
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, *, axis: int = -1) -> ShapedArray:
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         out = jax.eval_shape(lambda arr: _JAX_GLU_ORIG(arr, axis=axis), spec)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
         axis = int(eqn.params.get("axis", -1))

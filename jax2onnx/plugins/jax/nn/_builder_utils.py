@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any, Mapping, cast
 
 import onnx_ir as ir
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    Primitive,
+    batching,
+)
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape

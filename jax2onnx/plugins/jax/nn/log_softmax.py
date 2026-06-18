@@ -6,8 +6,13 @@ from typing import Any, Callable, ClassVar, Final
 
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -92,14 +97,14 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         *,
         axis: int = -1,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del axis
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         axis_param = eqn.params.get("axis", -1)
         if isinstance(axis_param, (tuple, list)):
             if len(axis_param) != 1:
