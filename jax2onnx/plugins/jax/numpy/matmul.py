@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-import jax.extend.core as jax_core_ext
 import jax.numpy as jnp
 import onnx_ir as ir
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,
+    Var,
     batching,
 )
 import numpy as np
@@ -253,9 +253,9 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
     def _maybe_lower_complex(
         self,
         ctx: LoweringContextProtocol,
-        a_var: jax_core_ext.Var,
-        b_var: jax_core_ext.Var,
-        out_var: jax_core_ext.Var,
+        a_var: Var,
+        b_var: Var,
+        out_var: Var,
         a_val: ir.Value,
         b_val: ir.Value,
         out_spec: ir.Value,

@@ -19,3 +19,8 @@ def test_jax_compat_exports_core_types() -> None:
 def test_jax_compat_exposes_not_mapped_alias() -> None:
     assert compat.ensure_batching_not_mapped_attr() is compat.NOT_MAPPED
     assert compat.batching.not_mapped is compat.NOT_MAPPED
+
+
+def test_jax_compat_exposes_shape_equality_helper() -> None:
+    assert compat.definitely_equal_shape((2, 3), (2, 3))
+    assert not compat.definitely_equal_shape((2, 3), (2, 4))

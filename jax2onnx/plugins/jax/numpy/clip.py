@@ -6,11 +6,12 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-import jax.extend.core as jax_core_ext
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
+    Literal,
     ShapedArray,
+    Var,
     batching,
 )
 import jax.numpy as jnp
@@ -32,7 +33,7 @@ from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 ScalarBound = bool | int | float | np.generic
-JaxValue: TypeAlias = jax_core_ext.Var | jax_core_ext.Literal
+JaxValue: TypeAlias = Var | Literal
 
 
 def _np_dtype(x: DTypeLike) -> np.dtype[Any]:

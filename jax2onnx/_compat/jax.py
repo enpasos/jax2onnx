@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, cast
 
 from jax import core as jax_core
 
@@ -49,6 +49,38 @@ def ensure_batching_not_mapped_attr() -> Any:
 NOT_MAPPED: Any = ensure_batching_not_mapped_attr()
 
 
+def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
+    try:  # Prefer the internal helper when available (moved in newer JAX versions).
+        from jax._src import core as jax_core_src
+
+        return cast(Callable[[Any, Any], bool], jax_core_src.definitely_equal_shape)
+    except Exception:  # pragma: no cover - fallback for older/older-stub JAX
+        try:
+            return cast(
+                Callable[[Any, Any], bool],
+                getattr(jax_core, "definitely_equal_shape"),
+            )
+        except Exception:  # pragma: no cover - minimal fallback
+
+            def fallback(s1: Any, s2: Any) -> bool:
+                if len(s1) != len(s2):
+                    return False
+                for d1, d2 in zip(s1, s2):
+                    if d1 is d2:
+                        continue
+                    try:
+                        if d1 != d2:
+                            return False
+                    except Exception:
+                        return False
+                return True
+
+            return fallback
+
+
+definitely_equal_shape: Callable[[Any, Any], bool] = _resolve_definitely_equal_shape()
+
+
 __all__ = [
     "AbstractValue",
     "ClosedJaxpr",
@@ -64,6 +96,7 @@ __all__ = [
     "Var",
     "ad",
     "batching",
+    "definitely_equal_shape",
     "dim_constant",
     "ensure_batching_not_mapped_attr",
     "jax_core",

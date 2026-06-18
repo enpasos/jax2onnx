@@ -13,6 +13,7 @@ from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,
+    batching,
 )
 from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -603,4 +604,4 @@ def _einsum_batch_rule(
     return result, 0
 
 
-jax.interpreters.batching.primitive_batchers[JnpEinsumPlugin._PRIM] = _einsum_batch_rule
+batching.primitive_batchers[JnpEinsumPlugin._PRIM] = _einsum_batch_rule
