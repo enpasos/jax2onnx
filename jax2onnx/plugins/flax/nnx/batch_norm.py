@@ -4,9 +4,7 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 import logging
 import numpy as np
-import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
@@ -15,6 +13,7 @@ from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
 )
 from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -285,12 +284,12 @@ class BatchNormPlugin(PrimitiveLeafPlugin):
         epsilon: float,
         momentum: float,
         **_ignored: Any,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del scale, bias, mean, var, epsilon, momentum
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         builder = _require_builder(ctx)
         x_var, scale_var, bias_var, mean_var, var_var = eqn.invars[:5]
         y_var = eqn.outvars[0]

@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, List, Optional, Sequence, cast
 import jax.numpy as jnp
 from flax import nnx
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax._jax_compat import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
