@@ -7,7 +7,7 @@ authors = [{ name = "enpasos", email = "matthias.unverzagt@enpasos.ai" }]
 readme = "README.md"
 requires-python = ">=3.11"  # Flax requires >=3.11, and we test 3.11, 3.12, 3.13 and 3.14
 dependencies = [
-    "jax>=0.7.2",
+    "jax>=0.8.1",
     "flax>=0.12.1",
     "ml_dtypes>=0.5.1",
     "optax>=0.2.4",
@@ -34,7 +34,7 @@ torch = "==2.4.0"
 optional = true
 
 [tool.poetry.group.gpu.dependencies]
-jax = { version = ">=0.7.2", extras = ["cuda12_pip"] }
+jax = { version = ">=0.8.1", extras = ["cuda12_pip"] }
 
 
 [tool.poetry.group.maxtext]

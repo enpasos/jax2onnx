@@ -18,12 +18,12 @@ def test_minimum_requirement_extracts_lower_bound_with_upper_bound() -> None:
 
 
 def test_minimum_requirement_preserves_extras() -> None:
-    assert minimum_requirement("jax[cuda12_pip]>=0.7.2") == "jax[cuda12_pip]==0.7.2"
+    assert minimum_requirement("jax[cuda12_pip]>=0.8.1") == "jax[cuda12_pip]==0.8.1"
 
 
 def test_project_runtime_dependencies_all_have_minimum_versions() -> None:
     requirements = minimum_requirements(Path("pyproject.toml"))
 
-    assert "jax==0.7.2" in requirements
+    assert "jax==0.8.1" in requirements
     assert "flax==0.12.1" in requirements
     assert all("==" in requirement for requirement in requirements)
