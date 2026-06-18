@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from jax import core as jax_core
 
@@ -13,7 +13,7 @@ try:  # JAX 0.10+ exposes this through jax.errors.
 except ImportError:  # pragma: no cover - compatibility with older JAX versions
     from jax.core import InconclusiveDimensionOperation
 from jax.extend import core as jax_core_ext
-from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Literal, Primitive
+from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.interpreters import ad, batching
 
 
@@ -25,6 +25,24 @@ try:
     DropVar = jax_core_ext.DropVar
 except AttributeError:  # pragma: no cover - compatibility with older JAX versions
     DropVar = jax_core.DropVar
+
+
+def _resolve_literal_type() -> type[Any]:
+    literal_type = getattr(jax_core_ext, "Literal", None)
+    if isinstance(literal_type, type):
+        return cast(type[Any], literal_type)
+    literal_type = getattr(jax_core, "Literal", None)
+    if isinstance(literal_type, type):
+        return cast(type[Any], literal_type)
+    from jax._src import core as jax_core_src
+
+    return cast(type[Any], jax_core_src.Literal)
+
+
+if TYPE_CHECKING:
+    from jax.extend.core import Literal as Literal
+else:
+    Literal = _resolve_literal_type()
 
 
 def dim_constant(value: int) -> Any:
