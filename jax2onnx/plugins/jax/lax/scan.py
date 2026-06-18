@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core as jax_core
 from jax import lax
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -20,6 +19,7 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import DropVar, Var
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_cast,
@@ -39,8 +39,6 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
     _unsqueeze_scalar,
 )
-
-import jax.extend.core as jax_core_ext
 
 
 def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
@@ -144,42 +142,8 @@ def _maybe_cast_value(
     return cast_val
 
 
-def _maybe_var_type(mod: Any) -> type[Any] | None:
-    if mod is None:
-        return None
-    try:
-        return cast(type[Any], getattr(mod, "Var"))
-    except AttributeError:
-        return None
-
-
-_JAX_VAR_TYPES: Final[tuple[type, ...]] = tuple(
-    t
-    for t in (
-        _maybe_var_type(jax_core),
-        _maybe_var_type(jax_core_ext),
-    )
-    if t is not None
-)
-
-
-def _maybe_dropvar_type(mod: Any) -> type[Any] | None:
-    if mod is None:
-        return None
-    try:
-        return cast(type[Any], getattr(mod, "DropVar"))
-    except AttributeError:
-        return None
-
-
-_DROP_VAR_TYPES: Final[tuple[type, ...]] = tuple(
-    t
-    for t in (
-        _maybe_dropvar_type(jax_core),
-        _maybe_dropvar_type(jax_core_ext),
-    )
-    if t is not None
-)
+_JAX_VAR_TYPES: Final[tuple[type, ...]] = (Var,)
+_DROP_VAR_TYPES: Final[tuple[type, ...]] = (DropVar,)
 
 
 def _is_dropvar(obj: Any) -> bool:

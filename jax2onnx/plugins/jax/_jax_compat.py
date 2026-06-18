@@ -21,6 +21,10 @@ AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
 Tracer = jax_core.Tracer
 Var = jax_core_ext.Var
+try:
+    DropVar = jax_core_ext.DropVar
+except AttributeError:  # pragma: no cover - compatibility with older JAX versions
+    DropVar = jax_core.DropVar
 
 
 def dim_constant(value: int) -> Any:
@@ -48,6 +52,7 @@ NOT_MAPPED: Any = ensure_batching_not_mapped_attr()
 __all__ = [
     "AbstractValue",
     "ClosedJaxpr",
+    "DropVar",
     "InconclusiveDimensionOperation",
     "Jaxpr",
     "JaxprEqn",
