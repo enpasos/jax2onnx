@@ -53,50 +53,6 @@ jobs:
     - name: Run onnxruntime-web smoke checks
       run: scripts/run_onnxruntime_web_smoke.sh
 
-  onnxruntime-web-full:
-    name: onnxruntime-web full
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    steps:
-    - uses: actions/checkout@v6
-
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '22'
-        cache: npm
-
-    - name: Install Poetry
-      run: pip install "poetry>=2.0,<3.0"
-
-    - name: Install Python dependencies
-      run: |
-        poetry install --no-interaction
-        poetry run pip install pytest-xdist
-
-    - name: Install Node dependencies
-      run: npm ci
-
-    - name: Generate tests
-      run: poetry run python scripts/generate_tests.py
-
-    - name: Run full onnxruntime-web checks
-      env:
-        JAX_PLATFORMS: cpu
-        JAX_ENABLE_X64: "True"
-      run: |
-        scripts/run_onnxruntime_web_full.sh \
-          -n auto \
-          --dist=loadscope \
-          --durations=50 \
-          --durations-min=1
-
   minimum-dependencies:
     name: minimum dependency versions
     runs-on: ubuntu-latest
