@@ -9,7 +9,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -26,7 +30,7 @@ _JNP_EINSUM_ORIG: Final = jnp.einsum
 
 
 def _einsum_shape(
-    avals: Sequence[core.AbstractValue], equation: str
+    avals: Sequence[AbstractValue], equation: str
 ) -> tuple[tuple[Any, ...], np.dtype[Any]]:
     equation = _normalize_equation(equation)
     specs = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in avals]
@@ -308,19 +312,19 @@ class JnpEinsumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *avals: core.AbstractValue,
+        *avals: AbstractValue,
         equation: str,
         precision: Any | None = None,
         optimize: Any | None = None,
         preferred_element_type: Any | None = None,
         _dot_general: Any | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del _dot_general
         equation = _normalize_equation(equation)
         shape, dtype = _einsum_shape(avals, equation)
-        return core.ShapedArray(shape, dtype)
+        return ShapedArray(shape, dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         equation = _normalize_equation(params["equation"])
 

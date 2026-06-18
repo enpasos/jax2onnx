@@ -11,8 +11,13 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax import core
-from jax.interpreters import ad, batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    ad,
+    batching,
+)
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -119,8 +124,8 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *operands: core.AbstractValue, num_conds: int, num_choices: int
-    ) -> core.ShapedArray:
+        *operands: AbstractValue, num_conds: int, num_choices: int
+    ) -> ShapedArray:
         conds = operands[:num_conds]
         choices = operands[num_conds : num_conds + num_choices]
         default = operands[-1]
@@ -130,9 +135,9 @@ class JnpSelectPlugin(PrimitiveLeafPlugin):
             default.shape,
         )
         dtype = _promote_dtype(*(c.dtype for c in choices), default.dtype)
-        return core.ShapedArray(shape, dtype)
+        return ShapedArray(shape, dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         num_conds = int(params["num_conds"])
         num_choices = int(params["num_choices"])

@@ -6,12 +6,16 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
-from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
@@ -186,10 +190,10 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *arrays: core.AbstractValue,
+        *arrays: AbstractValue,
         dimension: int = 0,
         axis: int | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if not arrays:
             raise ValueError("concatenate requires at least one operand")
         if axis is not None:
@@ -219,9 +223,9 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         else:
             out_shape[norm_axis] = axis_sizes[0]
         out_dtype = _promote_dtype([np.dtype(a.dtype) for a in arrays])
-        return jax.core.ShapedArray(tuple(out_shape), out_dtype)
+        return ShapedArray(tuple(out_shape), out_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         out_var = eqn.outvars[0]
         in_vars = list(eqn.invars)
         params = getattr(eqn, "params", {})

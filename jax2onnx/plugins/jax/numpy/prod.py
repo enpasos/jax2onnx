@@ -9,9 +9,14 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    ad,
+    batching,
+)
 import jax.numpy as jnp
-from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -150,7 +155,7 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: Sequence[int] | None = None,
         axes_is_tuple: bool = False,  # ignored, kept for signature symmetry
@@ -158,7 +163,7 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
         keepdims: bool = False,
         initial: ArrayLike | None = None,
         where: bool = True,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if initial is not None:
             raise NotImplementedError(
                 "jnp.prod with 'initial' is not supported in ONNX lowering"
@@ -193,9 +198,9 @@ class JnpProdPlugin(PrimitiveLeafPlugin):
                     dim for i, dim in enumerate(x.shape) if i not in axes_tuple
                 )
 
-        return jax.core.ShapedArray(out_shape, out_dtype)
+        return ShapedArray(out_shape, out_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceProd", allow_dtype_param=True)
 
     @classmethod

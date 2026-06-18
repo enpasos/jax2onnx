@@ -6,8 +6,12 @@ from collections.abc import Sequence as _Seq
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -115,17 +119,17 @@ class JnpSizePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: tuple[int, ...] | None = None,
         axes_is_tuple: bool = False,  # kept for bind symmetry
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del x, axes, axes_is_tuple
         use_x64 = bool(jax.config.read("jax_enable_x64"))
         out_dtype = np.int64 if use_x64 else np.int32
-        return core.ShapedArray((), out_dtype)
+        return ShapedArray((), out_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})

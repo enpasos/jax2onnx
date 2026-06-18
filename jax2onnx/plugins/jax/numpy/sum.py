@@ -7,9 +7,13 @@ from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    ad,
+)
 import jax.numpy as jnp
-from jax.interpreters import ad
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -109,14 +113,14 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: tuple[int, ...] | None = None,
         axes_is_tuple: bool = False,
         dtype: np.dtype[Any] | type | None = None,
         keepdims: bool = False,
         promote_integers: bool = True,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return abstract_eval_via_orig_reduction(
             JnpSumPlugin._PRIM,
             JnpSumPlugin._FUNC_NAME,
@@ -128,7 +132,7 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
             promote_integers=promote_integers,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = dict(getattr(eqn, "params", {}))
         in_dtype = np.dtype(getattr(getattr(eqn.invars[0], "aval", None), "dtype"))
         out_dtype = np.dtype(getattr(getattr(eqn.outvars[0], "aval", None), "dtype"))

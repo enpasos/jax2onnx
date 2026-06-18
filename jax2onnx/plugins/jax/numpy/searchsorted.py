@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -172,19 +176,19 @@ class JnpSearchSortedPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
-        v: core.AbstractValue,
+        a: AbstractValue,
+        v: AbstractValue,
         *,
         side: str = "left",
         method: str = "scan",
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del method
         _validate_side(side)
         if len(tuple(getattr(a, "shape", ()))) != 1:
             raise TypeError("jnp.searchsorted lowering requires 1-D sorted input 'a'")
-        return core.ShapedArray(tuple(getattr(v, "shape", ())), _result_dtype())
+        return ShapedArray(tuple(getattr(v, "shape", ())), _result_dtype())
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         a_var, v_var = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})

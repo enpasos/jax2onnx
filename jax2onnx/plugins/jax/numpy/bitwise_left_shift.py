@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 
@@ -83,9 +87,9 @@ class JnpBitwiseLeftShiftPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        y: core.AbstractValue,
-    ) -> core.ShapedArray:
+        x: AbstractValue,
+        y: AbstractValue,
+    ) -> ShapedArray:
         return abstract_eval_via_orig_binary(
             JnpBitwiseLeftShiftPlugin._PRIM,
             JnpBitwiseLeftShiftPlugin._FUNC_NAME,
@@ -93,7 +97,7 @@ class JnpBitwiseLeftShiftPlugin(PrimitiveLeafPlugin):
             y,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_left_shift_core(
             ctx,
             eqn,

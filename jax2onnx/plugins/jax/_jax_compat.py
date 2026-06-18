@@ -13,13 +13,23 @@ try:  # JAX 0.10+ exposes this through jax.errors.
 except ImportError:  # pragma: no cover - compatibility with older JAX versions
     from jax.core import InconclusiveDimensionOperation
 from jax.extend import core as jax_core_ext
-from jax.extend.core import ClosedJaxpr, JaxprEqn, Primitive
+from jax.extend.core import ClosedJaxpr, JaxprEqn, Literal, Primitive
 from jax.interpreters import ad, batching
 
 
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
+Tracer = jax_core.Tracer
 Var = jax_core_ext.Var
+
+
+def dim_constant(value: int) -> Any:
+    """Return a symbolic dimension constant when the active JAX exposes one."""
+
+    dim_constant_fn = getattr(jax_core, "dim_constant", None)
+    if callable(dim_constant_fn):
+        return dim_constant_fn(value)
+    return value
 
 
 def ensure_batching_not_mapped_attr() -> Any:
@@ -40,12 +50,15 @@ __all__ = [
     "ClosedJaxpr",
     "InconclusiveDimensionOperation",
     "JaxprEqn",
+    "Literal",
     "NOT_MAPPED",
     "Primitive",
     "ShapedArray",
+    "Tracer",
     "Var",
     "ad",
     "batching",
+    "dim_constant",
     "ensure_batching_not_mapped_attr",
     "jax_core",
     "jax_core_ext",

@@ -6,8 +6,12 @@ from collections.abc import Sequence as _Seq
 from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import onnx_ir as ir
 import numpy as np
@@ -122,12 +126,12 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: tuple[int, ...],
         ord_value: int,
         keepdims: bool,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         storage_slot = f"__orig_impl__{JnpLinalgNormPlugin._FUNC_NAME}"
         orig = getattr(_LINALG_NORM_PRIM, storage_slot, jnp.linalg.norm)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
@@ -138,9 +142,9 @@ class JnpLinalgNormPlugin(PrimitiveLeafPlugin):
             lambda arr: orig(arr, ord=ord_arg, axis=axis_arg, keepdims=keepdims),
             spec,
         )
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

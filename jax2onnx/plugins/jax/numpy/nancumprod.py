@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -130,11 +134,11 @@ def _cast_to_dtype(
 
 
 def _abstract_eval_via_orig(
-    x: core.AbstractValue,
+    x: AbstractValue,
     *,
     axis: int | None,
     dtype: np.dtype[Any] | type | None,
-) -> core.ShapedArray:
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype = np.dtype(getattr(x, "dtype", np.float32))
     if np.issubdtype(x_dtype, np.complexfloating):
@@ -147,7 +151,7 @@ def _abstract_eval_via_orig(
     out_dtype = np.dtype(getattr(out, "dtype", np.float32))
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.nancumprod lowering does not support complex outputs")
-    return core.ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
 
 
 @register_primitive(
@@ -243,14 +247,14 @@ class JnpNanCumProdPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axis: int | None = None,
         dtype: np.dtype[Any] | type | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return _abstract_eval_via_orig(x, axis=axis, dtype=dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (operand_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

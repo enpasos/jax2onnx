@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -61,11 +64,11 @@ class _WindowBasePlugin(PrimitiveLeafPlugin):
         *,
         n: int,
         dtype: np.dtype[Any] | type = np.float32,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         n_i = _window_size(n)
-        return core.ShapedArray((n_i,), np.dtype(dtype))
+        return ShapedArray((n_i,), np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
 
@@ -340,11 +343,11 @@ class JnpBartlettPlugin(PrimitiveLeafPlugin):
         *,
         n: int,
         dtype: np.dtype[Any] | type = np.float32,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         n_i = _window_size(n)
-        return core.ShapedArray((n_i,), np.dtype(dtype))
+        return ShapedArray((n_i,), np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
         n_i = _window_size(params.get("n"))

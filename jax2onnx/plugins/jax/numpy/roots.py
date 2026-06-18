@@ -6,7 +6,12 @@ from collections.abc import Sequence
 from typing import Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    Var,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -618,7 +623,7 @@ def _quadratic_roots(
 
 def _bind_packed_output(
     ctx: LoweringContextProtocol,
-    out_var: core.Var,
+    out_var: Var,
     value: ir.Value,
     *,
     base_dtype: ir.DataType,
@@ -637,10 +642,10 @@ def _bind_packed_output(
 
 
 def _abstract_eval_via_orig(
-    p: core.AbstractValue,
+    p: AbstractValue,
     *,
     strip_zeros: bool,
-) -> core.ShapedArray:
+) -> ShapedArray:
     p_shape = tuple(getattr(p, "shape", ()))
     p_dtype = np.dtype(getattr(p, "dtype", np.float32))
     orig = get_orig_impl(_ROOTS_PRIM, "roots")
@@ -648,7 +653,7 @@ def _abstract_eval_via_orig(
         lambda value: orig(value, strip_zeros=strip_zeros),
         jax.ShapeDtypeStruct(p_shape, p_dtype),
     )
-    return core.ShapedArray(
+    return ShapedArray(
         tuple(getattr(out, "shape", ())), getattr(out, "dtype", np.complex64)
     )
 
@@ -735,13 +740,13 @@ class JnpRootsPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        p: core.AbstractValue,
+        p: AbstractValue,
         *,
         strip_zeros: bool = True,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return _abstract_eval_via_orig(p, strip_zeros=bool(strip_zeros))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (p_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})

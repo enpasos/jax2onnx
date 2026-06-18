@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -73,14 +77,14 @@ class JnpLinalgDetPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         storage_slot = f"__orig_impl__{JnpLinalgDetPlugin._FUNC_NAME}"
         orig = getattr(_LINALG_DET_PRIM, storage_slot, jnp.linalg.det)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         result = jax.eval_shape(lambda arr: orig(arr), spec)
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

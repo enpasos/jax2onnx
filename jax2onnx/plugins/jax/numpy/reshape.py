@@ -7,11 +7,15 @@ from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
-from jax.interpreters import batching
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -318,14 +322,14 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         new_sizes: Sequence[int | object] | int | object | None = None,
         dimensions: Sequence[int] | None = None,
         sharding: Any | None = None,
         newshape: Sequence[int | object] | int | object | None = None,
         order: str | None = "C",
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         new_sizes_tuple, dimensions_tuple, _ = _canonicalize_reshape_params(
             new_sizes=new_sizes,
             dimensions=dimensions,
@@ -344,7 +348,7 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
                 ),
                 spec,
             )
-            return core.ShapedArray(result.shape, result.dtype)
+            return ShapedArray(result.shape, result.dtype)
 
         storage_slot = f"__orig_impl___{JnpReshapePlugin._FUNC_NAME}"
         orig = getattr(JnpReshapePlugin._PRIM, storage_slot, jnp.reshape)
@@ -353,9 +357,9 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
         result = jax.eval_shape(
             lambda arr: orig(arr, new_sizes_tuple, order=order_arg), spec
         )
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         new_sizes_param = params.get("new_sizes")
         dimensions_param = params.get("dimensions")

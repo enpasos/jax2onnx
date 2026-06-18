@@ -6,7 +6,11 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -92,10 +96,10 @@ def _normalise_shapes(
 
 
 def _abstract_eval_via_orig(
-    x: core.AbstractValue,
+    x: AbstractValue,
     *,
     ind: int,
-) -> core.ShapedArray:
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype = np.dtype(getattr(x, "dtype", np.float32))
     if np.issubdtype(x_dtype, np.complexfloating):
@@ -110,7 +114,7 @@ def _abstract_eval_via_orig(
         raise TypeError(
             "jnp.linalg.tensorinv lowering does not support complex outputs"
         )
-    return core.ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
 
 
 def _invert_1x1(
@@ -392,13 +396,13 @@ class JnpLinalgTensorInvPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         ind: int = 2,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return _abstract_eval_via_orig(x, ind=int(ind))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})

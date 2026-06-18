@@ -8,8 +8,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core, lax
-from jax.interpreters import batching
+from jax import lax
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -23,7 +28,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _SHAPE_PRIM: Final = make_jnp_primitive("jax.numpy.shape")
 
 
-def _shape_eval(x: jax.core.AbstractValue) -> Any:
+def _shape_eval(x: AbstractValue) -> Any:
     orig = getattr(_SHAPE_PRIM, "__orig_impl__shape", jnp.shape)
     result = jax.eval_shape(
         lambda arr: orig(arr), jax.ShapeDtypeStruct(x.shape, x.dtype)
@@ -75,17 +80,17 @@ class JnpShapePlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         result = _shape_eval(x)
         if isinstance(result, tuple):
             rank = len(result)
             if rank == 0:
-                return core.ShapedArray((0,), jnp.int32)
+                return ShapedArray((0,), jnp.int32)
             dtype = getattr(result[0], "dtype", jnp.int32)
-            return core.ShapedArray((rank,), dtype)
-        return core.ShapedArray(result.shape, result.dtype)
+            return ShapedArray((rank,), dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

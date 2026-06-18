@@ -5,10 +5,14 @@ from __future__ import annotations
 from typing import ClassVar, Final, TypeAlias
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
-from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -63,12 +67,12 @@ class JnpOuterPlugin(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str] = "outer"
 
     @staticmethod
-    def abstract_eval(a: core.AbstractValue, b: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(a: AbstractValue, b: AbstractValue) -> ShapedArray:
         result_shape = tuple(a.shape) + tuple(b.shape)
         result_dtype = np.result_type(a.dtype, b.dtype)
-        return jax.core.ShapedArray(result_shape, result_dtype)
+        return ShapedArray(result_shape, result_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (a_var, b_var) = eqn.invars
         (out_var,) = eqn.outvars
 

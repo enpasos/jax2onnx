@@ -7,8 +7,13 @@ from typing import Callable, ClassVar, Final, TypeAlias
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    InconclusiveDimensionOperation,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -157,20 +162,18 @@ class JnpUnstackPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, *, axis: int = 0
-    ) -> tuple[jax.core.ShapedArray, ...]:
+    def abstract_eval(x: AbstractValue, *, axis: int = 0) -> tuple[ShapedArray, ...]:
         rank = len(x.shape)
         axis_norm = _normalize_axis(axis, rank)
         size = x.shape[axis_norm]
         if not isinstance(size, (int, np.integer)):
-            raise core.InconclusiveDimensionOperation(
+            raise InconclusiveDimensionOperation(
                 "jnp.unstack requires static axis length"
             )
         out_shape = x.shape[:axis_norm] + x.shape[axis_norm + 1 :]
-        return tuple(core.ShapedArray(out_shape, x.dtype) for _ in range(int(size)))
+        return tuple(ShapedArray(out_shape, x.dtype) for _ in range(int(size)))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis", 0)
 

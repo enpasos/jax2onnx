@@ -6,8 +6,12 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 from numpy.typing import ArrayLike
 
@@ -103,14 +107,14 @@ class JnpMoveaxisPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
+        a: AbstractValue,
         *,
         permutation: tuple[int, ...],
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         out_shape = tuple(a.shape[i] for i in permutation)
-        return core.ShapedArray(out_shape, a.dtype)
+        return ShapedArray(out_shape, a.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
         permutation = tuple(int(p) for p in eqn.params.get("permutation", ()))

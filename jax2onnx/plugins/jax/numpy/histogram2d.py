@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, Sequence, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -80,11 +84,11 @@ def _validate_edges_shape(shape: tuple[object, ...], *, axis_name: str) -> int:
 def _abstract_eval_via_orig(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-    y: core.AbstractValue,
-    x_edges: core.AbstractValue,
-    y_edges: core.AbstractValue,
-) -> tuple[core.ShapedArray, core.ShapedArray, core.ShapedArray]:
+    x: AbstractValue,
+    y: AbstractValue,
+    x_edges: AbstractValue,
+    y_edges: AbstractValue,
+) -> tuple[ShapedArray, ShapedArray, ShapedArray]:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
     x_edges_shape = tuple(getattr(x_edges, "shape", ()))
@@ -117,15 +121,15 @@ def _abstract_eval_via_orig(
         y_edges_spec,
     )
     return (
-        core.ShapedArray(
+        ShapedArray(
             tuple(getattr(hist, "shape", ())),
             np.dtype(getattr(hist, "dtype", np.int32)),
         ),
-        core.ShapedArray(
+        ShapedArray(
             tuple(getattr(x_edges_out, "shape", ())),
             np.dtype(getattr(x_edges_out, "dtype", np.float32)),
         ),
-        core.ShapedArray(
+        ShapedArray(
             tuple(getattr(y_edges_out, "shape", ())),
             np.dtype(getattr(y_edges_out, "dtype", np.float32)),
         ),
@@ -329,13 +333,13 @@ class JnpHistogram2dPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        y: core.AbstractValue,
-        x_edges: core.AbstractValue,
-        y_edges: core.AbstractValue,
+        x: AbstractValue,
+        y: AbstractValue,
+        x_edges: AbstractValue,
+        y_edges: AbstractValue,
         *,
         density: bool | None = None,
-    ) -> tuple[core.ShapedArray, ...]:
+    ) -> tuple[ShapedArray, ...]:
         if density not in (None, False):
             raise NotImplementedError(
                 "jnp.histogram2d with density=True is not supported for ONNX export"
@@ -349,7 +353,7 @@ class JnpHistogram2dPlugin(PrimitiveLeafPlugin):
             y_edges,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, y_var, x_edges_var, y_edges_var = eqn.invars
         hist_var, x_edges_out_var, y_edges_out_var = eqn.outvars
         params = getattr(eqn, "params", {})

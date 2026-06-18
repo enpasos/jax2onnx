@@ -8,8 +8,12 @@ import jax
 import jax.extend.core as jax_core_ext
 import jax.numpy as jnp
 import onnx_ir as ir
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -180,13 +184,13 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
-        b: core.AbstractValue,
+        a: AbstractValue,
+        b: AbstractValue,
         *,
         precision: Any | None = None,
         preferred_element_type: Any | None = None,
         out_sharding: Any | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         shape, dtype = _matmul_shape(
             a.shape,
             b.shape,
@@ -195,9 +199,9 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
             preferred_element_type=preferred_element_type,
             out_sharding=out_sharding,
         )
-        return core.ShapedArray(shape, dtype)
+        return ShapedArray(shape, dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         a_var, b_var = eqn.invars
         out_var = eqn.outvars[0]
 

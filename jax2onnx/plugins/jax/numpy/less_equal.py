@@ -5,11 +5,15 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -85,11 +89,11 @@ class JnpLessEqualPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue, y: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
         out_shape = tuple(jnp.broadcast_shapes(x.shape, y.shape))
-        return core.ShapedArray(out_shape, np.dtype(np.bool_))
+        return ShapedArray(out_shape, np.dtype(np.bool_))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

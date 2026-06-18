@@ -6,12 +6,18 @@ from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core, lax
+from jax import lax
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    Tracer,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax.interpreters import batching
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import (
@@ -232,21 +238,21 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
+        a: AbstractValue,
         *,
         reps: ArrayLike | None = None,
         repeats: ArrayLike | None = None,
         **_: object,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         repeats_spec = repeats if repeats is not None else reps
         if repeats_spec is None:
             raise ValueError("jnp.tile abstract_eval requires repeats/reps parameter")
         # Defer to the original implementation for robust symbolic-shape handling.
         spec = jax.ShapeDtypeStruct(a.shape, a.dtype)
         out = jax.eval_shape(lambda arr: _ORIG_TILE(arr, repeats_spec), spec)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         input_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         repeats_var = eqn.invars[1] if len(eqn.invars) > 1 else None
@@ -337,9 +343,7 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
             setattr(cls._PRIM, storage_slot, orig)
 
             def _patched(a: ArrayLike, reps: ArrayLike) -> jax.Array:
-                if isinstance(reps, jax.Array) and not isinstance(
-                    reps, jax.core.Tracer
-                ):
+                if isinstance(reps, jax.Array) and not isinstance(reps, Tracer):
                     reps = np.asarray(reps)
                 if isinstance(reps, np.ndarray):
                     if reps.ndim == 0:

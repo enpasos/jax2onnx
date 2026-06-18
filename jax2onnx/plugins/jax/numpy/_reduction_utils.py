@@ -7,9 +7,12 @@ from collections.abc import Sequence
 from typing import Any, TypeAlias
 
 import jax
-from jax import core
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import numpy as np
 
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl
@@ -39,14 +42,14 @@ def axis_arg_from_params(
 def abstract_eval_via_orig_reduction(
     prim: Primitive,
     func_name: str,
-    x: core.AbstractValue,
+    x: AbstractValue,
     *,
     axes: tuple[int, ...] | None = None,
     axes_is_tuple: bool = False,
     dtype: np.dtype[np.generic] | type | None = None,
     keepdims: bool = False,
     promote_integers: bool = True,
-) -> core.ShapedArray:
+) -> ShapedArray:
     """Mirror JAX reduction semantics by delegating to original jnp callable."""
     shape = tuple(getattr(x, "shape", ()))
     in_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
@@ -67,7 +70,7 @@ def abstract_eval_via_orig_reduction(
     out = jax.eval_shape(lambda v: orig(v, **kwargs), shape_dtype)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", in_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def register_reduction_batch_rule(prim: Primitive, lax_prim: Primitive) -> None:

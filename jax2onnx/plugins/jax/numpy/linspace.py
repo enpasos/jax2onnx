@@ -9,8 +9,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -37,8 +41,8 @@ def _normalize_dtype(result_dtype: np.dtype[Any], enable_double: bool) -> np.dty
 
 
 def _infer_result_dtype(
-    start_aval: core.AbstractValue,
-    stop_aval: core.AbstractValue,
+    start_aval: AbstractValue,
+    stop_aval: AbstractValue,
     dtype_param: np.dtype[Any] | type | None,
     enable_double: bool,
 ) -> np.dtype[Any]:
@@ -298,15 +302,15 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        start: core.AbstractValue,
-        stop: core.AbstractValue,
+        start: AbstractValue,
+        stop: AbstractValue,
         *,
         num: int = 50,
         endpoint: bool = True,
         retstep: bool = False,
         dtype: np.dtype[Any] | type | None = None,
         axis: int = 0,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if retstep:
             raise NotImplementedError("jnp.linspace with retstep=True is not supported")
         if axis != 0:
@@ -316,9 +320,9 @@ class JnpLinspacePlugin(PrimitiveLeafPlugin):
             raise ValueError("num must be non-negative")
         enable_x64 = bool(jax.config.jax_enable_x64)
         result_dtype = _infer_result_dtype(start, stop, dtype, enable_x64)
-        return core.ShapedArray((num_int,), result_dtype)
+        return ShapedArray((num_int,), result_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         num = int(params.get("num", 50))
         if num < 0:

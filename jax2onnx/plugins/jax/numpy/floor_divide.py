@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -32,9 +36,9 @@ _FLOOR_DIVIDE_PRIM: Final = make_jnp_primitive("jax.numpy.floor_divide")
 def _abstract_eval_via_orig_binary(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-    y: core.AbstractValue,
-) -> core.ShapedArray:
+    x: AbstractValue,
+    y: AbstractValue,
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
@@ -45,7 +49,7 @@ def _abstract_eval_via_orig_binary(
     out = jax.eval_shape(lambda a, b: orig(a, b), x_spec, y_spec)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def _cast_to_dtype(
@@ -140,9 +144,9 @@ class JnpFloorDividePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        y: core.AbstractValue,
-    ) -> core.ShapedArray:
+        x: AbstractValue,
+        y: AbstractValue,
+    ) -> ShapedArray:
         return _abstract_eval_via_orig_binary(
             JnpFloorDividePlugin._PRIM,
             JnpFloorDividePlugin._FUNC_NAME,
@@ -150,7 +154,7 @@ class JnpFloorDividePlugin(PrimitiveLeafPlugin):
             y,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
 

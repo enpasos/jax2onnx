@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -95,11 +99,11 @@ class JnpCumProdPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axis: int | None = None,
         dtype: np.dtype[Any] | type | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         out_dtype = np.dtype(dtype) if dtype is not None else np.dtype(x.dtype)
         out_shape = tuple(x.shape)
         if axis is None:
@@ -108,9 +112,9 @@ class JnpCumProdPlugin(PrimitiveLeafPlugin):
                 out_shape = (size,)
             else:
                 out_shape = (None,)
-        return core.ShapedArray(out_shape, out_dtype)
+        return ShapedArray(out_shape, out_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (operand_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
