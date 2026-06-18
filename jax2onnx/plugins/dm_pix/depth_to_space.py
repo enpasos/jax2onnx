@@ -10,9 +10,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core
-from jax.extend.core import Primitive
-from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -23,6 +20,13 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -125,19 +129,19 @@ class DmPixDepthToSpacePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         block_size: int,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         bs = _check_block_size(block_size)
         spec = jax.ShapeDtypeStruct(getattr(x, "shape", ()), getattr(x, "dtype", None))
         result = jax.eval_shape(
             lambda arr: _depth_to_space_impl(arr, block_size=bs),
             spec,
         )
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = dict(getattr(eqn, "params", {}))
         block_size_param = params.get("block_size")
         if block_size_param is None:
