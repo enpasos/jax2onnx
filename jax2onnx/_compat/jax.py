@@ -28,10 +28,15 @@ except AttributeError:  # pragma: no cover - compatibility with older JAX versio
 
 
 def _resolve_literal_type() -> type[Any]:
-    try:
-        return cast(type[Any], jax_core_ext.Literal)
-    except AttributeError:  # pragma: no cover - compatibility with older JAX versions
-        return cast(type[Any], jax_core.Literal)
+    literal_type = getattr(jax_core_ext, "Literal", None)
+    if isinstance(literal_type, type):
+        return cast(type[Any], literal_type)
+    literal_type = getattr(jax_core, "Literal", None)
+    if isinstance(literal_type, type):
+        return cast(type[Any], literal_type)
+    from jax._src import core as jax_core_src
+
+    return cast(type[Any], jax_core_src.Literal)
 
 
 if TYPE_CHECKING:

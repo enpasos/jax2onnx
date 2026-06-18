@@ -18,16 +18,15 @@ def test_jax_compat_exports_core_types() -> None:
     assert isinstance(compat.Literal, type)
 
 
-def test_jax_compat_literal_falls_back_to_jax_core(
+def test_jax_compat_literal_falls_back_to_jax_src_core(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    class FallbackLiteral:
-        pass
+    from jax._src import core as jax_core_src
 
     monkeypatch.delattr(compat.jax_core_ext, "Literal", raising=False)
-    monkeypatch.setattr(compat.jax_core, "Literal", FallbackLiteral, raising=False)
+    monkeypatch.delattr(compat.jax_core, "Literal", raising=False)
 
-    assert compat._resolve_literal_type() is FallbackLiteral
+    assert compat._resolve_literal_type() is jax_core_src.Literal
 
 
 def test_jax_compat_exposes_not_mapped_alias() -> None:
