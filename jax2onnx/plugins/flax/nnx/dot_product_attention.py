@@ -6,11 +6,10 @@ from typing import Any, Callable, ClassVar, Final, Tuple, Union, cast
 
 import numpy as np
 from flax import nnx
-from jax import core
-from jax.extend.core import Primitive
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -258,16 +257,16 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        q: core.AbstractValue,
-        k: core.AbstractValue,
-        v: core.AbstractValue,
+        q: AbstractValue,
+        k: AbstractValue,
+        v: AbstractValue,
         *_: Any,
         **__: Any,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del k, v
-        return core.ShapedArray(q.shape, q.dtype)
+        return ShapedArray(q.shape, q.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params_raw = dict(getattr(eqn, "params", {}) or {})
         params = {
             key: (val.value if isinstance(val, _DynamicParamWrapper) else val)
