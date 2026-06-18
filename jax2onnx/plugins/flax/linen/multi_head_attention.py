@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar
 
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
 from flax import linen as nn
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.linen.multi_head_dot_product_attention import _make_mha_patch
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx

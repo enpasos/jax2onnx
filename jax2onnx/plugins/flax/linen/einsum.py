@@ -5,12 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 import jax
 import jax.numpy as jnp
-from jax import core
-from jax.extend.core import Primitive
 from flax import linen as nn
 from flax.linen import module as linen_module
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -125,7 +124,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
         broadcasted_bias_shape: tuple[int, ...] | None = None,
         precision: Any | None = None,
         preferred_element_type: Any | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         bias = maybe_bias[0] if maybe_bias else None
 
         def _shape_fn(x_arg: Any, kernel_arg: Any, bias_arg: Any | None = None) -> Any:
@@ -157,7 +156,7 @@ class EinsumPlugin(PrimitiveLeafPlugin):
             else:
                 raise TypeError("Unexpected output from linen.Einsum abstract eval")
 
-        return core.ShapedArray(out_spec.shape, out_spec.dtype)
+        return ShapedArray(out_spec.shape, out_spec.dtype)
 
     def lower(self, ctx: Any, eqn: Any) -> None:
         params: dict[str, Any] = dict(getattr(eqn, "params", {}) or {})

@@ -7,10 +7,9 @@ from typing import Any, Callable, ClassVar
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
 from flax import linen as nn
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
