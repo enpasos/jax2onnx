@@ -12,4 +12,7 @@
 | [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.27.0 |
 | [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.26.0 |
 
+`onnxruntime-web` remains on the latest stable npm release; move it to a
+matching `1.27.x` version once that line is published as a stable Web package.
+
 *For minimum supported versions and optional extras, see [`pyproject.toml`](https://github.com/enpasos/jax2onnx/blob/main/pyproject.toml). For the fully resolved Poetry environment, see `poetry.lock`.*

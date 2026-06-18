@@ -6,9 +6,12 @@ from typing import Any, Sequence, Callable, cast
 
 import numpy as np
 from jax import lax
-from jax.interpreters import batching
 
-from jax2onnx.plugins.jax._batching_compat import ensure_batching_not_mapped_attr
+from jax2onnx.plugins.jax._jax_compat import (
+    NOT_MAPPED,
+    batching,
+    ensure_batching_not_mapped_attr,
+)
 
 ensure_batching_not_mapped_attr()
 
@@ -48,7 +51,7 @@ _definitely_equal_shape: Callable[[Any, Any], bool] = _resolve_definitely_equal_
 
 
 def _handle_scalar_broadcasting(ndim: int, x: Any, dim: Any) -> Any:
-    if dim is batching.not_mapped or ndim == np.ndim(x):
+    if dim is NOT_MAPPED or ndim == np.ndim(x):
         return x
     return lax.expand_dims(x, tuple(range(np.ndim(x), ndim)))
 
@@ -60,9 +63,7 @@ def broadcast_batcher_compat(
     if len(args) <= 1:
         raise ValueError("broadcast_batcher_compat requires at least two arguments")
 
-    shape, dim = next(
-        (x.shape, d) for x, d in zip(args, dims) if d is not batching.not_mapped
-    )
+    shape, dim = next((x.shape, d) for x, d in zip(args, dims) if d is not NOT_MAPPED)
     if all(
         _definitely_equal_shape(shape, x.shape) and d == dim
         for x, d in zip(args, dims)

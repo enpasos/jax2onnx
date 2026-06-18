@@ -24,7 +24,8 @@
   exact.
 * **Refresh the validation stack:** Update the upcoming documented runtime
   stack to JAX `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, ONNX Runtime
-  `1.27.0`, and the matching `onnxruntime-web` versions for Web validation.
+  `1.27.0`, and keep Web validation on the latest stable
+  `onnxruntime-web` release until a matching `1.27.x` Web package is published.
 
 ## Current Version
 
