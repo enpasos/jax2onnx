@@ -7,12 +7,17 @@ from typing import ClassVar, Final, TypeAlias
 
 import jax
 from jax import tree_util
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    ad,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
-from jax.interpreters import ad, batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -154,9 +159,7 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        *in_avals: core.AbstractValue, axis: int, **_: object
-    ) -> core.ShapedArray:
+    def abstract_eval(*in_avals: AbstractValue, axis: int, **_: object) -> ShapedArray:
         if not in_avals:
             raise ValueError("jnp.stack requires at least one array")
 
@@ -175,9 +178,9 @@ class JnpStackPlugin(PrimitiveLeafPlugin):
 
         out_shape = list(ref_shape)
         out_shape.insert(axis_idx, len(in_avals))
-        return jax.core.ShapedArray(tuple(out_shape), ref_dtype)
+        return ShapedArray(tuple(out_shape), ref_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         axis = int(getattr(eqn, "params", {}).get("axis", 0))
 
         input_vals: list[ir.Value] = []

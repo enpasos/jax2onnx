@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Any, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import numpy as np
 import onnx_ir as ir
 
@@ -20,8 +24,8 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl
 def abstract_eval_via_orig_unary(
     prim: Primitive,
     func_name: str,
-    x: core.AbstractValue,
-) -> core.ShapedArray:
+    x: AbstractValue,
+) -> ShapedArray:
     """Mirror JAX dtype/shape semantics by delegating to the original jnp impl."""
     shape = tuple(getattr(x, "shape", ()))
     dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
@@ -30,12 +34,12 @@ def abstract_eval_via_orig_unary(
     out = jax.eval_shape(lambda v: orig(v), shape_dtype)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def lower_unary_elementwise_with_optional_cast(
     ctx: LoweringContextProtocol,
-    eqn: core.JaxprEqn,
+    eqn: JaxprEqn,
     *,
     op_name: str,
     input_hint: str,
@@ -108,8 +112,8 @@ def lower_unary_elementwise_with_optional_cast(
 
 def cast_input_to_output_dtype(
     ctx: LoweringContextProtocol,
-    x_var: core.AbstractValue,
-    y_var: core.AbstractValue,
+    x_var: AbstractValue,
+    y_var: AbstractValue,
     x_val: ir.Value,
     *,
     output_hint: str,

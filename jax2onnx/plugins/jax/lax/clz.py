@@ -7,7 +7,7 @@ from typing import Any
 import jax
 import numpy as np
 import onnx_ir as ir
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -96,7 +96,7 @@ _DTYPE_INFO: dict[
 class ClzPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.clz`` via explicit leading-bit scan in ONNX."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         in_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

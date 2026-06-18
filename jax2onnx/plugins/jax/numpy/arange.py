@@ -8,8 +8,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax import core
-from jax.extend.core import Literal as JaxLiteral
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Literal,
+    ShapedArray,
+    Tracer,
+    dim_constant,
+)
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
@@ -119,7 +125,7 @@ class _DynamicDimSentinel:
     def dimension_as_value(self) -> Any:  # pragma: no cover - compatibility helper
         if _SYMBOLIC_DYNAMIC_DIM is not None:
             return _SYMBOLIC_DYNAMIC_DIM.dimension_as_value()
-        return core.dim_constant(1)
+        return dim_constant(1)
 
 
 DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
@@ -128,7 +134,7 @@ DATA_DEPENDENT_DYNAMIC_DIM: Final[_DynamicDimSentinel] = _DynamicDimSentinel()
 _ARANGE_PRIM: Final = make_jnp_primitive("jax.numpy.arange")
 
 
-def _as_scalar(aval: core.AbstractValue | JaxLiteral | None) -> float | int | None:
+def _as_scalar(aval: AbstractValue | Literal | None) -> float | int | None:
     """Best-effort extraction of a scalar literal from an abstract value."""
     if aval is None:
         return None
@@ -147,7 +153,7 @@ def _as_scalar(aval: core.AbstractValue | JaxLiteral | None) -> float | int | No
 
 
 def _static_scalar(value: object) -> float | int | None:
-    if isinstance(value, (core.Tracer, jax.Array)):
+    if isinstance(value, (Tracer, jax.Array)):
         return None
     try:
         arr = np.asarray(value)
@@ -164,11 +170,11 @@ def _static_scalar(value: object) -> float | int | None:
 
 
 def _all_scalars(
-    avals: Sequence[core.AbstractValue | JaxLiteral | None],
+    avals: Sequence[AbstractValue | Literal | None],
 ) -> list[float | int] | None:
     scalars: list[float | int] = []
     for aval in avals:
-        if isinstance(aval, JaxLiteral):
+        if isinstance(aval, Literal):
             arr = np.asarray(aval.val)
             if arr.shape:
                 return None
@@ -211,7 +217,7 @@ def _determine_length(values: Sequence[float | int]) -> int | None:
 
 
 def _resolve_result_dtype(
-    avals: Sequence[core.AbstractValue | JaxLiteral | None],
+    avals: Sequence[AbstractValue | Literal | None],
     dtype_param: np.dtype[Any] | type | None,
     enable_x64: bool,
 ) -> np.dtype[Any]:
@@ -628,10 +634,10 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        *in_avals: core.AbstractValue,
+        *in_avals: AbstractValue,
         dtype: np.dtype[Any] | type | None = None,
         static_args: tuple[float | int | None, ...] | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         enable_x64 = bool(jax.config.jax_enable_x64)
         result_dtype = _resolve_result_dtype(in_avals, dtype, enable_x64)
         scalars = None
@@ -648,14 +654,14 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
                 DATA_DEPENDENT_DYNAMIC_DIM if length is None else int(length)
             )
             shape = (length_dim,)
-        return jax.core.ShapedArray(shape, result_dtype)
+        return ShapedArray(shape, result_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         dtype_param = params.get("dtype")
-        avals: list[core.AbstractValue | JaxLiteral | None] = []
+        avals: list[AbstractValue | Literal | None] = []
         for var in eqn.invars:
-            if isinstance(var, JaxLiteral):
+            if isinstance(var, Literal):
                 avals.append(var.aval)
             else:
                 avals.append(getattr(var, "aval", None))
@@ -690,7 +696,7 @@ class JnpArangePlugin(PrimitiveLeafPlugin):
             input_vals.append(
                 _maybe_cast_value(ctx, val, range_enum, f"arange_cast_{idx}")
             )
-            if literal_args is not None and isinstance(var, JaxLiteral):
+            if literal_args is not None and isinstance(var, Literal):
                 literal_value = cast(float | int, np.asarray(var.val).item())
                 literal_args.append(literal_value)
             else:

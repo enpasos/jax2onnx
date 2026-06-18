@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/ceil.py
 
 
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -34,7 +34,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
     ],
 )
 class CeilPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

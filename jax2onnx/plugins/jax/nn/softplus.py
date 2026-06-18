@@ -5,9 +5,14 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax.interpreters import ad
 import jax.numpy as jnp
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    ad,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -86,10 +91,10 @@ class SoftplusPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
-        return jax.core.ShapedArray(x.shape, x.dtype)
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_unary_elementwise(
             ctx,
             eqn,

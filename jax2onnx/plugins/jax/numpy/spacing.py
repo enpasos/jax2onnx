@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -34,8 +38,8 @@ _SPACING_PRIM: Final = make_jnp_primitive("jax.numpy.spacing")
 def _abstract_eval_via_orig(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-) -> core.ShapedArray:
+    x: AbstractValue,
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
@@ -43,7 +47,7 @@ def _abstract_eval_via_orig(
     out = jax.eval_shape(lambda value: orig(value), x_spec)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def _const(
@@ -165,14 +169,14 @@ class JnpSpacingPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         return _abstract_eval_via_orig(
             JnpSpacingPlugin._PRIM,
             JnpSpacingPlugin._FUNC_NAME,
             x,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

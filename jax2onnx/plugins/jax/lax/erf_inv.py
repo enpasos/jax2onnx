@@ -6,7 +6,7 @@ import numpy as np
 import onnx_ir as ir
 from typing import Any
 
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
@@ -62,7 +62,7 @@ class ErfInvPlugin(PrimitiveLeafPlugin):
         if getattr(ref, "shape", None) is not None:
             value.shape = ref.shape
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

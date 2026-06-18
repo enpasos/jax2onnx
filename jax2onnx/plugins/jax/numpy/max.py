@@ -6,7 +6,11 @@ from collections.abc import Sequence as _Seq
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 from numpy.typing import ArrayLike
 
@@ -87,12 +91,12 @@ class JnpMaxPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axes: tuple[int, ...] | None = None,
         axes_is_tuple: bool = False,
         keepdims: bool = False,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return abstract_eval_via_orig_reduction(
             JnpMaxPlugin._PRIM,
             JnpMaxPlugin._FUNC_NAME,
@@ -102,7 +106,7 @@ class JnpMaxPlugin(PrimitiveLeafPlugin):
             keepdims=keepdims,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_reduction(ctx, eqn, op_type="ReduceMax", allow_dtype_param=False)
 
     @classmethod

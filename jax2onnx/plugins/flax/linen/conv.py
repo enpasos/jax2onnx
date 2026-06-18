@@ -7,8 +7,8 @@ from typing import Any, Callable, ClassVar, Final, Sequence
 import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen import linear as linen_linear
-from jax.extend.core import Primitive
 
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import conv as nnx_conv
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx

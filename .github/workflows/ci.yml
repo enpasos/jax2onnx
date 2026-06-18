@@ -53,6 +53,58 @@ jobs:
     - name: Run onnxruntime-web smoke checks
       run: scripts/run_onnxruntime_web_smoke.sh
 
+  minimum-dependencies:
+    name: minimum dependency versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install dependencies
+      run: |
+        poetry install --no-interaction
+        poetry run python scripts/install_minimum_dependencies.py
+        poetry run pip check
+
+    - name: Report dependency versions
+      run: |
+        poetry run python - <<'PY'
+        import flax
+        import jax
+        import onnx
+        import onnx_ir
+        import onnxruntime
+
+        print(f"jax=={jax.__version__}")
+        print(f"flax=={flax.__version__}")
+        print(f"onnx=={onnx.__version__}")
+        print(f"onnx-ir=={onnx_ir.__version__}")
+        print(f"onnxruntime=={onnxruntime.__version__}")
+        PY
+
+    - name: Generate tests
+      run: poetry run python scripts/generate_tests.py
+
+    - name: Run minimum-version compatibility checks
+      env:
+        JAX_PLATFORMS: cpu
+        JAX_ENABLE_X64: "True"
+      run: |
+        poetry run pytest -q \
+          tests/extra_tests/framework/test_jax_compat.py \
+          tests/extra_tests/framework/test_minimum_dependency_installer.py \
+          tests/primitives/test_linen.py \
+          tests/extra_tests/test_bfloat16_capability_matrix.py
+
   test: 
     runs-on: ubuntu-latest
     strategy:

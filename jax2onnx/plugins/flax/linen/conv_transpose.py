@@ -6,11 +6,11 @@ from typing import Any, Callable, ClassVar, Sequence, cast
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import linen as nn
 from flax.linen import linear as linen_linear
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -201,7 +201,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
         transpose_kernel: bool,
         precision: Any = None,
         preferred_element_type: Any = None,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
         b_spec = jax.ShapeDtypeStruct(bias.shape, bias.dtype)
@@ -222,7 +222,7 @@ class ConvTransposePlugin(PrimitiveLeafPlugin):
             return y
 
         out = jax.eval_shape(_shape_fn, x_spec, k_spec, b_spec)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
     def lower(self, ctx: Any, eqn: Any) -> None:
         builder = getattr(ctx, "builder", None)

@@ -17,6 +17,7 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
 from jax2onnx.plugins.plugin_system import register_primitive
 
@@ -48,7 +49,7 @@ from jax2onnx.plugins.plugin_system import register_primitive
 class AddAnyPlugin(AddPlugin):
     """Alias for JAX's internal ``add_any`` primitive."""
 
-    def lower(self, ctx: Any, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: Any, eqn: JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

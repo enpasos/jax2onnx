@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 from jax import tree_util
-from jax.extend.core import Primitive
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -33,6 +32,7 @@ from jax2onnx.plugins.jax.lax.scan import (
     _jaxpr_contains_scatter,
     _static_scatter_extent,
 )
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 

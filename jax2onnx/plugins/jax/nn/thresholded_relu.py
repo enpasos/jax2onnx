@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Final
 
-import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -74,13 +78,13 @@ class ThresholdedReluPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         threshold: float = 1.0,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del threshold
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         threshold = float(eqn.params.get("threshold", 1.0))
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]

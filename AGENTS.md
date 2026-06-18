@@ -8,9 +8,9 @@ This page is the quick briefing for automated agents (or humans) dropping into t
 
 - **Pipeline:** Everything runs through the IR-only converter. `converter/` builds `onnx_ir` graphs; `plugins/` land primitive-specific lowering; `tests/` cover both policy and regression cases.
 - **Docs map:** Start with `docs/developer_guide/architecture.md` for the architecture overview. Technical playbooks live under `docs/developer_guide/advanced_topics/` (builder etiquette, expect_graph usage, control-flow wiring, IR optimizer, reflection guardrails, etc.). Release history lives under `docs/about/`; coverage pages and examples live under `docs/user_guide/`.
-- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX ≥0.7.2** and **Flax/NNX ≥0.12.0**.
+- **Tooling:** Python 3.11+, Poetry, Ruff, Black, mypy, pytest. Supported runtime stack is **JAX ≥0.8.1** and **Flax/NNX ≥0.12.1**.
 - **Recent heads-up (2025-10-02):**
-  - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under JAX 0.7.
+  - NNX examples construct RNGs via `with_rng_seed(...)`; avoid inline lambdas so callables stay hashable under current JAX releases.
   - Attention plugins normalise masked weights to avoid float32 NaNs; tests rely on that behaviour.
 
 ---
@@ -38,7 +38,7 @@ Keep these handy—most deep-dives live there instead of here.
   - `poetry run pytest -q`
   - `poetry run mkdocs build --strict` for doc changes
 - Debug flags exist for the IR optimizer (`JAX2ONNX_*_DEBUG`); see the optimizer dev guide for the full matrix.
-- JAX 0.7.x specifics:
+- JAX 0.8+ specifics:
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.

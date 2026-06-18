@@ -9,8 +9,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -210,14 +213,14 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.ShapedArray,
+        x: ShapedArray,
         *,
         sizes: Sequence[int] | None = None,
         indices_or_sections: (
             int | Sequence[int | np.integer] | np.ndarray | None
         ) = None,
         axis: int = 0,
-    ) -> tuple[core.ShapedArray, ...]:
+    ) -> tuple[ShapedArray, ...]:
         rank = len(x.shape)
         axis_norm = _normalize_axis(axis, rank)
         dim = x.shape[axis_norm]
@@ -237,10 +240,10 @@ class JnpSplitPlugin(PrimitiveLeafPlugin):
         for sz in sizes_tuple:
             shape = list(x.shape)
             shape[axis_norm] = sz
-            specs.append(core.ShapedArray(tuple(shape), x.dtype))
+            specs.append(ShapedArray(tuple(shape), x.dtype))
         return tuple(specs)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis", 0)
         sizes_param = params.get("sizes")

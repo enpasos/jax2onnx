@@ -6,8 +6,8 @@ from typing import Any, Callable, ClassVar
 
 import jax.numpy as jnp
 from flax import linen as nn
-from jax.extend.core import Primitive
 
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.flax.nnx import prelu as nnx_prelu
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec

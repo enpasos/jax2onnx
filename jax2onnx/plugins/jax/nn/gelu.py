@@ -5,10 +5,15 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import ad
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    ad,
+    batching,
+)
 import jax.numpy as jnp
-from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -102,13 +107,11 @@ class GeluPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, approximate: bool = True
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, approximate: bool = True) -> ShapedArray:
         del approximate
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         approximate = bool(eqn.params.get("approximate", True))
 
         approx_attr = "tanh" if approximate else "none"

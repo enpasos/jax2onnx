@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
-from jax.extend.core import Primitive
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import (
@@ -15,6 +14,7 @@ from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
 )
 from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -187,14 +187,12 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
     # ---------------- abstract eval ----------------
     @staticmethod
-    def abstract_eval(
-        x: Any, scale: Any, *, epsilon: float, axis: int
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: Any, scale: Any, *, epsilon: float, axis: int) -> ShapedArray:
         del scale, epsilon, axis
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, scale_var = eqn.invars[:2]
         y_var = eqn.outvars[0]
 

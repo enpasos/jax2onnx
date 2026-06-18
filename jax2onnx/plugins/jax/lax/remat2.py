@@ -11,6 +11,7 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -26,21 +27,7 @@ def _init_remat2_primitive() -> Any | None:
     if existing is not None:
         existing.multiple_results = True
         return existing
-    base_core: Any | None = None
-    try:  # pragma: no cover
-        from jax.extend import core as jax_core_ext
-
-        base_core = jax_core_ext
-    except ImportError:  # pragma: no cover
-        try:
-            from jax import core as jax_core
-
-            base_core = jax_core
-        except ImportError:
-            base_core = None
-    if base_core is None:
-        return None
-    remat2 = base_core.Primitive("remat2")
+    remat2 = Primitive("remat2")
     remat2.multiple_results = True
     setattr(lax, "remat2_p", remat2)
     return remat2

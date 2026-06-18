@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Optional, cast
 
 import jax
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -95,14 +100,12 @@ class GeluPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, *, approximate: bool = True
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, *, approximate: bool = True) -> ShapedArray:
         del approximate
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         approximate = bool(eqn.params.get("approximate", True))
         approx_str = "tanh" if approximate else "none"
         lower_unary_elementwise(

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Final, cast
 
-import jax
 import jax.nn as jnn
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import linen as nn
 
+from jax2onnx._compat.jax import JaxprEqn, Primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -156,7 +155,7 @@ class LinenActivationPlugin(PrimitiveLeafPlugin):
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         raise NotImplementedError(
             "Linen activation patching should not reach lowering; it is inlined."
         )

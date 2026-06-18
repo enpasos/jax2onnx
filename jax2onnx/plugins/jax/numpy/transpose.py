@@ -7,8 +7,12 @@ from typing import Callable, ClassVar, Final, TypeAlias
 
 import jax
 import jax.numpy as jnp
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -161,11 +165,11 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         permutation: AxesArg = None,
         axes: AxesArg = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         rank = len(x.shape)
         if axes is not None and permutation is None:
             permutation = axes
@@ -175,9 +179,9 @@ class JnpTransposePlugin(PrimitiveLeafPlugin):
             )
         axes_tuple = _normalize_axes(permutation, rank)
         out_shape = tuple(x.shape[i] for i in axes_tuple)
-        return core.ShapedArray(out_shape, x.dtype)
+        return ShapedArray(out_shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})

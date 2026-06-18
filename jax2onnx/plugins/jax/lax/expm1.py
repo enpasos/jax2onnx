@@ -3,7 +3,7 @@
 
 import jax
 import numpy as np
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
@@ -36,7 +36,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class Expm1Plugin(PrimitiveLeafPlugin):
     """Lower ``lax.expm1`` to ONNX via Exp + Sub."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

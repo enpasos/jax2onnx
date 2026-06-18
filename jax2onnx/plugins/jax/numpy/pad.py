@@ -6,8 +6,12 @@ from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -91,11 +95,11 @@ def _normalize_constant_value(value: Any) -> Any:
 def _abstract_eval_via_orig_pad(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
+    x: AbstractValue,
     *,
     pad_width: PadWidth,
     constant_value: Any,
-) -> core.ShapedArray:
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
@@ -106,7 +110,7 @@ def _abstract_eval_via_orig_pad(
     )
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 @register_primitive(
@@ -148,11 +152,11 @@ class JnpPadPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         pad_width: PadWidth,
         constant_value: Any,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return _abstract_eval_via_orig_pad(
             JnpPadPlugin._PRIM,
             JnpPadPlugin._FUNC_NAME,
@@ -161,7 +165,7 @@ class JnpPadPlugin(PrimitiveLeafPlugin):
             constant_value=constant_value,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+)
 import jax.numpy as jnp
 import numpy as np
 
@@ -24,7 +26,7 @@ class _JnpCompositeMetadataBatch5Plugin(PrimitiveLeafPlugin):
         specs: list[AssignSpec | MonkeyPatchSpec] = []
         return specs
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         del ctx, eqn
         raise NotImplementedError(
             "Metadata-only jnp composite plugin should not appear in jaxpr."

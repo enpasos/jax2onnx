@@ -8,13 +8,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -76,19 +81,19 @@ class RandomBernoulliPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        key: jax.core.AbstractValue,
-        p: jax.core.AbstractValue,
+        key: AbstractValue,
+        p: AbstractValue,
         *,
         shape: tuple[int, ...] | None = None,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del key
         if shape is None:
             out_shape = tuple(getattr(p, "shape", ()))
         else:
             out_shape = tuple(int(d) for d in shape)
-        return jax.core.ShapedArray(out_shape, np.dtype(np.bool_))
+        return ShapedArray(out_shape, np.dtype(np.bool_))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         key_var, p_var = eqn.invars
         (out_var,) = eqn.outvars
         shape_param = eqn.params.get("shape", None)

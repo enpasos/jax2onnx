@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -69,13 +73,13 @@ class JnpArgmaxPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
+        a: AbstractValue,
         *,
         axes: tuple[int, ...],
         keepdims: bool,
         index_dtype: np.dtype[Any],
         select_last_index: int,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del index_dtype, select_last_index
         orig = get_orig_impl(JnpArgmaxPlugin._PRIM, JnpArgmaxPlugin._FUNC_NAME)
         axis = int(axes[0])
@@ -83,9 +87,9 @@ class JnpArgmaxPlugin(PrimitiveLeafPlugin):
         out = jax.eval_shape(
             lambda x: orig(x, axis=axis, keepdims=keepdims), shape_dtype
         )
-        return core.ShapedArray(tuple(out.shape), np.dtype(out.dtype))
+        return ShapedArray(tuple(out.shape), np.dtype(out.dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_arg_reduction(ctx, eqn, op_name="ArgMax", name_prefix="jnp_argmax")
 
     @classmethod

@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/atanh.py
 
 
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
 
@@ -36,7 +36,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
     ],
 )
 class AtanhPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, Sequence, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -180,9 +184,9 @@ def _unsupported_params(
 def _abstract_eval_via_orig(
     prim: Any,
     func_name: str,
-    a: core.AbstractValue,
-    bins: core.AbstractValue,
-) -> tuple[core.ShapedArray, core.ShapedArray]:
+    a: AbstractValue,
+    bins: AbstractValue,
+) -> tuple[ShapedArray, ShapedArray]:
     a_shape = tuple(getattr(a, "shape", ()))
     bins_shape = tuple(getattr(bins, "shape", ()))
     if len(bins_shape) != 1:
@@ -199,11 +203,11 @@ def _abstract_eval_via_orig(
     orig = get_orig_impl(prim, func_name)
     hist, edges = jax.eval_shape(lambda x, b: orig(x, bins=b), a_spec, bins_spec)
     return (
-        core.ShapedArray(
+        ShapedArray(
             tuple(getattr(hist, "shape", ())),
             np.dtype(getattr(hist, "dtype", np.float32)),
         ),
-        core.ShapedArray(
+        ShapedArray(
             tuple(getattr(edges, "shape", ())),
             np.dtype(getattr(edges, "dtype", np.float32)),
         ),
@@ -291,11 +295,11 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
-        bins: core.AbstractValue,
+        a: AbstractValue,
+        bins: AbstractValue,
         *,
         density: bool | None = None,
-    ) -> tuple[core.ShapedArray, ...]:
+    ) -> tuple[ShapedArray, ...]:
         if density not in (None, False):
             raise NotImplementedError(
                 "jnp.histogram with density=True is not supported for ONNX export"
@@ -307,7 +311,7 @@ class JnpHistogramPlugin(PrimitiveLeafPlugin):
             bins,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         a_var, bins_var = eqn.invars
         hist_var, edges_var = eqn.outvars
         params = getattr(eqn, "params", {})

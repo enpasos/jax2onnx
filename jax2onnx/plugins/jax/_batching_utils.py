@@ -2,53 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence, Callable, cast
+from typing import Any, Sequence
 
 import numpy as np
 from jax import lax
-from jax.interpreters import batching
 
-from jax2onnx.plugins.jax._batching_compat import ensure_batching_not_mapped_attr
+from jax2onnx._compat.jax import (
+    NOT_MAPPED,
+    batching,
+    definitely_equal_shape,
+    ensure_batching_not_mapped_attr,
+)
 
 ensure_batching_not_mapped_attr()
 
 
-def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:
-    try:  # Prefer the internal helper when available (moved in newer JAX versions).
-        from jax._src import core as _core_src
-
-        return cast(Callable[[Any, Any], bool], _core_src.definitely_equal_shape)
-    except Exception:  # pragma: no cover - fallback for older/older-stub JAX
-        try:
-            from jax import core as _core_public
-
-            return cast(
-                Callable[[Any, Any], bool],
-                getattr(_core_public, "definitely_equal_shape"),
-            )
-        except Exception:  # pragma: no cover - minimal fallback
-
-            def _fallback(s1: Any, s2: Any) -> bool:
-                if len(s1) != len(s2):
-                    return False
-                for d1, d2 in zip(s1, s2):
-                    if d1 is d2:
-                        continue
-                    try:
-                        if d1 != d2:
-                            return False
-                    except Exception:
-                        return False
-                return True
-
-            return _fallback
-
-
-_definitely_equal_shape: Callable[[Any, Any], bool] = _resolve_definitely_equal_shape()
-
-
 def _handle_scalar_broadcasting(ndim: int, x: Any, dim: Any) -> Any:
-    if dim is batching.not_mapped or ndim == np.ndim(x):
+    if dim is NOT_MAPPED or ndim == np.ndim(x):
         return x
     return lax.expand_dims(x, tuple(range(np.ndim(x), ndim)))
 
@@ -60,11 +30,9 @@ def broadcast_batcher_compat(
     if len(args) <= 1:
         raise ValueError("broadcast_batcher_compat requires at least two arguments")
 
-    shape, dim = next(
-        (x.shape, d) for x, d in zip(args, dims) if d is not batching.not_mapped
-    )
+    shape, dim = next((x.shape, d) for x, d in zip(args, dims) if d is not NOT_MAPPED)
     if all(
-        _definitely_equal_shape(shape, x.shape) and d == dim
+        definitely_equal_shape(shape, x.shape) and d == dim
         for x, d in zip(args, dims)
         if np.ndim(x)
     ):

@@ -9,8 +9,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -203,12 +207,12 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         dimensions: Sequence[int] | None = None,
         axes: int | Sequence[int] | None = None,
         axis: int | Sequence[int] | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         dims = _resolve_dimensions(
             rank=len(x.shape),
             shape=tuple(x.shape),
@@ -220,9 +224,9 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
         orig = getattr(JnpSqueezePlugin._PRIM, storage_slot, jnp.squeeze)
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         result = jax.eval_shape(lambda arr: orig(arr, axis=dims), spec)
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         dimensions_param = params.get("dimensions")
         axes_param = params.get("axes")

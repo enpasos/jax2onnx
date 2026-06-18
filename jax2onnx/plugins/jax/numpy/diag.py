@@ -6,8 +6,12 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -40,10 +44,10 @@ def is_static_int_shape(shape: tuple[Any, ...]) -> bool:
 def abstract_eval_via_orig_diag(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
+    x: AbstractValue,
     *,
     k: int,
-) -> core.ShapedArray:
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
@@ -51,7 +55,7 @@ def abstract_eval_via_orig_diag(
     out = jax.eval_shape(lambda a: orig(a, k=k), x_spec)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def _diag_extract_indices(rows: int, cols: int, k: int) -> NDArray[np.int64]:
@@ -190,7 +194,7 @@ class JnpDiagPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue, *, k: int = 0) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue, *, k: int = 0) -> ShapedArray:
         return abstract_eval_via_orig_diag(
             JnpDiagPlugin._PRIM,
             JnpDiagPlugin._FUNC_NAME,
@@ -198,7 +202,7 @@ class JnpDiagPlugin(PrimitiveLeafPlugin):
             k=int(k),
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

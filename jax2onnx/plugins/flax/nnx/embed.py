@@ -6,11 +6,10 @@ from typing import Any, Callable, ClassVar, Final, cast
 
 import jax.numpy as jnp
 from flax import nnx
-from jax import core
-from jax.extend.core import Primitive
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -94,13 +93,11 @@ class EmbedPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(
-        indices: core.AbstractValue, embedding: core.AbstractValue
-    ) -> core.ShapedArray:
+    def abstract_eval(indices: AbstractValue, embedding: AbstractValue) -> ShapedArray:
         features = embedding.shape[-1]
-        return core.ShapedArray(indices.shape + (features,), embedding.dtype)
+        return ShapedArray(indices.shape + (features,), embedding.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         indices_var, embedding_var = eqn.invars[:2]
         (out_var,) = eqn.outvars
 

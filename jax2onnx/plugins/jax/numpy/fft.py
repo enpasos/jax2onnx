@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Final
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.fft import FFTPlugin as _LaxFFTPlugin
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -28,7 +28,7 @@ class _JnpFFTMetadata(PrimitiveLeafPlugin):
         return []
 
     def lower(
-        self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn
+        self, ctx: LoweringContextProtocol, eqn: JaxprEqn
     ) -> None:  # pragma: no cover - delegated lowering
         _LAX_FFT_PLUGIN.lower(ctx, eqn)
 

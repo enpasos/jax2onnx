@@ -7,9 +7,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from jax.extend.core import Primitive
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -161,7 +161,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         strides: Optional[Sequence[int]],
         padding: str,
         count_include_pad: bool,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         actual_strides = (
             tuple(strides) if strides is not None else (1,) * len(window_shape)
         )
@@ -170,7 +170,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
         if orig_call is None:
             rank = x.ndim
             if rank < 3:
-                return jax.core.ShapedArray(x.shape, x.dtype)
+                return ShapedArray(x.shape, x.dtype)
             H, W, C = x.shape[-3], x.shape[-2], x.shape[-1]
             kH, kW = window_shape
             sH, sW = actual_strides
@@ -187,7 +187,7 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             oH = _dim_out(H, kH, sH, padding)
             oW = _dim_out(W, kW, sW, padding)
             out_shape = (*x.shape[:-3], oH, oW, C)
-            return jax.core.ShapedArray(out_shape, x.dtype)
+            return ShapedArray(out_shape, x.dtype)
 
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
 
@@ -201,10 +201,10 @@ class AvgPoolPlugin(PrimitiveLeafPlugin):
             )
 
         out = jax.eval_shape(_helper, x_spec)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         y_var = eqn.outvars[0]
         window_shape = tuple(int(v) for v in eqn.params["window_shape"])

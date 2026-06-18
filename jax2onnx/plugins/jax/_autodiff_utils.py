@@ -8,9 +8,8 @@ import os
 from typing import Any, Callable, Iterable, cast
 
 import jax
-from jax.extend.core import Primitive
-from jax.interpreters import ad, batching
 
+from jax2onnx._compat.jax import Primitive, ad, batching
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.autodiff")
 

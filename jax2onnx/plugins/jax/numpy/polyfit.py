@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -61,14 +65,14 @@ def _normalise_linear_shapes(
 
 
 def _abstract_eval_via_orig(
-    x: core.AbstractValue,
-    y: core.AbstractValue,
+    x: AbstractValue,
+    y: AbstractValue,
     *,
     deg: int,
     rcond: float | None,
     full: bool,
     cov: bool | str,
-) -> core.ShapedArray:
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
     x_dtype = np.dtype(getattr(x, "dtype", np.float32))
@@ -90,7 +94,7 @@ def _abstract_eval_via_orig(
         jax.ShapeDtypeStruct(x_shape, x_dtype),
         jax.ShapeDtypeStruct(y_shape, y_dtype),
     )
-    return core.ShapedArray(
+    return ShapedArray(
         tuple(getattr(out, "shape", ())), getattr(out, "dtype", np.float32)
     )
 
@@ -180,14 +184,14 @@ class JnpPolyfitPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        y: core.AbstractValue,
+        x: AbstractValue,
+        y: AbstractValue,
         *,
         deg: int,
         rcond: float | None = None,
         full: bool = False,
         cov: bool | str = False,
-    ) -> core.AbstractValue:
+    ) -> AbstractValue:
         return _abstract_eval_via_orig(
             x,
             y,
@@ -197,7 +201,7 @@ class JnpPolyfitPlugin(PrimitiveLeafPlugin):
             cov=cov,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, y_var = eqn.invars
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})

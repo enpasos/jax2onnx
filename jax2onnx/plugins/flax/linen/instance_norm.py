@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Final, Sequence, cast
 
-import jax
 import jax.numpy as jnp
 import onnx_ir as ir
 from flax import linen as nn
-from jax.extend.core import Primitive
 
+from jax2onnx._compat.jax import JaxprEqn, Primitive
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
     _ensure_value_metadata,
@@ -126,7 +125,7 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
     _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 

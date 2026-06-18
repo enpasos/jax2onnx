@@ -9,7 +9,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -94,15 +99,15 @@ class StandardizePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         *,
         axis: tuple[int, ...] | None = None,
         epsilon: float = 0.0,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del axis, epsilon
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

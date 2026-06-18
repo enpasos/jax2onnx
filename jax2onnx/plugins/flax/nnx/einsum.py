@@ -9,10 +9,9 @@ import jax
 import jax.numpy as jnp
 import onnx_ir as ir
 from flax import nnx
-from jax import core
-from jax.extend.core import Primitive
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
@@ -123,9 +122,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        kernel: core.AbstractValue,
-        *maybe_bias: core.AbstractValue,
+        x: AbstractValue,
+        kernel: AbstractValue,
+        *maybe_bias: AbstractValue,
         einsum_str: str,
         use_bias_bool: bool,
         precision: Any | None = None,
@@ -133,7 +132,7 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
         preferred_element_type: Any | None = None,
         dtype: Any | None = None,
         param_dtype: Any | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del dtype, param_dtype
         bias = maybe_bias[0] if maybe_bias else None
 
@@ -169,9 +168,9 @@ class EinsumModulePlugin(PrimitiveLeafPlugin):
             else:
                 raise TypeError("Unexpected output from nnx.Einsum abstract eval")
 
-        return core.ShapedArray(out_spec.shape, out_spec.dtype)
+        return ShapedArray(out_spec.shape, out_spec.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         equation = str(params["einsum_str"])
         use_bias = bool(params.get("use_bias_bool", False))

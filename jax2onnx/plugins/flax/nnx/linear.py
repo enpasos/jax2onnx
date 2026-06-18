@@ -5,11 +5,11 @@ from typing import Any, Callable, ClassVar, Final, Optional
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -286,7 +286,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
         *,
         use_bias: bool,
         dimension_numbers: Any = None,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         # If we don't have the original __call__, fall back to shape math.
         orig_call = LinearPlugin._ORIGINAL_LINEAR_CALL
         if orig_call is None:
@@ -296,7 +296,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
             k0, k1 = kernel.shape
             need_flat = (k0 != x.shape[-1]) or (x.ndim > 2)
             out_shape = (x.shape[0], k1) if need_flat else (*x.shape[:-1], k1)
-            return jax.core.ShapedArray(out_shape, x.dtype)
+            return ShapedArray(out_shape, x.dtype)
 
         if dimension_numbers is None:
             lhs, rhs = ((x.ndim - 1,), (0,))
@@ -345,7 +345,7 @@ class LinearPlugin(PrimitiveLeafPlugin):
 
         out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
         out = jax.tree_util.tree_leaves(out)[0]
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
     # ---------- lowering (IR) ----------
 

@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, List, Optional, Sequence, Tuple, cast
 
-import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -250,7 +248,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         x_aval = x if isinstance(x, ShapedArray) else ShapedArray(x.shape, x.dtype)
         return ShapedArray(x_aval.shape, x_aval.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_v = ctx.get_value_for_var(eqn.invars[0])
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])

@@ -8,8 +8,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -99,18 +104,18 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
-        where: jax.core.AbstractValue | None = None,
+        x: AbstractValue,
+        where: AbstractValue | None = None,
         *,
         axis: int = -1,
         has_where: bool = False,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del axis
         if has_where and where is None:
             raise ValueError("softmax with has_where=True expects a mask operand")
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         if not eqn.invars:
             raise ValueError("softmax lowering expects at least the input tensor")
         x_var = eqn.invars[0]

@@ -5,11 +5,15 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -28,7 +32,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 _SORT_PRIM: Final = make_jnp_primitive("jax.numpy.sort")
 
 
-def _sort_eval(x: core.AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
+def _sort_eval(x: AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     orig = getattr(_SORT_PRIM, "__orig_impl__sort", jnp.sort)
     spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
     result = jax.eval_shape(lambda arr: orig(arr, axis=axis), spec)
@@ -90,20 +94,20 @@ class JnpSortPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         axis: int = -1,
         kind: str | None = None,
         order: Any | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if kind not in (None, "stable", "mergesort"):
             raise NotImplementedError("Only default/stable sorts supported")
         if order is not None:
             raise NotImplementedError("jnp.sort order parameter is not supported")
         result = _sort_eval(x, axis=axis)
-        return core.ShapedArray(result.shape, result.dtype)
+        return ShapedArray(result.shape, result.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis = int(params.get("axis", -1))
         kind = params.get("kind", None)

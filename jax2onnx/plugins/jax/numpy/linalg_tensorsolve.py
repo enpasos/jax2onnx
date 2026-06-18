@@ -6,7 +6,11 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -72,11 +76,11 @@ def _reshape(
 
 
 def _abstract_eval_via_orig(
-    a: core.AbstractValue,
-    b: core.AbstractValue,
+    a: AbstractValue,
+    b: AbstractValue,
     *,
     axes: tuple[int, ...] | None,
-) -> core.ShapedArray:
+) -> ShapedArray:
     a_shape = tuple(getattr(a, "shape", ()))
     b_shape = tuple(getattr(b, "shape", ()))
     a_dtype = np.dtype(getattr(a, "dtype", np.float32))
@@ -98,7 +102,7 @@ def _abstract_eval_via_orig(
         raise TypeError(
             "jnp.linalg.tensorsolve lowering does not support complex outputs"
         )
-    return core.ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
 
 
 def _normalise_shapes(
@@ -203,14 +207,14 @@ class JnpLinalgTensorSolvePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.AbstractValue,
-        b: core.AbstractValue,
+        a: AbstractValue,
+        b: AbstractValue,
         *,
         axes: tuple[int, ...] | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         return _abstract_eval_via_orig(a, b, axes=axes)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         a_var, b_var = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})

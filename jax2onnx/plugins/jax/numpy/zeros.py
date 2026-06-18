@@ -6,7 +6,10 @@ from collections.abc import Sequence as _Seq
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -71,11 +74,11 @@ class JnpZerosPlugin(PrimitiveLeafPlugin):
         *,
         shape: tuple[int, ...],
         dtype: np.dtype[Any] | type,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         dims = _normalize_shape(shape)
-        return core.ShapedArray(dims, np.dtype(dtype))
+        return ShapedArray(dims, np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
 

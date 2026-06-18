@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, ClassVar, Final
 
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -114,19 +118,19 @@ class JnpUniquePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        ar: core.AbstractValue,
+        ar: AbstractValue,
         *,
         size: int,
         fill_value: bool | int | float,
         sorted: bool = True,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del fill_value, sorted
         size_int = int(size)
         if size_int < 0:
             raise ValueError("jnp.unique size must be non-negative")
-        return core.ShapedArray((size_int,), ar.dtype)
+        return ShapedArray((size_int,), ar.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = dict(getattr(eqn, "params", {}) or {})
         size_param = params.get("size")
         if size_param is None:

@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -47,9 +51,9 @@ _SIGNED_INTEGER_DTYPES: frozenset[np.dtype[Any]] = frozenset(
 def abstract_eval_via_orig_binary(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-    y: core.AbstractValue,
-) -> core.ShapedArray:
+    x: AbstractValue,
+    y: AbstractValue,
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     y_shape = tuple(getattr(y, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.int32))
@@ -60,7 +64,7 @@ def abstract_eval_via_orig_binary(
     out = jax.eval_shape(lambda a, b: orig(a, b), x_spec, y_spec)
     out_shape = tuple(getattr(out, "shape", ()))
     out_dtype = np.dtype(getattr(out, "dtype", x_dtype))
-    return core.ShapedArray(out_shape, out_dtype)
+    return ShapedArray(out_shape, out_dtype)
 
 
 def cast_to_dtype(
@@ -258,7 +262,7 @@ def _lower_signed_arithmetic_right_shift(
 
 def lower_right_shift_core(
     ctx: LoweringContextProtocol,
-    eqn: core.JaxprEqn,
+    eqn: JaxprEqn,
     *,
     input_x_hint: str,
     input_y_hint: str,
@@ -399,9 +403,9 @@ class JnpRightShiftPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        y: core.AbstractValue,
-    ) -> core.ShapedArray:
+        x: AbstractValue,
+        y: AbstractValue,
+    ) -> ShapedArray:
         return abstract_eval_via_orig_binary(
             JnpRightShiftPlugin._PRIM,
             JnpRightShiftPlugin._FUNC_NAME,
@@ -409,7 +413,7 @@ class JnpRightShiftPlugin(PrimitiveLeafPlugin):
             y,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_right_shift_core(
             ctx,
             eqn,

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Final
 
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.interpreters import batching
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -80,7 +83,7 @@ class JnpConjPlugin(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str] = "conj"
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -175,7 +178,7 @@ register_jvp_via_jax_jvp(JnpConjPlugin._PRIM, _conj_impl)
 
 
 JnpConjPlugin._PRIM.def_abstract_eval(
-    lambda x: core.ShapedArray(getattr(x, "shape", ()), getattr(x, "dtype", None))
+    lambda x: ShapedArray(getattr(x, "shape", ()), getattr(x, "dtype", None))
 )
 
 

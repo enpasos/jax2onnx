@@ -14,6 +14,7 @@ import jax
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
@@ -75,7 +76,7 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
 class RandomBitsPlugin(PrimitiveLeafPlugin):
     """Lower ``random_bits`` via RandomUniformLike + scaling + cast."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
         params = getattr(eqn, "params", {})

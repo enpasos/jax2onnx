@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 import jax
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
@@ -59,7 +59,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class OrPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitwise_or`` and boolean ``or``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

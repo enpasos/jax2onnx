@@ -18,7 +18,6 @@ import math
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax.extend.core import Primitive
 from flax import nnx
 from flax.nnx.nn import linear as nnx_linear
 import onnx_ir as ir
@@ -27,6 +26,7 @@ from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -1552,7 +1552,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         dilations: Sequence[int] | int = 1,
         dimension_numbers: Any | None = None,
         feature_group_count: int = 1,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         # Compute shapes using ONLY lax.* — never call (patched) nnx.Conv.__call__ here.
         # Calling the original would re-enter prim.bind and recurse.
         x_shape = tuple(x.shape)
@@ -1631,10 +1631,10 @@ class ConvPlugin(PrimitiveLeafPlugin):
         # Unflatten leading dims back to (N, *extra, ...).
         out_spatial = y_flat.shape[1 : 1 + conv_spatial]
         y_shape = (*leading, *out_spatial, k_shape[-1])
-        return jax.core.ShapedArray(y_shape, y_flat.dtype)
+        return ShapedArray(y_shape, y_flat.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> ir.Value:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> ir.Value:
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 

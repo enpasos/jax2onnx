@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -310,18 +314,18 @@ class JnpDigitizePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        bins: core.AbstractValue,
+        x: AbstractValue,
+        bins: AbstractValue,
         *,
         right: bool = False,
         method: str = "scan",
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del right, method
         if len(tuple(getattr(bins, "shape", ()))) != 1:
             raise TypeError("jnp.digitize lowering requires 1-D bins")
-        return core.ShapedArray(tuple(getattr(x, "shape", ())), _result_dtype())
+        return ShapedArray(tuple(getattr(x, "shape", ())), _result_dtype())
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, bins_var = eqn.invars
         (out_var,) = eqn.outvars
         params = getattr(eqn, "params", {})

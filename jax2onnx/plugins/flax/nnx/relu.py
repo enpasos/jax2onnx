@@ -3,8 +3,11 @@
 from __future__ import annotations
 from typing import Any, Final, cast
 
-import jax
-from jax.extend.core import Primitive as JaxPrimitive
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    Primitive as JaxPrimitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -32,9 +35,9 @@ def _init_relu_prim() -> JaxPrimitive:
 nnx_relu_p: Final[JaxPrimitive] = _init_relu_prim()
 
 
-def _relu_abstract_eval(x_aval: jax.core.ShapedArray) -> jax.core.ShapedArray:
+def _relu_abstract_eval(x_aval: ShapedArray) -> ShapedArray:
     # ReLU preserves shape & dtype
-    return jax.core.ShapedArray(x_aval.shape, x_aval.dtype)
+    return ShapedArray(x_aval.shape, x_aval.dtype)
 
 
 # Idempotent abstract eval registration
@@ -81,7 +84,7 @@ class ReluPlugin(PrimitiveLeafPlugin):
     """
 
     # ---------------- lowering (IR) ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_unary_elementwise(
             ctx,
             eqn,

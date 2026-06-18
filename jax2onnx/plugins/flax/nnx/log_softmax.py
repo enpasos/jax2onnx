@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, cast
 
 import jax
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -84,14 +89,12 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, axis: int = -1
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, axis: int = -1) -> ShapedArray:
         del axis
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         axis = int(eqn.params.get("axis", -1))
 

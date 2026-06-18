@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -195,7 +199,7 @@ def _concat(
     return result
 
 
-def _abstract_eval_via_orig(x: core.AbstractValue) -> core.ShapedArray:
+def _abstract_eval_via_orig(x: AbstractValue) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype = np.dtype(getattr(x, "dtype", np.float32))
     if np.issubdtype(x_dtype, np.complexfloating):
@@ -207,7 +211,7 @@ def _abstract_eval_via_orig(x: core.AbstractValue) -> core.ShapedArray:
     out_dtype = np.dtype(getattr(out, "dtype", np.float32))
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.linalg.inv lowering does not support complex outputs")
-    return core.ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
 
 
 @register_primitive(
@@ -293,10 +297,10 @@ class JnpLinalgInvPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         return _abstract_eval_via_orig(x)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

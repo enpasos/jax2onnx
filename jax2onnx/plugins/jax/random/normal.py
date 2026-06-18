@@ -8,13 +8,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.extend.core import Primitive
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -64,16 +69,16 @@ class RandomNormalPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        key: jax.core.AbstractValue,
+        key: AbstractValue,
         *,
         shape: tuple[int, ...] = (),
         dtype: np.dtype = np.dtype(np.float32),
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del key
         out_shape = tuple(int(dim) for dim in shape)
-        return jax.core.ShapedArray(out_shape, np.dtype(dtype))
+        return ShapedArray(out_shape, np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (key_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

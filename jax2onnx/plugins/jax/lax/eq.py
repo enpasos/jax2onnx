@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
 
@@ -37,7 +37,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
     ],
 )
 class EqPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

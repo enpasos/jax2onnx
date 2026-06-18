@@ -6,13 +6,13 @@ from typing import Any, Callable, ClassVar, Final, Sequence, cast
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from jax.extend.core import Primitive
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -233,12 +233,12 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
         epsilon: float,
         num_groups: int,
         channel_axis: int,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del scale, bias, epsilon, num_groups, channel_axis
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, scale_var, bias_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 

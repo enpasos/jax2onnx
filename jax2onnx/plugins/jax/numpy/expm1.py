@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 
@@ -78,12 +82,12 @@ class JnpExpm1Plugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         return abstract_eval_via_orig_unary(
             JnpExpm1Plugin._PRIM, JnpExpm1Plugin._FUNC_NAME, x
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (y_var,) = eqn.outvars
 

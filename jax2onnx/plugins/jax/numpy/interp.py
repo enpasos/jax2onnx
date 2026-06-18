@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -166,10 +170,10 @@ def _binary_float_op(
 def _abstract_eval_via_orig(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-    xp: core.AbstractValue,
-    fp: core.AbstractValue,
-) -> core.ShapedArray:
+    x: AbstractValue,
+    xp: AbstractValue,
+    fp: AbstractValue,
+) -> ShapedArray:
     x_shape = tuple(getattr(x, "shape", ()))
     xp_shape = tuple(getattr(xp, "shape", ()))
     fp_shape = tuple(getattr(fp, "shape", ()))
@@ -192,7 +196,7 @@ def _abstract_eval_via_orig(
     out_dtype = np.dtype(getattr(out, "dtype", np.float32))
     if np.issubdtype(out_dtype, np.complexfloating):
         raise TypeError("jnp.interp lowering does not support complex fp values")
-    return core.ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
+    return ShapedArray(tuple(getattr(out, "shape", ())), out_dtype)
 
 
 @register_primitive(
@@ -282,10 +286,10 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        xp: core.AbstractValue,
-        fp: core.AbstractValue,
-    ) -> core.ShapedArray:
+        x: AbstractValue,
+        xp: AbstractValue,
+        fp: AbstractValue,
+    ) -> ShapedArray:
         return _abstract_eval_via_orig(
             JnpInterpPlugin._PRIM,
             JnpInterpPlugin._FUNC_NAME,
@@ -294,7 +298,7 @@ class JnpInterpPlugin(PrimitiveLeafPlugin):
             fp,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, xp_var, fp_var = eqn.invars
         (out_var,) = eqn.outvars
 

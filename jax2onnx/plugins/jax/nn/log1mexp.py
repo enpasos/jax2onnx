@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -69,12 +74,12 @@ class Log1mexpPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
         spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         out = jax.eval_shape(_JAX_LOG1MEXP_ORIG, spec)
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

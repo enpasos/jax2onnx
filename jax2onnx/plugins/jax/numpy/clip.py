@@ -6,10 +6,15 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-import jax.extend.core as jax_core_ext
-from jax import core
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Literal,
+    ShapedArray,
+    Var,
+    batching,
+)
 import jax.numpy as jnp
-from jax.interpreters import batching as jax_batching
 import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
@@ -28,7 +33,7 @@ from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 ScalarBound = bool | int | float | np.generic
-JaxValue: TypeAlias = jax_core_ext.Var | jax_core_ext.Literal
+JaxValue: TypeAlias = Var | Literal
 
 
 def _np_dtype(x: DTypeLike) -> np.dtype[Any]:
@@ -207,14 +212,14 @@ class JnpClipPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
-        a_min: core.AbstractValue,
-        a_max: core.AbstractValue,
+        x: AbstractValue,
+        a_min: AbstractValue,
+        a_max: AbstractValue,
         **_: object,
-    ) -> core.ShapedArray:
-        return jax.core.ShapedArray(x.shape, x.dtype)
+    ) -> ShapedArray:
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, lo_var, hi_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -337,4 +342,4 @@ def _clip_batching_rule(args: tuple[Any, ...], dims: tuple[Any, ...]) -> Any:
     return broadcast_batcher_compat(JnpClipPlugin._PRIM, args, dims)
 
 
-jax_batching.primitive_batchers[JnpClipPlugin._PRIM] = _clip_batching_rule
+batching.primitive_batchers[JnpClipPlugin._PRIM] = _clip_batching_rule

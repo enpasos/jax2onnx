@@ -5,11 +5,16 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+    Var,
+    ad,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
-from jax.interpreters import ad, batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -275,18 +280,18 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         x: object,
         y: object,
         **_: object,
-    ) -> core.ShapedArray:
-        if not isinstance(cond, core.ShapedArray):
+    ) -> ShapedArray:
+        if not isinstance(cond, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
-        if not isinstance(x, core.ShapedArray):
+        if not isinstance(x, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
-        if not isinstance(y, core.ShapedArray):
+        if not isinstance(y, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
         promoted = np.promote_types(x.dtype, y.dtype)
         out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
-        return core.ShapedArray(out_shape, promoted)
+        return ShapedArray(out_shape, promoted)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         cond_var, x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 
@@ -351,7 +356,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
     def _maybe_cast(
         ctx: LoweringContextProtocol,
         value: ir.Value,
-        var: core.Var,
+        var: Var,
         target_dtype: np.dtype[Any],
         tag: str,
     ) -> ir.Value:

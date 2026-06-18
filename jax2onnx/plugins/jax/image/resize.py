@@ -9,13 +9,13 @@ import jax
 import jax.image as jimage
 import numpy as np
 import onnx_ir as ir
-from jax import core
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx._compat.jax import AbstractValue, JaxprEqn, ShapedArray
 from jax2onnx.plugins.jax.image._common import get_orig_impl, make_image_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -355,12 +355,12 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        image: core.AbstractValue,
+        image: AbstractValue,
         *,
         shape: Sequence[int | np.integer],
         method: str | jimage.ResizeMethod = "linear",
         **params: object,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if shape is None:
             raise TypeError("resize requires a target shape")
         try:
@@ -370,9 +370,9 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
         dtype = getattr(image, "dtype", None)
         if dtype is None:
             raise TypeError("resize abstract value is missing dtype")
-        return core.ShapedArray(out_shape, dtype)
+        return ShapedArray(out_shape, dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         image_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

@@ -31,15 +31,18 @@ from typing import (
 
 import jax
 import jax.tree_util as jtu
-from jax.extend import core as jcore_ext
 import numpy as np
-from jax.core import ShapedArray
-from jax.extend.core import Primitive
-from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
-from jax2onnx.plugins.jax._batching_compat import ensure_batching_not_mapped_attr
+from jax2onnx._compat.jax import (
+    NOT_MAPPED,
+    Primitive,
+    ShapedArray,
+    Var,
+    batching,
+    ensure_batching_not_mapped_attr,
+)
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -582,7 +585,7 @@ class FunctionPlugin(PrimitivePlugin):
 
         axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
-            if bdim is batching.not_mapped:
+            if bdim is NOT_MAPPED:
                 continue
             shape = getattr(arg, "shape", None)
             if shape is None or bdim >= len(shape):
@@ -592,7 +595,7 @@ class FunctionPlugin(PrimitivePlugin):
 
         if axis_size is None:
             result = original_fn(*args, **call_kwargs)
-            out_dims = jtu.tree_map(lambda _: batching.not_mapped, result)
+            out_dims = jtu.tree_map(lambda _: NOT_MAPPED, result)
             return result, out_dims
 
         prepared_args = [
@@ -895,7 +898,7 @@ class FunctionPlugin(PrimitivePlugin):
                 else None
             )
 
-            if isinstance(resolved, jcore_ext.Var):
+            if isinstance(resolved, Var):
                 dynamic_entries.append(
                     {
                         "name": pname,

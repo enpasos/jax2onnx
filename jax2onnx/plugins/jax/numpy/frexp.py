@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -31,8 +35,8 @@ BatchDim: TypeAlias = int | None
 def _abstract_eval_via_orig(
     prim: Any,
     func_name: str,
-    x: core.AbstractValue,
-) -> tuple[core.ShapedArray, core.ShapedArray]:
+    x: AbstractValue,
+) -> tuple[ShapedArray, ShapedArray]:
     x_shape = tuple(getattr(x, "shape", ()))
     x_dtype: np.dtype[Any] = np.dtype(getattr(x, "dtype", np.float32))
     x_spec = jax.ShapeDtypeStruct(x_shape, x_dtype)
@@ -43,8 +47,8 @@ def _abstract_eval_via_orig(
     mantissa_dtype = np.dtype(getattr(mantissa, "dtype", np.float32))
     exponent_dtype = np.dtype(getattr(exponent, "dtype", np.int32))
     return (
-        core.ShapedArray(mantissa_shape, mantissa_dtype),
-        core.ShapedArray(exponent_shape, exponent_dtype),
+        ShapedArray(mantissa_shape, mantissa_dtype),
+        ShapedArray(exponent_shape, exponent_dtype),
     )
 
 
@@ -165,14 +169,14 @@ class JnpFrexpPlugin(PrimitiveLeafPlugin):
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> tuple[core.ShapedArray, ...]:
+    def abstract_eval(x: AbstractValue) -> tuple[ShapedArray, ...]:
         return _abstract_eval_via_orig(
             JnpFrexpPlugin._PRIM,
             JnpFrexpPlugin._FUNC_NAME,
             x,
         )
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
         mantissa_var, exponent_var = eqn.outvars
 

@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+    Tracer,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -90,11 +94,11 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        a: core.ShapedArray,
+        a: ShapedArray,
         *,
         axis: int,
         cond: tuple[bool, ...],
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         rank = len(a.shape)
         axis_norm = _canonical_axis(int(axis), rank)
         axis_dim = a.shape[axis_norm]
@@ -104,9 +108,9 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
             )
         out_shape = list(a.shape)
         out_shape[axis_norm] = _compress_len(cond, int(axis_dim))
-        return core.ShapedArray(tuple(out_shape), a.dtype)
+        return ShapedArray(tuple(out_shape), a.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (a_var,) = eqn.invars
         (out_var,) = eqn.outvars
 
@@ -182,7 +186,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                         size=size,
                         fill_value=fill_value,
                     )
-                if isinstance(fill_value, core.Tracer):
+                if isinstance(fill_value, Tracer):
                     return orig_impl(
                         condition,
                         a,
@@ -211,7 +215,7 @@ class JnpCompressPlugin(PrimitiveLeafPlugin):
                         size=size,
                         fill_value=fill_value,
                     )
-                if isinstance(condition, core.Tracer):
+                if isinstance(condition, Tracer):
                     return orig_impl(
                         condition,
                         a,

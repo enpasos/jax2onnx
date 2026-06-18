@@ -6,8 +6,12 @@ from collections.abc import Sequence as _Seq
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -85,14 +89,14 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        fill_value: core.AbstractValue,
+        fill_value: AbstractValue,
         *,
         shape: tuple[int, ...],
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         dims = _normalize_shape(shape)
-        return core.ShapedArray(dims, fill_value.dtype)
+        return ShapedArray(dims, fill_value.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (fill_var,) = eqn.invars
         (out_var,) = eqn.outvars
 

@@ -7,8 +7,13 @@ from typing import Any, Callable, ClassVar, Final
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -68,12 +73,12 @@ class OneHotPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         *,
         num_classes: int,
         dtype: Any = jnp.float32,
         axis: int = -1,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         x_shape = tuple(getattr(x, "shape", ()))
         out_rank = len(x_shape) + 1
 
@@ -87,9 +92,9 @@ class OneHotPlugin(PrimitiveLeafPlugin):
 
         out_shape = list(x_shape)
         out_shape.insert(axis_int, int(num_classes))
-        return jax.core.ShapedArray(tuple(out_shape), np.dtype(dtype))
+        return ShapedArray(tuple(out_shape), np.dtype(dtype))
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

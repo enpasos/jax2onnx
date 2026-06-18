@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Callable, ClassVar, Final
 
 import jax
-from jax import core
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -90,17 +94,17 @@ class JnpTriluPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: core.AbstractValue,
+        x: AbstractValue,
         *,
         k: int = 0,
         upper: bool = True,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del k, upper
         if len(x.shape) < 2:
             raise ValueError("jnp.triu/tril requires inputs with rank >= 2")
-        return core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         k = _normalize_k(params.get("k", 0))
         upper = bool(params.get("upper", True))

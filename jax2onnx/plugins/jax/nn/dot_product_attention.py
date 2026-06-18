@@ -21,8 +21,13 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import nn as jax_nn
-from jax.extend.core import Primitive
-from jax.interpreters import batching
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -775,16 +780,16 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        q: jax.core.AbstractValue,
-        k: jax.core.AbstractValue,
-        v: jax.core.AbstractValue,
+        q: AbstractValue,
+        k: AbstractValue,
+        v: AbstractValue,
         *_: object,
         **__: object,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del k, v
-        return jax.core.ShapedArray(q.shape, q.dtype)
+        return ShapedArray(q.shape, q.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         invars = list(eqn.invars)
         out_var = eqn.outvars[0]
 

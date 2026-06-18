@@ -6,11 +6,15 @@ from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final, cast
 
 import jax
-from jax import core
-from jax.extend.core import Primitive
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 import jax.numpy as jnp
 import numpy as np
-from jax.interpreters import batching
 from numpy.typing import ArrayLike
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -69,11 +73,11 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
     _FUNC_NAME: ClassVar[str]
 
     @staticmethod
-    def abstract_eval(x: core.AbstractValue, y: core.AbstractValue) -> core.ShapedArray:
+    def abstract_eval(x: AbstractValue, y: AbstractValue) -> ShapedArray:
         shape = _broadcast_shape(x.shape, y.shape)
-        return core.ShapedArray(shape, x.dtype)
+        return ShapedArray(shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_pow(ctx, eqn)
 
     @classmethod

@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 
 import jax
-from jax import core
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+)
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
@@ -76,13 +79,13 @@ class JnpEyePlugin(PrimitiveLeafPlugin):
         m: int | None = None,
         k: int = 0,
         dtype: np.dtype[Any] | type | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         del k
         n_i, m_i = _normalize_dims(n, m)
         out_dtype = np.dtype(jnp.float32 if dtype is None else dtype)
-        return core.ShapedArray((n_i, m_i), out_dtype)
+        return ShapedArray((n_i, m_i), out_dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (out_var,) = eqn.outvars
         params = dict(getattr(eqn, "params", {}) or {})
 

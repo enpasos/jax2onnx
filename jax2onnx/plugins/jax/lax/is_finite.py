@@ -3,7 +3,7 @@
 
 import jax
 import numpy as np
-from jax import core
+from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -47,7 +47,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class IsFinitePlugin(PrimitiveLeafPlugin):
     """Lower ``lax.is_finite`` to ONNX via IsInf + IsNaN + Or + Not."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

@@ -11,8 +11,12 @@ import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
 from flax import nnx
-from jax import core
-from jax.interpreters import ad, batching
+from jax2onnx._compat.jax import (
+    JaxprEqn,
+    ShapedArray,
+    ad,
+    batching,
+)
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -157,12 +161,12 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        arr: core.ShapedArray,
-        indices: core.ShapedArray,
+        arr: ShapedArray,
+        indices: ShapedArray,
         *,
         axis: int | None = None,
         mode: str | None = None,
-    ) -> core.ShapedArray:
+    ) -> ShapedArray:
         if mode is not None:
             raise NotImplementedError("jnp.take mode parameter is not supported")
         if axis is None:
@@ -170,9 +174,9 @@ class JnpTakePlugin(PrimitiveLeafPlugin):
         rank = len(arr.shape)
         axis_norm = _canonical_axis(int(axis), rank)
         out_shape = arr.shape[:axis_norm] + indices.shape + arr.shape[axis_norm + 1 :]
-        return core.ShapedArray(out_shape, arr.dtype)
+        return ShapedArray(out_shape, arr.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         params = getattr(eqn, "params", {})
         axis_param = params.get("axis")
         mode = params.get("mode")
