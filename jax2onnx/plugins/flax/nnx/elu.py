@@ -5,7 +5,12 @@ from typing import Any, Callable, ClassVar, cast
 
 import numpy as np
 import jax
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -100,14 +105,12 @@ class EluPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, alpha: float = 1.0
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, alpha: float = 1.0) -> ShapedArray:
         del alpha
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         alpha = float(eqn.params.get("alpha", 1.0))
         attrs: dict[str, float] = {}
         if not np.isclose(alpha, 1.0):

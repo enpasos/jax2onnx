@@ -5,11 +5,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Callable, ClassVar, Final
 
-import jax
-from jax.interpreters import batching
 import jax.numpy as jnp
 from flax import nnx
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+    batching,
+)
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -76,13 +80,13 @@ class PReluPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
-        negative_slope: jax.core.AbstractValue,
-    ) -> jax.core.ShapedArray:
+        x: AbstractValue,
+        negative_slope: AbstractValue,
+    ) -> ShapedArray:
         del negative_slope
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, slope_var = eqn.invars
         y_var = eqn.outvars[0]
 

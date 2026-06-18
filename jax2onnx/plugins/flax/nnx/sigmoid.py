@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Callable, ClassVar, cast
 
 import jax
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -51,11 +56,11 @@ class SigmoidPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(x: jax.core.AbstractValue) -> jax.core.ShapedArray:
-        return jax.core.ShapedArray(x.shape, x.dtype)
+    def abstract_eval(x: AbstractValue) -> ShapedArray:
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_unary_elementwise(
             ctx,
             eqn,

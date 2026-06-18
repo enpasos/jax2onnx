@@ -5,7 +5,12 @@ from typing import Callable, ClassVar, cast
 
 import jax
 import jax.numpy as jnp  # noqa: F401  (kept for parity with other plugins)
-from jax.extend.core import Primitive
+from jax2onnx.plugins.jax._jax_compat import (
+    AbstractValue,
+    JaxprEqn,
+    Primitive,
+    ShapedArray,
+)
 from flax import nnx
 from numpy.typing import ArrayLike
 
@@ -54,15 +59,13 @@ class SoftmaxPlugin(PrimitiveLeafPlugin):
 
     # ---------- abstract eval ----------
     @staticmethod
-    def abstract_eval(
-        x: jax.core.AbstractValue, axis: int = -1
-    ) -> jax.core.ShapedArray:
+    def abstract_eval(x: AbstractValue, axis: int = -1) -> ShapedArray:
         del axis
         # Output has same shape/dtype as input
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars
 
         axis = int(eqn.params.get("axis", -1))
