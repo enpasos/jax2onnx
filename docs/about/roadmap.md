@@ -14,7 +14,7 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
-## Upcoming Version
+## Current Version
 
 ### **jax2onnx 0.14.1**
 
@@ -23,51 +23,17 @@
   the cast fallback; cover new JAX 0.10 resize methods where the ONNX mapping is
   exact.
 * **Centralize JAX internal API compatibility:** Add a package-level JAX
-  compatibility layer and migrate direct `jax.core` / `jax.extend.core` usage
-  across converter and plugin code so JAX internal API moves are handled in one
-  place.
+  compatibility layer, migrate direct `jax.core` / `jax.extend.core` usage
+  across converter and plugin code, and guard `Literal` resolution across JAX
+  layout differences so JAX internal API moves are handled in one place.
 * **Validate declared lower bounds in CI:** Raise the installable minimum JAX
   version to `0.8.1` for Flax/NNX `0.12.1` compatibility, add a
   minimum-dependency workflow job, and cover the lower-bound installer with
   focused tests.
-* **Refresh the validation stack:** Update the upcoming documented runtime
-  stack to JAX `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, ONNX Runtime
-  `1.27.0`, and keep Web validation on the latest stable
-  `onnxruntime-web` release until a matching `1.27.x` Web package is published.
-
-## Current Version
-
-### **jax2onnx 0.14.0**
-
-* **Add a browser/WASM export profile:** Introduce `export_mode="web"` for
-  `to_onnx(...)` so browser deployments can produce a single self-contained
-  `.onnx` artifact without stale `.onnx.data` sidecars, ready to serve directly
-  to `onnxruntime-web/wasm`; invalid export modes fail early.
-* **Expose ONNX Runtime Web parity checks:** Add
-  `allclose_onnxruntime_web(...)` to compare Python ONNX Runtime CPU output
-  with `onnxruntime-web/wasm` in Node.js or a Playwright-driven
-  Chrome/Chromium browser, with browser-safe tensor serialization for common
-  numeric, boolean, and string feeds.
-* **Document and automate browser deployment validation:** Add a Browser/WASM
-  guide, API/getting-started updates, a Quickstart Web MLP helper, Node.js and
-  Chrome smoke/full validation scripts, opt-in full-suite Web validation gates,
-  and scheduled/manual CI coverage without making the heavy Web run part of
-  every PR.
-* **Harden Web runtime parity edge cases:** Fix shape metadata and runtime
-  behavior surfaced by Web validation across shape-sensitive lowerings,
-  attention metadata, and JAX sort NaN ordering through ONNX `TopK`.
-* **Improve BF16 export confidence:** Fix BF16 Linen pool-add exports and add
-  capability-matrix coverage across representative JAX NumPy operations and Flax
-  Linen layers, including checker/shape-inference validation, dtype preservation,
-  and ReferenceEvaluator parity.
-* **Fix SiLU/Swish exports:** Patch Flax NNX `silu`/`swish` alongside JAX
-  `silu`, and emit ONNX `Swish` for opset 24+ while preserving older-opset and
-  shared-`Sigmoid` behavior.
 * **Refresh the validation stack:** Update the documented runtime stack to JAX
-  `0.10.1`, Equinox `0.13.8`, ONNX Runtime `1.26.0`, and add documented
-  `onnxruntime-web` versions for Web validation.
-
-
+  `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, ONNX Runtime `1.27.0`, and keep
+  Web validation on the latest stable `onnxruntime-web` release until a matching
+  `1.27.x` Web package is published.
 
 ## Past Versions
 
