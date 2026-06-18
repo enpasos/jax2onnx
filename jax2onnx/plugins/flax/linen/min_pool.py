@@ -7,9 +7,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from flax.linen import pooling as linen_pooling
-from jax.extend.core import Primitive
 
 import onnx_ir as ir
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
@@ -110,22 +110,22 @@ class MinPoolPlugin(PrimitiveLeafPlugin):
         window_shape: Sequence[int],
         strides: Optional[Sequence[int]],
         padding: str,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         strides = MinPoolPlugin._normalize_stride(strides, window_shape)
         padding = str(padding)
         shape = list(x.shape)
         if len(shape) <= 2:
-            return jax.core.ShapedArray(tuple(shape), x.dtype)
+            return ShapedArray(tuple(shape), x.dtype)
         spatial = shape[1:-1]
         out_spatial = [
             MinPoolPlugin._compute_output_dim(dim, w, s, padding)
             for dim, w, s in zip(spatial, window_shape, strides, strict=False)
         ]
         out_shape = (shape[0], *out_spatial, shape[-1])
-        return jax.core.ShapedArray(tuple(out_shape), x.dtype)
+        return ShapedArray(tuple(out_shape), x.dtype)
 
     # ---------------- lowering ----------------
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (x_var,) = eqn.invars[:1]
         (y_var,) = eqn.outvars[:1]
 
