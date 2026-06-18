@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final
 import numpy as np
 import jax
-from jax.extend.core import Primitive
 from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -416,7 +416,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def abstract_eval(
         x: Any, kernel: Any, bias: Any, *, dimension_numbers: Any
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         orig_call = LinearGeneralPlugin._ORIGINAL_CALL
         if orig_call is None:
             # Pure shape math fallback.
@@ -426,7 +426,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
             out_shape = tuple(x.shape[i] for i in x_batch) + tuple(
                 kernel.shape[i] for i in k_out
             )
-            return jax.core.ShapedArray(out_shape, x.dtype)
+            return ShapedArray(out_shape, x.dtype)
 
         x_spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
         k_spec = jax.ShapeDtypeStruct(kernel.shape, kernel.dtype)
@@ -483,7 +483,7 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
 
         out = jax.eval_shape(_helper, x_spec, k_spec, b_spec)
         out = jax.tree_util.tree_leaves(out)[0]
-        return jax.core.ShapedArray(out.shape, out.dtype)
+        return ShapedArray(out.shape, out.dtype)
 
     # ---------- lowering (IR) ----------
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
