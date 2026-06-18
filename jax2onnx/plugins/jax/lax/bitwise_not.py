@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import AbstractValue, JaxprEqn
 import jax
 import numpy as np
 
@@ -53,10 +53,10 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 )
 class BitwiseNotPlugin(PrimitiveLeafPlugin):
     @staticmethod
-    def abstract_eval(x: core.AbstractValue) -> core.AbstractValue:
+    def abstract_eval(x: AbstractValue) -> AbstractValue:
         return x
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

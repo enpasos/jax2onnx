@@ -4,7 +4,7 @@ from typing import Any
 
 import jax
 import numpy as np
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -54,7 +54,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class XorPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.bitwise_xor`` and boolean ``xor``."""
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

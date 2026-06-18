@@ -1,7 +1,7 @@
 # jax2onnx/plugins/jax/lax/tanh.py
 
 
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 import jax
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -47,7 +47,7 @@ class TanhPlugin(PrimitiveLeafPlugin):
     #   - fresh_name(prefix: str) -> str
     # `eqn` is a JAX jaxpr equation with `.invars` and `.outvars`.
     # ─────────────────────────────────────────────────────────────────────────
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         """
         Lower a single jaxpr equation for tanh to onnx_ir:
             y = Tanh(x)

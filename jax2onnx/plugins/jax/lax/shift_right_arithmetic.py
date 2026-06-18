@@ -5,7 +5,7 @@ from typing import Any
 import jax
 import numpy as np
 import onnx_ir as ir
-from jax import core
+from jax2onnx.plugins.jax._jax_compat import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
@@ -109,7 +109,7 @@ class ShiftRightArithmeticPlugin(PrimitiveLeafPlugin):
         if getattr(ref, "shape", None) is not None:
             value.shape = ref.shape
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: "core.JaxprEqn") -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
