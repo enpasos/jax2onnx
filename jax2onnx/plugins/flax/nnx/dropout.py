@@ -3,9 +3,8 @@
 from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, Optional, cast
 import numpy as np
-import jax
-from jax.extend.core import Primitive
 import logging
+from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -286,16 +285,16 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: jax.core.AbstractValue,
+        x: AbstractValue,
         deterministic: Any,
         *,
         rate: float,
         call_time: bool = False,
-    ) -> jax.core.ShapedArray:
+    ) -> ShapedArray:
         del deterministic, rate, call_time
-        return jax.core.ShapedArray(x.shape, x.dtype)
+        return ShapedArray(x.shape, x.dtype)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: jax.core.JaxprEqn) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         # JAXPR carries two invars: x, deterministic ; rate is a static param.
         invars = list(eqn.invars)
         x_var = invars[0]
