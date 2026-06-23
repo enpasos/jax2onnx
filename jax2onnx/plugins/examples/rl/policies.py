@@ -168,6 +168,79 @@ def _policy_contract(
     return _check
 
 
+def _runtime_obs_inputs(
+    obs_factory: Callable[[int], npt.NDArray[np.float32]],
+) -> list[list[npt.NDArray[np.float32]]]:
+    return [[obs_factory(batch_size)] for batch_size in (1, 2, 7)]
+
+
+def _runtime_batch_size(inputs: Sequence[Any]) -> int:
+    if len(inputs) != 1:
+        raise AssertionError(f"Expected one runtime input, got {len(inputs)}.")
+    obs = np.asarray(inputs[0])
+    if obs.ndim != 2:
+        raise AssertionError(f"Expected rank-2 obs input, got shape {obs.shape}.")
+    return int(obs.shape[0])
+
+
+def _single_runtime_output(outputs: Sequence[Any]) -> npt.NDArray[Any]:
+    if len(outputs) != 1:
+        raise AssertionError(f"Expected one runtime output, got {len(outputs)}.")
+    return np.asarray(outputs[0])
+
+
+def _continuous_runtime_contract(
+    *,
+    inputs: Sequence[Any],
+    outputs: Sequence[Any],
+    **_: Any,
+) -> bool:
+    batch_size = _runtime_batch_size(inputs)
+    action = _single_runtime_output(outputs)
+    expected_shape = (batch_size, CONTINUOUS_ACTION_DIM)
+    if action.shape != expected_shape:
+        raise AssertionError(
+            f"Continuous policy action shape mismatch: expected {expected_shape}, "
+            f"got {action.shape}."
+        )
+    if action.dtype != np.float32:
+        raise AssertionError(
+            f"Continuous policy action dtype mismatch: expected float32, "
+            f"got {action.dtype}."
+        )
+    if not np.all(np.isfinite(action)):
+        raise AssertionError("Continuous policy produced non-finite actions.")
+    if np.min(action) < -1.0 - 1e-6 or np.max(action) > 1.0 + 1e-6:
+        raise AssertionError("Continuous policy actions escaped tanh range [-1, 1].")
+    return True
+
+
+def _discrete_runtime_contract(
+    *,
+    inputs: Sequence[Any],
+    outputs: Sequence[Any],
+    **_: Any,
+) -> bool:
+    batch_size = _runtime_batch_size(inputs)
+    action = _single_runtime_output(outputs)
+    expected_shape = (batch_size,)
+    if action.shape != expected_shape:
+        raise AssertionError(
+            f"Discrete policy action shape mismatch: expected {expected_shape}, "
+            f"got {action.shape}."
+        )
+    if action.dtype != np.int32:
+        raise AssertionError(
+            f"Discrete policy action dtype mismatch: expected int32, got {action.dtype}."
+        )
+    if np.any(action < 0) or np.any(action >= DISCRETE_NUM_ACTIONS):
+        raise AssertionError(
+            "Discrete policy produced action indices outside "
+            f"[0, {DISCRETE_NUM_ACTIONS})."
+        )
+    return True
+
+
 register_example(
     component="ContinuousTanhPolicy",
     description="Deterministic continuous-control RL policy: obs -> tanh(mean_action).",
@@ -188,11 +261,14 @@ register_example(
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
             "check_onnx_load": True,
+            "check_onnx_shape_inference": True,
             "post_check_onnx_graph": _policy_contract(
                 [
                     "Gemm:Bx32 -> Tanh:Bx32 -> Gemm:Bx6 -> Tanh:Bx6",
                 ],
             ),
+            "runtime_input_values": _runtime_obs_inputs(representative_continuous_obs),
+            "post_check_onnx_runtime": _continuous_runtime_contract,
         },
     ],
 )
@@ -217,11 +293,14 @@ register_example(
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
             "check_onnx_load": True,
+            "check_onnx_shape_inference": True,
             "post_check_onnx_graph": _policy_contract(
                 [
                     "Gemm:Bx16 -> Tanh:Bx16 -> Gemm:Bx4 -> ArgMax:B",
                 ],
             ),
+            "runtime_input_values": _runtime_obs_inputs(representative_discrete_obs),
+            "post_check_onnx_runtime": _discrete_runtime_contract,
         },
     ],
 )

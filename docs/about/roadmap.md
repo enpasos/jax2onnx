@@ -9,8 +9,8 @@
   CPU and Web/WASM flows, especially for mobile deployments where practical.
 * Broaden capability-matrix coverage across dtype and shape variants, including
   BF16, dynamic dimensions, and non-square inputs.
-* Add focused end-to-end deployment examples for small vision, RL-style, and
-  numerical models.
+* Add focused end-to-end deployment examples for small vision and numerical
+  models.
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
@@ -18,9 +18,14 @@
 
 ### **jax2onnx 0.14.2**
 
-* **Add deterministic RL policy examples:** Provide continuous-control and
-  discrete-control `examples.rl` exports that validate an `obs -> action`
-  deployment contract through the standard generated example-test path.
+* **Add deterministic RL policy exports:** Provide continuous-control and
+  discrete-control `examples.rl` exports for the `obs -> action` deployment
+  contract, documented with RL policy-only guidance and validated through the
+  standard generated example-test path.
+* **Harden generated example runtime contracts:** Add optional ONNX shape
+  inference and runtime contract hooks to example metadata so deployment
+  examples can validate extra concrete batch sizes, output dtype/shape, and
+  domain-specific output constraints without separate test trees.
 
 ## Current Version
 

@@ -69,6 +69,9 @@ The zero-valued arrays keep the example minimal. For deployment decisions,
 repeat the runtime and numerical checks with representative inputs and
 tolerances appropriate for the model and dtype.
 
+For reinforcement-learning actors, also validate the policy-specific public
+interface and action contract in [RL Policy Deployment](rl_policy_deployment.md).
+
 ## Dynamic Dimensions
 
 Use symbolic dimensions such as `"B"` for export when the model should accept
