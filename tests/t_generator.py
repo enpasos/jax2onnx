@@ -680,6 +680,18 @@ def make_test_function(tp: dict[str, Any]):
                 testcase_name,
             )
 
+        def _runtime_input_for_current_precision(value: Any) -> np.ndarray:
+            arr = np.asarray(value)
+            dtype = arr.dtype
+            if not current_enable_double_precision:
+                if dtype == np.float64:
+                    dtype = np.float32
+                elif dtype == np.int64:
+                    dtype = np.int32
+            elif np.issubdtype(dtype, np.floating):
+                dtype = np.float64
+            return np.asarray(value, dtype=dtype)
+
         context_path = tp.get("context", "default.unknown").split(".")
         opset_version = tp.get("opset_version", 23)
         model_folder_path = os.path.join("onnx", *context_path)
@@ -797,16 +809,9 @@ def make_test_function(tp: dict[str, Any]):
 
                 xs_for_num_check = []
                 for val_from_tc in input_values_from_testcase:
-                    arr = np.asarray(val_from_tc)
-                    dt = arr.dtype
-                    if not current_enable_double_precision:
-                        if dt == np.float64:
-                            dt = np.float32
-                        elif dt == np.int64:
-                            dt = np.int32
-                    elif np.issubdtype(dt, np.floating):
-                        dt = np.float64
-                    xs_for_num_check.append(np.asarray(val_from_tc, dtype=dt))
+                    xs_for_num_check.append(
+                        _runtime_input_for_current_precision(val_from_tc)
+                    )
 
                 passed, msg = allclose(
                     callable_obj,
@@ -923,7 +928,9 @@ def make_test_function(tp: dict[str, Any]):
                 runtime_input_sets = [input_values_from_testcase]
 
             for runtime_case_index, runtime_inputs_raw in enumerate(runtime_input_sets):
-                runtime_inputs = [np.asarray(v) for v in runtime_inputs_raw]
+                runtime_inputs = [
+                    _runtime_input_for_current_precision(v) for v in runtime_inputs_raw
+                ]
                 runtime_outputs = _run_onnx_model_for_shape_check(
                     onnx_model,
                     runtime_inputs,
@@ -1114,7 +1121,8 @@ def make_test_function(tp: dict[str, Any]):
                 try:
                     # Use the same potentially float64 inputs for ONNX runtime
                     onnx_runtime_inputs = [
-                        np.asarray(v) for v in input_values_from_testcase
+                        _runtime_input_for_current_precision(v)
+                        for v in input_values_from_testcase
                     ]
                     onnx_outputs_numerical = _run_onnx_model_for_shape_check(
                         onnx_model,
