@@ -1,11 +1,13 @@
 # API Reference
 
-`jax2onnx` exposes four public entry points:
+`jax2onnx` exposes these public entry points:
 
 - `to_onnx(...)` for export
 - `@onnx_function` for reusable subgraphs
 - `allclose(...)` for JAX-vs-ONNX validation
 - `allclose_onnxruntime_web(...)` for ONNX Runtime Web/WASM parity checks
+- `deployment_readiness_report(...)` and `write_deployment_readiness_report(...)`
+  for reusable ONNX deployment summaries
 
 ## Common Export Flow
 
@@ -27,6 +29,24 @@ For direct file export, set `return_mode="file"` and provide `output_path`.
 
 For a full export validation checklist, see
 [Validation & Deployment Readiness](validation.md).
+
+For a reusable deployment summary, run the readiness report on the exported
+model:
+
+```python
+from jax2onnx import deployment_readiness_report
+
+
+report = deployment_readiness_report(model_path)
+assert report.is_ready
+print(report.to_json())
+```
+
+The report includes ONNX checker and shape-inference status, graph inputs and
+outputs with dtype/shape summaries, initializers, operator inventory, and
+warnings for symbolic or unknown public dimensions.
+Use `write_deployment_readiness_report(...)` when CI or release workflows should
+persist the JSON artifact directly.
 
 For browser deployment with [`onnxruntime-web`](https://onnxruntime.ai/docs/tutorials/web/), use the Web export profile:
 
@@ -103,3 +123,5 @@ reusable ONNX functions, and `allclose(...)` when you want a quick numerical
 check against ONNX Runtime after export.
 
 ::: jax2onnx.user_interface
+
+::: jax2onnx.deployment
