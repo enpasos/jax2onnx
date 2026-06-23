@@ -14,6 +14,14 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
+## Upcoming Version
+
+### **jax2onnx 0.14.2**
+
+* **Add deterministic RL policy examples:** Provide continuous-control and
+  discrete-control `examples.rl` exports that validate an `obs -> action`
+  deployment contract through the standard generated example-test path.
+
 ## Current Version
 
 ### **jax2onnx 0.14.1**
