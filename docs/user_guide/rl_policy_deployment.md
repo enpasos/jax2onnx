@@ -18,7 +18,7 @@ The reference examples are listed in [Examples](examples.md):
 - `DiscreteArgmaxPolicy`: `obs -> argmax(logits)`
 
 Both are registered as `examples.rl` exports and run through the standard
-generated example-test path, including the deployment readiness report, runtime
+generated example-test path, including deployment readiness checks, runtime
 parity, dynamic-batch execution, and action-contract assertions.
 
 ## Export Contract

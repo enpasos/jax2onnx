@@ -16,7 +16,7 @@ from onnx import TensorProto
 
 from logging_config import configure_logging
 from jax2onnx import allclose, allclose_onnxruntime_web
-from jax2onnx.deployment import deployment_readiness_report
+from jax2onnx._deployment_report import deployment_readiness_report
 from jax2onnx.plugins.plugin_system import (
     EXAMPLE_REGISTRY,
     PLUGIN_REGISTRY,

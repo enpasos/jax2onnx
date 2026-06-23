@@ -7,8 +7,10 @@ import jax.numpy as jnp
 import onnx
 
 from jax2onnx import (
-    deployment_readiness_report,
     to_onnx,
+)
+from jax2onnx._deployment_report import (
+    deployment_readiness_report,
     write_deployment_readiness_report,
 )
 

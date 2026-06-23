@@ -1,4 +1,4 @@
-# jax2onnx/deployment.py
+# jax2onnx/_deployment_report.py
 
 from __future__ import annotations
 

@@ -21,7 +21,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 
-from jax2onnx import allclose, deployment_readiness_report, to_onnx
+from jax2onnx import allclose, to_onnx
 
 
 def model(x):
@@ -63,21 +63,11 @@ is_match, message = allclose(
 )
 
 assert is_match, message
-
-# Optional reusable summary for logs, artifacts, or CI output.
-report = deployment_readiness_report(model_path)
-assert report.is_ready
 ```
 
 The zero-valued arrays keep the example minimal. For deployment decisions,
 repeat the runtime and numerical checks with representative inputs and
 tolerances appropriate for the model and dtype.
-
-The deployment readiness report does not replace numerical parity checks. It
-collects structural deployment facts into a serializable artifact: ONNX checker
-status, shape-inference status, public input/output dtype and shape summaries,
-initializer summaries, operator inventory, and warnings for symbolic or unknown
-public dimensions.
 
 For reinforcement-learning actors, also validate the policy-specific public
 interface and action contract in [RL Policy Deployment](rl_policy_deployment.md).

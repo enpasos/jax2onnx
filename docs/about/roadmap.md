@@ -26,10 +26,10 @@
   inference and runtime contract hooks to example metadata so deployment
   examples can validate extra concrete batch sizes, output dtype/shape, and
   domain-specific output constraints without separate test trees.
-* **Add deployment readiness reports:** Provide a reusable report artifact for
-  exported ONNX models with checker status, strict shape-inference status,
-  public dtype/shape summaries, initializer summaries, operator inventory, and
-  public-dimension warnings.
+* **Add generated deployment readiness summaries:** Let generated examples run
+  an integrated readiness check with checker status, strict shape-inference
+  status, public dtype/shape summaries, initializer summaries, operator
+  inventory, and public-dimension warnings without expanding the public API.
 
 ## Current Version
 
