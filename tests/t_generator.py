@@ -749,7 +749,7 @@ def make_test_function(tp: dict[str, Any]):
 
         logger.info(f"Model saved to: {model_path}")
 
-        # --- ONNX checker and runtime session (if requested) ---
+        # --- ONNX checker and shape inference (if requested) ---
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
             if _cast_output_types_need_fix(onnx_model):
@@ -759,6 +759,19 @@ def make_test_function(tp: dict[str, Any]):
                     "emit a stable graph."
                 )
             onnx.checker.check_model(onnx_model)
+
+        if tp.get("check_onnx_shape_inference", False):
+            try:
+                onnx_model = onnx.shape_inference.infer_shapes(onnx_model)
+            except Exception as e:
+                raise AssertionError(
+                    f"ONNX shape inference failed for '{testcase_name}': {e}"
+                ) from e
+            if _cast_output_types_need_fix(onnx_model):
+                raise AssertionError(
+                    f"Shape-inferred ONNX model for '{testcase_name}' has "
+                    "Cast/CastLike value_info dtype mismatches."
+                )
 
         # Optional per-test override: skip numeric validation entirely
         if tp.get("skip_numeric_validation", False):
@@ -892,6 +905,41 @@ def make_test_function(tp: dict[str, Any]):
         # If we reach here, it means numeric validation was skipped or not applicable.
         # We can add more conditions or logging if needed.
         # ------------------------------------------------------------------
+
+        post_check_runtime = tp.get("post_check_onnx_runtime")
+        if post_check_runtime is not None:
+            if not callable(post_check_runtime):
+                raise TypeError(
+                    f"Test '{testcase_name}': post_check_onnx_runtime must be callable."
+                )
+
+            runtime_input_sets = tp.get("runtime_input_values")
+            if runtime_input_sets is None:
+                if input_values_from_testcase is None:
+                    raise AssertionError(
+                        f"Test '{testcase_name}': post_check_onnx_runtime requires "
+                        "`runtime_input_values` or `input_values`."
+                    )
+                runtime_input_sets = [input_values_from_testcase]
+
+            for runtime_case_index, runtime_inputs_raw in enumerate(runtime_input_sets):
+                runtime_inputs = [np.asarray(v) for v in runtime_inputs_raw]
+                runtime_outputs = _run_onnx_model_for_shape_check(
+                    onnx_model,
+                    runtime_inputs,
+                    onnx_input_names_from_testcase,
+                )
+                contract_result = post_check_runtime(
+                    onnx_model=onnx_model,
+                    inputs=runtime_inputs,
+                    outputs=runtime_outputs,
+                    testcase=tp,
+                )
+                assert contract_result is not False, (
+                    f"Runtime ONNX contract check failed for '{testcase_name}' "
+                    f"(runtime_input_values[{runtime_case_index}])."
+                )
+            logger.info(f"Runtime ONNX contract checks passed for '{testcase_name}'.")
 
         # --- Function Count Check ---
         if expected_num_funcs is not None:

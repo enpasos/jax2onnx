@@ -311,6 +311,8 @@ Common testcase fields:
 | `expected_output_shapes` | Output shape assertions after export. |
 | `expected_output_dtypes` | Output dtype assertions after export. |
 | `post_check_onnx_graph` | `expect_graph(...)` structural predicate. |
+| `runtime_input_values` | Additional concrete input sets for ONNX Runtime contract checks. |
+| `post_check_onnx_runtime` | Callable invoked with runtime inputs and ONNX outputs for per-example contracts. |
 | `run_only_dynamic` | Skip the concrete variant for symbolic-shape tests. |
 | `run_only_f32_variant` | Skip generated f64 variant. |
 | `run_only_f64_variant` | Generate only the f64 variant. |
@@ -320,6 +322,7 @@ Common testcase fields:
 | `input_names` / `output_names` | Public graph IO name overrides. |
 | `skip_numeric_validation` | Keep export/structure checks but skip runtime allclose. |
 | `check_onnx_load` | Run ONNX checker after serialization. |
+| `check_onnx_shape_inference` | Run ONNX shape inference after serialization. |
 | `expected_number_of_function_instances` | Assert expected FunctionProto count for ONNX Function tests. |
 
 `callable_factory` is no longer supported. Use `construct_and_call(...)` so the
