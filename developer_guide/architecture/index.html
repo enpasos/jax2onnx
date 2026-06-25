@@ -1,0 +1,2965 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/developer_guide/architecture/">
+      
+      
+        <link rel="prev" href="../../user_guide/equinox_nn_coverage/">
+      
+      
+        <link rel="next" href="../plugin_system/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Architecture - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture-overview" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation & Deployment Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/rl_policy_deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RL Policy Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/known_limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/browser_wasm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser/WASM Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/onnx_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/maxdiffusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxDiffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10_4" id="__nav_2_10_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_10_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs ONNX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax/NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/jax_lax_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX LAX Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/jax_numpy_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX NumPy Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/flax_api_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax API Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/equinox_nn_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Equinox NN Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversion-pipeline-detailed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversion Pipeline (Detailed)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-conversion-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Conversion Stages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Conversion Stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-input-normalization-and-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Input Normalization and Tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-context-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Context Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-equation-lowering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Equation Lowering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-model-finalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Model Finalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-public-export-post-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Public Export Post-Processing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onnx-function-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ONNX Function Boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#control-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shapes-and-symbolic-dimensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shapes and Symbolic Dimensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optimizer-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optimizer Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structural-tests-and-generated-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structural Tests and Generated Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architectural-guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architectural Guardrails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintainer-blueprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintainer Blueprint
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugin_system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Guardrails
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainer Notes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainer Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/coverage_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/artifact_publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifact Publishing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/sota_example_maintenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Example Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversion-pipeline-detailed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversion Pipeline (Detailed)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-conversion-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Conversion Stages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Conversion Stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-input-normalization-and-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Input Normalization and Tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-context-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Context Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-equation-lowering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Equation Lowering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-model-finalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Model Finalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-public-export-post-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Public Export Post-Processing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugin-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugin Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onnx-function-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ONNX Function Boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#control-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shapes-and-symbolic-dimensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shapes and Symbolic Dimensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optimizer-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optimizer Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structural-tests-and-generated-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structural Tests and Generated Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architectural-guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architectural Guardrails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintainer-blueprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintainer Blueprint
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">&para;</a></h1>
+<p><code>jax2onnx</code> converts JAX functions and Flax modules to ONNX by tracing a JAX
+program, lowering the resulting JAXPR into <code>onnx_ir</code>, and only converting to
+ONNX protobuf at the public export boundary. The converter is built around an
+IR-only core plus plugins that own primitive-specific lowering semantics.</p>
+<p>The key architectural boundary is:</p>
+<ul>
+<li><strong>Core converter:</strong> tracing, value ownership, graph assembly, function scopes,
+  structural optimization, export post-processing, and guardrails.</li>
+<li><strong>Plugins:</strong> primitive registration, optional tracing-time bindings, abstract
+  evaluation, ONNX operator choices, attributes, layout rules, and testcase
+  metadata.</li>
+</ul>
+<p>The core is not completely blind to ONNX operator names: optimizer and
+post-processing passes deliberately inspect IR operator types for conservative
+graph cleanup and export compatibility. What must stay out of the core is
+primitive-specific lowering policy such as how <code>lax.conv_general_dilated</code>,
+<code>nnx.Conv</code>, or attention layers map their semantics to ONNX nodes.</p>
+<h2 id="design-principles">Design Principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>IR first.</strong> <code>converter/</code> and <code>plugins/</code> operate on <code>onnx_ir</code>, not ONNX
+   protobuf classes. Protobuf serialization happens in the public API facade.</li>
+<li><strong>Plugin-owned semantics.</strong> A plugin owns the meaning of the JAX primitive or
+   high-level function it registers. The converter dispatches by primitive name.</li>
+<li><strong>Explicit value ownership.</strong> Every JAX variable must map to a connected
+   <code>ir.Value</code>. Lowering failures are caught at the equation where a value is
+   missing or disconnected.</li>
+<li><strong>Scoped graph bodies.</strong> ONNX Functions and control-flow bodies are built in
+   child contexts so inputs, constants, symbolic dimensions, and signatures stay
+   explicit.</li>
+<li><strong>Conservative graph cleanup.</strong> Optimizer passes are IR-only and structural.
+   They may remove redundant graph artifacts, but they must preserve graph
+   outputs and function signatures.</li>
+</ol>
+<h2 id="related-documentation">Related Documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../plugin_system/">Plugin System Guide</a> - plugin authoring workflow and metadata.</li>
+<li><a href="../advanced_topics/onnx_ir_builder/">ONNX IR Builder Guide</a> - builder
+  conventions, <code>_outputs</code>, initializers, and graph ownership rules.</li>
+<li><a href="../advanced_topics/expect_graph_reference/">Expect Graph Reference</a> -
+  structural testcase assertions.</li>
+<li><a href="../advanced_topics/subgraph_input_handling/">Control-Flow Body Inputs</a> -
+  body input wiring for <code>If</code>/<code>Loop</code> and function-style subgraphs.</li>
+<li><a href="../advanced_topics/ir_optimizer/">IR Optimizer Guide</a> - pass order and
+  optimizer invariants.</li>
+<li><a href="../../user_guide/onnx_functions/">ONNX Functions</a> - user-facing behavior of
+  <code>@onnx_function</code>.</li>
+<li><a href="../../user_guide/supported_components/">Supported Components</a> and
+  <a href="../../user_guide/onnx_operator_coverage/">ONNX Operator Coverage</a> -
+  generated coverage views derived from plugin/example metadata.</li>
+</ul>
+<h2 id="module-map">Module Map<a class="headerlink" href="#module-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jax2onnx/user_interface.py</code></td>
+<td>Public <code>to_onnx</code>, <code>onnx_function</code>, return-mode handling, ONNX protobuf/file serialization.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/conversion_api.py</code></td>
+<td>Core conversion pipeline: trace, bind inputs/constants, lower JAXPR, build/finalize <code>onnx_ir.Model</code>.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/lowering_dispatch.py</code></td>
+<td>Equation-by-equation plugin dispatch, primitive call recording, stacktrace/plugin metadata staging.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/output_binding.py</code></td>
+<td>Input/output binding assertions and generic binding of returned lowering values.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/ir_context.py</code></td>
+<td>Plugin-facing context: var-to-value map, constants, graph IO, symbolic dim origins, function registry.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/ir_builder.py</code></td>
+<td>Thin wrapper around <code>onnx_ir</code> tape builder with project-specific naming, initializer, and metadata behavior.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/function_scope.py</code></td>
+<td>Child context used to stage ONNX Function bodies.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/ir_optimizations.py</code></td>
+<td>IR-only optimizer pass registry.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/converter/ir_postprocess.py</code></td>
+<td>Export preparation: loosen intermediate shapes and promote constants when double precision is requested.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/plugins/plugin_system.py</code></td>
+<td>Plugin registry, tracing-time patch activation, <code>PrimitiveLeafPlugin</code>, and <code>@onnx_function</code>.</td>
+</tr>
+<tr>
+<td><code>jax2onnx/plugins/</code></td>
+<td>Primitive and framework-specific lowering implementations plus generated-test metadata.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="conversion-pipeline-detailed">Conversion Pipeline (Detailed)<a class="headerlink" href="#conversion-pipeline-detailed" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Public to_onnx(...)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    |
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    | user_interface.py
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    | - normalize input specs, names, input_params, return mode
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    v
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>conversion_api.to_onnx(...)
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    |
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    | - normalize inputs to ShapeDtypeStruct
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    | - create JAX symbolic dims for string dimensions
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    | - activate plugin bindings around tracing
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    | - trace with jax.make_jaxpr
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    v
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>ClosedJaxpr
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    |
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    | - bind constvars
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    | - bind graph inputs, including optional NCHW bridges
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    | - lower equations through PLUGIN_REGISTRY[primitive_name]
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    | - assert every output var is bound to a connected ir.Value
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    | - bind graph outputs, including optional NCHW bridges
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    v
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>Raw onnx_ir graph
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    |
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    | - attach ONNX Function bodies
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    | - run IR optimizer
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    | - apply late attribute overrides and compatibility fixes
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    | - normalize value shapes and symbolic dims
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    v
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>Precise-shape onnx_ir.Model
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    |
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    | user_interface.py
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    | - loosen intermediate shapes for runtime flexibility
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    | - materialize referenced input_params as graph inputs
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    | - apply custom input/output names
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    | - return ir, proto, or file
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    v
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>Export result
+</span></code></pre></div>
+<h2 id="core-conversion-stages">Core Conversion Stages<a class="headerlink" href="#core-conversion-stages" title="Permanent link">&para;</a></h2>
+<h3 id="1-input-normalization-and-tracing">1. Input Normalization and Tracing<a class="headerlink" href="#1-input-normalization-and-tracing" title="Permanent link">&para;</a></h3>
+<p>The public API accepts shape tuples, arrays, <code>jax.ShapeDtypeStruct</code>, and related
+input specs. <code>conversion_api</code> normalizes them to <code>ShapeDtypeStruct</code> instances.
+String dimensions such as <code>"B"</code> are converted to JAX symbolic dimensions inside
+a shared <code>jax.export.SymbolicScope</code>.</p>
+<p>Plugin bindings are active only around tracing. This is where high-level calls
+such as NNX modules, decorated <code>@onnx_function</code> targets, or plugin-specific JAX
+wrappers can emit custom primitive names into the <code>ClosedJaxpr</code>. After tracing,
+patches are restored.</p>
+<p><code>input_params</code> are passed to the traced callable as fixed keyword arguments.
+If a later ONNX Function call needs one of those values as a dynamic function
+input, the function plugin records that requirement and the public facade can
+materialize the referenced parameter as an explicit graph input.</p>
+<h3 id="2-context-setup">2. Context Setup<a class="headerlink" href="#2-context-setup" title="Permanent link">&para;</a></h3>
+<p><code>IRContext</code> owns the active <code>IRBuilder</code>, the JAX-var-to-IR-value map, symbolic
+dimension origins, function registry, and attribute overrides. Before lowering,
+the converter:</p>
+<ul>
+<li>binds JAXPR constants as initializers in top-level graphs;</li>
+<li>emits <code>Constant</code> nodes instead when inside ONNX Function bodies;</li>
+<li>creates graph inputs for JAXPR input variables;</li>
+<li>inserts NCHW/NHWC bridge transposes only for explicitly requested external IO.</li>
+</ul>
+<h3 id="3-equation-lowering">3. Equation Lowering<a class="headerlink" href="#3-equation-lowering" title="Permanent link">&para;</a></h3>
+<p><code>lowering_dispatch.lower_jaxpr_with_plugins(...)</code> walks <code>jaxpr.eqns</code> in order.
+For each equation it:</p>
+<ol>
+<li>reads <code>eqn.primitive.name</code>;</li>
+<li>looks up the registered plugin in <code>PLUGIN_REGISTRY</code>;</li>
+<li>verifies all input vars are already bound;</li>
+<li>calls the primitive or function lowering;</li>
+<li>binds returned <code>ir.Value</code> objects when the plugin returns values instead of
+   binding directly;</li>
+<li>verifies every non-drop outvar is bound to a graph-connected value.</li>
+</ol>
+<p>This makes the plugin contract small but strict: a lowering must produce the
+IR values for the equation outputs and connect them to the graph.</p>
+<h3 id="4-model-finalization">4. Model Finalization<a class="headerlink" href="#4-model-finalization" title="Permanent link">&para;</a></h3>
+<p>After graph outputs are bound, <code>IRBuilder.to_ir_model(...)</code> creates the
+<code>onnx_ir.Model</code>. The converter then:</p>
+<ul>
+<li>attaches staged ONNX Functions to the model function store;</li>
+<li>runs <code>optimize_graph</code>;</li>
+<li>applies late attribute overrides and fills missing <code>Concat(axis=0)</code> attributes;</li>
+<li>normalizes value shapes so symbolic dimensions are represented as
+  <code>ir.SymbolicDim</code> objects where needed.</li>
+</ul>
+<p>Optimizer failures are non-fatal by default and logged. Set
+<code>JAX2ONNX_STRICT_OPTIMIZER_FAILURES=1</code> when the optimizer must fail the export.</p>
+<h3 id="5-public-export-post-processing">5. Public Export Post-Processing<a class="headerlink" href="#5-public-export-post-processing" title="Permanent link">&para;</a></h3>
+<p>The public facade calls <code>postprocess_ir_model(...)</code> before returning or
+serializing. This pass loosens intermediate value shapes while preserving graph
+input/output shapes, recursively handles control-flow subgraphs and ONNX
+Function bodies, and promotes constants when double precision export is enabled.</p>
+<p>Only after post-processing does the public facade apply custom IO names,
+materialize referenced <code>input_params</code>, convert to <code>onnx.ModelProto</code>, or write a
+file.</p>
+<h2 id="plugin-contract">Plugin Contract<a class="headerlink" href="#plugin-contract" title="Permanent link">&para;</a></h2>
+<p>Most primitive plugins subclass <code>PrimitiveLeafPlugin</code> and are registered with
+<code>@register_primitive(...)</code>. A plugin normally provides:</p>
+<ul>
+<li><strong>Metadata:</strong> JAX primitive name, user-facing component name, ONNX operator
+  references, generated testcase metadata, and structural checks.</li>
+<li><strong>Binding specs:</strong> optional tracing-time patches for high-level APIs. If the
+  primitive is already emitted by JAX directly, no patch is needed.</li>
+<li><strong>Abstract eval:</strong> shape/dtype inference used by JAX tracing.</li>
+<li><strong>Lowering:</strong> ONNX IR emission through <code>ctx.builder</code> and binding of equation
+  outvars.</li>
+</ul>
+<p>Lowerings should follow these rules:</p>
+<ul>
+<li>Fetch inputs with <code>ctx.get_value_for_var(...)</code> or
+  <code>ctx.require_value_for_var(...)</code>.</li>
+<li>Pre-allocate or fetch output values with <code>ctx.get_value_for_var(eqn.outvars[i])</code>
+  when the output identity matters.</li>
+<li>Emit nodes through <code>ctx.builder</code> unless a specific <code>onnx_ir</code> feature requires
+  manual <code>ir.Node</code> construction.</li>
+<li>Keep <code>_outputs</code> explicit and sequence-valued for builder calls.</li>
+<li>Stamp dtype/shape metadata on produced values when the builder cannot infer it.</li>
+<li>Bind outputs with <code>ctx.bind_value_for_var(...)</code> or return the produced values
+  so the generic output binder can bind them.</li>
+<li>Never import ONNX protobuf classes from converter or plugin lowering code.</li>
+</ul>
+<h2 id="onnx-function-boundaries">ONNX Function Boundaries<a class="headerlink" href="#onnx-function-boundaries" title="Permanent link">&para;</a></h2>
+<p><code>@onnx_function</code> is user-facing, but its lowering path is part of the converter
+architecture. Decorating a function or class registers a <code>FunctionPlugin</code>.
+During tracing, calls bind an <code>onnx_fn::&lt;qualified-name&gt;</code> primitive. During
+lowering, the plugin:</p>
+<ol>
+<li>builds a key from the qualified target name, input aval signatures, and
+   captured/static parameters;</li>
+<li>reuses a cached function definition when the key matches;</li>
+<li>otherwise opens a <code>FunctionScope</code> child context;</li>
+<li>maps parent values to function inputs;</li>
+<li>retraces and lowers the callable body inside the child context;</li>
+<li>emits constants as <code>Constant</code> nodes because Function bodies cannot own
+   initializers;</li>
+<li>attaches the resulting <code>onnx_ir.Function</code> to the parent model and emits a
+   call-site node.</li>
+</ol>
+<p>Identical calls share a function body when the function key matches. Shape,
+dtype, instance, namespace, or capture changes can produce a separate function
+definition.</p>
+<h2 id="control-flow">Control Flow<a class="headerlink" href="#control-flow" title="Permanent link">&para;</a></h2>
+<p>Control-flow primitives are plugins too:</p>
+<ul>
+<li><code>lax.cond</code> lowers to ONNX <code>If</code>.</li>
+<li><code>lax.while_loop</code> lowers to ONNX <code>Loop</code>.</li>
+<li><code>lax.scan</code> currently lowers through ONNX <code>Loop</code>, not the ONNX <code>Scan</code> operator.</li>
+</ul>
+<p>Control-flow body graphs use explicit inputs for carried state, sequence values,
+and captured values. Constants inside those bodies are materialized as <code>Constant</code>
+nodes. Body shape handling is deliberately conservative, and export
+post-processing loosens nested body shapes where runtime shape inference needs
+more flexibility.</p>
+<p>See <a href="../advanced_topics/subgraph_input_handling/">Control-Flow Body Inputs</a> for
+the detailed body-input rules.</p>
+<h2 id="shapes-and-symbolic-dimensions">Shapes and Symbolic Dimensions<a class="headerlink" href="#shapes-and-symbolic-dimensions" title="Permanent link">&para;</a></h2>
+<p>Symbolic dimensions enter through user input specs, are preserved in JAX abstract
+values, and are tracked in <code>IRContext</code> as origins from a source tensor and axis.
+Plugins should not cast symbolic dimensions to Python integers.</p>
+<p>When an ONNX operator needs a runtime shape value, plugins build it from IR
+operations such as:</p>
+<ul>
+<li><code>Shape(x)</code></li>
+<li><code>Gather(shape, axis)</code></li>
+<li><code>Squeeze</code> or <code>Unsqueeze</code></li>
+<li><code>Concat</code></li>
+<li><code>Reshape(x, runtime_shape)</code></li>
+</ul>
+<p>The <code>dim_as_value</code> path uses the recorded symbolic-dim origin to materialize a
+runtime dimension from the correct tensor instead of guessing from labels alone.</p>
+<h2 id="optimizer-boundary">Optimizer Boundary<a class="headerlink" href="#optimizer-boundary" title="Permanent link">&para;</a></h2>
+<p>The optimizer runs after raw IR lowering and before late attribute overrides.
+Its pass order is documented in the <a href="../advanced_topics/ir_optimizer/">IR Optimizer Guide</a>.</p>
+<p>Optimizer passes may inspect ONNX op types, but they must remain structural and
+IR-only. They may fold redundant casts, transposes, reshapes, constants, or dead
+nodes. They must not encode the semantics of a JAX primitive that belongs in a
+plugin, and they must preserve graph outputs and ONNX Function signatures.</p>
+<h2 id="structural-tests-and-generated-coverage">Structural Tests and Generated Coverage<a class="headerlink" href="#structural-tests-and-generated-coverage" title="Permanent link">&para;</a></h2>
+<p>Plugin/example metadata drives both generated tests and user-facing coverage
+pages. Structural graph checks should live beside the metadata that owns the
+behavior:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins._post_check_onnx_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">expect_graph</span> <span class="k">as</span> <span class="n">EG</span>
+</span></code></pre></div>
+<p>Use <code>expect_graph(...)</code> to assert durable structure: operator paths, counts,
+shapes, attributes, absent operators, unused inputs, and imported ONNX Function
+bodies when relevant. It is not a general recursive control-flow body walker;
+Loop/If body contracts should be tested directly when body arity or wiring is
+the behavior under test.</p>
+<p>When lowering structure changes, regenerate a candidate with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/emit_expect_graph.py<span class="w"> </span>&lt;testcase&gt;
+</span></code></pre></div>
+<p>Then simplify the snippet before storing it in metadata. Generated coverage
+tables in the user guide should remain generated artifacts, not handwritten
+architecture claims.</p>
+<h2 id="architectural-guardrails">Architectural Guardrails<a class="headerlink" href="#architectural-guardrails" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Keep converter and plugin lowering code <code>onnx_ir</code>-only.</li>
+<li>Keep primitive semantics in plugins, not in <code>conversion_api</code>.</li>
+<li>Use <code>ctx.builder</code> for normal node emission.</li>
+<li>Treat graph outputs, function inputs, and symbolic-dim origins as public
+  contracts during rewrites.</li>
+<li>Do not rely on private <code>onnx_ir</code> mirrors unless a documented compatibility
+  shim owns the boundary.</li>
+<li>Keep plugin activation scoped to tracing and nested function-body tracing.</li>
+<li>Preserve deterministic module construction in testcase metadata; use
+  <code>construct_and_call(...)</code> with <code>with_requested_dtype()</code>, <code>with_rng_seed(...)</code>,
+  and related placeholder arguments rather than import-time seeding.</li>
+</ul>
+<h2 id="failure-modes">Failure Modes<a class="headerlink" href="#failure-modes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Failure</th>
+<th>Where it is caught</th>
+<th>Typical fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Plugin binding not active during tracing</td>
+<td>Missing primitive-specific JAXPR equation or "no plugin registered" error</td>
+<td>Ensure the plugin declares the needed binding spec and tracing runs inside plugin activation.</td>
+</tr>
+<tr>
+<td>Missing plugin for primitive</td>
+<td><code>lowering_dispatch.get_registered_lowering_plugin</code></td>
+<td>Register a plugin or rewrite the source expression to an already supported primitive.</td>
+</tr>
+<tr>
+<td>Plugin reads an unbound input</td>
+<td><code>assert_eqn_inputs_bound</code></td>
+<td>Bind constants/inputs earlier or fix nested body input mapping.</td>
+</tr>
+<tr>
+<td>Plugin does not bind an output</td>
+<td><code>finalize_eqn_lowering_outputs</code></td>
+<td>Bind each outvar or return the produced <code>ir.Value</code> sequence.</td>
+</tr>
+<tr>
+<td>Plugin binds a disconnected value</td>
+<td><code>assert_eqn_outputs_bound</code></td>
+<td>Reuse the pre-allocated output value or emit a node whose output is the bound value.</td>
+</tr>
+<tr>
+<td>Function body captures hidden state</td>
+<td>Function key / FunctionScope behavior</td>
+<td>Make captures explicit as static signature items or dynamic function inputs.</td>
+</tr>
+<tr>
+<td>Optimizer removes too much</td>
+<td>Focused optimizer regression tests</td>
+<td>Make the pass more conservative and preserve outputs/signatures explicitly.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="maintainer-blueprint">Maintainer Blueprint<a class="headerlink" href="#maintainer-blueprint" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Add or update a plugin when behavior depends on JAX primitive semantics.</li>
+<li>Keep lowering output values connected and metadata stamped.</li>
+<li>Add or update generated testcase metadata and focused <code>expect_graph</code> checks.</li>
+<li>Use optimizer passes only for shared IR cleanup patterns.</li>
+<li>Run focused tests first, then strict docs and broader checks for larger
+   architecture changes.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

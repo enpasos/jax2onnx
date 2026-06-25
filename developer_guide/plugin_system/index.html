@@ -1,0 +1,3056 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://enpasos.github.io/jax2onnx/developer_guide/plugin_system/">
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../advanced_topics/complex_numbers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Plugin System - jax2onnx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#plugin-system" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="jax2onnx" class="md-header__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            jax2onnx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plugin System
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="jax2onnx" class="md-nav__button md-logo" aria-label="jax2onnx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    jax2onnx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/enpasos/jax2onnx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    enpasos/jax2onnx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation & Deployment Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/rl_policy_deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RL Policy Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/known_limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/browser_wasm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser/WASM Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/onnx_functions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Functions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/layout_optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layout Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/stacktrace_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stacktrace Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10" id="__nav_2_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SotA Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/gpt_oss/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/maxtext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxText
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/maxdiffusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MaxDiffusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_10_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_10_4" id="__nav_2_10_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DINOv3
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_10_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_10_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DINOv3
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/getting_weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/compare_meta_vs_jax2onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Meta vs ONNX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/sota_examples/dinov3/nnx_exports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax/NNX Exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/supported_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/onnx_operator_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX Operator Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/jax_lax_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX LAX Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/jax_numpy_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JAX NumPy Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/flax_api_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flax API Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user_guide/equinox_nn_coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Equinox NN Coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registry-and-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registry and Activation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#primitive-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primitive Plugins
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#binding-specs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding Specs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#abstract-eval-batching-and-autodiff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract Eval, Batching, and Autodiff
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lowering-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lowering Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-plugins-and-onnx_function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function Plugins and @onnx_function
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testcase-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testcase Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deterministic-callable-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deterministic Callable Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generated Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/complex_numbers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complex Numbers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/expect_graph_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expected Graph Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/ir_optimizer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Optimizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/ir_reflection_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IR Reflection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/onnx_ir_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Builder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/onnx_ir_typing_how_to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ONNX IR Typing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/subgraph_input_handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subgraph Input Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced_topics/typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typing Guardrails
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainer Notes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainer Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/coverage_generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coverage Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/artifact_publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifact Publishing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainer/sota_example_maintenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SotA Example Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/past_versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Past Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/acknowledgements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Acknowledgements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registry-and-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registry and Activation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#primitive-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primitive Plugins
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#binding-specs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding Specs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#abstract-eval-batching-and-autodiff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract Eval, Batching, and Autodiff
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lowering-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lowering Contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#function-plugins-and-onnx_function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function Plugins and @onnx_function
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testcase-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testcase Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deterministic-callable-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deterministic Callable Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generated Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="plugin-system">Plugin System<a class="headerlink" href="#plugin-system" title="Permanent link">&para;</a></h1>
+<p>The plugin system is the extension point that keeps primitive-specific lowering
+out of the converter core. A plugin teaches <code>jax2onnx</code> how to recognize a JAX
+primitive or high-level callable during tracing, and how to lower the resulting
+JAXPR equation into <code>onnx_ir</code>.</p>
+<p>Read this page together with:</p>
+<ul>
+<li><a href="../architecture/">Architecture Overview</a> for the core/plugin boundary.</li>
+<li><a href="../advanced_topics/onnx_ir_builder/">ONNX IR Builder Guide</a> for builder and
+  metadata rules.</li>
+<li><a href="../advanced_topics/expect_graph_reference/">Expect Graph Reference</a> for
+  structural testcase checks.</li>
+<li><a href="../../user_guide/onnx_functions/">ONNX Functions</a> for user-facing
+  <code>@onnx_function</code> behavior.</li>
+</ul>
+<h2 id="responsibilities">Responsibilities<a class="headerlink" href="#responsibilities" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>conversion_api</code></td>
+<td>Plugin discovery/activation, JAXPR tracing, equation dispatch, value binding checks, model finalization.</td>
+</tr>
+<tr>
+<td><code>PrimitiveLeafPlugin</code></td>
+<td>Primitive metadata, optional tracing-time bindings, abstract eval, and ONNX IR lowering.</td>
+</tr>
+<tr>
+<td><code>FunctionPlugin</code></td>
+<td><code>@onnx_function</code> registration, function-body tracing, <code>FunctionScope</code> lowering, call-site emission.</td>
+</tr>
+<tr>
+<td><code>register_example</code></td>
+<td>Example/test metadata that does not introduce a new primitive.</td>
+</tr>
+<tr>
+<td>Generated tests/docs</td>
+<td>Numeric checks, structural checks, component coverage, examples, and ONNX operator coverage derived from metadata.</td>
+</tr>
+</tbody>
+</table>
+<p>The converter dispatches by <code>eqn.primitive.name</code>. It does not choose how a
+primitive maps to ONNX. That mapping belongs in the plugin.</p>
+<h2 id="registry-and-activation">Registry and Activation<a class="headerlink" href="#registry-and-activation" title="Permanent link">&para;</a></h2>
+<p>Plugins live under <code>jax2onnx/plugins/</code>. <code>import_all_plugins()</code> recursively
+imports that tree once per process. Imports are important: registration happens
+as a side effect of importing plugin modules.</p>
+<p>There are three main registries:</p>
+<table>
+<thead>
+<tr>
+<th>Registry</th>
+<th>Key</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PLUGIN_REGISTRY</code></td>
+<td>JAXPR primitive name string</td>
+<td><code>PrimitiveLeafPlugin</code> or <code>FunctionPlugin</code> instance</td>
+</tr>
+<tr>
+<td><code>ONNX_FUNCTION_PLUGIN_REGISTRY</code></td>
+<td>qualified Python target name</td>
+<td><code>FunctionPlugin</code> reference</td>
+</tr>
+<tr>
+<td><code>EXAMPLE_REGISTRY</code></td>
+<td><code>{context}::{component}</code></td>
+<td>example metadata from <code>register_example(...)</code></td>
+</tr>
+</tbody>
+</table>
+<p>During conversion, <code>_activate_plugin_worlds()</code> does this:</p>
+<ol>
+<li>import all plugins;</li>
+<li>apply registered function patches through <code>apply_monkey_patches()</code>;</li>
+<li>enter every <code>PrimitiveLeafPlugin.plugin_binding()</code> context;</li>
+<li>bind leaf-plugin abstract eval where needed;</li>
+<li>backfill allowlisted transpose rules for custom primitives;</li>
+<li>trace with <code>jax.make_jaxpr</code>;</li>
+<li>restore all patches when tracing exits.</li>
+</ol>
+<p>Nested ONNX Function body tracing uses a matching activation path so function
+bodies see the same primitive bindings as the top-level trace.</p>
+<h2 id="primitive-plugins">Primitive Plugins<a class="headerlink" href="#primitive-plugins" title="Permanent link">&para;</a></h2>
+<p>Most primitive support is implemented as a subclass of <code>PrimitiveLeafPlugin</code>
+registered with <code>@register_primitive(...)</code>.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="kn">import</span><span class="w"> </span><span class="nn">onnx_ir</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ir</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax</span><span class="w"> </span><span class="kn">import</span> <span class="n">core</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.converter.typing_support</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoweringContextProtocol</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins._post_check_onnx_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">expect_graph</span> <span class="k">as</span> <span class="n">EG</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins._ir_shapes</span><span class="w"> </span><span class="kn">import</span> <span class="n">_ensure_value_metadata</span><span class="p">,</span> <span class="n">_stamp_type_and_shape</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins.plugin_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">PrimitiveLeafPlugin</span><span class="p">,</span> <span class="n">register_primitive</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">JaxprEqn</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">core</span><span class="p">,</span> <span class="s2">&quot;JaxprEqn&quot;</span><span class="p">,</span> <span class="n">Any</span><span class="p">)</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="nd">@register_primitive</span><span class="p">(</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">jaxpr_primitive</span><span class="o">=</span><span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">abs_p</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">jax_doc</span><span class="o">=</span><span class="s2">&quot;https://docs.jax.dev/en/latest/_autosummary/jax.lax.abs.html&quot;</span><span class="p">,</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">onnx</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;component&quot;</span><span class="p">:</span> <span class="s2">&quot;Abs&quot;</span><span class="p">,</span> <span class="s2">&quot;doc&quot;</span><span class="p">:</span> <span class="s2">&quot;https://onnx.ai/onnx/operators/onnx__Abs.html&quot;</span><span class="p">}],</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">since</span><span class="o">=</span><span class="s2">&quot;0.5.0&quot;</span><span class="p">,</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">context</span><span class="o">=</span><span class="s2">&quot;primitives.lax&quot;</span><span class="p">,</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;abs&quot;</span><span class="p">,</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">testcases</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        <span class="p">{</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>            <span class="s2">&quot;testcase&quot;</span><span class="p">:</span> <span class="s2">&quot;abs&quot;</span><span class="p">,</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>            <span class="s2">&quot;callable&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>            <span class="s2">&quot;input_shapes&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="mi">3</span><span class="p">,)],</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>            <span class="s2">&quot;post_check_onnx_graph&quot;</span><span class="p">:</span> <span class="n">EG</span><span class="p">([</span><span class="s2">&quot;Abs:3&quot;</span><span class="p">],</span> <span class="n">no_unused_inputs</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>        <span class="p">}</span>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="p">],</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="p">)</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="k">class</span><span class="w"> </span><span class="nc">AbsPlugin</span><span class="p">(</span><span class="n">PrimitiveLeafPlugin</span><span class="p">):</span>
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">lower</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctx</span><span class="p">:</span> <span class="n">LoweringContextProtocol</span><span class="p">,</span> <span class="n">eqn</span><span class="p">:</span> <span class="n">JaxprEqn</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>        <span class="n">x_val</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">get_value_for_var</span><span class="p">(</span><span class="n">eqn</span><span class="o">.</span><span class="n">invars</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>        <span class="n">out_val</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">get_value_for_var</span><span class="p">(</span><span class="n">eqn</span><span class="o">.</span><span class="n">outvars</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">name_hint</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">fresh_name</span><span class="p">(</span><span class="s2">&quot;abs&quot;</span><span class="p">))</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">builder</span><span class="o">.</span><span class="n">Abs</span><span class="p">(</span><span class="n">x_val</span><span class="p">,</span> <span class="n">_outputs</span><span class="o">=</span><span class="p">[</span><span class="n">out_val</span><span class="o">.</span><span class="n">name</span> <span class="ow">or</span> <span class="n">ctx</span><span class="o">.</span><span class="n">fresh_name</span><span class="p">(</span><span class="s2">&quot;abs&quot;</span><span class="p">)])</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>        <span class="n">result</span><span class="o">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">out_val</span><span class="o">.</span><span class="n">type</span>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>        <span class="n">result</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">out_val</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>        <span class="n">_stamp_type_and_shape</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">eqn</span><span class="o">.</span><span class="n">outvars</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">aval</span><span class="p">,</span> <span class="s2">&quot;shape&quot;</span><span class="p">,</span> <span class="p">())))</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>        <span class="n">_ensure_value_metadata</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">bind_value_for_var</span><span class="p">(</span><span class="n">eqn</span><span class="o">.</span><span class="n">outvars</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">result</span><span class="p">)</span>
+</span></code></pre></div>
+<p>This is the common shape. More complex plugins may also define a custom JAX
+primitive (<code>_PRIM</code>), <code>abstract_eval</code>, batching rules, JVP/transpose rules, and
+binding specs.</p>
+<h2 id="registering-metadata">Registering Metadata<a class="headerlink" href="#registering-metadata" title="Permanent link">&para;</a></h2>
+<p><code>@register_primitive(...)</code> stores every keyword argument as plugin metadata and
+registers the plugin instance under <code>jaxpr_primitive</code>.</p>
+<p>Important top-level metadata fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jaxpr_primitive</code></td>
+<td>Registry key. Must match <code>eqn.primitive.name</code>.</td>
+</tr>
+<tr>
+<td><code>jax_doc</code></td>
+<td>Source documentation for the JAX/Flax API. Used by generated docs.</td>
+</tr>
+<tr>
+<td><code>onnx</code></td>
+<td>List of ONNX components this lowering emits or depends on.</td>
+</tr>
+<tr>
+<td><code>since</code></td>
+<td>First jax2onnx version that supports the component.</td>
+</tr>
+<tr>
+<td><code>context</code></td>
+<td>Grouping namespace such as <code>primitives.lax</code> or <code>primitives.nnx</code>.</td>
+</tr>
+<tr>
+<td><code>component</code></td>
+<td>Stable component name used for generated tests and docs.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>Optional human-readable summary.</td>
+</tr>
+<tr>
+<td><code>children</code></td>
+<td>For examples, child components used by the example.</td>
+</tr>
+<tr>
+<td><code>testcases</code></td>
+<td>Generated test inputs, expectations, and structural checks.</td>
+</tr>
+</tbody>
+</table>
+<p>Avoid duplicate <code>jaxpr_primitive</code> keys. The registry is a dictionary, so a later
+import can overwrite an earlier entry; that is not a supported extension model.</p>
+<h2 id="binding-specs">Binding Specs<a class="headerlink" href="#binding-specs" title="Permanent link">&para;</a></h2>
+<p>A plugin only needs binding specs when ordinary JAX tracing would not emit the
+primitive you want to lower. Direct <code>jax.lax</code> primitives often do not need
+patching. High-level APIs such as <code>jax.numpy.*</code>, Flax NNX modules, or custom
+wrappers often do.</p>
+<p>New primitive plugins should implement:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins._patching</span><span class="w"> </span><span class="kn">import</span> <span class="n">AssignSpec</span><span class="p">,</span> <span class="n">MonkeyPatchSpec</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">SomePlugin</span><span class="p">(</span><span class="n">PrimitiveLeafPlugin</span><span class="p">):</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="nd">@classmethod</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">binding_specs</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">AssignSpec</span> <span class="o">|</span> <span class="n">MonkeyPatchSpec</span><span class="p">]:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>        <span class="k">return</span> <span class="p">[</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>            <span class="n">AssignSpec</span><span class="p">(</span><span class="s2">&quot;jax.numpy&quot;</span><span class="p">,</span> <span class="s2">&quot;some_prim&quot;</span><span class="p">,</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_PRIM</span><span class="p">,</span> <span class="n">delete_if_missing</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>            <span class="n">MonkeyPatchSpec</span><span class="p">(</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>                <span class="n">target</span><span class="o">=</span><span class="s2">&quot;jax.numpy&quot;</span><span class="p">,</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>                <span class="n">attr</span><span class="o">=</span><span class="s2">&quot;some_function&quot;</span><span class="p">,</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>                <span class="n">make_value</span><span class="o">=</span><span class="k">lambda</span> <span class="n">original</span><span class="p">:</span> <span class="n">make_wrapper</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_PRIM</span><span class="p">),</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>            <span class="p">),</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="p">]</span>
+</span></code></pre></div>
+<p>Use <code>AssignSpec</code> to install or expose a primitive object. Use <code>MonkeyPatchSpec</code>
+to wrap an existing function or method so tracing calls <code>cls._PRIM.bind(...)</code>.</p>
+<p>Patch rules:</p>
+<ul>
+<li>Patches must be scoped. They are applied only while tracing and restored on
+  exit.</li>
+<li>The wrapper must call the original implementation for unsupported modes, not
+  silently lower an unsupported case.</li>
+<li>Do not seed, allocate modules, or capture mutable state inside the patch
+  wrapper.</li>
+<li><code>patch_info()</code> exists for older compatibility paths. Prefer
+  <code>binding_specs()</code> for new primitive plugins.</li>
+</ul>
+<h2 id="abstract-eval-batching-and-autodiff">Abstract Eval, Batching, and Autodiff<a class="headerlink" href="#abstract-eval-batching-and-autodiff" title="Permanent link">&para;</a></h2>
+<p>Custom primitives must be usable by JAX before the converter can lower them.
+At minimum, a primitive that is emitted during tracing needs abstract eval.
+If the primitive can appear under <code>vmap</code>, it also needs a batching rule.
+If tests or examples cover gradients, JVP/transpose support must be registered.</p>
+<p>Guidelines:</p>
+<ul>
+<li>Define <code>abstract_eval(*avals, **params)</code> on the plugin when the output shape
+  or dtype can be inferred from abstract values.</li>
+<li>Do not call the patched public function from <code>abstract_eval</code>; that can recurse
+  back into the same primitive.</li>
+<li>Register batching rules explicitly for custom primitives used under <code>vmap</code>.</li>
+<li>Use helpers from <code>jax2onnx/plugins/jax/_autodiff_utils.py</code> for JVP and
+  transpose rules instead of writing directly into JAX AD registries.</li>
+<li>Conversion-time AD backfill is allowlisted. Use
+  <code>JAX2ONNX_AD_DEBUG=1</code> when debugging registration decisions, and
+  <code>JAX2ONNX_DISABLE_AD_BACKFILL=1</code> to disable backfill.</li>
+</ul>
+<h2 id="lowering-contract">Lowering Contract<a class="headerlink" href="#lowering-contract" title="Permanent link">&para;</a></h2>
+<p>The lowering receives a <code>LoweringContextProtocol</code> and a JAXPR equation. The
+contract is strict:</p>
+<ol>
+<li>all non-literal inputs must already be bound before <code>lower(...)</code> runs;</li>
+<li>the plugin emits connected <code>onnx_ir</code> nodes and values;</li>
+<li>every non-drop output var must be bound before the equation completes;</li>
+<li>returned <code>ir.Value</code> objects may be bound generically, but explicit binding is
+   clearer for non-trivial lowerings.</li>
+</ol>
+<p>Core context methods used most often:</p>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctx.get_value_for_var(var, ...)</code></td>
+<td>Fetch or allocate the IR value for a JAX var. Literals can become constants.</td>
+</tr>
+<tr>
+<td><code>ctx.require_value_for_var(var, ...)</code></td>
+<td>Require an existing binding; useful when allocation would hide a bug.</td>
+</tr>
+<tr>
+<td><code>ctx.bind_value_for_var(var, value)</code></td>
+<td>Bind an equation output var to a produced <code>ir.Value</code>.</td>
+</tr>
+<tr>
+<td><code>ctx.bind_const_for_var(var, array)</code></td>
+<td>Bind a JAXPR constvar. Top-level graphs use initializers; Function bodies use <code>Constant</code> nodes.</td>
+</tr>
+<tr>
+<td><code>ctx.fresh_name(base)</code></td>
+<td>Create deterministic per-context names.</td>
+</tr>
+<tr>
+<td><code>ctx.builder</code></td>
+<td>Emit ONNX IR nodes through the project builder wrapper.</td>
+</tr>
+<tr>
+<td><code>ctx.try_evaluate_const(var)</code></td>
+<td>Evaluate a known constant producer when a lowering needs static data.</td>
+</tr>
+<tr>
+<td><code>ctx.ensure_external_flag(name, var)</code></td>
+<td>Route dynamic call parameters into graph/function inputs where needed.</td>
+</tr>
+</tbody>
+</table>
+<p>Lowering guardrails:</p>
+<ul>
+<li>Emit normal nodes through <code>ctx.builder</code>.</li>
+<li>Pass <code>_outputs=[...]</code>, never <code>_outputs="name"</code>.</li>
+<li>Stamp or preserve dtype/shape metadata on produced values.</li>
+<li>Reuse pre-allocated output values when identity matters.</li>
+<li>Keep converter/plugins IR-only; do not import ONNX protobuf types in lowering
+  code.</li>
+<li>Use shared shape/constant helpers when available instead of ad hoc tensor
+  construction.</li>
+</ul>
+<p>The core validates both sides of the equation. <code>assert_eqn_inputs_bound</code> catches
+unbound inputs before the plugin runs. <code>finalize_eqn_lowering_outputs</code> catches
+missing or disconnected outputs after it runs.</p>
+<h2 id="function-plugins-and-onnx_function">Function Plugins and <code>@onnx_function</code><a class="headerlink" href="#function-plugins-and-onnx_function" title="Permanent link">&para;</a></h2>
+<p><code>@onnx_function</code> registers a <code>FunctionPlugin</code> under the primitive name
+<code>onnx_fn::&lt;qualified-target-name&gt;</code>. It is user-facing, but its implementation is
+part of the plugin system.</p>
+<p>During tracing, the function plugin patches the target callable or class
+<code>__call__</code> so a function primitive appears in JAXPR. During lowering, it:</p>
+<ol>
+<li>resolves the original callable or instance;</li>
+<li>builds a <code>FunctionKey</code> from target name, input avals, and capture signature;</li>
+<li>reuses a cached body when the key matches;</li>
+<li>otherwise creates a <code>FunctionScope</code> child <code>IRContext</code>;</li>
+<li>maps parent inputs and dynamic call parameters to function inputs;</li>
+<li>retraces and lowers the callable body inside the child context;</li>
+<li>emits constants as <code>Constant</code> nodes because ONNX Function bodies cannot own
+   initializers;</li>
+<li>attaches the resulting <code>onnx_ir.Function</code> to the parent model;</li>
+<li>emits a call-site node in the parent graph.</li>
+</ol>
+<p><code>unique=True</code> changes the capture signature from object identity to a stable
+fingerprint of the callable/function state, so equivalent blocks can share one
+Function body while different state produces separate bodies. Namespace and type
+overrides are validated at registration time to avoid registry collisions.</p>
+<p>Keep user-facing usage details in <a href="../../user_guide/onnx_functions/">ONNX Functions</a>.
+Keep implementation details here and in tests under <code>tests/extra_tests/converter/</code>.</p>
+<h2 id="example-metadata">Example Metadata<a class="headerlink" href="#example-metadata" title="Permanent link">&para;</a></h2>
+<p>Use <code>register_example(...)</code> when you want generated tests and docs for a
+composition of existing primitives, without introducing a new primitive.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">jax2onnx.plugins.plugin_system</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">construct_and_call</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">register_example</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">with_rng_seed</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="p">)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">register_example</span><span class="p">(</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">component</span><span class="o">=</span><span class="s2">&quot;CNN&quot;</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;A simple convolutional neural network.&quot;</span><span class="p">,</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="n">context</span><span class="o">=</span><span class="s2">&quot;examples.nnx&quot;</span><span class="p">,</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="n">children</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;nnx.Conv&quot;</span><span class="p">,</span> <span class="s2">&quot;nnx.Linear&quot;</span><span class="p">,</span> <span class="s2">&quot;nnx.avg_pool&quot;</span><span class="p">,</span> <span class="s2">&quot;nnx.relu&quot;</span><span class="p">],</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">since</span><span class="o">=</span><span class="s2">&quot;0.2.0&quot;</span><span class="p">,</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">testcases</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="p">{</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>            <span class="s2">&quot;testcase&quot;</span><span class="p">:</span> <span class="s2">&quot;simple_cnn&quot;</span><span class="p">,</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>            <span class="s2">&quot;callable&quot;</span><span class="p">:</span> <span class="n">construct_and_call</span><span class="p">(</span><span class="n">CNN</span><span class="p">,</span> <span class="n">rngs</span><span class="o">=</span><span class="n">with_rng_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)),</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>            <span class="s2">&quot;input_shapes&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">1</span><span class="p">)],</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>            <span class="s2">&quot;expected_output_shapes&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">)],</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        <span class="p">}</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="p">],</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Examples are stored in <code>EXAMPLE_REGISTRY</code>, then consumed by the same generated
+test and documentation tooling as primitive metadata.</p>
+<h2 id="testcase-metadata">Testcase Metadata<a class="headerlink" href="#testcase-metadata" title="Permanent link">&para;</a></h2>
+<p>Generated tests load all plugin and example metadata, expand dynamic/concrete
+variants, expand f32/f64 variants, convert via public <code>to_onnx(...)</code>, run
+optional structural checks, and run numeric validation when concrete
+<code>input_values</code> are available.</p>
+<p>Common testcase fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>testcase</code></td>
+<td>Stable generated test/model name.</td>
+</tr>
+<tr>
+<td><code>callable</code></td>
+<td>Function or <code>construct_and_call(...)</code> object.</td>
+</tr>
+<tr>
+<td><code>input_shapes</code></td>
+<td>Shape specs; <code>"B"</code> triggers dynamic plus concrete variants unless restricted.</td>
+</tr>
+<tr>
+<td><code>input_dtypes</code></td>
+<td>Dtypes paired with <code>input_shapes</code>.</td>
+</tr>
+<tr>
+<td><code>input_values</code></td>
+<td>Concrete values used for tracing specs and numeric validation.</td>
+</tr>
+<tr>
+<td><code>input_params</code></td>
+<td>Keyword parameters supplied to the callable and optionally materialized as graph inputs.</td>
+</tr>
+<tr>
+<td><code>expected_output_shapes</code></td>
+<td>Output shape assertions after export.</td>
+</tr>
+<tr>
+<td><code>expected_output_dtypes</code></td>
+<td>Output dtype assertions after export.</td>
+</tr>
+<tr>
+<td><code>post_check_onnx_graph</code></td>
+<td><code>expect_graph(...)</code> structural predicate.</td>
+</tr>
+<tr>
+<td><code>runtime_input_values</code></td>
+<td>Additional concrete input sets for ONNX Runtime contract checks.</td>
+</tr>
+<tr>
+<td><code>post_check_onnx_runtime</code></td>
+<td>Callable invoked with runtime inputs and ONNX outputs for per-example contracts.</td>
+</tr>
+<tr>
+<td><code>run_only_dynamic</code></td>
+<td>Skip the concrete variant for symbolic-shape tests.</td>
+</tr>
+<tr>
+<td><code>run_only_f32_variant</code></td>
+<td>Skip generated f64 variant.</td>
+</tr>
+<tr>
+<td><code>run_only_f64_variant</code></td>
+<td>Generate only the f64 variant.</td>
+</tr>
+<tr>
+<td><code>disable_float64_test</code></td>
+<td>Keep f32 only for tests that cannot safely run in f64.</td>
+</tr>
+<tr>
+<td><code>opset_version</code></td>
+<td>Override the default opset for this testcase.</td>
+</tr>
+<tr>
+<td><code>inputs_as_nchw</code> / <code>outputs_as_nchw</code></td>
+<td>Request public IO layout bridges.</td>
+</tr>
+<tr>
+<td><code>input_names</code> / <code>output_names</code></td>
+<td>Public graph IO name overrides.</td>
+</tr>
+<tr>
+<td><code>skip_numeric_validation</code></td>
+<td>Keep export/structure checks but skip runtime allclose.</td>
+</tr>
+<tr>
+<td><code>check_onnx_load</code></td>
+<td>Run ONNX checker after serialization.</td>
+</tr>
+<tr>
+<td><code>check_onnx_shape_inference</code></td>
+<td>Run ONNX shape inference after serialization.</td>
+</tr>
+<tr>
+<td><code>check_deployment_readiness_report</code></td>
+<td>Build the internal deployment-readiness summary and require checker plus shape inference success.</td>
+</tr>
+<tr>
+<td><code>expected_number_of_function_instances</code></td>
+<td>Assert expected FunctionProto count for ONNX Function tests.</td>
+</tr>
+</tbody>
+</table>
+<p><code>callable_factory</code> is no longer supported. Use <code>construct_and_call(...)</code> so the
+test generator can instantiate a fresh callable under the requested dtype.</p>
+<h2 id="deterministic-callable-helpers">Deterministic Callable Helpers<a class="headerlink" href="#deterministic-callable-helpers" title="Permanent link">&para;</a></h2>
+<p>Use these helpers from <code>jax2onnx.plugins.plugin_system</code> in metadata:</p>
+<table>
+<thead>
+<tr>
+<th>Helper</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>construct_and_call(Constructor, *args, **kwargs)</code></td>
+<td>Store a module constructor and instantiate it per generated dtype.</td>
+</tr>
+<tr>
+<td><code>with_requested_dtype()</code></td>
+<td>Placeholder argument resolved to the generated dtype.</td>
+</tr>
+<tr>
+<td><code>with_rng_seed(seed)</code></td>
+<td>Placeholder that builds fresh <code>nnx.Rngs(seed)</code> per instantiation.</td>
+</tr>
+<tr>
+<td><code>with_prng_key(seed)</code></td>
+<td>Placeholder that builds a fresh JAX PRNG key per instantiation.</td>
+</tr>
+</tbody>
+</table>
+<p>Do not treat dtype/RNG placeholders as methods on the factory object; they are
+constructor arguments resolved later by the generated test harness.</p>
+<p>Pass placeholders as constructor arguments instead:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">construct_and_call</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">MyModule</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">dtype</span><span class="o">=</span><span class="n">with_requested_dtype</span><span class="p">(),</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">rngs</span><span class="o">=</span><span class="n">with_rng_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>This keeps module construction deterministic across f32/f64 variants and avoids
+import-time RNG state.</p>
+<h2 id="generated-coverage">Generated Coverage<a class="headerlink" href="#generated-coverage" title="Permanent link">&para;</a></h2>
+<p>Primitive and example metadata is the source for:</p>
+<ul>
+<li>generated pytest classes under <code>tests/primitives/</code> and <code>tests/examples/</code>;</li>
+<li><code>docs/user_guide/supported_components.md</code>;</li>
+<li><code>docs/user_guide/examples.md</code>;</li>
+<li><code>docs/user_guide/onnx_operator_coverage.md</code>.</li>
+</ul>
+<p>Keep metadata user-oriented. It should describe supported components, examples,
+ONNX operators, and durable tests. Release plans, temporary audits, and
+one-off migration notes belong outside generated user documentation.</p>
+<h2 id="review-checklist">Review Checklist<a class="headerlink" href="#review-checklist" title="Permanent link">&para;</a></h2>
+<p>Before adding or changing a plugin:</p>
+<ul>
+<li>Verify the JAXPR primitive name.</li>
+<li>Keep primitive semantics in the plugin, not in <code>conversion_api</code>.</li>
+<li>Use <code>binding_specs()</code> only when tracing needs a custom primitive.</li>
+<li>Implement abstract eval, batching, and AD support needed by the testcase.</li>
+<li>Emit IR through <code>ctx.builder</code> with sequence-valued <code>_outputs</code>.</li>
+<li>Preserve dtype/shape metadata on produced values.</li>
+<li>Add focused <code>expect_graph(...)</code> checks for durable structure.</li>
+<li>Use <code>construct_and_call(...)</code> and RNG/dtype placeholders for module examples.</li>
+<li>Run the focused generated pytest target for the component.</li>
+<li>Run builder/policy checks when touching lowering infrastructure.</li>
+</ul>
+<h2 id="failure-modes">Failure Modes<a class="headerlink" href="#failure-modes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>No plugins registered for primitive ...</code></td>
+<td>Plugin module was not imported, wrong <code>jaxpr_primitive</code>, or binding did not emit the intended primitive.</td>
+<td>Check plugin import path, registry key, and <code>binding_specs()</code>.</td>
+</tr>
+<tr>
+<td>JAX tracing recurses or hangs</td>
+<td><code>abstract_eval</code> or a patch wrapper calls the patched public function again.</td>
+<td>Call a <code>lax.*</code> helper, the stored original implementation, or pure shape logic.</td>
+</tr>
+<tr>
+<td><code>unbound input</code> before lowering</td>
+<td>A nested body/function input was not mapped, or a literal/const was not bound.</td>
+<td>Fix body input wiring or use <code>require_value_for_var</code> to expose the missing var.</td>
+</tr>
+<tr>
+<td><code>did not bind output</code></td>
+<td>Lowering forgot to bind or return a produced value.</td>
+<td>Bind every non-drop outvar or return the exact <code>ir.Value</code> sequence.</td>
+</tr>
+<tr>
+<td><code>disconnected value</code></td>
+<td>Lowering bound a placeholder that is not produced by a graph node/input/initializer.</td>
+<td>Emit the node with that value as output, or bind the actual produced value.</td>
+</tr>
+<tr>
+<td>Extra graph inputs remain</td>
+<td>Lowering introduced unused inputs or function params.</td>
+<td>Add focused structural checks and inspect pruning/signature rules.</td>
+</tr>
+<tr>
+<td>f64 variant fails unexpectedly</td>
+<td>Callable construction or metadata ignores generated dtype.</td>
+<td>Use <code>construct_and_call(...)</code> with <code>with_requested_dtype()</code> placeholders.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
