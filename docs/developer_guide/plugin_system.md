@@ -323,6 +323,7 @@ Common testcase fields:
 | `skip_numeric_validation` | Keep export/structure checks but skip runtime allclose. |
 | `check_onnx_load` | Run ONNX checker after serialization. |
 | `check_onnx_shape_inference` | Run ONNX shape inference after serialization. |
+| `check_deployment_readiness_report` | Build the internal deployment-readiness summary and require checker plus shape inference success. |
 | `expected_number_of_function_instances` | Assert expected FunctionProto count for ONNX Function tests. |
 
 `callable_factory` is no longer supported. Use `construct_and_call(...)` so the

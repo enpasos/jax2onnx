@@ -260,8 +260,7 @@ register_example(
             "expected_output_dtypes": [jnp.float32],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "check_onnx_load": True,
-            "check_onnx_shape_inference": True,
+            "check_deployment_readiness_report": True,
             "post_check_onnx_graph": _policy_contract(
                 [
                     "Gemm:Bx32 -> Tanh:Bx32 -> Gemm:Bx6 -> Tanh:Bx6",
@@ -292,8 +291,7 @@ register_example(
             "expected_output_dtypes": [jnp.int32],
             "run_only_dynamic": True,
             "run_only_f32_variant": True,
-            "check_onnx_load": True,
-            "check_onnx_shape_inference": True,
+            "check_deployment_readiness_report": True,
             "post_check_onnx_graph": _policy_contract(
                 [
                     "Gemm:Bx16 -> Tanh:Bx16 -> Gemm:Bx4 -> ArgMax:B",

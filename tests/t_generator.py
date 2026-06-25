@@ -16,6 +16,7 @@ from onnx import TensorProto
 
 from logging_config import configure_logging
 from jax2onnx import allclose, allclose_onnxruntime_web
+from jax2onnx._deployment_report import deployment_readiness_report
 from jax2onnx.plugins.plugin_system import (
     EXAMPLE_REGISTRY,
     PLUGIN_REGISTRY,
@@ -761,7 +762,29 @@ def make_test_function(tp: dict[str, Any]):
 
         logger.info(f"Model saved to: {model_path}")
 
-        # --- ONNX checker and shape inference (if requested) ---
+        # --- ONNX checker, shape inference, and deployment report (if requested) ---
+        if tp.get("check_deployment_readiness_report", False):
+            report = deployment_readiness_report(onnx_model)
+            if not report.checker.ok:
+                raise AssertionError(
+                    f"Deployment readiness checker failed for '{testcase_name}': "
+                    f"{report.checker.message}"
+                )
+            if not report.shape_inference.ok:
+                raise AssertionError(
+                    f"Deployment readiness shape inference failed for "
+                    f"'{testcase_name}': {report.shape_inference.message}"
+                )
+            logger.info(
+                "Deployment readiness report for '%s': %d inputs, %d outputs, "
+                "%d operator kinds, %d warnings.",
+                testcase_name,
+                len(report.inputs),
+                len(report.outputs),
+                len(report.operators),
+                len(report.warnings),
+            )
+
         if tp.get("check_onnx_load", False):
             onnx_model = onnx.load_model(model_path)
             if _cast_output_types_need_fix(onnx_model):

@@ -2,15 +2,15 @@
 
 ## Planned
 
-* Expand deployment-readiness reporting beyond the basic validation guide:
-  operator inventory, dtype/shape summaries, stricter shape-inference checks,
-  and reusable report artifacts for exported models.
 * Extend target-oriented validation guidance beyond the documented ONNX Runtime
   CPU and Web/WASM flows, especially for mobile deployments where practical.
 * Broaden capability-matrix coverage across dtype and shape variants, including
   BF16, dynamic dimensions, and non-square inputs.
 * Add focused end-to-end deployment examples for small vision and numerical
   models.
+* Add a realistic end-to-end RL deployment example based on a widely used RL
+  library, loading a trained actor and exporting the inference-only
+  `obs -> action` policy contract.
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
@@ -26,6 +26,10 @@
   inference and runtime contract hooks to example metadata so deployment
   examples can validate extra concrete batch sizes, output dtype/shape, and
   domain-specific output constraints without separate test trees.
+* **Add generated deployment readiness summaries:** Let generated examples run
+  an integrated readiness check with checker status, strict shape-inference
+  status, public dtype/shape summaries, initializer summaries, operator
+  inventory, and public-dimension warnings without expanding the public API.
 
 ## Current Version
 
