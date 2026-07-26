@@ -93,7 +93,7 @@ _FORBIDDEN_INTERFACE_NAMES: frozenset[str] = frozenset(
 
 
 def representative_continuous_obs(batch_size: int = 4) -> npt.NDArray[np.float32]:
-    values = np.linspace(
+    values: npt.NDArray[np.float32] = np.linspace(
         -2.0,
         2.0,
         batch_size * CONTINUOUS_OBS_DIM,
@@ -106,7 +106,7 @@ def representative_continuous_obs(batch_size: int = 4) -> npt.NDArray[np.float32
 
 
 def representative_discrete_obs(batch_size: int = 5) -> npt.NDArray[np.float32]:
-    values = np.linspace(
+    values: npt.NDArray[np.float32] = np.linspace(
         -1.0,
         1.0,
         batch_size * DISCRETE_OBS_DIM,
@@ -244,7 +244,7 @@ def _discrete_runtime_contract(
 register_example(
     component="ContinuousTanhPolicy",
     description="Deterministic continuous-control RL policy: obs -> tanh(mean_action).",
-    since="0.14.2",
+    since="0.15.0",
     context="examples.rl",
     children=["jnp.matmul", "jnp.add", "jnp.tanh"],
     testcases=[
@@ -275,7 +275,7 @@ register_example(
 register_example(
     component="DiscreteArgmaxPolicy",
     description="Deterministic discrete-control RL policy: obs -> argmax(logits).",
-    since="0.14.2",
+    since="0.15.0",
     context="examples.rl",
     children=["jnp.matmul", "jnp.add", "jnp.tanh", "jnp.argmax"],
     testcases=[

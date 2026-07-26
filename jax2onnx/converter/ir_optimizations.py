@@ -1785,11 +1785,11 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
 
     if isinstance(x, ir.Value):
         arr = const_value_to_numpy(x)
-        return cast(ArrayND, arr) if arr is not None else None
+        return arr if arr is not None else None
 
     if isinstance(x, ir.TensorProtocol):
         arr = tensor_to_numpy(x)
-        return cast(ArrayND, arr) if arr is not None else None
+        return arr if arr is not None else None
 
     if isinstance(x, ir.Attr):
         return _to_numpy_from_attr(x)

@@ -19,6 +19,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
     register_example,
@@ -1206,7 +1207,7 @@ if MAXTEXT_PKG_PATH is not None and MAXTEXT_PKG_PATH.exists():
 
             def _concrete_dim(value: object, name: str) -> int:
                 return int(
-                    jax.core.concrete_or_error(
+                    jax_compat.concrete_or_error(
                         int, value, f"{name} must be static for export"
                     )
                 )

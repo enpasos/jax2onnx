@@ -10,11 +10,11 @@ import numpy as np
 from typing import Callable, Final, List, Optional
 
 import jax
-from jax import core as jax_core
 from jax import lax
 import jax.numpy as jnp
 from flax import nnx
 
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
@@ -456,7 +456,7 @@ class AttentionCore(nnx.Module):
         capture_debug: Optional[dict[str, jax.Array]] = None,
     ) -> jax.Array:
         cfg = self.config
-        num_tokens = jax_core.concrete_or_error(
+        num_tokens = jax_compat.concrete_or_error(
             int,
             x.shape[0],
             "AttentionBlock requires static sequence length",
@@ -596,7 +596,7 @@ class MLPBlockCore(nnx.Module):
     ) -> jax.Array:
         cfg = self.config
 
-        n_tokens = jax_core.concrete_or_error(
+        n_tokens = jax_compat.concrete_or_error(
             int, normed.shape[0], "MLPBlock requires static token count"
         )
         if n_tokens != self.sequence_length:
@@ -845,7 +845,7 @@ class Transformer(nnx.Module):
         capture_hidden_states: Optional[List[jax.Array]] = None,
         capture_block_debug: Optional[List[dict[str, jax.Array]]] = None,
     ) -> jax.Array:
-        num_tokens = jax_core.concrete_or_error(
+        num_tokens = jax_compat.concrete_or_error(
             int,
             tokens.shape[0],
             "Transformer requires static sequence length",

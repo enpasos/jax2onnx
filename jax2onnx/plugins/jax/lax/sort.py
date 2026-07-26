@@ -164,7 +164,9 @@ class SortPlugin(PrimitiveLeafPlugin):
             if key_was_sanitized:
                 if getattr(key_input, "type", None) is not None:
                     values.type = key_input.type
-                    values.dtype = getattr(key_input.type, "dtype", None)
+                    key_dtype = getattr(key_input.type, "dtype", None)
+                    if key_dtype is not None:
+                        values.dtype = key_dtype
                 _stamp_type_and_shape(values, key_shape)
                 _ensure_value_metadata(ctx, values)
             elif key_is_bool:

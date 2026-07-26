@@ -45,6 +45,68 @@ else:
     Literal = _resolve_literal_type()
 
 
+def _resolve_concrete_or_error() -> Callable[..., Any]:
+    # JAX 0.11 removed ``jax.core.concrete_or_error`` in favour of the
+    # ``jax.extend.core`` re-export.
+    fn = getattr(jax_core_ext, "concrete_or_error", None)
+    if callable(fn):
+        return cast(Callable[..., Any], fn)
+    return cast(Callable[..., Any], getattr(jax_core, "concrete_or_error"))
+
+
+concrete_or_error: Callable[..., Any] = _resolve_concrete_or_error()
+
+
+def _resolve_new_jaxpr_eqn() -> Callable[..., Any]:
+    # JAX 0.11 removed ``jax.core.new_jaxpr_eqn``; ``jax.extend.core`` carries it.
+    fn = getattr(jax_core_ext, "new_jaxpr_eqn", None)
+    if callable(fn):
+        return cast(Callable[..., Any], fn)
+    return cast(Callable[..., Any], getattr(jax_core, "new_jaxpr_eqn"))
+
+
+new_jaxpr_eqn: Callable[..., Any] = _resolve_new_jaxpr_eqn()
+
+
+def _resolve_abstract_token() -> type[Any]:
+    # ``AbstractToken`` sits on ``jax.core`` up to JAX 0.10 and moved to
+    # ``jax.extend.core``; JAX 0.11 dropped the ``jax.core`` alias.
+    token = getattr(jax_core_ext, "AbstractToken", None)
+    if isinstance(token, type):
+        return cast(type[Any], token)
+    return cast(type[Any], getattr(jax_core, "AbstractToken"))
+
+
+AbstractToken: type[Any] = _resolve_abstract_token()
+
+
+def scan_arity(params: Any, total_invars: int) -> tuple[int, int, int]:
+    """Return ``(num_consts, num_carry, num_xs)`` for a ``scan`` equation.
+
+    JAX 0.11 dropped the ``num_consts``/``num_carry`` scan params in favour of
+    ``ft_in``, a ``(consts, carry, xs)`` triple whose entries carry one item per
+    operand. Older releases only expose the integer counts.
+    """
+
+    ft_in = params.get("ft_in")
+    if ft_in is not None:
+        # ``ft_in`` is a flat tree: iterating it yields leaves, so the
+        # ``(consts, carry, xs)`` grouping lives on ``.elts``.
+        groups = getattr(ft_in, "elts", ft_in)
+        if len(groups) != 3:
+            raise ValueError(f"Unexpected scan ft_in arity: {len(groups)}")
+        num_consts, num_carry, num_xs = (len(group) for group in groups)
+    else:
+        num_carry = int(params.get("num_carry", 0))
+        num_consts = int(params.get("num_consts", 0) or 0)
+        num_xs = int(params.get("num_xs", total_invars - num_carry - num_consts))
+    if num_xs < 0 or (num_consts + num_carry + num_xs) != total_invars:
+        raise ValueError(
+            "Inconsistent Scan arity: expected consts/carry/scan to match jaxpr invars"
+        )
+    return num_consts, num_carry, num_xs
+
+
 def dim_constant(value: int) -> Any:
     """Return a symbolic dimension constant when the active JAX exposes one."""
 
@@ -100,6 +162,7 @@ definitely_equal_shape: Callable[[Any, Any], bool] = _resolve_definitely_equal_s
 
 
 __all__ = [
+    "AbstractToken",
     "AbstractValue",
     "ClosedJaxpr",
     "DropVar",
@@ -114,9 +177,12 @@ __all__ = [
     "Var",
     "ad",
     "batching",
+    "concrete_or_error",
     "definitely_equal_shape",
     "dim_constant",
     "ensure_batching_not_mapped_attr",
     "jax_core",
     "jax_core_ext",
+    "new_jaxpr_eqn",
+    "scan_arity",
 ]

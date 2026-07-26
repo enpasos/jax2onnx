@@ -23,6 +23,8 @@ from enum import Enum
 
 import jax
 import jax.extend.core as jax_core_ext
+
+from jax2onnx._compat import jax as jax_compat
 import jax.numpy as jnp
 import numpy as np
 import onnx
@@ -67,7 +69,7 @@ def _deserialize_aval(desc: Dict[str, Any]) -> core.AbstractValue:
             tuple(desc["shape"]), dtype, desc.get("weak_type", False)
         )
     if desc["type"] == "AbstractToken":
-        return core.AbstractToken()
+        return jax_compat.AbstractToken()
     raise TypeError(f"Unsupported aval description: {desc}")
 
 
@@ -162,7 +164,11 @@ def _deserialize_eqn(
     invars = [_deserialize_atom(atom, loader, var_map) for atom in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
     params = _sanitize_params(_deserialize_value(desc["params"], loader))
-    eqn = core.new_jaxpr_eqn(
+    if primitive.name == "scan":
+        # Nested scans are evaluated by JAX itself, which reads the params off the
+        # equation rather than going through the bind wrapper, so translate here.
+        params = _scan_params_for_running_jax(params, len(invars))
+    eqn = jax_compat.new_jaxpr_eqn(
         invars,
         outvars,
         primitive,
@@ -206,6 +212,40 @@ _ENUM_FALLBACKS: Dict[tuple[str, str], type[Enum]] = {
     ("jaxlib._jax", "ArrayCopySemantics"): _ArrayCopySemantics,
     ("jaxlib.xla_extension", "ArrayCopySemantics"): _ArrayCopySemantics,
 }
+
+
+def _scan_params_for_running_jax(
+    params: Dict[str, Any], num_invars: int
+) -> Dict[str, Any]:
+    """Translate the payload's legacy ``scan`` params to the running JAX's shape.
+
+    The recorded payload stores ``num_consts``/``num_carry``, which JAX 0.11
+    replaced with the ``ft_in``/``ft_out`` flat-tree descriptors. The generic
+    kwarg-stripping fallback below cannot synthesise those, so build them here.
+    """
+
+    if "num_consts" not in params:
+        return params
+    try:
+        from jax._src.flattree import FTTuple, nones
+    except ImportError:  # pragma: no cover - JAX < 0.11 keeps the integer params
+        return params
+
+    num_consts = int(params["num_consts"])
+    num_carry = int(params["num_carry"])
+    num_xs = num_invars - num_consts - num_carry
+    inner = params["jaxpr"]
+    inner_jaxpr = getattr(inner, "jaxpr", inner)
+    num_ys = len(inner_jaxpr.outvars) - num_carry
+    if num_xs < 0 or num_ys < 0:
+        return params
+
+    translated = dict(params)
+    translated.pop("num_consts", None)
+    translated.pop("num_carry", None)
+    translated["ft_in"] = FTTuple(nones(num_consts), nones(num_carry), nones(num_xs))
+    translated["ft_out"] = FTTuple(nones(num_carry), nones(num_ys))
+    return translated
 
 
 def _wrap_primitive_bind(primitive: _PrimitiveType) -> None:

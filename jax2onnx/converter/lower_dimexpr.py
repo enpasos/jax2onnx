@@ -205,7 +205,7 @@ class LowerDimExpr:
         if str(expr) in self.compute_cache:
             return self.compute_cache[str(expr)]
 
-        terms = cast(tuple[TermWithMultiplier, ...], expr._sorted_terms)
+        terms: tuple[TermWithMultiplier, ...] = expr._sorted_terms
         result_value = self._lower_term_with_mult(terms[0])
 
         for term in terms[1:]:

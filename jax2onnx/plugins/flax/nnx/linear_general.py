@@ -768,7 +768,10 @@ class LinearGeneralPlugin(PrimitiveLeafPlugin):
         LinearGeneralPlugin._ORIGINAL_CALL = orig_fn
         prim = LinearGeneralPlugin._PRIM
 
-        def patched(self: nnx.LinearGeneral, x: Any) -> Any:
+        def patched(self: nnx.LinearGeneral, x: Any, out_sharding: Any = None) -> Any:
+            # ``out_sharding`` (flax >=0.12.8) is a device-placement hint with no
+            # ONNX equivalent, so it is accepted and ignored during export.
+            del out_sharding
             # normalize possibly-negative axes to positive indices
             rank = max(getattr(x, "ndim", len(x.shape)), 1)
             if isinstance(self.axis, int):

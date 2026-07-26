@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, cast
+from typing import Any, Optional
 import numpy as np
 import copy
 from .gather_helpers import (
@@ -323,7 +323,7 @@ def turn_dynamic_range_slice_to_gather(
 def normalize_gather_with_transpose(
     gir_instr_orig: GirInstruction,
 ) -> list[GirInstruction]:
-    gir_instr = cast(GirInstruction, copy.deepcopy(gir_instr_orig))
+    gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
     if all(dim["mode"] != "gather" for dim in gir_instr["dims"]):
@@ -380,7 +380,7 @@ def normalize_gather_with_transpose(
 def normalize_gather_index_tensor_with_transpose(
     gir_instr_orig: GirInstruction,
 ) -> list[GirInstruction]:
-    gir_instr = cast(GirInstruction, copy.deepcopy(gir_instr_orig))
+    gir_instr = copy.deepcopy(gir_instr_orig)
     assert gir_instr["op"] == "general_gather"
 
     index_shape, index_index = calculate_index_shape(gir_instr)

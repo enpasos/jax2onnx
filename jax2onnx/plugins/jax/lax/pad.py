@@ -7,6 +7,7 @@ from typing import Any, Iterable, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -188,7 +189,7 @@ class PadPlugin(PrimitiveLeafPlugin):
 
         begins = _flatten(lo for (lo, _, _) in padding_config)
         ends = _flatten(hi for (_, hi, _) in padding_config)
-        pads_vec = np.asarray(begins + ends, dtype=np.int64)
+        pads_vec: npt.NDArray[np.int64] = np.asarray(begins + ends, dtype=np.int64)
         pads_name = ctx.fresh_name("pad_pads")
         pads_val = ctx.builder.add_initializer_from_array(
             name=pads_name, array=pads_vec

@@ -14,6 +14,7 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -185,7 +186,7 @@ class JnpPadPlugin(PrimitiveLeafPlugin):
 
         begins = [int(lo) for lo, _ in pad_width]
         ends = [int(hi) for _, hi in pad_width]
-        pads_arr = np.asarray(begins + ends, dtype=np.int64)
+        pads_arr: npt.NDArray[np.int64] = np.asarray(begins + ends, dtype=np.int64)
 
         pads_val = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("jnp_pad_pads"),

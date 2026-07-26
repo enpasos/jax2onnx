@@ -19,6 +19,7 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx._compat.jax import DropVar, Var
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
@@ -50,8 +51,10 @@ def _jaxpr_contains_scatter(jpr_like: Any) -> bool:
             for val in getattr(eqn, "params", {}).values():
                 if _jaxpr_contains_scatter(val):
                     return True
-    if hasattr(jpr_like, "jaxpr"):
-        return _jaxpr_contains_scatter(jpr_like.jaxpr)
+    inner = getattr(jpr_like, "jaxpr", None)
+    # JAX 0.11 merged ClosedJaxpr into Jaxpr, so ``.jaxpr`` may return ``self``.
+    if inner is not None and inner is not jpr_like:
+        return _jaxpr_contains_scatter(inner)
     if isinstance(jpr_like, (tuple, list)):
         return any(_jaxpr_contains_scatter(item) for item in jpr_like)
     return False
@@ -73,8 +76,10 @@ def _static_scatter_extent(jpr_like: Any) -> int | None:
                 extent = _static_scatter_extent(val)
                 if extent is not None:
                     return extent
-    if hasattr(jpr_like, "jaxpr"):
-        return _static_scatter_extent(jpr_like.jaxpr)
+    inner = getattr(jpr_like, "jaxpr", None)
+    # JAX 0.11 merged ClosedJaxpr into Jaxpr, so ``.jaxpr`` may return ``self``.
+    if inner is not None and inner is not jpr_like:
+        return _static_scatter_extent(inner)
     if isinstance(jpr_like, (tuple, list)):
         for item in jpr_like:
             extent = _static_scatter_extent(item)
@@ -679,18 +684,13 @@ class ScanPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = eqn.params
         closed_jaxpr = params["jaxpr"]
-        num_carry = int(params.get("num_carry", 0))
-        num_consts = int(params.get("num_consts", 0) or 0)
         if params.get("reverse", False):
             raise NotImplementedError("Reverse scan is not supported in IR pipeline.")
 
         jaxpr = closed_jaxpr.jaxpr
-        total_invars = len(jaxpr.invars)
-        num_scan = int(params.get("num_xs", total_invars - num_carry - num_consts))
-        if num_scan < 0 or (num_carry + num_scan + num_consts) != total_invars:
-            raise ValueError(
-                "Inconsistent Scan arity: expected consts/carry/scan to match jaxpr invars"
-            )
+        num_consts, num_carry, num_scan = jax_compat.scan_arity(
+            params, len(jaxpr.invars)
+        )
         length = params.get("length")
 
         if num_scan == 0:

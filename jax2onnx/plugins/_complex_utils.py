@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Dict, Final, Tuple, cast
 
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -345,7 +346,7 @@ def pack_real_imag_pair(
         )
     axis = len(real_dims)
     coerce_dim_values(real_dims)
-    axes_arr = np.asarray([axis], dtype=np.int64)
+    axes_arr: npt.NDArray[np.int64] = np.asarray([axis], dtype=np.int64)
     axes_init = ctx.builder.add_initializer_from_array(
         name=ctx.fresh_name(f"{name_hint}_axes"),
         array=axes_arr,

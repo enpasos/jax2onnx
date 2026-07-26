@@ -14,6 +14,7 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -133,7 +134,7 @@ class JnpFullPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(fill_cast, fill_shape)
             _ensure_value_metadata(ctx, fill_cast)
 
-        shape_arr = np.asarray(shape, dtype=np.int64)
+        shape_arr: npt.NDArray[np.int64] = np.asarray(shape, dtype=np.int64)
         shape_tensor = _const_i64(ctx, shape_arr, "full_shape")
         _stamp_type_and_shape(shape_tensor, (len(shape),))
         _ensure_value_metadata(ctx, shape_tensor)

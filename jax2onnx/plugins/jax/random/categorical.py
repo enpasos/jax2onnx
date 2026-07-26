@@ -7,6 +7,7 @@ from typing import Callable, ClassVar, Final
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -281,7 +282,7 @@ class RandomCategoricalPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("categorical_out")
         )
 
-        reshape_2d_target = (
+        reshape_2d_target: npt.NDArray[np.int64] = (
             np.asarray([num_distributions, int(class_count)], dtype=np.int64)
             if batch_shape is not None
             else np.asarray([-1, int(class_count)], dtype=np.int64)

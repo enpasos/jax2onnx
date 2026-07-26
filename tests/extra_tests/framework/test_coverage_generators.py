@@ -10,6 +10,7 @@ from scripts._coverage_generation import write_or_check_generated
 from scripts import generate_jnp_operator_coverage as jnp_coverage
 from scripts import generate_lax_operator_coverage as lax_coverage
 from scripts import generate_onnx_operator_coverage as onnx_coverage
+from scripts import generate_readme
 
 
 def _jnp_status(
@@ -267,3 +268,142 @@ def test_write_or_check_generated_writes_file(tmp_path: Path) -> None:
     )
 
     assert target.read_text(encoding="utf-8") == "# Coverage\n"
+
+
+# --- generate_readme.py: guard against silently dropping documented rows ---
+
+
+def _examples_doc(*components: str) -> str:
+    rows = "\n".join(
+        f"| {name} | desc | [`{name}_case`](https://example.test/{name}.onnx) ✅ | 0.1.0 |"
+        for name in components
+    )
+    return (
+        "# Examples\n\n"
+        f"{generate_readme.EXAMPLES_START_MARKER}\n\n"
+        '<div class="examples-table" markdown="1">\n\n'
+        "| Component | Description | Testcases | Since |\n"
+        "|:----------|:------------|:----------|:------|\n"
+        f"{rows}\n\n"
+        "</div>\n\n"
+        f"{generate_readme.EXAMPLES_END_MARKER}\n"
+    )
+
+
+def _example_metadata(
+    *components: str,
+) -> dict[tuple[str, str], list[dict[str, object]]]:
+    return {
+        ("examples.nnx", name): [
+            {"testcase": f"{name}_case", "description": "desc", "since": "0.1.0"}
+        ]
+        for name in components
+    }
+
+
+def _install_docs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *components: str
+) -> Path:
+    examples = tmp_path / "examples.md"
+    examples.write_text(_examples_doc(*components), encoding="utf-8")
+    monkeypatch.setattr(generate_readme, "EXAMPLES_PATH", examples)
+    # Point the components table at a missing file so only examples.md matters.
+    monkeypatch.setattr(generate_readme, "COMPONENTS_PATH", tmp_path / "absent.md")
+    return examples
+
+
+def test_generate_readme_guard_blocks_dropped_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plugin world that failed to register must not shrink the table."""
+    examples = _install_docs(tmp_path, monkeypatch, "Alpha", "MaxText_demo")
+    before = examples.read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        generate_readme.update_coverage_tables(_example_metadata("Alpha"), {})
+
+    message = str(exc_info.value)
+    assert "would remove rows" in message
+    assert "MaxText_demo" in message
+    assert "generate_readme.sh" in message
+    assert "--allow-removals" in message
+    assert examples.read_text(encoding="utf-8") == before
+
+
+def test_generate_readme_guard_allows_explicit_removals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    examples = _install_docs(tmp_path, monkeypatch, "Alpha", "Beta")
+
+    generate_readme.update_coverage_tables(
+        _example_metadata("Alpha"), {}, allow_removals=True
+    )
+
+    written = examples.read_text(encoding="utf-8")
+    assert "| Alpha |" in written
+    assert "| Beta |" not in written
+
+
+def test_generate_readme_guard_accepts_unchanged_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    examples = _install_docs(tmp_path, monkeypatch, "Alpha", "Beta")
+
+    generate_readme.update_coverage_tables(_example_metadata("Alpha", "Beta"), {})
+
+    written = examples.read_text(encoding="utf-8")
+    assert "| Alpha |" in written
+    assert "| Beta |" in written
+
+
+def test_generate_readme_row_labels_ignore_doc_url_changes() -> None:
+    """A moved doc URL is not a dropped row."""
+    old = "| [lax.empty](https://old.test/empty.html) | Constant | x | 0.15.0 |"
+    new = "| [lax.empty](https://new.test/empty.html) | Constant | x | 0.15.0 |"
+
+    assert generate_readme._row_labels(old) == {"lax.empty"}
+    assert generate_readme._row_labels(old) == generate_readme._row_labels(new)
+
+
+def test_generate_readme_row_labels_skip_headers_and_separators() -> None:
+    section = (
+        "| Component | Description | Testcases | Since |\n"
+        "|:----------|:------------|:----------|:------|\n"
+        "| Alpha | desc | x | 0.1.0 |\n"
+    )
+
+    assert generate_readme._row_labels(section) == {"Alpha"}
+
+
+def test_generate_readme_guard_rejects_missing_markers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file without the markers must fail loudly, not report a silent no-op."""
+    examples = tmp_path / "examples.md"
+    examples.write_text("# Examples\n\nno markers here\n", encoding="utf-8")
+    monkeypatch.setattr(generate_readme, "EXAMPLES_PATH", examples)
+    monkeypatch.setattr(generate_readme, "COMPONENTS_PATH", tmp_path / "absent.md")
+    before = examples.read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        generate_readme.update_coverage_tables(_example_metadata("Alpha"), {})
+
+    message = str(exc_info.value)
+    assert "markers are" in message
+    assert generate_readme.EXAMPLES_START_MARKER in message
+    assert examples.read_text(encoding="utf-8") == before
+
+
+def test_generate_readme_missing_markers_beat_allow_removals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--allow-removals must not turn a missing-marker file into a no-op write."""
+    examples = tmp_path / "examples.md"
+    examples.write_text("# Examples\n\nno markers here\n", encoding="utf-8")
+    monkeypatch.setattr(generate_readme, "EXAMPLES_PATH", examples)
+    monkeypatch.setattr(generate_readme, "COMPONENTS_PATH", tmp_path / "absent.md")
+
+    with pytest.raises(SystemExit):
+        generate_readme.update_coverage_tables(
+            _example_metadata("Alpha"), {}, allow_removals=True
+        )

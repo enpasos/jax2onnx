@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Final, cast
 import jax
 import jax.image as jimage
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from numpy.typing import ArrayLike
 
@@ -558,7 +559,7 @@ class ImageResizePlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(out_var, upsample_out)
             return
 
-        empty_f32 = np.asarray([], dtype=np.float32)
+        empty_f32: npt.NDArray[np.float32] = np.asarray([], dtype=np.float32)
         roi = ctx.builder.add_initializer_from_array(
             name=ctx.fresh_name("resize_roi"), array=empty_f32
         )

@@ -155,44 +155,31 @@ def test_register_original_rule_forwarding_respects_override_flag() -> None:
         ad.primitive_transposes.pop(new_prim, None)
 
 
+def _assert_own_rule(
+    rules: dict[Primitive, object], plugin_prim: Primitive, orig_prim: Primitive
+) -> None:
+    """Assert ``plugin_prim`` carries its own rule rather than ``orig_prim``'s.
+
+    The reference primitive may legitimately have no rule registered at all —
+    JAX 0.11 dropped the ``gather`` transpose rule — which trivially satisfies
+    the "not forwarded" invariant.
+    """
+
+    assert plugin_prim in rules, f"{plugin_prim.name} lost its own rule"
+    assert rules[plugin_prim] is not rules.get(orig_prim)
+
+
 def test_known_non_forwardable_primitives_keep_non_forwarded_ad_rules() -> None:
     import_all_plugins()
     with _activate_plugin_worlds():
-        assert (
-            ad.primitive_jvps[JnpWherePlugin._PRIM]
-            is not ad.primitive_jvps[lax.select_n_p]
-        )
-        assert (
-            ad.primitive_transposes[JnpWherePlugin._PRIM]
-            is not ad.primitive_transposes[lax.select_n_p]
-        )
-
-        assert (
-            ad.primitive_jvps[JnpSelectPlugin._PRIM]
-            is not ad.primitive_jvps[lax.select_n_p]
-        )
-        assert (
-            ad.primitive_transposes[JnpSelectPlugin._PRIM]
-            is not ad.primitive_transposes[lax.select_n_p]
-        )
-
-        assert (
-            ad.primitive_jvps[JnpTakePlugin._PRIM]
-            is not ad.primitive_jvps[lax.gather_p]
-        )
-        assert (
-            ad.primitive_transposes[JnpTakePlugin._PRIM]
-            is not ad.primitive_transposes[lax.gather_p]
-        )
-
-        assert (
-            ad.primitive_jvps[JnpStackPlugin._PRIM]
-            is not ad.primitive_jvps[lax.concatenate_p]
-        )
-        assert (
-            ad.primitive_transposes[JnpStackPlugin._PRIM]
-            is not ad.primitive_transposes[lax.concatenate_p]
-        )
+        for plugin_prim, orig_prim in (
+            (JnpWherePlugin._PRIM, lax.select_n_p),
+            (JnpSelectPlugin._PRIM, lax.select_n_p),
+            (JnpTakePlugin._PRIM, lax.gather_p),
+            (JnpStackPlugin._PRIM, lax.concatenate_p),
+        ):
+            _assert_own_rule(ad.primitive_jvps, plugin_prim, orig_prim)
+            _assert_own_rule(ad.primitive_transposes, plugin_prim, orig_prim)
 
 
 def test_add_uses_forwarded_original_ad_rules() -> None:

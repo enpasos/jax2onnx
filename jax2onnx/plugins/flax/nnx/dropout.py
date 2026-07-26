@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Any, Callable, ClassVar, Final, Optional, cast
 import numpy as np
+import numpy.typing as npt
 import logging
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
@@ -35,7 +36,7 @@ def _tp_to_numpy(tp: Any) -> Any:
         # Minimal dtype map for the scalars we use here (BOOL/FP32/FP64)
         dt_map = {1: np.float32, 11: np.float64, 9: np.bool_}
         dtype = dt_map.get(getattr(tp, "data_type", 0), np.uint8)
-        arr = np.frombuffer(tp.raw_data, dtype=dtype)
+        arr: npt.NDArray[Any] = np.frombuffer(tp.raw_data, dtype=dtype)
         shape = tuple(getattr(tp, "dims", ()))
         return arr.reshape(shape) if shape else (arr[0] if arr.size == 1 else arr)
     # Fallback to typed *_data fields
