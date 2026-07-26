@@ -373,3 +373,37 @@ def test_generate_readme_row_labels_skip_headers_and_separators() -> None:
     )
 
     assert generate_readme._row_labels(section) == {"Alpha"}
+
+
+def test_generate_readme_guard_rejects_missing_markers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file without the markers must fail loudly, not report a silent no-op."""
+    examples = tmp_path / "examples.md"
+    examples.write_text("# Examples\n\nno markers here\n", encoding="utf-8")
+    monkeypatch.setattr(generate_readme, "EXAMPLES_PATH", examples)
+    monkeypatch.setattr(generate_readme, "COMPONENTS_PATH", tmp_path / "absent.md")
+    before = examples.read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        generate_readme.update_coverage_tables(_example_metadata("Alpha"), {})
+
+    message = str(exc_info.value)
+    assert "markers are" in message
+    assert generate_readme.EXAMPLES_START_MARKER in message
+    assert examples.read_text(encoding="utf-8") == before
+
+
+def test_generate_readme_missing_markers_beat_allow_removals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--allow-removals must not turn a missing-marker file into a no-op write."""
+    examples = tmp_path / "examples.md"
+    examples.write_text("# Examples\n\nno markers here\n", encoding="utf-8")
+    monkeypatch.setattr(generate_readme, "EXAMPLES_PATH", examples)
+    monkeypatch.setattr(generate_readme, "COMPONENTS_PATH", tmp_path / "absent.md")
+
+    with pytest.raises(SystemExit):
+        generate_readme.update_coverage_tables(
+            _example_metadata("Alpha"), {}, allow_removals=True
+        )
