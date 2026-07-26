@@ -14,9 +14,9 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
-## Upcoming Version
+## Current Version
 
-### **jax2onnx 0.14.2**
+### **jax2onnx 0.15.0**
 
 * **Add deterministic RL policy exports:** Provide continuous-control and
   discrete-control `examples.rl` exports for the `obs -> action` deployment
@@ -30,27 +30,28 @@
   an integrated readiness check with checker status, strict shape-inference
   status, public dtype/shape summaries, initializer summaries, operator
   inventory, and public-dimension warnings without expanding the public API.
-
-## Current Version
-
-### **jax2onnx 0.14.1**
-
-* **Add targeted Opset 27 coverage:** Preserve the Opset 23 default while using
-  native FP16/BF16 `Range` for `opset=27` exports and keeping older exports on
-  the cast fallback; cover new JAX 0.10 resize methods where the ONNX mapping is
-  exact.
-* **Centralize JAX internal API compatibility:** Add a package-level JAX
-  compatibility layer, migrate direct `jax.core` / `jax.extend.core` usage
-  across converter and plugin code, and guard `Literal` resolution across JAX
-  layout differences so JAX internal API moves are handled in one place.
-* **Validate declared lower bounds in CI:** Raise the installable minimum JAX
-  version to `0.8.1` for Flax/NNX `0.12.1` compatibility, add a
-  minimum-dependency workflow job, and cover the lower-bound installer with
-  focused tests.
+* **Add JAX 0.11 support:** Track the `scan` parameter change from
+  `num_consts`/`num_carry` to the `ft_in`/`ft_out` flat-tree descriptors, guard
+  recursive jaxpr walks against the merged `ClosedJaxpr`/`Jaxpr` type whose
+  `.jaxpr` now returns itself, route the internal APIs dropped from `jax.core`
+  through the compatibility layer, and add an `empty` primitive plugin for the
+  new `jnp.empty` lowering.
+* **Accept the Flax `out_sharding` argument:** Let the `nnx.LinearGeneral`
+  monkey-patch accept and ignore the placement hint added in Flax `0.12.8`,
+  matching the existing `Linear` and `Conv` patches.
+* **Keep the pre-0.11 JAX path supported:** Leave the declared `jax>=0.8.1`
+  floor and the Python 3.11 test row in place; since JAX `0.11`, NumPy `2.5`,
+  and SciPy `1.18` all require Python 3.12, the 3.11 job now validates the full
+  suite against the older JAX stack through the same compatibility layer.
 * **Refresh the validation stack:** Update the documented runtime stack to JAX
-  `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, ONNX Runtime `1.27.0`, and keep
-  Web validation on the latest stable `onnxruntime-web` release until a matching
-  `1.27.x` Web package is published.
+  `0.11.0`, Flax `0.12.8`, ONNX Runtime `1.28.0`, and `onnxruntime-web`
+  `1.27.0`; pull the transitive `protobufjs` dev dependency up to `7.6.5` to
+  clear its advisories; and raise the pinned mypy to `1.20.2` with a `3.12`
+  type-check target, which the NumPy `2.5` stubs require.
+* **Guard the generated coverage tables:** Make `scripts/generate_readme.py`
+  abort instead of silently dropping documented rows when an optional plugin
+  world (MaxText, MaxDiffusion) is not registered, check every target before
+  writing any of them, and allow deliberate deletions via `--allow-removals`.
 
 ## Past Versions
 
