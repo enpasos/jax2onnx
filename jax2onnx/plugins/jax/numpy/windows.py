@@ -12,6 +12,7 @@ from jax2onnx._compat.jax import (
 )
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -52,7 +53,7 @@ def _window_impl(
 
 
 class _WindowBasePlugin(PrimitiveLeafPlugin):
-    _PRIM: ClassVar
+    _PRIM: ClassVar[Primitive]
     _FUNC_NAME: ClassVar[str]
     _ONNX_OP: ClassVar[str]
     _AFFINE_SCALE_BIAS: ClassVar[tuple[float, float] | None] = None
@@ -354,7 +355,7 @@ class JnpBartlettPlugin(PrimitiveLeafPlugin):
         dtype_param = np.dtype(params.get("dtype", np.float32))
 
         orig = get_orig_impl(self._PRIM, self._FUNC_NAME)
-        const_vals = np.asarray(orig(n_i), dtype=dtype_param)
+        const_vals: npt.NDArray[Any] = np.asarray(orig(n_i), dtype=dtype_param)
         ctx.bind_const_for_var(out_var, const_vals)
 
     @classmethod

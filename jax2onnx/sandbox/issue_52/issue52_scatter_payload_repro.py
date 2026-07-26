@@ -19,6 +19,8 @@ from enum import Enum
 
 import jax
 import jax.extend.core as jax_core_ext
+
+from jax2onnx._compat import jax as jax_compat
 import jax.numpy as jnp
 import numpy as np
 import onnx
@@ -56,7 +58,7 @@ def _deserialize_aval(desc: Dict[str, Any]) -> core.AbstractValue:
             tuple(desc["shape"]), dtype, weak_type=desc.get("weak_type", False)
         )
     if desc["type"] == "AbstractToken":
-        return core.AbstractToken()
+        return jax_compat.AbstractToken()
     raise TypeError(f"Unsupported aval description: {desc}")
 
 
@@ -147,7 +149,7 @@ def _deserialize_eqn(
     invars = [_deserialize_atom(atom, loader, var_map) for atom in desc["invars"]]
     outvars = [_deserialize_var(var, var_map) for var in desc["outvars"]]
     params = _sanitize_params(_deserialize_value(desc["params"], loader))
-    eqn = core.new_jaxpr_eqn(
+    eqn = jax_compat.new_jaxpr_eqn(
         invars,
         outvars,
         primitive,

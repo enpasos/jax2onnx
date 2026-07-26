@@ -19,6 +19,7 @@ import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
 
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -521,7 +522,7 @@ class RotaryPositionalEmbeddingPlugin(PrimitiveLeafPlugin):
                     raise ValueError(
                         f"x.shape[-1] must equal embedding_size ({embed} != {self.embedding_size})."
                     )
-                seq_len = jax_core.concrete_or_error(
+                seq_len = jax_compat.concrete_or_error(
                     int,
                     seq_len_raw,
                     "RotaryPositionalEmbedding requires a static sequence length.",

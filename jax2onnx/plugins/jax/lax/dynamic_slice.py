@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/dynamic_slice.py
 
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import jax
 import numpy as np
@@ -108,8 +108,9 @@ class DynamicSlicePlugin(PrimitiveLeafPlugin):
             if shape_val is not None:
                 return shape_val
             rank = _infer_rank(src, axis)
-            shape_val = ctx.builder.Shape(
-                src, _outputs=[ctx.fresh_name("dyn_slice_shape")]
+            shape_val = cast(
+                ir.Value,
+                ctx.builder.Shape(src, _outputs=[ctx.fresh_name("dyn_slice_shape")]),
             )
             shape_val.type = ir.TensorType(ir.DataType.INT64)
             _stamp_type_and_shape(shape_val, (rank,))

@@ -42,6 +42,28 @@ Keep these handy—most deep-dives live there instead of here.
   - No `jax_dynamic_shapes` auto-toggle.
   - Primitive parameters must be hashable; `construct_and_call(...).with_dtype(...)` constructs modules once per dtype.
   - Flax NNX requires attributes that hold arrays to be wrapped in `nnx.List` / `nnx.data`.
+- **Two supported stacks.** `jax>=0.11`, `numpy>=2.5` and `scipy>=1.18` all require
+  Python 3.12+, so the resolver pins Python 3.11 to the older `jax 0.10.2` stack.
+  Both must keep working — route version-sensitive APIs through
+  `jax2onnx/_compat/jax.py` instead of importing them directly.
+  (`[tool.mypy] python_version` is 3.12 because numpy's stubs need PEP 695 parsing.)
+- JAX 0.11 specifics:
+  - `ClosedJaxpr` **is** `Jaxpr`, and `Jaxpr.jaxpr` returns `self`. Recursive
+    "unwrap while it has `.jaxpr`" helpers must guard with `inner is not obj`
+    or they spin until `RecursionError`.
+  - `scan` replaced `num_consts`/`num_carry` with the `ft_in`/`ft_out` flat-tree
+    descriptors. Use `_compat.jax.scan_arity(params, len(jaxpr.invars))`; note
+    `ft_in` iterates over *leaves*, so the `(consts, carry, xs)` grouping is on
+    `.elts`. `while`/`cond` are unchanged; `fori_loop` lowers through `scan`.
+  - Removed from `jax.core` (use `jax.extend.core` / `jax.errors`):
+    `concrete_or_error`, `new_jaxpr_eqn`, `Literal`, `ClosedJaxpr`, `JaxprEqn`,
+    `AbstractToken`, `InconclusiveDimensionOperation`.
+  - `lax.gather_p` no longer registers a transpose rule.
+  - `jnp.empty` lowers via a new `empty` primitive rather than a zero
+    `broadcast_in_dim`.
+- Flax 0.12.8: `Linear`/`LinearGeneral`/`Conv`/`Einsum.__call__` take an
+  `out_sharding` kwarg. Monkey-patches must accept and ignore it — sharding is a
+  placement hint with no ONNX equivalent.
 
 ---
 
@@ -87,6 +109,11 @@ Keep these handy—most deep-dives live there instead of here.
 - Focused pytest: `poetry run pytest -q tests/path/test_file.py::TestClass::test_case`
 - Format touched Python files: `git diff --name-only -- '*.py' | xargs -r poetry run black`
 - Emit expect_graph snippets: `poetry run python scripts/emit_expect_graph.py <testcase>`
+- Regenerate coverage tables: `./scripts/generate_readme.sh` — use the wrapper,
+  not `scripts/generate_readme.py` directly. The wrapper prepares the optional
+  MaxText/MaxDiffusion checkouts; without them those components never register
+  and their rows would drop out of the tables. The script now refuses to write
+  in that case (override with `--allow-removals` only for real deletions).
 
 ---
 

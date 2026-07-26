@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import jax
 import jax.numpy as jnp
+import pytest
 from pytest import MonkeyPatch
 
 from jax2onnx._compat import jax as compat
@@ -37,3 +41,48 @@ def test_jax_compat_exposes_not_mapped_alias() -> None:
 def test_jax_compat_exposes_shape_equality_helper() -> None:
     assert compat.definitely_equal_shape((2, 3), (2, 3))
     assert not compat.definitely_equal_shape((2, 3), (2, 4))
+
+
+def test_jax_compat_concrete_or_error_returns_static_value() -> None:
+    assert compat.concrete_or_error(int, 7, "must be static") == 7
+
+
+def _scan_arity_of(fn: Any, *args: Any) -> tuple[int, int, int]:
+    closed = jax.make_jaxpr(fn)(*args)
+    for eqn in closed.jaxpr.eqns:
+        if eqn.primitive.name == "scan":
+            inner = eqn.params["jaxpr"]
+            return compat.scan_arity(eqn.params, len(inner.jaxpr.invars))
+    raise AssertionError("no scan equation found")
+
+
+def test_scan_arity_without_xs() -> None:
+    fn = lambda x: jax.lax.scan(  # noqa: E731
+        lambda carry, _: (carry + 1, carry), x, xs=None, length=5
+    )[1]
+    assert _scan_arity_of(fn, jnp.float32(0.0)) == (0, 1, 0)
+
+
+def test_scan_arity_with_consts_carry_and_xs() -> None:
+    const = jnp.ones((2,))
+
+    def fn(init: Any, xs: Any) -> Any:
+        def body(carry: Any, x: Any) -> Any:
+            a, b = carry
+            return (a + const + x, b + 1.0), a.sum()
+
+        return jax.lax.scan(body, init, xs)
+
+    arity = _scan_arity_of(fn, (jnp.ones((2,)), jnp.float32(0.0)), jnp.ones((4, 2)))
+    assert arity == (1, 2, 1)
+
+
+def test_scan_arity_falls_back_to_legacy_params() -> None:
+    # JAX <0.11 exposes integer counts instead of ``ft_in``.
+    params = {"num_consts": 2, "num_carry": 1}
+    assert compat.scan_arity(params, 5) == (2, 1, 2)
+
+
+def test_scan_arity_rejects_inconsistent_arity() -> None:
+    with pytest.raises(ValueError, match="Inconsistent Scan arity"):
+        compat.scan_arity({"num_consts": 2, "num_carry": 1}, 2)

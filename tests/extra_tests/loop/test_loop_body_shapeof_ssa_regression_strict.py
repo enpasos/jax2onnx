@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from jax.core import InconclusiveDimensionOperation
+from jax2onnx._compat.jax import InconclusiveDimensionOperation
 
 import onnx
 

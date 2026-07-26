@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Set, Tuple, TypeAlias, Union, cast
+from typing import List, Optional, Sequence, Set, Tuple, TypeAlias, Union
 
 import onnx_ir as ir
 
@@ -36,7 +36,7 @@ def _value_identity(
 
 
 def _node_outputs(n: ir.Node) -> ValueList:
-    return list(cast(ValueSeq, n.outputs))
+    return list(n.outputs)
 
 
 def _node_output(n: ir.Node) -> Optional[ir.Value]:

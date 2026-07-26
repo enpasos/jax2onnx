@@ -17,8 +17,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import nn
-import jax.core as jax_core
 
+from jax2onnx._compat import jax as jax_compat
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     FunctionPlugin,
@@ -111,7 +111,7 @@ def _resolve_seq_length(length: Any, query: jnp.ndarray) -> Any:
         return int(shape[1])
 
     try:
-        return jax_core.concrete_or_error(
+        return jax_compat.concrete_or_error(
             int,
             length,
             "RotaryEmbedding requires a static sequence length.",

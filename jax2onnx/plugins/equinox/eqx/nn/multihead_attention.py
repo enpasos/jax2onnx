@@ -14,6 +14,7 @@ from jax import lax
 import jax.core as jax_core
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from jax.extend.core import Primitive
 from jax.interpreters import batching
@@ -746,7 +747,9 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             if rank > 1:
                 if leading_static_dims is not None and feature_static is not None:
                     if leading_static_dims:
-                        leading_vals = np.asarray(leading_static_dims, dtype=np.int64)
+                        leading_vals: npt.NDArray[np.int64] = np.asarray(
+                            leading_static_dims, dtype=np.int64
+                        )
                         leading_dims = _const_i64(
                             ctx,
                             leading_vals,
@@ -767,7 +770,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
                     except Exception:
                         flatten_first_static = None
                     if flatten_first_static is not None:
-                        flatten_vals = np.asarray(
+                        flatten_vals: npt.NDArray[np.int64] = np.asarray(
                             [flatten_first_static, feature_static], dtype=np.int64
                         )
                     else:
@@ -987,7 +990,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             )
             reshape_shape: ir.Value
             if leading_static_dims:
-                reshape_vals = np.asarray(
+                reshape_vals: npt.NDArray[np.int64] = np.asarray(
                     tuple(int(dim) for dim in leading_static_dims) + tail_dims,
                     dtype=np.int64,
                 )
@@ -1431,7 +1434,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, context_trans)
 
         if q_batch_static is not None and q_seq_static is not None:
-            context_flat_vals = np.asarray(
+            context_flat_vals: npt.NDArray[np.int64] = np.asarray(
                 [q_batch_static * q_seq_static, num_heads * vo_size],
                 dtype=np.int64,
             )
@@ -1501,7 +1504,7 @@ class MultiheadAttentionPlugin(PrimitiveLeafPlugin):
             "mha_output_tail",
         )
         if query_leading_static is not None:
-            output_vals = np.asarray(
+            output_vals: npt.NDArray[np.int64] = np.asarray(
                 tuple(int(dim) for dim in query_leading_static) + (output_dim,),
                 dtype=np.int64,
             )

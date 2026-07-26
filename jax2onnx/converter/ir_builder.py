@@ -17,6 +17,7 @@ from typing import (
 )
 
 import numpy as np
+import numpy.typing as npt
 import onnx_ir as ir
 from onnx_ir._tape import Builder as _TapeBuilder
 from jax2onnx.ir_utils import (
@@ -407,7 +408,7 @@ class IRBuilder:
 
     # convenient I64 consts for shape ops
     def const_i64(self, name: str, values: Sequence[int]) -> ir.Value:
-        arr = np.asarray(values, dtype=np.int64)
+        arr: npt.NDArray[np.int64] = np.asarray(values, dtype=np.int64)
         return self.add_initializer_from_array(name, arr)
 
     # bind graph inputs from specs

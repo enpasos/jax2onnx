@@ -489,14 +489,6 @@ class JnpReshapePlugin(PrimitiveLeafPlugin):
 
             axis_idx = _find_axis_for_dim(dim, input_shape)
             if axis_idx is None:
-                if const_val == -1:
-                    val = _const_i64(
-                        ctx,
-                        np.asarray([-1], dtype=np.int64),
-                        f"reshape_dim_const_{idx}",
-                    )
-                    shape_components.append(val)
-                    continue
                 raise TypeError(
                     "reshape with symbolic dimensions requires mapping to input axes"
                 )
