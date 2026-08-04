@@ -631,6 +631,63 @@ def _conv(
             "post_check_onnx_graph": EXPECT_TCT,
         },
         {
+            "testcase": "conv_explicit_pair_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=((1, 2), (3, 4)),
+                use_bias=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 9, 13, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_scalar_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=1,
+                use_bias=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 8, 8, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
+            "testcase": "conv_per_axis_integer_padding",
+            "callable": construct_and_call(
+                nnx.Conv,
+                in_features=3,
+                out_features=8,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=(1, 2),
+                use_bias=True,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(1, 8, 8, 3)],
+            "run_only_f32_variant": True,
+            "expected_output_shapes": [(1, 8, 10, 8)],
+            "post_check_onnx_graph": EXPECT_TCT,
+        },
+        {
             "testcase": "conv_stride1",
             "callable": construct_and_call(
                 nnx.Conv,
@@ -1493,6 +1550,8 @@ class ConvPlugin(PrimitiveLeafPlugin):
                 left_pad = dilations[0] * (kernel_size[0] - 1)
                 x = jnp.pad(x, [(0, 0), (left_pad, 0), (0, 0)])
                 padding = "VALID"
+            elif isinstance(padding, list):
+                padding = tuple(tuple(int(v) for v in pair) for pair in padding)
 
             groups = int(getattr(self, "feature_group_count", 1))
             use_bias = bool(getattr(self, "use_bias", True))
