@@ -235,13 +235,18 @@ class SequentialPlugin(PrimitiveLeafPlugin):
             *,
             key: jax.Array | None = None,
         ) -> Any:
-            if state is not eqx_sequential.sentinel or key is not None:
+            if state is not eqx_sequential.sentinel:
                 return orig(self, x, state=state, key=key)
 
-            ops = _resolve_layer_ops(getattr(self, "layers", ()))
-            if ops is None:
-                return orig(self, x, state=state, key=key)
-            return cls._PRIM.bind(x, ops=ops)
+            layers = tuple(getattr(self, "layers", ()))
+            ops = _resolve_layer_ops(layers)
+            if ops is not None:
+                return cls._PRIM.bind(x, ops=ops)
+            if key is not None and all(
+                isinstance(layer, eqx.nn.Linear) for layer in layers
+            ):
+                return orig(self, x, state=state, key=None)
+            return orig(self, x, state=state, key=key)
 
         return wrapped
 
