@@ -118,3 +118,59 @@ def test_remove_redundant_reshapes_ir():
     assert graph_outputs == ["gelu_out"]
 
     assert "Reshape" not in after_types
+
+
+def test_reshape_pair_removal_refreshes_elementwise_rank_metadata() -> None:
+    input_val = _tensor_value("input", (1, 8, 4, 4))
+    reshape1_out = _tensor_value("r1_out", (1, 16, 8))
+    identity_out = _tensor_value("identity_out", (1, 16, 8))
+    reshape2_out = _tensor_value("r2_out", (1, 8, 4, 4))
+    required_out = _tensor_value("required_out", (1, 16, 8))
+
+    shape1, const1 = _const_vector("shape1", [1, 16, 8])
+    shape2, const2 = _const_vector("shape2", [1, 8, 4, 4])
+    shape3, const3 = _const_vector("shape3", [1, 16, 8])
+    reshape1 = ir.Node(
+        "", "Reshape", [input_val, shape1], (), outputs=[reshape1_out], name="reshape1"
+    )
+    identity = ir.Node(
+        "", "Identity", [reshape1_out], (), outputs=[identity_out], name="identity"
+    )
+    reshape2 = ir.Node(
+        "",
+        "Reshape",
+        [identity_out, shape2],
+        (),
+        outputs=[reshape2_out],
+        name="reshape2",
+    )
+    required_reshape = ir.Node(
+        "",
+        "Reshape",
+        [reshape2_out, shape3],
+        (),
+        outputs=[required_out],
+        name="required_reshape",
+    )
+    graph = ir.Graph(
+        inputs=[input_val],
+        outputs=[required_out],
+        nodes=[
+            const1,
+            const2,
+            const3,
+            reshape1,
+            identity,
+            reshape2,
+            required_reshape,
+        ],
+        name="rank_refresh_graph",
+    )
+
+    remove_redundant_reshape_pairs_ir(graph)
+
+    remaining = _node_list(graph)
+    assert not any(node.name in {"reshape1", "reshape2"} for node in remaining)
+    assert any(node.name == "required_reshape" for node in remaining)
+    assert tuple(identity_out.shape) == (1, 8, 4, 4)
+    assert _value_name(required_reshape.inputs[0]) == "identity_out"
