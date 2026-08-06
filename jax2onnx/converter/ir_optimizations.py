@@ -1520,6 +1520,8 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 ir.convenience.replace_all_uses_with(
                     t1_out, src, replace_graph_outputs=True
                 )
+                for node in allowed_fwd:
+                    _refresh_elementwise_output_shape(node)
                 new_src = _node_output(last_allowed) or src
             else:
                 new_src = src
