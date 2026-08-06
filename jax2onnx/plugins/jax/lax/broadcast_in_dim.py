@@ -332,7 +332,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         bdims = tuple(eqn.params["broadcast_dimensions"])
         axis0_in_bdims = 0 in bdims
 
-        hints = getattr(ctx, "_scatter_window_hints", None)
         use_loop_hints = bool(getattr(ctx, "_loop_extent_hints_enabled", False))
         loop_extents = (
             getattr(ctx, "_loop_extent_hints", None) if use_loop_hints else None
@@ -350,7 +349,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 return cast(ir.Value, values[-1])
             return cast(ir.Value, values)
 
-        allow_hints = bool(bdims)
         allow_loop_hints = bool(loop_extents)
 
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("bcast_in"))
@@ -405,14 +403,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
         ):
             return
 
-        def _peek_scatter_hint(axis: int) -> ir.Value | None:
-            if not isinstance(hints, dict):
-                return None
-            values = hints.get(axis)
-            if not values:
-                return None
-            return cast(ir.Value, values[-1])
-
         # Build target shape as a 1-D INT64 tensor, supporting symbolic dims.
         # Each dimension becomes a length-1 vector; we Concat along axis=0.
         dim_pieces: list[ir.Value] = []
@@ -465,7 +455,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 continue
             if (
                 axis not in bdims
-                and (allow_hints or allow_loop_hints)
+                and allow_loop_hints
                 and not (axis == 0 and isinstance(d, (int, np.integer)))
             ):
                 force_loop_axis0 = bool(
@@ -476,8 +466,6 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                 override_val = None
                 if force_loop_axis0:
                     override_val = _loop_hint(axis)
-                    if override_val is None and hints:
-                        override_val = _peek_scatter_hint(axis)
                     if debug:
                         print(
                             "[broadcast_hint_check]",
@@ -489,9 +477,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                             flush=True,
                         )
                 else:
-                    override_val = _peek_scatter_hint(axis) if hints else None
-                    if override_val is None:
-                        override_val = _loop_hint(axis)
+                    override_val = _loop_hint(axis)
                     if debug:
                         print(
                             "[broadcast_hint_check]",
@@ -596,14 +582,8 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     axis == 0 and axis not in bdims and out_axis0_static is not None
                 )
                 override_val = None
-                if (
-                    axis not in bdims
-                    and axis_hint_allowed
-                    and (allow_hints or allow_loop_hints)
-                ):
-                    override_val = _peek_scatter_hint(axis) if hints else None
-                    if override_val is None:
-                        override_val = _loop_hint(axis)
+                if axis not in bdims and axis_hint_allowed and allow_loop_hints:
+                    override_val = _loop_hint(axis)
                 if override_val is not None:
                     reshape_dim_pieces.append(override_val)
                     continue

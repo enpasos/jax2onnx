@@ -1200,30 +1200,8 @@ def _lower_scatter_window_full(
         window_shape_val,
         window_total_vec,
         _,
-        size_unsqueezed,
+        _,
     ) = _compute_window_sizes(ctx, updates_val, operand_rank, operand_to_update_full)
-
-    hints = getattr(ctx, "_scatter_window_hints", None)
-    if hints is None or not isinstance(hints, dict):
-        hints = {}
-        setattr(ctx, "_scatter_window_hints", hints)
-    for axis in range(operand_rank):
-        if axis in scatter_axes:
-            continue
-        hints.setdefault(axis, []).append(size_unsqueezed[axis])
-        if os.environ.get("J2O_DEBUG_SCATTER_HINTS") == "1":
-            try:
-                val = size_unsqueezed[axis]
-                dims = getattr(getattr(val, "shape", None), "dims", None)
-                print(
-                    "[scatter_hint]",
-                    axis,
-                    getattr(val, "name", None),
-                    dims,
-                    flush=True,
-                )
-            except Exception:
-                pass
 
     updates_rank = len(updates_shape)
     window_axes_update = {

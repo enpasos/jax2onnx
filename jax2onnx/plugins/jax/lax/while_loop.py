@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -23,6 +23,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
 )
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -72,6 +73,17 @@ def _loop_single(x: Any) -> Any:
     """Scalar accumulator loop used by while-loop metadata tests."""
 
     return jax.lax.while_loop(lambda v: v < 3, lambda v: v + 1, x)
+
+
+def _vmapped_loop_with_masked_state(x: Any) -> Any:
+    def loop(value: Any) -> Any:
+        return jax.lax.while_loop(
+            lambda current: jnp.mean(current) < 3.0,
+            lambda current: current + 1.0,
+            value,
+        )
+
+    return jax.vmap(loop)(x)
 
 
 def _loop_two_state(x: Any) -> Any:
@@ -213,6 +225,44 @@ def _evaluate_closed_jaxpr(
     return outputs
 
 
+def _reduce_bool_any(
+    ctx: LoweringContextProtocol,
+    value: ir.Value,
+    *,
+    rank: int,
+    name_hint: str,
+) -> ir.Value:
+    value = ensure_bool_value(ctx, value, name_hint=f"{name_hint}_bool")
+    value_i64 = builder_cast(
+        ctx,
+        value,
+        ir.DataType.INT64,
+        name_hint=f"{name_hint}_i64",
+    )
+    axes = _const_i64(ctx, list(range(rank)), f"{name_hint}_axes")
+    reduced = cast(
+        ir.Value,
+        ctx.builder.ReduceMax(
+            value_i64,
+            axes,
+            keepdims=0,
+            _outputs=[ctx.fresh_name(f"{name_hint}_reduce")],
+        ),
+    )
+    reduced.type = ir.TensorType(ir.DataType.INT64)
+    _stamp_type_and_shape(reduced, ())
+    _ensure_value_metadata(ctx, reduced)
+    result = builder_cast(
+        ctx,
+        reduced,
+        ir.DataType.BOOL,
+        name_hint=f"{name_hint}_result",
+    )
+    _stamp_type_and_shape(result, ())
+    _ensure_value_metadata(ctx, result)
+    return result
+
+
 def _build_loop_body_graph(
     ctx: LoweringContextProtocol,
     cond_cj: Any,
@@ -220,6 +270,8 @@ def _build_loop_body_graph(
     *,
     body_const_template: Sequence[ir.Value],
     state_template: Sequence[ir.Value],
+    predicate_template: ir.Value | None = None,
+    predicate_shape: tuple[Any, ...] = (),
 ) -> ir.Graph:
     body_ctx = make_subgraph_context(ctx, prefix="while_body")
 
@@ -227,6 +279,15 @@ def _build_loop_body_graph(
         body_ctx,
         prefix="while_body",
     )
+
+    predicate_input: ir.Value | None = None
+    if predicate_template is not None:
+        predicate_input = clone_value_for_subgraph(
+            body_ctx,
+            predicate_template,
+            name_hint="loop_predicate_in",
+        )
+        body_ctx.builder.inputs.append(predicate_input)
 
     body_jaxpr, body_consts = _unwrap_closed_jaxpr(body_cj)
     _bind_closed_jaxpr_consts(body_ctx, body_jaxpr, body_consts)
@@ -270,13 +331,13 @@ def _build_loop_body_graph(
 
     lower_jaxpr_eqns(body_ctx, body_jaxpr, source="while_loop_body")
 
-    state_outputs = [
+    state_candidates = [
         body_ctx.get_value_for_var(
             out_var, name_hint=body_ctx.fresh_name("loop_state_out")
         )
         for out_var in body_jaxpr.outvars
     ]
-    for out_var, out_val in zip(body_jaxpr.outvars, state_outputs):
+    for out_var, out_val in zip(body_jaxpr.outvars, state_candidates):
         aval = getattr(out_var, "aval", None)
         if aval is not None:
             shape = tuple(getattr(aval, "shape", ()))
@@ -288,6 +349,65 @@ def _build_loop_body_graph(
             _stamp_type_and_shape(out_val, shape)
             _ensure_value_metadata(body_ctx, out_val)
 
+    if predicate_input is None:
+        state_outputs = state_candidates
+    else:
+        predicate_rank = len(predicate_shape)
+        state_outputs = []
+        for out_var, candidate, previous in zip(
+            body_jaxpr.outvars, state_candidates, state_inputs
+        ):
+            state_shape = tuple(getattr(out_var.aval, "shape", ()))
+            if len(state_shape) < predicate_rank:
+                raise NotImplementedError(
+                    "vmapped while_loop state rank must be at least the predicate rank"
+                )
+            for predicate_dim, state_dim in zip(predicate_shape, state_shape):
+                if (
+                    isinstance(predicate_dim, (int, np.integer))
+                    and isinstance(state_dim, (int, np.integer))
+                    and int(predicate_dim) != int(state_dim)
+                ):
+                    raise NotImplementedError(
+                        "vmapped while_loop state must start with predicate dimensions"
+                    )
+
+            mask = predicate_input
+            if len(state_shape) > predicate_rank:
+                axes = _const_i64(
+                    body_ctx,
+                    list(range(predicate_rank, len(state_shape))),
+                    "loop_predicate_unsqueeze_axes",
+                )
+                mask = cast(
+                    ir.Value,
+                    body_ctx.builder.Unsqueeze(
+                        predicate_input,
+                        axes,
+                        _outputs=[body_ctx.fresh_name("loop_predicate_mask")],
+                    ),
+                )
+                mask.type = ir.TensorType(ir.DataType.BOOL)
+                mask_shape = predicate_shape + (1,) * (
+                    len(state_shape) - predicate_rank
+                )
+                _stamp_type_and_shape(mask, mask_shape)
+                _ensure_value_metadata(body_ctx, mask)
+
+            masked = cast(
+                ir.Value,
+                body_ctx.builder.Where(
+                    mask,
+                    candidate,
+                    previous,
+                    _outputs=[body_ctx.fresh_name("loop_masked_state")],
+                ),
+            )
+            masked.type = candidate.type
+            _stamp_type_and_shape(masked, state_shape)
+            _ensure_value_metadata(body_ctx, masked)
+            state_outputs.append(masked)
+
     for var, val in zip(cond_jaxpr.invars, state_outputs):
         body_ctx.bind_value_for_var(var, val)
 
@@ -296,6 +416,18 @@ def _build_loop_body_graph(
         cond_jaxpr.outvars[0], name_hint=body_ctx.fresh_name("loop_cond_out")
     )
     cond_out = ensure_bool_value(body_ctx, cond_out, name_hint="loop_cond_bool")
+
+    predicate_output: ir.Value | None = None
+    if predicate_input is not None:
+        predicate_output = cond_out
+        _stamp_type_and_shape(predicate_output, predicate_shape)
+        _ensure_value_metadata(body_ctx, predicate_output)
+        cond_out = _reduce_bool_any(
+            body_ctx,
+            predicate_output,
+            rank=len(predicate_shape),
+            name_hint="loop_cond_any",
+        )
 
     const_outputs: list[ir.Value] = []
     for tmpl_in, tmpl_val in zip(const_inputs, body_const_template):
@@ -310,7 +442,11 @@ def _build_loop_body_graph(
         _ensure_value_metadata(body_ctx, passthrough)
         const_outputs.append(passthrough)
 
-    body_ctx.builder.outputs = [cond_out] + const_outputs + state_outputs
+    body_ctx.builder.outputs = [cond_out]
+    if predicate_output is not None:
+        body_ctx.builder.outputs.append(predicate_output)
+    body_ctx.builder.outputs.extend(const_outputs)
+    body_ctx.builder.outputs.extend(state_outputs)
 
     body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
     body_graph.name = ctx.fresh_name("while_body")
@@ -329,7 +465,15 @@ def _build_loop_body_graph(
         {
             "component": "Loop",
             "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html",
-        }
+        },
+        {
+            "component": "ReduceMax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+        },
+        {
+            "component": "Where",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Where.html",
+        },
     ],
     since="0.5.1",
     context="primitives.lax",
@@ -732,6 +876,17 @@ def _build_loop_body_graph(
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "while_loop_vmap_masked_state",
+            "callable": _vmapped_loop_with_masked_state,
+            "input_values": [np.asarray([[1.0, 1.0], [2.5, 2.5]], dtype=np.float32)],
+            "opset_version": 18,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["ReduceMax -> Cast -> Loop"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class WhileLoopPlugin(PrimitiveLeafPlugin):
@@ -768,9 +923,24 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         )
         if not cond_init:
             raise RuntimeError("while_loop cond_jaxpr produced no outputs")
-        cond_init_val = ensure_bool_value(
+        predicate_init = ensure_bool_value(
             ctx, cond_init[0], name_hint="while_cond_bool"
         )
+
+        cond_jaxpr, _ = _unwrap_closed_jaxpr(cond_cj)
+        predicate_shape = tuple(
+            getattr(getattr(cond_jaxpr.outvars[0], "aval", None), "shape", ())
+        )
+        batched_condition = bool(predicate_shape)
+        if batched_condition:
+            cond_init_val = _reduce_bool_any(
+                ctx,
+                predicate_init,
+                rank=len(predicate_shape),
+                name_hint="while_cond_any",
+            )
+        else:
+            cond_init_val = predicate_init
 
         body_graph = _build_loop_body_graph(
             ctx,
@@ -778,6 +948,8 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             body_cj,
             body_const_template=body_const_vals,
             state_template=state_vals,
+            predicate_template=predicate_init if batched_condition else None,
+            predicate_shape=predicate_shape,
         )
 
         trip_count = ctx.builder.add_initializer_from_array(
@@ -785,11 +957,16 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             array=np.asarray(np.iinfo(np.int64).max, dtype=np.int64),
         )
 
-        loop_inputs = (
-            [trip_count, cond_init_val] + list(body_const_vals) + list(state_vals)
-        )
+        loop_inputs = [trip_count, cond_init_val]
+        if batched_condition:
+            loop_inputs.append(predicate_init)
+        loop_inputs.extend(body_const_vals)
+        loop_inputs.extend(state_vals)
 
-        output_names = [ctx.fresh_name("while_const_out") for _ in body_const_vals]
+        output_names: list[str] = []
+        if batched_condition:
+            output_names.append(ctx.fresh_name("while_predicate_out"))
+        output_names.extend(ctx.fresh_name("while_const_out") for _ in body_const_vals)
         output_names.extend(ctx.fresh_name("while_out") for _ in eqn.outvars)
 
         loop_outputs = builder_loop(
@@ -802,8 +979,11 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         if not isinstance(loop_outputs, tuple):
             loop_outputs = (loop_outputs,)
 
-        const_outputs = loop_outputs[: len(body_const_vals)]
-        value_outputs = loop_outputs[len(body_const_vals) :]
+        output_offset = int(batched_condition)
+        const_outputs = loop_outputs[
+            output_offset : output_offset + len(body_const_vals)
+        ]
+        value_outputs = loop_outputs[output_offset + len(body_const_vals) :]
 
         for const_val, const_out in zip(body_const_vals, const_outputs):
             dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
