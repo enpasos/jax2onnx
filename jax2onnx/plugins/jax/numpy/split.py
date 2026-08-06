@@ -78,8 +78,8 @@ def _split_sizes(
     if sorted(indices) != indices:
         raise ValueError("split indices must be sorted")
     diffs = [indices[i + 1] - indices[i] for i in range(len(indices) - 1)]
-    if any(d <= 0 for d in diffs):
-        raise ValueError("split sizes must be positive")
+    if any(d < 0 for d in diffs):
+        raise ValueError("split sizes must be non-negative")
     return tuple(diffs)
 
 
@@ -91,8 +91,8 @@ def _resolve_split_sizes(
 ) -> tuple[int, ...]:
     if sizes is not None:
         sizes_tuple = _to_int_sequence(sizes)
-        if any(sz <= 0 for sz in sizes_tuple):
-            raise ValueError("split sizes must be positive")
+        if any(sz < 0 for sz in sizes_tuple):
+            raise ValueError("split sizes must be non-negative")
         if sum(sizes_tuple) != int(dim_size):
             raise ValueError(
                 f"split sizes {sizes_tuple} do not sum to axis size {dim_size}"
@@ -395,8 +395,16 @@ def _split_batch_rule(
 ) -> tuple[tuple[jax.Array, ...], tuple[BatchDim, ...]]:
     (arr,) = batched_args
     (arr_bdim,) = batch_dims
-    axis_int = _normalize_axis(axis, arr.ndim)
-    dim = arr.shape[axis_int]
+    if arr_bdim is None:
+        actual_axis = _normalize_axis(axis, arr.ndim)
+        output_bdim = None
+    else:
+        logical_rank = arr.ndim - 1
+        logical_axis = _normalize_axis(axis, logical_rank)
+        actual_axis = logical_axis + int(arr_bdim <= logical_axis)
+        output_bdim = arr_bdim
+
+    dim = arr.shape[actual_axis]
     if not isinstance(dim, int):
         raise TypeError("jnp.split requires concrete size along split axis in IR path")
     sizes_tuple = _resolve_split_sizes(
@@ -405,36 +413,8 @@ def _split_batch_rule(
         indices_or_sections=indices_or_sections,
     )
 
-    outputs = tuple(jax.lax.split(arr, sizes_tuple, axis=axis_int))
-    if arr_bdim is None:
-        return outputs, tuple(None for _ in outputs)
-    arr_bdim_int = arr_bdim
-
-    axis_size = None
-    arr_shape = getattr(arr, "shape", None)
-    if arr_shape is not None and arr_bdim_int < len(arr_shape):
-        axis_size = arr_shape[arr_bdim_int]
-
-    arr_front = batching.bdim_at_front(arr, arr_bdim_int, axis_size)
-
-    if arr_bdim_int == axis_int:
-        inner_axis = axis_int
-    elif arr_bdim_int < axis_int:
-        inner_axis = axis_int - 1
-    else:
-        inner_axis = axis_int
-
-    def _split_single(x: jax.Array) -> tuple[jax.Array, ...]:
-        return tuple(jax.lax.split(x, sizes_tuple, axis=inner_axis))
-
-    vmapped = jax.vmap(_split_single)(arr_front)
-
-    results = []
-    for part in vmapped:
-        if arr_bdim_int != 0:
-            part = jnp.moveaxis(part, 0, arr_bdim_int)
-        results.append(part)
-    return tuple(results), tuple(arr_bdim_int for _ in results)
+    outputs = tuple(jax.lax.split(arr, sizes_tuple, axis=actual_axis))
+    return outputs, tuple(output_bdim for _ in outputs)
 
 
 batching.primitive_batchers[JnpSplitPlugin._PRIM] = _split_batch_rule
