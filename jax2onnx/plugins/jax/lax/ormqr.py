@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.householder_product import (
@@ -19,8 +20,8 @@ from jax2onnx.plugins.jax.lax.householder_product import (
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
-_ORMQR_PRIMITIVE = getattr(jax.lax.linalg, "ormqr_p", None)
-_ORMQR_PRIMITIVE_NAME = getattr(_ORMQR_PRIMITIVE, "name", "")
+_ORMQR_PRIMITIVE: Primitive | None = getattr(jax.lax.linalg, "ormqr_p", None)
+_ORMQR_PRIMITIVE_NAME: str = getattr(_ORMQR_PRIMITIVE, "name", "")
 
 
 def _make_householder_vector(
