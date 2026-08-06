@@ -33,6 +33,7 @@ _EQX_GROUP_NORM_NO_AFFINE: Final[eqx.nn.GroupNorm] = eqx.nn.GroupNorm(
     channelwise_affine=False,
 )
 EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
+EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
 
 
 @register_primitive(
@@ -42,7 +43,16 @@ EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
         {
             "component": "GroupNormalization",
             "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
-        }
+        },
+        {
+            "component": "ReduceMean",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
+        },
+        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+        {
+            "component": "Reshape",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
+        },
     ],
     since="0.12.2",
     context="primitives.eqx",
@@ -61,6 +71,14 @@ EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
             "input_shapes": [(8, 4, 4)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_PLAIN,
+        },
+        {
+            "testcase": "eqx_group_norm_opset18",
+            "callable": _EQX_GROUP_NORM,
+            "input_shapes": [(8, 4, 4)],
+            "run_only_f32_variant": True,
+            "opset_version": 18,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
         },
     ],
 )
@@ -149,9 +167,27 @@ def _group_norm_batch_rule(
     dims: Sequence[Any],
     **params: Any,
 ) -> Any:
-    from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
+    x, scale, bias = args
+    x_bdim, scale_bdim, bias_bdim = dims
+    if scale_bdim is not None or bias_bdim is not None:
+        raise NotImplementedError(
+            "vmapped Equinox GroupNorm requires unmapped scale and bias"
+        )
 
-    return broadcast_batcher_compat(GroupNormPlugin._PRIM, args, dims, **params)
+    if x_bdim is None:
+        return GroupNormPlugin._PRIM.bind(x, scale, bias, **params), None
+
+    logical_rank = x.ndim - 1
+    channel_axis = int(params["channel_axis"])
+    if channel_axis < 0:
+        channel_axis += logical_rank
+    if channel_axis < 0 or channel_axis >= logical_rank:
+        raise ValueError("channel_axis out of range for vmapped GroupNorm")
+    physical_channel_axis = channel_axis + int(x_bdim <= channel_axis)
+    bound_params = dict(params)
+    bound_params["channel_axis"] = physical_channel_axis
+    out = GroupNormPlugin._PRIM.bind(x, scale, bias, **bound_params)
+    return out, x_bdim
 
 
 batching.primitive_batchers[GroupNormPlugin._PRIM] = _group_norm_batch_rule

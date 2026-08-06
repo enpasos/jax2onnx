@@ -6,6 +6,7 @@ from typing import Any, Callable, ClassVar, Final, Sequence, cast
 import jax
 import jax.numpy as jnp
 from flax import nnx
+import numpy as np
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import (
@@ -28,6 +29,7 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 GROUP_NORM_PRIM: Final[Primitive] = Primitive("nnx.group_norm")
 GROUP_NORM_PRIM.multiple_results = False
@@ -56,6 +58,21 @@ EXPECT_GROUP_NORM_TRANSPOSED: Final = EG(
                 "counts": {
                     "GroupNormalization": 1,
                     "Transpose": 2,
+                }
+            },
+        )
+    ]
+)
+
+
+EXPECT_GROUP_NORM_FALLBACK: Final = EG(
+    [
+        (
+            "Reshape -> ReduceMean",
+            {
+                "counts": {
+                    "GroupNormalization": 0,
+                    "ReduceMean": 2,
                 }
             },
         )
@@ -264,6 +281,15 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             raise ValueError("GroupNorm requires tensor inputs")
         if channel_axis < 0:
             channel_axis += rank
+        if channel_axis < 0 or channel_axis >= rank:
+            raise ValueError("channel_axis out of range for GroupNorm")
+
+        channels = x_shape[channel_axis]
+        if not isinstance(channels, (int, np.integer)):
+            raise TypeError("GroupNorm requires a static channel dimension")
+        channels_int = int(channels)
+        if channels_int % num_groups != 0:
+            raise ValueError("num_groups must divide the channel dimension")
 
         # Prepare permutation to make channel axis = 1 (NCHW-like) when needed
         need_layout_convert = rank > 2 and channel_axis != 1
@@ -315,21 +341,249 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(gn_input, nchw_dims)
             _ensure_value_metadata(ctx, gn_input)
 
-        gn_out = cast(
-            ir.Value,
-            builder.GroupNormalization(
-                gn_input,
-                scale_val,
-                bias_val,
-                epsilon=float(epsilon),
-                num_groups=int(num_groups),
-                _outputs=[ctx.fresh_name("GroupNorm")],
-            ),
-        )
-        if x_ir_dtype is not None:
-            gn_out.type = ir.TensorType(x_ir_dtype)
-        _stamp_type_and_shape(gn_out, nchw_dims if need_layout_convert else nhwc_dims)
-        _ensure_value_metadata(ctx, gn_out)
+        normalized_dims = nchw_dims if need_layout_convert else nhwc_dims
+
+        def _stamp_x(value: ir.Value, dims: Sequence[Any]) -> ir.Value:
+            if x_ir_dtype is not None:
+                value.type = ir.TensorType(x_ir_dtype)
+            _stamp_type_and_shape(value, tuple(dims))
+            _ensure_value_metadata(ctx, value)
+            return value
+
+        opset = int(getattr(builder, "opset", 21))
+        if opset >= 21:
+            gn_out = cast(
+                ir.Value,
+                builder.GroupNormalization(
+                    gn_input,
+                    scale_val,
+                    bias_val,
+                    epsilon=float(epsilon),
+                    num_groups=int(num_groups),
+                    _outputs=[ctx.fresh_name("GroupNorm")],
+                ),
+            )
+            _stamp_x(gn_out, normalized_dims)
+        else:
+            shape_val = cast(
+                ir.Value,
+                builder.Shape(
+                    gn_input,
+                    _outputs=[ctx.fresh_name("gn_input_shape")],
+                ),
+            )
+            shape_val.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(shape_val, (rank,))
+            _ensure_value_metadata(ctx, shape_val)
+
+            slice_start = _const_i64(ctx, [0], name_hint="gn_shape_start")
+            slice_batch_end = _const_i64(ctx, [1], name_hint="gn_batch_end")
+            slice_axes = _const_i64(ctx, [0], name_hint="gn_shape_axes")
+            slice_steps = _const_i64(ctx, [1], name_hint="gn_shape_steps")
+            batch_dim = cast(
+                ir.Value,
+                builder.Slice(
+                    shape_val,
+                    slice_start,
+                    slice_batch_end,
+                    slice_axes,
+                    slice_steps,
+                    _outputs=[ctx.fresh_name("gn_batch_dim")],
+                ),
+            )
+            batch_dim.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(batch_dim, (1,))
+            _ensure_value_metadata(ctx, batch_dim)
+
+            group_dims = _const_i64(
+                ctx,
+                [num_groups, channels_int // num_groups],
+                name_hint="gn_group_dims",
+            )
+            grouped_shape_parts = [batch_dim, group_dims]
+            if rank > 2:
+                spatial_start = _const_i64(ctx, [2], name_hint="gn_spatial_start")
+                spatial_end = _const_i64(ctx, [rank], name_hint="gn_spatial_end")
+                spatial_dims = cast(
+                    ir.Value,
+                    builder.Slice(
+                        shape_val,
+                        spatial_start,
+                        spatial_end,
+                        slice_axes,
+                        slice_steps,
+                        _outputs=[ctx.fresh_name("gn_spatial_dims")],
+                    ),
+                )
+                spatial_dims.type = ir.TensorType(ir.DataType.INT64)
+                _stamp_type_and_shape(spatial_dims, (rank - 2,))
+                _ensure_value_metadata(ctx, spatial_dims)
+                grouped_shape_parts.append(spatial_dims)
+
+            grouped_shape = cast(
+                ir.Value,
+                builder.Concat(
+                    *grouped_shape_parts,
+                    axis=0,
+                    _outputs=[ctx.fresh_name("gn_grouped_shape")],
+                ),
+            )
+            grouped_shape.type = ir.TensorType(ir.DataType.INT64)
+            _stamp_type_and_shape(grouped_shape, (rank + 1,))
+            _ensure_value_metadata(ctx, grouped_shape)
+
+            grouped_dims = (
+                normalized_dims[0],
+                num_groups,
+                channels_int // num_groups,
+                *normalized_dims[2:],
+            )
+            grouped = cast(
+                ir.Value,
+                builder.Reshape(
+                    gn_input,
+                    grouped_shape,
+                    _outputs=[ctx.fresh_name("gn_grouped")],
+                ),
+            )
+            _stamp_x(grouped, grouped_dims)
+
+            reduce_axes = _const_i64(
+                ctx,
+                tuple(range(2, rank + 1)),
+                name_hint="gn_reduce_axes",
+            )
+            reduced_dims = (*grouped_dims[:2], *((1,) * (rank - 1)))
+            mean = cast(
+                ir.Value,
+                builder.ReduceMean(
+                    grouped,
+                    reduce_axes,
+                    keepdims=1,
+                    _outputs=[ctx.fresh_name("gn_mean")],
+                ),
+            )
+            _stamp_x(mean, reduced_dims)
+
+            centered = cast(
+                ir.Value,
+                builder.Sub(
+                    grouped,
+                    mean,
+                    _outputs=[ctx.fresh_name("gn_centered")],
+                ),
+            )
+            _stamp_x(centered, grouped_dims)
+
+            squared = cast(
+                ir.Value,
+                builder.Mul(
+                    centered,
+                    centered,
+                    _outputs=[ctx.fresh_name("gn_squared")],
+                ),
+            )
+            _stamp_x(squared, grouped_dims)
+
+            variance = cast(
+                ir.Value,
+                builder.ReduceMean(
+                    squared,
+                    reduce_axes,
+                    keepdims=1,
+                    _outputs=[ctx.fresh_name("gn_variance")],
+                ),
+            )
+            _stamp_x(variance, reduced_dims)
+
+            x_np_dtype = np.dtype(
+                getattr(getattr(x_var, "aval", None), "dtype", np.float32)
+            )
+            eps_val = ctx.bind_const_for_var(
+                object(), np.asarray(epsilon, dtype=x_np_dtype)
+            )
+            variance_eps = cast(
+                ir.Value,
+                builder.Add(
+                    variance,
+                    eps_val,
+                    _outputs=[ctx.fresh_name("gn_variance_eps")],
+                ),
+            )
+            _stamp_x(variance_eps, reduced_dims)
+
+            stddev = cast(
+                ir.Value,
+                builder.Sqrt(
+                    variance_eps,
+                    _outputs=[ctx.fresh_name("gn_stddev")],
+                ),
+            )
+            _stamp_x(stddev, reduced_dims)
+
+            normalized_grouped = cast(
+                ir.Value,
+                builder.Div(
+                    centered,
+                    stddev,
+                    _outputs=[ctx.fresh_name("gn_normalized_grouped")],
+                ),
+            )
+            _stamp_x(normalized_grouped, grouped_dims)
+
+            normalized = cast(
+                ir.Value,
+                builder.Reshape(
+                    normalized_grouped,
+                    shape_val,
+                    _outputs=[ctx.fresh_name("gn_normalized")],
+                ),
+            )
+            _stamp_x(normalized, normalized_dims)
+
+            affine_shape = _const_i64(
+                ctx,
+                [1, channels_int, *([1] * (rank - 2))],
+                name_hint="gn_affine_shape",
+            )
+            affine_dims = (1, channels_int, *([1] * (rank - 2)))
+            scale_broadcast = cast(
+                ir.Value,
+                builder.Reshape(
+                    scale_val,
+                    affine_shape,
+                    _outputs=[ctx.fresh_name("gn_scale")],
+                ),
+            )
+            _stamp_x(scale_broadcast, affine_dims)
+            bias_broadcast = cast(
+                ir.Value,
+                builder.Reshape(
+                    bias_val,
+                    affine_shape,
+                    _outputs=[ctx.fresh_name("gn_bias")],
+                ),
+            )
+            _stamp_x(bias_broadcast, affine_dims)
+
+            scaled = cast(
+                ir.Value,
+                builder.Mul(
+                    normalized,
+                    scale_broadcast,
+                    _outputs=[ctx.fresh_name("gn_scaled")],
+                ),
+            )
+            _stamp_x(scaled, normalized_dims)
+            gn_out = cast(
+                ir.Value,
+                builder.Add(
+                    scaled,
+                    bias_broadcast,
+                    _outputs=[ctx.fresh_name("GroupNorm")],
+                ),
+            )
+            _stamp_x(gn_out, normalized_dims)
 
         if need_layout_convert:
             final_val = cast(
