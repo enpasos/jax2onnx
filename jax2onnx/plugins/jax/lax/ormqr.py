@@ -19,6 +19,10 @@ from jax2onnx.plugins.jax.lax.householder_product import (
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
+_ORMQR_PRIMITIVE = getattr(jax.lax.linalg, "ormqr_p", None)
+_ORMQR_PRIMITIVE_NAME = getattr(_ORMQR_PRIMITIVE, "name", "")
+
+
 def _make_householder_vector(
     ctx: LoweringContextProtocol,
     a_val: ir.Value,
@@ -64,7 +68,7 @@ def _transpose_vector(
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.linalg.ormqr_p.name,
+    jaxpr_primitive=_ORMQR_PRIMITIVE_NAME,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.linalg.ormqr.html",
     onnx=[
         {
