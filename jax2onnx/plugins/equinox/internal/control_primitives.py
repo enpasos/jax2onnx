@@ -6,6 +6,7 @@ import equinox as eqx
 import numpy as np
 import onnx_ir as ir
 from equinox._unvmap import unvmap_all_p, unvmap_any_p, unvmap_max_p
+from equinox.internal import select_if_vmap_p
 from equinox.internal._nontraceable import nonbatchable_p
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
@@ -152,6 +153,48 @@ class UnvmapAllPlugin(PrimitiveLeafPlugin):
 class UnvmapMaxPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMax", boolean=False)
+
+
+@register_primitive(
+    jaxpr_primitive=select_if_vmap_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        }
+    ],
+    since="0.15.0",
+    context="primitives.eqx",
+    component="select_if_vmap",
+    testcases=[
+        {
+            "testcase": "eqx_select_if_vmap",
+            "callable": lambda pred, x, y: select_if_vmap_p.bind(pred, x, y),
+            "input_values": [
+                np.asarray(False),
+                np.asarray([1.0, 2.0], dtype=np.float32),
+                np.asarray([10.0, 20.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": expect_graph(
+                ["Identity:2"],
+                must_absent=["Where"],
+            ),
+        }
+    ],
+)
+class SelectIfVmapPlugin(PrimitiveLeafPlugin):
+    """Lower the unbatched Equinox selector, which always returns ``x``."""
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        x_var = eqn.invars[1]
+        out_var = eqn.outvars[0]
+        x_val = ctx.get_value_for_var(
+            x_var,
+            name_hint=ctx.fresh_name("select_if_vmap_in"),
+        )
+        result = builder_identity(ctx, x_val, name_hint="select_if_vmap_out")
+        ctx.bind_value_for_var(out_var, result)
 
 
 @register_primitive(

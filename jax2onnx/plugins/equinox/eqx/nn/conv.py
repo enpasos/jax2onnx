@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import MutableSequence
 from typing import Any, Callable, ClassVar, Final, Sequence, Tuple
 
 import equinox as eqx
@@ -262,13 +261,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
                     name_hint="eqx_conv_bias_inline",
                 )
                 if working_bias is not original_bias_val:
-                    for initializers in (ctx.builder.initializers, ctx._initializers):
-                        if isinstance(initializers, MutableSequence):
-                            try:
-                                initializers.remove(original_bias_val)
-                                break
-                            except ValueError:
-                                pass
                     if input_dtype is not None:
                         working_bias.type = ir.TensorType(input_dtype)
                     _stamp_type_and_shape(working_bias, (bias_shape[0],))

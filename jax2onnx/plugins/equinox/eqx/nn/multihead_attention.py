@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import MutableSequence
 from typing import Any, Callable, ClassVar, cast
 
 import equinox as eqx
@@ -241,15 +240,7 @@ def _apply_rotary_process_heads_lowering(
             target_shape,
             name_hint=f"{prefix}_{tag}_reshape_inline",
         )
-        if cache_val is not original:
-            for initializers in (ctx.builder.initializers, ctx._initializers):
-                if isinstance(initializers, MutableSequence):
-                    try:
-                        initializers.remove(original)
-                        break
-                    except ValueError:
-                        pass
-        else:
+        if cache_val is original:
             reshape_shape = _const_i64(
                 ctx,
                 reshape_vals,
