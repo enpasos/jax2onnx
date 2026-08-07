@@ -20,7 +20,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -168,17 +168,13 @@ class LogMeanExpPlugin(PrimitiveLeafPlugin):
             getattr(getattr(x_var, "aval", None), "dtype", np.float32)
         )
 
-        reduce_inputs = [x_val]
-        if axes_norm is not None:
-            axes_const = _const_i64(
-                ctx, np.asarray(axes_norm, dtype=np.int64), "logmeanexp_axes"
-            )
-            reduce_inputs.append(axes_const)
-
-        reduced = ctx.builder.ReduceLogSumExp(
-            *reduce_inputs,
+        reduced = builder_reduce_with_axes(
+            ctx,
+            x_val,
+            op_type="ReduceLogSumExp",
+            axes=axes_norm,
             keepdims=1 if keepdims else 0,
-            _outputs=[ctx.fresh_name("logmeanexp_reduced")],
+            name_hint="logmeanexp_reduced",
         )
         if out_type is not None:
             reduced.type = out_type

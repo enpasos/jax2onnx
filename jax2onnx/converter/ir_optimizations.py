@@ -22,7 +22,11 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import AttributeType as IRAttrType
 from onnx_ir.passes import common as common_passes
-from jax2onnx.ir_utils import const_value_to_numpy, iter_ir_functions, tensor_to_numpy
+from jax2onnx.ir_utils import (
+    const_value_to_numpy,
+    iter_ir_functions,
+    tensor_to_numpy,
+)
 from .optimizer_graph_utils import (
     NodeSeq,
     _consumer_nodes,
@@ -330,6 +334,305 @@ def _collect_value_dtypes(graph: ir.Graph, nodes: Sequence[ir.Node]) -> Dict[str
 # ---------------- Cast cleanup ----------------
 
 
+def _standard_float_format(dtype: ir.DataType) -> Optional[Tuple[int, int, int]]:
+    """Return (precision bits, min subnormal exponent, max normal exponent)."""
+    formats = {
+        ir.DataType.FLOAT16: (11, -24, 15),
+        ir.DataType.BFLOAT16: (8, -133, 127),
+        ir.DataType.FLOAT: (24, -149, 127),
+        ir.DataType.DOUBLE: (53, -1074, 1023),
+    }
+    return formats.get(dtype)
+
+
+def _complex_component_format(
+    dtype: ir.DataType,
+) -> Optional[Tuple[int, int, int]]:
+    if dtype == ir.DataType.COMPLEX64:
+        return _standard_float_format(ir.DataType.FLOAT)
+    if dtype == ir.DataType.COMPLEX128:
+        return _standard_float_format(ir.DataType.DOUBLE)
+    return None
+
+
+def _integer_format(dtype: ir.DataType) -> Optional[Tuple[bool, int]]:
+    if not dtype.is_integer():
+        return None
+    try:
+        return bool(dtype.is_signed()), int(dtype.bitwidth)
+    except TypeError:
+        return None
+
+
+def _integer_domain_fits_integer(
+    source: Tuple[bool, int], target: Tuple[bool, int]
+) -> bool:
+    source_signed, source_bits = source
+    target_signed, target_bits = target
+    if source_signed:
+        return target_signed and target_bits >= source_bits
+    if target_signed:
+        return target_bits > source_bits
+    return target_bits >= source_bits
+
+
+def _integer_domain_fits_float(
+    source: Tuple[bool, int], target: Tuple[int, int, int]
+) -> bool:
+    source_signed, source_bits = source
+    target_precision, _, target_max_exponent = target
+    required_precision = source_bits - 1 if source_signed else source_bits
+    return (
+        target_precision >= required_precision
+        and target_max_exponent >= source_bits - 1
+    )
+
+
+def _float_domain_fits_float(
+    source: Tuple[int, int, int], target: Tuple[int, int, int]
+) -> bool:
+    source_precision, source_min_exponent, source_max_exponent = source
+    target_precision, target_min_exponent, target_max_exponent = target
+    return (
+        target_precision >= source_precision
+        and target_min_exponent <= source_min_exponent
+        and target_max_exponent >= source_max_exponent
+    )
+
+
+def _cast_roundtrip_is_value_preserving(
+    source_dtype: int, intermediate_dtype: int
+) -> bool:
+    """Return whether source -> intermediate -> source preserves every value."""
+    try:
+        source = ir.DataType(source_dtype)
+        intermediate = ir.DataType(intermediate_dtype)
+    except ValueError:
+        return False
+    if source == intermediate:
+        return True
+
+    intermediate_integer = _integer_format(intermediate)
+    intermediate_float = _standard_float_format(intermediate)
+    intermediate_complex = _complex_component_format(intermediate)
+
+    if source == ir.DataType.BOOL:
+        return (
+            intermediate_integer is not None
+            or intermediate_float is not None
+            or intermediate_complex is not None
+        )
+
+    source_integer = _integer_format(source)
+    if source_integer is not None:
+        if intermediate_integer is not None:
+            return _integer_domain_fits_integer(source_integer, intermediate_integer)
+        target_float = intermediate_float or intermediate_complex
+        return target_float is not None and _integer_domain_fits_float(
+            source_integer, target_float
+        )
+
+    source_float = _standard_float_format(source)
+    if source_float is not None:
+        target_float = intermediate_float or intermediate_complex
+        return target_float is not None and _float_domain_fits_float(
+            source_float, target_float
+        )
+
+    source_complex = _complex_component_format(source)
+    if source_complex is not None and intermediate_complex is not None:
+        return _float_domain_fits_float(source_complex, intermediate_complex)
+
+    # Strings and non-standard low-bit floating types retain their casts unless
+    # they are exact identity casts handled above.
+    return False
+
+
+_INTEGER_VALUE_PRESERVING_OPS: frozenset[str] = frozenset(
+    {
+        "Expand",
+        "Flatten",
+        "Identity",
+        "Reshape",
+        "Squeeze",
+        "Transpose",
+        "Unsqueeze",
+    }
+)
+
+
+def _is_standard_onnx_node(node: ir.Node, op_type: str) -> bool:
+    """Match an operator only in ONNX's default domain."""
+    return node.op_type == op_type and (getattr(node, "domain", "") or "") == ""
+
+
+def _nested_graph_references_value(nodes: Sequence[ir.Node], value: ir.Value) -> bool:
+    """Return whether a nested graph observes an outer-scope value."""
+
+    value_name = _v_name(value)
+
+    def _matches(candidate: Optional[ir.Value]) -> bool:
+        if candidate is value:
+            return True
+        candidate_name = _v_name(candidate)
+        return bool(value_name and candidate_name == value_name)
+
+    def _graph_references(graph: ir.Graph) -> bool:
+        if any(_matches(output) for output in graph.outputs):
+            return True
+        for child_node in graph:
+            if any(_matches(child_input) for child_input in _node_inputs(child_node)):
+                return True
+            if _node_attributes_reference(child_node):
+                return True
+        return False
+
+    def _node_attributes_reference(node: ir.Node) -> bool:
+        for attr in node.attributes.values():
+            if attr.type is IRAttrType.GRAPH:
+                child_graph = attr.as_graph()
+                if child_graph is not None and _graph_references(child_graph):
+                    return True
+            elif attr.type is IRAttrType.GRAPHS:
+                if any(_graph_references(child) for child in attr.as_graphs()):
+                    return True
+        return False
+
+    return any(_node_attributes_reference(node) for node in nodes)
+
+
+def _known_integer_scalar(
+    nodes: Sequence[ir.Node],
+    value: ir.Value,
+    *,
+    seen: Optional[Set[int]] = None,
+) -> Optional[int]:
+    """Resolve an integer scalar through shape-only operators."""
+    if seen is None:
+        seen = set()
+    value_id = id(value)
+    if value_id in seen:
+        return None
+    seen.add(value_id)
+
+    arr = _to_numpy_from_any(value)
+    if arr is not None:
+        np_arr = np.asarray(arr)
+        if np_arr.size == 1 and np_arr.dtype.kind in {"i", "u"}:
+            return int(np_arr.reshape(-1)[0])
+        return None
+
+    producer = _producer_node(nodes, value)
+    if (
+        producer is None
+        or producer.op_type not in _INTEGER_VALUE_PRESERVING_OPS
+        or (getattr(producer, "domain", "") or "") != ""
+    ):
+        return None
+    inputs = _node_inputs(producer)
+    if not inputs or inputs[0] is None:
+        return None
+    return _known_integer_scalar(nodes, inputs[0], seen=seen)
+
+
+def _known_integer_value_bounds(
+    nodes: Sequence[ir.Node],
+    value: ir.Value,
+    *,
+    seen: Optional[Set[int]] = None,
+) -> Optional[Tuple[int, int]]:
+    """Return proven inclusive bounds for statically known integer values."""
+    if seen is None:
+        seen = set()
+    value_id = id(value)
+    if value_id in seen:
+        return None
+    seen.add(value_id)
+
+    arr = _to_numpy_from_any(value)
+    if arr is not None:
+        np_arr = np.asarray(arr)
+        if np_arr.size == 0 or np_arr.dtype.kind not in {"i", "u"}:
+            return None
+        flat = np_arr.reshape(-1)
+        return int(flat.min()), int(flat.max())
+
+    producer = _producer_node(nodes, value)
+    if producer is None:
+        return None
+    inputs = _node_inputs(producer)
+    if (
+        producer.op_type in _INTEGER_VALUE_PRESERVING_OPS
+        and (getattr(producer, "domain", "") or "") == ""
+    ):
+        if not inputs or inputs[0] is None:
+            return None
+        return _known_integer_value_bounds(nodes, inputs[0], seen=seen)
+    if not _is_standard_onnx_node(producer, "Range") or len(inputs) < 3:
+        return None
+
+    range_values: List[int] = []
+    for range_input in inputs[:3]:
+        if range_input is None:
+            return None
+        scalar = _known_integer_scalar(nodes, range_input)
+        if scalar is None:
+            return None
+        range_values.append(scalar)
+    start, limit, delta = range_values
+    if delta == 0:
+        return None
+
+    # ONNX Range follows start + i * delta while the result stays on the
+    # start-side of the exclusive limit. Python integer arithmetic avoids
+    # overflowing while proving the last emitted value.
+    if delta > 0:
+        if start >= limit:
+            return (0, -1)  # Empty range: every emitted value vacuously fits.
+        last = start + ((limit - start - 1) // delta) * delta
+        return start, last
+    if start <= limit:
+        return (0, -1)
+    last = start + ((start - limit - 1) // (-delta)) * delta
+    return last, start
+
+
+def _integer_dtype_bounds(dtype_code: int) -> Optional[Tuple[int, int]]:
+    try:
+        dtype = ir.DataType(dtype_code)
+    except ValueError:
+        return None
+    integer_format = _integer_format(dtype)
+    if integer_format is None:
+        return None
+    signed, bits = integer_format
+    if signed:
+        return -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+    return 0, (1 << bits) - 1
+
+
+def _cast_roundtrip_known_values_fit(
+    nodes: Sequence[ir.Node],
+    source: ir.Value,
+    source_dtype: int,
+    intermediate_dtype: int,
+) -> bool:
+    """Prove a narrowing integer roundtrip safe for a known value domain."""
+    if _integer_dtype_bounds(source_dtype) is None:
+        return False
+    intermediate_bounds = _integer_dtype_bounds(intermediate_dtype)
+    if intermediate_bounds is None:
+        return False
+    value_bounds = _known_integer_value_bounds(nodes, source)
+    if value_bounds is None:
+        return False
+    value_min, value_max = value_bounds
+    if value_min > value_max:
+        return True
+    target_min, target_max = intermediate_bounds
+    return value_min >= target_min and value_max <= target_max
+
+
 def remove_redundant_casts_ir(graph: ir.Graph) -> None:
     nodes = list(graph)
     if not nodes:
@@ -340,7 +643,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
         nodes = list(graph)
         dtype_map = _collect_value_dtypes(graph, nodes)
         for n in nodes:
-            if n.op_type != "Cast":
+            if not _is_standard_onnx_node(n, "Cast"):
                 continue
             ins = _node_inputs(n)
             outs = _node_outputs(n)
@@ -373,18 +676,38 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                 consumers = _consumer_nodes(nodes, out_val)
                 if len(consumers) == 1:
                     next_node = consumers[0]
-                    if next_node.op_type == "Cast":
+                    if _is_standard_onnx_node(next_node, "Cast"):
                         next_outs = _node_outputs(next_node)
                         next_ins = _node_inputs(next_node)
                         if next_outs and next_ins and next_ins[0] is not None:
                             next_target = _attr_to_int(_get_attr(next_node, "to"))
-                            if next_target is not None and next_target == src_dtype:
+                            if (
+                                next_target is not None
+                                and next_target == src_dtype
+                                and (
+                                    _cast_roundtrip_is_value_preserving(
+                                        src_dtype, target_code
+                                    )
+                                    or _cast_roundtrip_known_values_fit(
+                                        nodes,
+                                        src_input,
+                                        src_dtype,
+                                        target_code,
+                                    )
+                                )
+                            ):
                                 final_out = next_outs[0]
                                 src_val = src_input
                                 ir.convenience.replace_all_uses_with(
                                     final_out, src_val, replace_graph_outputs=True
                                 )
-                                graph.remove([n, next_node])
+                                intermediate_is_observed = _value_is_graph_output(
+                                    graph, out_val
+                                ) or _nested_graph_references_value(nodes, out_val)
+                                if intermediate_is_observed:
+                                    graph.remove(next_node)
+                                else:
+                                    graph.remove([n, next_node])
                                 changed = True
                                 break
                 if DEBUG:
@@ -522,10 +845,19 @@ def _broadcast_shape_dims(
 
 
 def _refresh_elementwise_output_shape(node: ir.Node) -> None:
+    if (getattr(node, "domain", "") or "") != "":
+        return
     outs = _node_outputs(node)
     if not outs:
         return
     ins = _node_inputs(node)
+    if node.op_type == "CastLike":
+        # CastLike's second input supplies only the target dtype. It does not
+        # participate in broadcasting, so the output shape is always the shape
+        # of the data input.
+        if ins:
+            _copy_shape_only(outs[0], ins[0])
+        return
     src = _elementwise_shape_source(ins)
     if src is None:
         return
@@ -1438,7 +1770,7 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
         i = 0
         while i < len(nodes):
             T2 = nodes[i]
-            if T2.op_type != "Reshape":
+            if not _is_standard_onnx_node(T2, "Reshape"):
                 i += 1
                 continue
             v = _first_input(T2)
@@ -1450,11 +1782,14 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                 prod_node = _producer_node(nodes, v)
                 if prod_node is None:
                     break
-                if prod_node.op_type in ALLOWED_ELEMWISE:
+                if (
+                    prod_node.op_type in ALLOWED_ELEMWISE
+                    and (getattr(prod_node, "domain", "") or "") == ""
+                ):
                     allowed_nodes.append(prod_node)
                     v = _first_input(prod_node)
                     continue
-                if prod_node.op_type == "Reshape":
+                if _is_standard_onnx_node(prod_node, "Reshape"):
                     T1 = prod_node
                 break
             if T1 is None:
@@ -1670,7 +2005,7 @@ def propagate_unary_shapes_ir(graph: ir.Graph) -> None:
         return
     for n in nodes:
         op = n.op_type
-        if op not in UNARY_DATAFLOW_OPS:
+        if op not in UNARY_DATAFLOW_OPS or (getattr(n, "domain", "") or "") != "":
             continue
         ins = _node_inputs(n)
         outs = _node_outputs(n)
@@ -1689,7 +2024,10 @@ def propagate_elementwise_shapes_ir(graph: ir.Graph) -> None:
     if not nodes:
         return
     for node in nodes:
-        if node.op_type in ELEMENTWISE_BINARY_OPS:
+        if (
+            node.op_type in ELEMENTWISE_BINARY_OPS
+            and (getattr(node, "domain", "") or "") == ""
+        ):
             _refresh_elementwise_output_shape(node)
 
 

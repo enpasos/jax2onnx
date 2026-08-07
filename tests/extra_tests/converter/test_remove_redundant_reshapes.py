@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 import onnx_ir as ir
+import pytest
+from onnx_ir import serde
 
-from jax2onnx.converter.ir_optimizations import remove_redundant_reshape_pairs_ir
+from jax2onnx.converter.ir_optimizations import (
+    optimize_graph,
+    propagate_unary_shapes_ir,
+    remove_redundant_reshape_pairs_ir,
+)
 
 
 def _const_vector(name: str, values: list[int]) -> tuple[ir.Value, ir.Node]:
@@ -26,6 +32,19 @@ def _tensor_value(name: str, shape: tuple[int, ...]) -> ir.Value:
         type=ir.TensorType(ir.DataType.FLOAT),
         shape=ir.Shape(shape),
     )
+
+
+def _initializer(name: str, array: np.ndarray) -> ir.Value:
+    dtype = (
+        ir.DataType.INT64 if array.dtype == np.dtype(np.int64) else ir.DataType.DOUBLE
+    )
+    value = ir.Value(
+        name=name,
+        type=ir.TensorType(dtype),
+        shape=ir.Shape(array.shape),
+    )
+    value.const_value = ir.tensor(array)
+    return value
 
 
 def _node_list(graph) -> list[ir.Node]:
@@ -96,6 +115,69 @@ def _reshape_chain_graph() -> ir.Graph:
         nodes=[const1, const2, reshape1, gelu, reshape2],
         name="test_graph",
     )
+
+
+def _castlike_reshape_model() -> tuple[ir.Model, ir.Value, ir.Node]:
+    input_val = _tensor_value("input", (1, 3))
+    reshape1_out = _tensor_value("r1_out", (3,))
+    castlike_out = ir.Value(
+        name="castlike_out",
+        type=ir.TensorType(ir.DataType.DOUBLE),
+        shape=ir.Shape((3,)),
+    )
+    reshape2_out = ir.Value(
+        name="r2_out",
+        type=ir.TensorType(ir.DataType.DOUBLE),
+        shape=ir.Shape((1, 3)),
+    )
+    required_out = ir.Value(
+        name="output",
+        type=ir.TensorType(ir.DataType.DOUBLE),
+        shape=ir.Shape((1, 1, 3)),
+    )
+
+    shape1 = _initializer("shape1", np.asarray([3], dtype=np.int64))
+    shape2 = _initializer("shape2", np.asarray([1, 3], dtype=np.int64))
+    shape3 = _initializer("shape3", np.asarray([1, 1, 3], dtype=np.int64))
+    dtype_like = _initializer("dtype_like", np.ones((1, 1, 3), dtype=np.float64))
+
+    reshape1 = ir.Node(
+        "", "Reshape", [input_val, shape1], (), outputs=[reshape1_out], name="reshape1"
+    )
+    castlike = ir.Node(
+        "",
+        "CastLike",
+        [reshape1_out, dtype_like],
+        (),
+        outputs=[castlike_out],
+        name="castlike",
+    )
+    reshape2 = ir.Node(
+        "",
+        "Reshape",
+        [castlike_out, shape2],
+        (),
+        outputs=[reshape2_out],
+        name="reshape2",
+    )
+    required_reshape = ir.Node(
+        "",
+        "Reshape",
+        [reshape2_out, shape3],
+        (),
+        outputs=[required_out],
+        name="required_reshape",
+    )
+    graph = ir.Graph(
+        inputs=[input_val],
+        outputs=[required_out],
+        nodes=[reshape1, castlike, reshape2, required_reshape],
+        initializers=[shape1, dtype_like, shape2, shape3],
+        name="castlike_reshape_graph",
+    )
+    model = ir.Model(graph=graph, ir_version=10)
+    model.opset_imports[""] = 21
+    return model, castlike_out, required_reshape
 
 
 def test_remove_redundant_reshapes_ir():
@@ -174,3 +256,52 @@ def test_reshape_pair_removal_refreshes_elementwise_rank_metadata() -> None:
     assert any(node.name == "required_reshape" for node in remaining)
     assert tuple(identity_out.shape) == (1, 8, 4, 4)
     assert _value_name(required_reshape.inputs[0]) == "identity_out"
+
+
+def test_reshape_pair_removal_uses_only_castlike_data_shape() -> None:
+    model, castlike_out, required_reshape = _castlike_reshape_model()
+
+    remove_redundant_reshape_pairs_ir(model.graph)
+
+    remaining = _node_list(model.graph)
+    assert not any(node.name in {"reshape1", "reshape2"} for node in remaining)
+    assert required_reshape in remaining
+    assert tuple(castlike_out.shape) == (1, 3)
+    assert _value_name(required_reshape.inputs[0]) == "castlike_out"
+
+
+def test_optimize_graph_preserves_required_reshape_after_castlike() -> None:
+    ort = pytest.importorskip("onnxruntime")
+    model, _, required_reshape = _castlike_reshape_model()
+
+    optimized = optimize_graph(model)
+
+    remaining = _node_list(optimized.graph)
+    assert required_reshape in remaining
+    assert [node.op_type for node in remaining] == ["CastLike", "Reshape"]
+
+    model_proto = serde.serialize_model(optimized)
+    session = ort.InferenceSession(
+        model_proto.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    result = session.run(None, {"input": np.arange(3, dtype=np.float32).reshape(1, 3)})[
+        0
+    ]
+    assert result.shape == (1, 1, 3)
+    np.testing.assert_array_equal(
+        result, np.arange(3, dtype=np.float64).reshape(1, 1, 3)
+    )
+
+
+def test_custom_domain_castlike_shape_is_not_reinterpreted() -> None:
+    model, castlike_out, _ = _castlike_reshape_model()
+    castlike = next(node for node in model.graph if node.name == "castlike")
+    castlike.domain = "custom"
+    castlike_out.shape = ir.Shape((1, 1, 3))
+
+    remove_redundant_reshape_pairs_ir(model.graph)
+    propagate_unary_shapes_ir(model.graph)
+
+    remaining = _node_list(model.graph)
+    assert [node.name for node in remaining] == ["reshape1", "castlike"]
+    assert tuple(castlike_out.shape) == (1, 1, 3)

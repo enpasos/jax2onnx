@@ -544,6 +544,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_src_shape")],
                 )
                 _stamp_type_and_shape(shp, (src_rank,))
+                shp.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_metadata(ctx, shp)
 
                 idx = _const_i64(
@@ -559,6 +560,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_dim_dyn")],
                 )
                 _stamp_type_and_shape(dim1, (1,))
+                dim1.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_metadata(ctx, dim1)
                 dim_pieces.append(dim1)
 
@@ -616,6 +618,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_reshape_sym_shape")],
                 )
                 _stamp_type_and_shape(shp, (src_rank,))
+                shp.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_metadata(ctx, shp)
                 idx = _const_i64(
                     ctx,
@@ -629,6 +632,7 @@ class BroadcastInDimPlugin(PrimitiveLeafPlugin):
                     _outputs=[ctx.fresh_name("bcast_reshape_sym_dim")],
                 )
                 _stamp_type_and_shape(dim_val, (1,))
+                dim_val.type = ir.TensorType(ir.DataType.INT64)
                 _ensure_value_metadata(ctx, dim_val)
                 reshape_dim_pieces.append(dim_val)
 

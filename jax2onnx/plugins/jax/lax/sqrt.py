@@ -6,6 +6,10 @@ import jax
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._opset_utils import (
+    builder_reduce_with_axes,
+    reduction_axes_from_node,
+)
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -73,6 +77,7 @@ class SqrtPlugin(PrimitiveLeafPlugin):
         if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
+                reduce_axes = reduction_axes_from_node(input_producer)
                 input_attrs = getattr(input_producer, "attributes", None)
                 keepdims_attr = None
                 if input_attrs is not None:
@@ -84,10 +89,14 @@ class SqrtPlugin(PrimitiveLeafPlugin):
                     if keepdims_attr is not None
                     else 1
                 )
-                result = ctx.builder.ReduceL2(
-                    *reduce_inputs,
+                result = builder_reduce_with_axes(
+                    ctx,
+                    reduce_inputs[0],
+                    op_type="ReduceL2",
+                    axes=reduce_axes,
                     keepdims=keepdims,
-                    _outputs=[desired_name],
+                    name_hint="reducel2",
+                    output_name=desired_name,
                 )
                 if getattr(out_spec, "type", None) is not None:
                     result.type = out_spec.type

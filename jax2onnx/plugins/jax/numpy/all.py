@@ -61,7 +61,7 @@ _ALL_PRIM: Final = make_jnp_primitive("jax.numpy.all")
             "input_values": [np.array([[1, 1, 0], [1, 1, 1]], dtype=np.int32)],
             "expected_output_dtypes": [np.bool_],
             "post_check_onnx_graph": EG(
-                ["ReduceMin:2x1 -> Cast:2x1"],
+                ["Cast:2x3 -> Cast:2x3 -> ReduceMin:2x1 -> Cast:2x1"],
                 no_unused_inputs=True,
             ),
         },

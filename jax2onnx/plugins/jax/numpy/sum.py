@@ -22,7 +22,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.numpy._reduction_utils import (
@@ -146,6 +146,15 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
         keepdims = bool(params.get("keepdims", False))
         dtype = params.get("dtype")
 
+        # Empty axes preserve the producer result. The fused ReduceL1 and
+        # ReduceSumSquare forms would instead apply a real reduction.
+        if axes == ():
+            proxy_eqn = SimpleNamespace(
+                invars=eqn.invars, outvars=eqn.outvars, params=params
+            )
+            lower_reduction(ctx, proxy_eqn, op_type="ReduceSum", allow_dtype_param=True)
+            return
+
         if dtype is None:
             operand_val = ctx.get_value_for_var(
                 operand_var, name_hint=ctx.fresh_name("jnp_sum_in")
@@ -192,13 +201,6 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
                             ax_i += rank
                         axes_norm.append(ax_i)
 
-                inputs = [target_base]
-                if axes_norm is not None:
-                    axes_const = _const_i64(
-                        ctx, list(axes_norm), f"{op_name.lower()}_axes"
-                    )
-                    inputs.append(axes_const)
-
                 desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(
                     op_name
                 )
@@ -206,18 +208,15 @@ class JnpSumPlugin(PrimitiveLeafPlugin):
                 if callable(out_producer) and out_producer() is not None:
                     desired_name = ctx.fresh_name(op_name)
 
-                if op_name == "ReduceL1":
-                    result = ctx.builder.ReduceL1(
-                        *inputs,
-                        keepdims=1 if keepdims else 0,
-                        _outputs=[desired_name],
-                    )
-                else:
-                    result = ctx.builder.ReduceSumSquare(
-                        *inputs,
-                        keepdims=1 if keepdims else 0,
-                        _outputs=[desired_name],
-                    )
+                result = builder_reduce_with_axes(
+                    ctx,
+                    target_base,
+                    op_type=op_name,
+                    axes=axes_norm,
+                    keepdims=1 if keepdims else 0,
+                    name_hint=op_name.lower(),
+                    output_name=desired_name,
+                )
 
                 if getattr(out_spec, "type", None) is not None:
                     result.type = out_spec.type

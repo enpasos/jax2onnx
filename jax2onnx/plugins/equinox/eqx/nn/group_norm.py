@@ -32,28 +32,13 @@ _EQX_GROUP_NORM_NO_AFFINE: Final[eqx.nn.GroupNorm] = eqx.nn.GroupNorm(
     eps=1e-5,
     channelwise_affine=False,
 )
-EXPECT_GROUP_NORM_PLAIN: Final = nnx_group_norm.EXPECT_GROUP_NORM_PLAIN
 EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
 
 
 @register_primitive(
     jaxpr_primitive="eqx.nn.group_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.GroupNorm",
-    onnx=[
-        {
-            "component": "GroupNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
-        },
-        {
-            "component": "ReduceMean",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
-        },
-        {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
-        {
-            "component": "Reshape",
-            "doc": "https://onnx.ai/onnx/operators/onnx__Reshape.html",
-        },
-    ],
+    onnx=nnx_group_norm.GROUP_NORM_ONNX_COMPONENTS,
     since="0.12.2",
     context="primitives.eqx",
     component="group_norm",
@@ -63,14 +48,14 @@ EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
             "callable": _EQX_GROUP_NORM,
             "input_shapes": [(8, 4, 4)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_GROUP_NORM_PLAIN,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
         },
         {
             "testcase": "eqx_group_norm_no_affine",
             "callable": _EQX_GROUP_NORM_NO_AFFINE,
             "input_shapes": [(8, 4, 4)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_GROUP_NORM_PLAIN,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
         },
         {
             "testcase": "eqx_group_norm_opset18",
@@ -83,7 +68,7 @@ EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
     ],
 )
 class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
-    """IR-only plugin for ``equinox.nn.GroupNorm`` -> ONNX ``GroupNormalization``."""
+    """IR-only framework-faithful decomposition for ``equinox.nn.GroupNorm``."""
 
     _PRIM: ClassVar[Primitive] = Primitive("eqx.nn.group_norm")
     _PRIM.multiple_results = False
@@ -122,19 +107,21 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
                 return orig(self, x, state=state, key=key)
 
             in_dtype = x_arr.dtype
+            stats_dtype = jnp.promote_types(in_dtype, jnp.float32)
+            x_stats = x_arr.astype(stats_dtype)
             if bool(self.channelwise_affine):
-                weight = jnp.asarray(self.weight, dtype=in_dtype)
-                bias = jnp.asarray(self.bias, dtype=in_dtype)
+                weight = jnp.asarray(self.weight, dtype=stats_dtype)
+                bias = jnp.asarray(self.bias, dtype=stats_dtype)
             else:
-                weight = jnp.ones((channels,), dtype=in_dtype)
-                bias = jnp.zeros((channels,), dtype=in_dtype)
+                weight = jnp.ones((channels,), dtype=stats_dtype)
+                bias = jnp.zeros((channels,), dtype=stats_dtype)
 
             if tuple(weight.shape) != (channels,):
                 weight = jnp.reshape(weight, (channels,))
             if tuple(bias.shape) != (channels,):
                 bias = jnp.reshape(bias, (channels,))
 
-            x_nchw = jnp.expand_dims(x_arr, axis=0)
+            x_nchw = jnp.expand_dims(x_stats, axis=0)
             y_nchw = cls._PRIM.bind(
                 x_nchw,
                 weight,
@@ -142,6 +129,9 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
                 epsilon=float(self.eps),
                 num_groups=int(self.groups),
                 channel_axis=1,
+                use_fast_variance=False,
+                clamp_negative_variance=True,
+                batch_rank=1,
             )
             return jnp.squeeze(y_nchw, axis=0).astype(in_dtype)
 
@@ -150,7 +140,16 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
 
 @GroupNormPlugin._PRIM.def_impl
 def _impl_group_norm(
-    x: Any, scale: Any, bias: Any, *, epsilon: float, num_groups: int, channel_axis: int
+    x: Any,
+    scale: Any,
+    bias: Any,
+    *,
+    epsilon: float,
+    num_groups: int,
+    channel_axis: int,
+    use_fast_variance: bool,
+    clamp_negative_variance: bool,
+    batch_rank: int,
 ) -> Any:
     return nnx_group_norm._impl_group_norm(
         x,
@@ -159,6 +158,9 @@ def _impl_group_norm(
         epsilon=epsilon,
         num_groups=num_groups,
         channel_axis=channel_axis,
+        use_fast_variance=use_fast_variance,
+        clamp_negative_variance=clamp_negative_variance,
+        batch_rank=batch_rank,
     )
 
 
@@ -184,10 +186,18 @@ def _group_norm_batch_rule(
     if channel_axis < 0 or channel_axis >= logical_rank:
         raise ValueError("channel_axis out of range for vmapped GroupNorm")
     physical_channel_axis = channel_axis + int(x_bdim <= channel_axis)
+    x_front = jnp.moveaxis(x, x_bdim, 0)
+    moved_channel_axis = physical_channel_axis
+    if physical_channel_axis < x_bdim:
+        moved_channel_axis += 1
+    if moved_channel_axis <= 1:
+        raise ValueError("vmapped GroupNorm requires a distinct channel axis")
+
     bound_params = dict(params)
-    bound_params["channel_axis"] = physical_channel_axis
-    out = GroupNormPlugin._PRIM.bind(x, scale, bias, **bound_params)
-    return out, x_bdim
+    bound_params["channel_axis"] = moved_channel_axis
+    bound_params["batch_rank"] = int(params.get("batch_rank", 1)) + 1
+    out = GroupNormPlugin._PRIM.bind(x_front, scale, bias, **bound_params)
+    return out, 0
 
 
 batching.primitive_batchers[GroupNormPlugin._PRIM] = _group_norm_batch_rule

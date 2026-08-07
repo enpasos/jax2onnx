@@ -24,6 +24,7 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     make_subgraph_context,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -239,15 +240,13 @@ def _reduce_bool_any(
         ir.DataType.INT64,
         name_hint=f"{name_hint}_i64",
     )
-    axes = _const_i64(ctx, list(range(rank)), f"{name_hint}_axes")
-    reduced = cast(
-        ir.Value,
-        ctx.builder.ReduceMax(
-            value_i64,
-            axes,
-            keepdims=0,
-            _outputs=[ctx.fresh_name(f"{name_hint}_reduce")],
-        ),
+    reduced = builder_reduce_with_axes(
+        ctx,
+        value_i64,
+        op_type="ReduceSum",
+        axes=tuple(range(rank)),
+        keepdims=0,
+        name_hint=f"{name_hint}_reduce",
     )
     reduced.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(reduced, ())
@@ -269,6 +268,7 @@ def _build_loop_body_graph(
     body_cj: Any,
     *,
     body_const_template: Sequence[ir.Value],
+    cond_const_template: Sequence[ir.Value],
     state_template: Sequence[ir.Value],
     predicate_template: ir.Value | None = None,
     predicate_shape: tuple[Any, ...] = (),
@@ -308,6 +308,16 @@ def _build_loop_body_graph(
         body_ctx.builder.inputs.append(cloned)
         body_ctx.bind_value_for_var(var, cloned)
         const_inputs.append(cloned)
+
+    cond_const_inputs: list[ir.Value] = []
+    for tmpl_val in cond_const_template:
+        cloned = clone_value_for_subgraph(
+            body_ctx,
+            tmpl_val,
+            name_hint="loop_cond_const_in",
+        )
+        body_ctx.builder.inputs.append(cloned)
+        cond_const_inputs.append(cloned)
 
     state_inputs: list[ir.Value] = []
     for tmpl_val in state_template:
@@ -408,7 +418,13 @@ def _build_loop_body_graph(
             _ensure_value_metadata(body_ctx, masked)
             state_outputs.append(masked)
 
-    for var, val in zip(cond_jaxpr.invars, state_outputs):
+    cond_inputs = cond_const_inputs + state_outputs
+    if len(cond_inputs) != len(cond_jaxpr.invars):
+        raise ValueError(
+            "while_loop cond_jaxpr input arity does not match condition constants "
+            "and loop state"
+        )
+    for var, val in zip(cond_jaxpr.invars, cond_inputs):
         body_ctx.bind_value_for_var(var, val)
 
     lower_jaxpr_eqns(body_ctx, cond_jaxpr, source="while_loop_cond")
@@ -442,10 +458,24 @@ def _build_loop_body_graph(
         _ensure_value_metadata(body_ctx, passthrough)
         const_outputs.append(passthrough)
 
+    cond_const_outputs: list[ir.Value] = []
+    for tmpl_in, tmpl_val in zip(cond_const_inputs, cond_const_template):
+        passthrough = builder_identity(
+            body_ctx,
+            tmpl_in,
+            name_hint="loop_cond_const_out",
+        )
+        dims = getattr(getattr(tmpl_val, "shape", IRShape(())), "dims", None)
+        tuple_dims = tuple(dims) if dims is not None else tuple()
+        _stamp_type_and_shape(passthrough, tuple_dims)
+        _ensure_value_metadata(body_ctx, passthrough)
+        cond_const_outputs.append(passthrough)
+
     body_ctx.builder.outputs = [cond_out]
     if predicate_output is not None:
         body_ctx.builder.outputs.append(predicate_output)
     body_ctx.builder.outputs.extend(const_outputs)
+    body_ctx.builder.outputs.extend(cond_const_outputs)
     body_ctx.builder.outputs.extend(state_outputs)
 
     body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
@@ -467,8 +497,8 @@ def _build_loop_body_graph(
             "doc": "https://onnx.ai/onnx/operators/onnx__Loop.html",
         },
         {
-            "component": "ReduceMax",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+            "component": "ReduceSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
         },
         {
             "component": "Where",
@@ -883,7 +913,7 @@ def _build_loop_body_graph(
             "opset_version": 18,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["ReduceMax -> Cast -> Loop"],
+                ["ReduceSum -> Cast -> Loop"],
                 no_unused_inputs=True,
             ),
         },
@@ -947,6 +977,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             cond_cj,
             body_cj,
             body_const_template=body_const_vals,
+            cond_const_template=cond_const_vals,
             state_template=state_vals,
             predicate_template=predicate_init if batched_condition else None,
             predicate_shape=predicate_shape,
@@ -961,12 +992,16 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         if batched_condition:
             loop_inputs.append(predicate_init)
         loop_inputs.extend(body_const_vals)
+        loop_inputs.extend(cond_const_vals)
         loop_inputs.extend(state_vals)
 
         output_names: list[str] = []
         if batched_condition:
             output_names.append(ctx.fresh_name("while_predicate_out"))
         output_names.extend(ctx.fresh_name("while_const_out") for _ in body_const_vals)
+        output_names.extend(
+            ctx.fresh_name("while_cond_const_out") for _ in cond_const_vals
+        )
         output_names.extend(ctx.fresh_name("while_out") for _ in eqn.outvars)
 
         loop_outputs = builder_loop(
@@ -983,9 +1018,23 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         const_outputs = loop_outputs[
             output_offset : output_offset + len(body_const_vals)
         ]
-        value_outputs = loop_outputs[output_offset + len(body_const_vals) :]
+        cond_const_offset = output_offset + len(body_const_vals)
+        cond_const_outputs = loop_outputs[
+            cond_const_offset : cond_const_offset + len(cond_const_vals)
+        ]
+        value_outputs = loop_outputs[cond_const_offset + len(cond_const_vals) :]
 
         for const_val, const_out in zip(body_const_vals, const_outputs):
+            if getattr(const_val, "type", None) is not None:
+                const_out.type = const_val.type
+            dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
+            tuple_dims = tuple(dims) if dims is not None else tuple()
+            _stamp_type_and_shape(const_out, tuple_dims)
+            _ensure_value_metadata(ctx, const_out)
+
+        for const_val, const_out in zip(cond_const_vals, cond_const_outputs):
+            if getattr(const_val, "type", None) is not None:
+                const_out.type = const_val.type
             dims = getattr(getattr(const_val, "shape", IRShape(())), "dims", None)
             tuple_dims = tuple(dims) if dims is not None else tuple()
             _stamp_type_and_shape(const_out, tuple_dims)

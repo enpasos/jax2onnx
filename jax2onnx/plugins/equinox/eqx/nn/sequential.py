@@ -91,6 +91,22 @@ def _resolve_layer_ops(layers: Any) -> tuple[str, ...] | None:
     return tuple(ops)
 
 
+def _layer_ignores_key(layer: Any) -> bool:
+    """Return whether forwarding ``key=None`` preserves this layer's semantics."""
+
+    if isinstance(layer, (eqx.nn.Linear, eqx.nn.Identity, eqx.nn.Lambda)):
+        return True
+    if isinstance(layer, eqx.nn.Dropout):
+        inference = getattr(layer, "inference", False)
+        probability = getattr(layer, "p", None)
+        return inference is True or (
+            isinstance(probability, (int, float)) and probability == 0
+        )
+    if isinstance(layer, eqx.nn.Sequential):
+        return all(_layer_ignores_key(child) for child in tuple(layer.layers))
+    return False
+
+
 @register_primitive(
     jaxpr_primitive=SEQUENTIAL_PRIM.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/sequential/#equinox.nn.Sequential",
@@ -242,9 +258,7 @@ class SequentialPlugin(PrimitiveLeafPlugin):
             ops = _resolve_layer_ops(layers)
             if ops is not None:
                 return cls._PRIM.bind(x, ops=ops)
-            if key is not None and all(
-                isinstance(layer, eqx.nn.Linear) for layer in layers
-            ):
+            if key is not None and all(_layer_ignores_key(layer) for layer in layers):
                 return orig(self, x, state=state, key=None)
             return orig(self, x, state=state, key=key)
 
@@ -268,14 +282,9 @@ def _sequential_batch_rule(
     *,
     ops: tuple[str, ...],
 ) -> Any:
-    from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
-
-    return broadcast_batcher_compat(
-        SequentialPlugin._PRIM,
-        batched_args,
-        batch_dims,
-        ops=ops,
-    )
+    (x,) = batched_args
+    (x_bdim,) = batch_dims
+    return SequentialPlugin._PRIM.bind(x, ops=ops), x_bdim
 
 
 batching.primitive_batchers[SequentialPlugin._PRIM] = _sequential_batch_rule

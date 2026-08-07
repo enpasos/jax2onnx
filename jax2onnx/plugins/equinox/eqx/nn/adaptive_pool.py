@@ -21,6 +21,7 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 _SUPPORTED_OPS: Final[dict[str, Callable[..., jax.Array]]] = {
@@ -315,9 +316,13 @@ class AdaptivePoolPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, pooled)
         else:
             spatial_axes = tuple(range(2, spatial_rank + 2))
-            axes_val = _const_i64(
-                ctx, spatial_axes, name_hint="eqx_adaptive_pool_reduce_axes"
-            )
+            reduce_axes_input = None
+            if int(getattr(builder, "opset", 21)) >= 18:
+                reduce_axes_input = _const_i64(
+                    ctx,
+                    spatial_axes,
+                    name_hint="eqx_adaptive_pool_reduce_axes",
+                )
             slice_axes = _const_i64(
                 ctx, spatial_axes, name_hint="eqx_adaptive_pool_slice_axes"
             )
@@ -373,12 +378,14 @@ class AdaptivePoolPlugin(PrimitiveLeafPlugin):
                 _stamp_type_and_shape(window, window_shape)
                 _ensure_value_metadata(ctx, window)
 
-                reduce_method = builder.ReduceMean if op == "avg" else builder.ReduceMax
-                reduced = reduce_method(
+                reduced = builder_reduce_with_axes(
+                    ctx,
                     window,
-                    axes_val,
+                    op_type="ReduceMean" if op == "avg" else "ReduceMax",
+                    axes=spatial_axes,
+                    axes_input=reduce_axes_input,
                     keepdims=0,
-                    _outputs=[ctx.fresh_name("eqx_adaptive_pool_bin")],
+                    name_hint="eqx_adaptive_pool_bin",
                 )
                 if dtype is not None:
                     reduced.type = ir.TensorType(dtype)

@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, Final, Sequence, cast
+from typing import Any, Callable, ClassVar, Sequence
 
 import jax.numpy as jnp
-import onnx_ir as ir
 from flax import linen as nn
 
-from jax2onnx._compat.jax import JaxprEqn, Primitive
-from jax2onnx.plugins._ir_shapes import (
-    _dim_label_from_value_or_aval,
-    _ensure_value_metadata,
-    _stamp_type_and_shape,
+from jax2onnx._compat.jax import Primitive
+from jax2onnx.plugins.flax.linen.group_norm import (
+    LINEN_NORM_ONNX_COMPONENTS,
+    _can_use_original_linen_slow_path,
+    _stage_linen_norm_operands,
 )
 from jax2onnx.plugins.flax.nnx import group_norm as nnx_group_norm
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
@@ -22,38 +21,7 @@ from jax2onnx.plugins.plugin_system import (
     with_requested_dtype,
     with_rng_seed,
 )
-from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins._utils import cast_param_like
-
-EXPECT_INSTANCE_NORM_PLAIN: Final = nnx_group_norm.EG(
-    [
-        (
-            "InstanceNormalization",
-            {
-                "counts": {
-                    "InstanceNormalization": 1,
-                    "Transpose": 0,
-                }
-            },
-        )
-    ]
-)
-
-
-EXPECT_INSTANCE_NORM_TRANSPOSED: Final = nnx_group_norm.EG(
-    [
-        (
-            "Transpose -> InstanceNormalization -> Transpose",
-            {
-                "counts": {
-                    "InstanceNormalization": 1,
-                    "Transpose": 2,
-                }
-            },
-        )
-    ]
-)
 
 
 def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
@@ -71,16 +39,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
 @register_primitive(
     jaxpr_primitive="linen.instance_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.InstanceNorm",
-    onnx=[
-        {
-            "component": "InstanceNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__InstanceNormalization.html",
-        },
-        {
-            "component": "GroupNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__GroupNormalization.html",
-        },
-    ],
+    onnx=LINEN_NORM_ONNX_COMPONENTS,
     since="0.11.0",
     context="primitives.linen",
     component="instance_norm",
@@ -98,7 +57,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
             "input_shapes": [("B", 4, 4, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_INSTANCE_NORM_TRANSPOSED,
+            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK,
         },
         {
             "testcase": "instance_norm_rank2",
@@ -113,141 +72,17 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_PLAIN,
+            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK,
         },
     ],
 )
 class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
-    """IR-only plugin for flax.linen.InstanceNorm via GroupNormalization."""
+    """IR-only framework-faithful decomposition for flax.linen.InstanceNorm."""
 
     _PRIM: ClassVar[Primitive] = Primitive("linen.instance_norm")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
     _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
-
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        x_var, scale_var, bias_var = eqn.invars[:3]
-        y_var = eqn.outvars[0]
-
-        params = dict(getattr(eqn, "params", {}) or {})
-        epsilon = float(params.get("epsilon", 1e-5))
-        num_groups = int(params.get("num_groups", 1))
-        channel_axis = int(params.get("channel_axis", -1))
-
-        builder = nnx_group_norm._require_builder(ctx)
-
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
-        scale_val = ctx.get_value_for_var(scale_var, name_hint=ctx.fresh_name("scale"))
-        bias_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("bias"))
-
-        scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="in_scale_cast")
-        bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="in_bias_cast")
-
-        x_shape: tuple[object, ...] = tuple(
-            getattr(getattr(x_var, "aval", None), "shape", ())
-        )
-        rank = len(x_shape)
-        if rank == 0:
-            raise ValueError("InstanceNorm requires tensor inputs")
-        if rank < 3:
-            # ORT requires InstanceNormalization input rank >= 3.
-            super().lower(ctx, eqn)
-            return
-        if channel_axis < 0:
-            channel_axis += rank
-        channels = x_shape[channel_axis] if 0 <= channel_axis < rank else None
-        if not isinstance(channels, int) or num_groups != channels:
-            # Fallback for cases that are not true instance-normalization.
-            super().lower(ctx, eqn)
-            return
-
-        need_layout_convert = rank > 2 and channel_axis != 1
-        if need_layout_convert:
-            perm = [0]
-            if channel_axis != 0:
-                perm.append(channel_axis)
-            perm.extend(i for i in range(1, rank) if i != channel_axis)
-            if len(perm) != rank:
-                raise ValueError(
-                    f"Invalid permutation derived for InstanceNorm: {perm}"
-                )
-            inv_perm = [perm.index(i) for i in range(rank)]
-        else:
-            perm = list(range(rank))
-            inv_perm = perm
-
-        def _label(idx: int) -> str | int | None:
-            label: str | int | None = _dim_label_from_value_or_aval(x_val, x_shape, idx)
-            return label
-
-        def _dims_for(indices: Sequence[int]) -> tuple[Any, ...]:
-            dims: list[Any] = []
-            for idx in indices:
-                label = _label(idx)
-                if label is not None:
-                    dims.append(label)
-                elif 0 <= idx < len(x_shape):
-                    dims.append(x_shape[idx])
-                else:
-                    dims.append(None)
-            return tuple(dims)
-
-        nchw_dims = _dims_for(perm)
-        nhwc_dims = _dims_for(range(rank))
-        x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", None)
-
-        inst_input: ir.Value = x_val
-        if need_layout_convert:
-            inst_input = cast(
-                ir.Value,
-                builder.Transpose(
-                    x_val,
-                    perm=tuple(int(p) for p in perm),
-                    _outputs=[ctx.fresh_name("in_nchw_in")],
-                ),
-            )
-            if x_ir_dtype is not None:
-                inst_input.type = ir.TensorType(x_ir_dtype)
-            _stamp_type_and_shape(inst_input, nchw_dims)
-            _ensure_value_metadata(ctx, inst_input)
-
-        inst_out = cast(
-            ir.Value,
-            builder.InstanceNormalization(
-                inst_input,
-                scale_val,
-                bias_val,
-                epsilon=float(epsilon),
-                _outputs=[ctx.fresh_name("InstanceNorm")],
-            ),
-        )
-        if x_ir_dtype is not None:
-            inst_out.type = ir.TensorType(x_ir_dtype)
-        _stamp_type_and_shape(
-            inst_out,
-            nchw_dims if need_layout_convert else nhwc_dims,
-        )
-        _ensure_value_metadata(ctx, inst_out)
-
-        if need_layout_convert:
-            final_val = cast(
-                ir.Value,
-                builder.Transpose(
-                    inst_out,
-                    perm=tuple(int(p) for p in inv_perm),
-                    _outputs=[ctx.fresh_name("in_out")],
-                ),
-            )
-            if x_ir_dtype is not None:
-                final_val.type = ir.TensorType(x_ir_dtype)
-            _stamp_type_and_shape(final_val, nhwc_dims)
-            _ensure_value_metadata(ctx, final_val)
-        else:
-            final_val = inst_out
-            _stamp_type_and_shape(final_val, nhwc_dims)
-            _ensure_value_metadata(ctx, final_val)
-
-        ctx.bind_value_for_var(y_var, final_val)
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
@@ -277,9 +112,10 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
                 return call_orig(self, x, mask=mask)
             if getattr(self, "axis_index_groups", None) is not None:
                 return call_orig(self, x, mask=mask)
-            if not getattr(self, "use_fast_variance", True):
-                return call_orig(self, x, mask=mask)
-
+            use_fast_variance = bool(getattr(self, "use_fast_variance", True))
+            force_float32_reductions = bool(
+                getattr(self, "force_float32_reductions", True)
+            )
             scope = getattr(self, "scope", None)
             if scope is None or not hasattr(scope, "variables"):
                 return call_orig(self, x, mask=mask)
@@ -302,38 +138,56 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
             if num_groups <= 0:
                 return call_orig(self, x, mask=mask)
 
-            param_dtype = getattr(self, "param_dtype", None) or x.dtype
-            if x.dtype != param_dtype:
-                x = x.astype(param_dtype)
+            use_scale = bool(getattr(self, "use_scale", True))
+            use_bias = bool(getattr(self, "use_bias", True))
+            scale_param = params.get("scale") if use_scale else None
+            bias_param = params.get("bias") if use_bias else None
+            if _can_use_original_linen_slow_path(
+                x,
+                scale_param,
+                bias_param,
+                use_scale=use_scale,
+                use_bias=use_bias,
+                use_fast_variance=use_fast_variance,
+                force_float32_reductions=force_float32_reductions,
+            ):
+                # Preserve Linen's centered-variance implementation whenever
+                # its separate statistics/affine dtypes form a valid graph.
+                return call_orig(self, x, mask=mask)
 
-            if getattr(self, "use_scale", True):
-                scale_param = params.get("scale")
-                if scale_param is None:
-                    return call_orig(self, x, mask=mask)
-                scale = jnp.asarray(scale_param, dtype=param_dtype)
-            else:
-                scale = jnp.ones((channels,), dtype=param_dtype)
-
-            if getattr(self, "use_bias", True):
-                bias_param = params.get("bias")
-                if bias_param is None:
-                    return call_orig(self, x, mask=mask)
-                bias = jnp.asarray(bias_param, dtype=param_dtype)
-            else:
-                bias = jnp.zeros((channels,), dtype=param_dtype)
+            staged = _stage_linen_norm_operands(
+                x,
+                scale_param,
+                bias_param,
+                channels=channels,
+                dtype=getattr(self, "dtype", None),
+                use_scale=use_scale,
+                use_bias=use_bias,
+                force_float32_reductions=force_float32_reductions,
+            )
+            if staged is None:
+                raise NotImplementedError(
+                    "Linen InstanceNorm export cannot preserve this configuration's "
+                    "separate statistics, input, affine, and result dtype staging."
+                )
+            x_stats, scale, bias, result_dtype = staged
 
             if tuple(scale.shape) != (channels,):
                 scale = jnp.reshape(scale, (channels,))
             if tuple(bias.shape) != (channels,):
                 bias = jnp.reshape(bias, (channels,))
 
-            return prim.bind(
-                x,
+            out = prim.bind(
+                x_stats,
                 scale,
                 bias,
                 epsilon=float(getattr(self, "epsilon", 1e-5)),
                 num_groups=num_groups,
                 channel_axis=feature_axis,
+                use_fast_variance=use_fast_variance,
+                clamp_negative_variance=use_fast_variance,
+                batch_rank=1,
             )
+            return jnp.asarray(out, dtype=result_dtype)
 
         return patched

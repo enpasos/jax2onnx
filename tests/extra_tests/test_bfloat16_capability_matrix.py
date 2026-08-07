@@ -101,6 +101,9 @@ BF16_CAPABILITY_CASES = [
         source=("primitives.linen", "group_norm", "group_norm_rank2"),
         numeric_rtol=8e-2,
         numeric_atol=8e-2,
+        # Linen promotes GroupNorm statistics to float32 by default while
+        # preserving bfloat16 at the public boundary.
+        require_all_float_tensors_dtype=False,
     ),
 ]
 

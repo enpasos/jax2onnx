@@ -17,6 +17,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax.lax._opset_utils import (
+    builder_reduce_with_axes,
+    reduction_axes_from_node,
+)
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -131,25 +135,26 @@ class JnpLogPlugin(PrimitiveLeafPlugin):
 
             if reduce_inputs:
                 reduce_data = reduce_inputs[0]
-                reduce_axes = reduce_inputs[1:] if len(reduce_inputs) > 1 else []
+                reduce_axes = reduction_axes_from_node(reduce_node)
 
                 exp_getter = getattr(reduce_data, "producer", lambda: None)
                 exp_node = exp_getter() if callable(exp_getter) else None
                 exp_inputs = tuple(getattr(exp_node, "inputs", ()))
                 if getattr(exp_node, "op_type", "") == "Exp" and exp_inputs:
-                    alias_inputs = [exp_inputs[0], *reduce_axes]
-                    result = ctx.builder.ReduceLogSumExp(
-                        *alias_inputs,
-                        keepdims=keepdims,
-                        _outputs=[desired_name],
-                    )
+                    target_data = exp_inputs[0]
+                    op_type = "ReduceLogSumExp"
                 else:
-                    alias_inputs = [reduce_data, *reduce_axes]
-                    result = ctx.builder.ReduceLogSum(
-                        *alias_inputs,
-                        keepdims=keepdims,
-                        _outputs=[desired_name],
-                    )
+                    target_data = reduce_data
+                    op_type = "ReduceLogSum"
+                result = builder_reduce_with_axes(
+                    ctx,
+                    target_data,
+                    op_type=op_type,
+                    axes=reduce_axes,
+                    keepdims=keepdims,
+                    name_hint=op_type.lower(),
+                    output_name=desired_name,
+                )
                 if getattr(out_spec, "type", None) is not None:
                     result.type = out_spec.type
                 if getattr(out_spec, "shape", None) is not None:
