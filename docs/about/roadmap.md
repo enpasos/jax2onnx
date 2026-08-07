@@ -18,15 +18,7 @@
 
 ### **jax2onnx 0.15.1**
 
-* **Refresh the locked runtime and integration dependencies:** Update Netron to
-  `9.2.0`, filelock to `3.32.2`, fsspec to `2026.6.0`, hf-xet to `1.6.0`, and
-  tqdm to `4.70.0`; refresh the optional MaxDiffusion/MaxText stack with
-  Datasets `5.0.1`, Keras `3.15.1`, and wrapt `2.3.0`, including Datasets
-  compatibility with fsspec through `2026.6.0`.
-* **Refresh the locked development toolchain:** Update backrefs to `8.0`,
-  coverage to `7.15.3`, Markdown to `3.10.3`, python-discovery to `1.5.1`, and
-  virtualenv to `21.7.1` without changing the declared Python or package-version
-  requirements.
+ 
 * **Support explicit Flax NNX convolution padding:** Convert canonicalized
   non-string `nnx.Conv` padding to immutable nested integer tuples before
   primitive binding, satisfying JAX's static-parameter hashability requirement
@@ -98,11 +90,7 @@
   interoperability, loop masking and captures, reduction schemas and
   identities, optimizer safety, scatter isolation, symbolic metadata, and
   ORMQR discovery.
-* **Refresh documentation and attribution:** Clarify initializer rules for ONNX
-  Functions and control-flow `GraphProto` bodies, document runtime-sensitive
-  normalization tolerances, refresh the generated supported-component matrix,
-  and acknowledge @clementpoiret's returning hardening contribution.
-
+ 
 ## Past Versions
 
 See [Past Versions](past_versions.md) for the full release archive.
