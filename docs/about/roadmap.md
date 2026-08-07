@@ -14,10 +14,25 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases.
 
-## Upcoming Version
+## Current Version
 
 ### **jax2onnx 0.15.1**
 
+* **Refresh the locked runtime and integration dependencies:** Update Netron to
+  `9.2.0`, filelock to `3.32.2`, fsspec to `2026.6.0`, hf-xet to `1.6.0`, and
+  tqdm to `4.70.0`; refresh the optional MaxDiffusion/MaxText stack with
+  Datasets `5.0.1`, Keras `3.15.1`, and wrapt `2.3.0`, including Datasets
+  compatibility with fsspec through `2026.6.0`.
+* **Refresh the locked development toolchain:** Update backrefs to `8.0`,
+  coverage to `7.15.3`, Markdown to `3.10.3`, python-discovery to `1.5.1`, and
+  virtualenv to `21.7.1` without changing the declared Python or package-version
+  requirements.
+* **Support explicit Flax NNX convolution padding:** Convert canonicalized
+  non-string `nnx.Conv` padding to immutable nested integer tuples before
+  primitive binding, satisfying JAX's static-parameter hashability requirement
+  for scalar, per-axis integer, and asymmetric before/after pair forms while
+  leaving named padding modes unchanged; add regression coverage for all three
+  forms.
 * **Fix batched `jnp.split` exports:** Resolve positive and negative split axes
   against the logical unbatched rank under `vmap` and preserve valid
   zero-length outputs, including repeated split indices.
@@ -47,9 +62,9 @@
   safe for empty batches, mask completed examples so only active elements
   update, and carry values used only by the condition through the Loop
   interface.
-* **Preserve control-flow initializer ownership:** Keep reshaped Equinox
-  convolution parameters and rotary-attention caches available until normal
-  dead-code elimination so captured values do not become dangling Loop inputs.
+* **Preserve initializer ownership across captures:** Avoid eagerly deleting
+  original initializers when inlining reshaped Equinox convolution biases and
+  rotary-attention caches, so aliases and `Loop` captures remain valid.
 * **Make reduction lowering opset-aware:** Centralize reduction construction
   and emit axes as attributes or tensor inputs according to each target schema
   for mean, max, min, product, sum, L1/L2, log-sum, log-sum-exp, and sum-square
@@ -85,47 +100,8 @@
   ORMQR discovery.
 * **Refresh documentation and attribution:** Clarify initializer rules for ONNX
   Functions and control-flow `GraphProto` bodies, document runtime-sensitive
-  normalization tolerances, regenerate component/operator coverage, and
-  acknowledge @clementpoiret's returning hardening contribution.
-
-## Current Version
-
-### **jax2onnx 0.15.0**
-
-* **Add deterministic RL policy exports:** Provide continuous-control and
-  discrete-control `examples.rl` exports for the `obs -> action` deployment
-  contract, documented with RL policy-only guidance and validated through the
-  standard generated example-test path.
-* **Harden generated example runtime contracts:** Add optional ONNX shape
-  inference and runtime contract hooks to example metadata so deployment
-  examples can validate extra concrete batch sizes, output dtype/shape, and
-  domain-specific output constraints without separate test trees.
-* **Add generated deployment readiness summaries:** Let generated examples run
-  an integrated readiness check with checker status, strict shape-inference
-  status, public dtype/shape summaries, initializer summaries, operator
-  inventory, and public-dimension warnings without expanding the public API.
-* **Add JAX 0.11 support:** Track the `scan` parameter change from
-  `num_consts`/`num_carry` to the `ft_in`/`ft_out` flat-tree descriptors, guard
-  recursive jaxpr walks against the merged `ClosedJaxpr`/`Jaxpr` type whose
-  `.jaxpr` now returns itself, route the internal APIs dropped from `jax.core`
-  through the compatibility layer, and add an `empty` primitive plugin for the
-  new `jnp.empty` lowering.
-* **Accept the Flax `out_sharding` argument:** Let the `nnx.LinearGeneral`
-  monkey-patch accept and ignore the placement hint added in Flax `0.12.8`,
-  matching the existing `Linear` and `Conv` patches.
-* **Keep the pre-0.11 JAX path supported:** Leave the declared `jax>=0.8.1`
-  floor and the Python 3.11 test row in place; since JAX `0.11`, NumPy `2.5`,
-  and SciPy `1.18` all require Python 3.12, the 3.11 job now validates the full
-  suite against the older JAX stack through the same compatibility layer.
-* **Refresh the validation stack:** Update the documented runtime stack to JAX
-  `0.11.0`, Flax `0.12.8`, ONNX Runtime `1.28.0`, and `onnxruntime-web`
-  `1.27.0`; pull the transitive `protobufjs` dev dependency up to `7.6.5` to
-  clear its advisories; and raise the pinned mypy to `1.20.2` with a `3.12`
-  type-check target, which the NumPy `2.5` stubs require.
-* **Guard the generated coverage tables:** Make `scripts/generate_readme.py`
-  abort instead of silently dropping documented rows when an optional plugin
-  world (MaxText, MaxDiffusion) is not registered, check every target before
-  writing any of them, and allow deliberate deletions via `--allow-removals`.
+  normalization tolerances, refresh the generated supported-component matrix,
+  and acknowledge @clementpoiret's returning hardening contribution.
 
 ## Past Versions
 
