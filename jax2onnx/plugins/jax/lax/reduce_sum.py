@@ -7,12 +7,11 @@ from typing import Any, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
-import onnx_ir as ir
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -174,6 +173,12 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
         keepdims = bool(params.get("keepdims", False))
         dtype = params.get("dtype")
 
+        # Reducing over no axes is an identity on the producer result. Do not
+        # replace square/abs producers with a reduction that changes rank.
+        if axes == ():
+            lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
+            return
+
         # Keep the legacy lowering path when dtype conversion is requested.
         if dtype is not None:
             lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
@@ -226,34 +231,20 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
                     ax_i += rank
                 axes_norm.append(ax_i)
 
-        inputs = [target_base]
-        if axes_norm is not None:
-            axes_const = _const_i64(ctx, list(axes_norm), f"{op_name.lower()}_axes")
-            inputs.append(axes_const)
-
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(op_name)
         out_producer = getattr(out_spec, "producer", lambda: None)
         if callable(out_producer) and out_producer() is not None:
             desired_name = ctx.fresh_name(op_name)
 
-        if op_name == "ReduceL1":
-            result = cast(
-                ir.Value,
-                ctx.builder.ReduceL1(
-                    *inputs,
-                    keepdims=1 if keepdims else 0,
-                    _outputs=[desired_name],
-                ),
-            )
-        else:
-            result = cast(
-                ir.Value,
-                ctx.builder.ReduceSumSquare(
-                    *inputs,
-                    keepdims=1 if keepdims else 0,
-                    _outputs=[desired_name],
-                ),
-            )
+        result = builder_reduce_with_axes(
+            ctx,
+            target_base,
+            op_type=op_name,
+            axes=axes_norm,
+            keepdims=1 if keepdims else 0,
+            name_hint=op_name.lower(),
+            output_name=desired_name,
+        )
 
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type

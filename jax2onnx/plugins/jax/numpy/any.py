@@ -37,8 +37,8 @@ _ANY_PRIM: Final = make_jnp_primitive("jax.numpy.any")
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.any.html",
     onnx=[
         {
-            "component": "ReduceMax",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+            "component": "ReduceSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
         }
     ],
     since="0.12.2",
@@ -51,7 +51,7 @@ _ANY_PRIM: Final = make_jnp_primitive("jax.numpy.any")
             "input_values": [np.array([False, False, True], dtype=np.bool_)],
             "expected_output_dtypes": [np.bool_],
             "post_check_onnx_graph": EG(
-                ["Cast:3 -> ReduceMax -> Cast"],
+                ["Cast:3 -> ReduceSum -> Cast"],
                 no_unused_inputs=True,
             ),
         },
@@ -61,7 +61,7 @@ _ANY_PRIM: Final = make_jnp_primitive("jax.numpy.any")
             "input_values": [np.array([[0, 0, 0], [1, 0, 0]], dtype=np.int32)],
             "expected_output_dtypes": [np.bool_],
             "post_check_onnx_graph": EG(
-                ["ReduceMax:2x1 -> Cast:2x1"],
+                ["Cast:2x3 -> Cast:2x3 -> ReduceSum:2x1 -> Cast:2x1"],
                 no_unused_inputs=True,
             ),
         },

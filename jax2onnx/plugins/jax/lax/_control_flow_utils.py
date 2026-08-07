@@ -148,7 +148,8 @@ def make_subgraph_context(
     )
     child_ctx_any._function_mode = True
     child_ctx_any._inside_function_scope = True
-    # Ensure builder emits constants as nodes (Functions/subgraphs cannot have initializers)
+    # Emit constants as nodes while constructing Functions and control-flow bodies.
+    # Optimization may legally lift constants in GraphProto bodies to initializers.
     child_builder = cast(Any, child_ctx_any.builder)
     child_builder._function_mode = True
     child_ctx_any._keep_function_float32 = getattr(

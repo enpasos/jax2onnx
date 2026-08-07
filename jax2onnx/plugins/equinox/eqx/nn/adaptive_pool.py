@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import product
 from typing import Any, Callable, ClassVar, Final, Sequence
 
 import equinox as eqx
@@ -20,6 +21,7 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 _SUPPORTED_OPS: Final[dict[str, Callable[..., jax.Array]]] = {
@@ -34,6 +36,9 @@ _ONNX_OPS: Final[dict[str, str]] = {
 
 _EQX_ADAPTIVE_AVG_2D: Final[eqx.nn.AdaptiveAvgPool2d] = eqx.nn.AdaptiveAvgPool2d((4, 4))
 _EQX_ADAPTIVE_MAX_2D: Final[eqx.nn.AdaptiveMaxPool2d] = eqx.nn.AdaptiveMaxPool2d((4, 4))
+_EQX_ADAPTIVE_AVG_1D_NONDIVISIBLE: Final[eqx.nn.AdaptiveAvgPool1d] = (
+    eqx.nn.AdaptiveAvgPool1d(9)
+)
 _EQX_ADAPTIVE_GENERIC_AVG: Final[eqx.nn.AdaptivePool] = eqx.nn.AdaptivePool(
     (4, 4), num_spatial_dims=2, operation=jnp.mean
 )
@@ -110,6 +115,18 @@ def _adaptive_pool_forward(
             "component": "MaxPool",
             "doc": "https://onnx.ai/onnx/operators/onnx__MaxPool.html",
         },
+        {
+            "component": "ReduceMean",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
+        },
+        {
+            "component": "ReduceMax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+        },
+        {
+            "component": "Slice",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Slice.html",
+        },
     ],
     since="0.12.2",
     context="primitives.eqx",
@@ -146,6 +163,19 @@ def _adaptive_pool_forward(
             "post_check_onnx_graph": expect_graph(
                 ["AveragePool:Bx3x4x4"],
                 symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "eqx_adaptive_avg_pool1d_nondivisible",
+            "callable": _EQX_ADAPTIVE_AVG_1D_NONDIVISIBLE,
+            "input_shapes": [(4, 64)],
+            "expected_output_shapes": [(4, 9)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    "Unsqueeze -> Slice -> ReduceMean -> Unsqueeze -> Concat -> Reshape -> Squeeze"
+                ],
                 no_unused_inputs=True,
             ),
         },
@@ -234,7 +264,9 @@ class AdaptivePoolPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, pooled_input)
 
         spatial_dims = x_shape[-spatial_rank:]
+        spatial_dims_int: list[int] = []
         kernel_shape: list[int] = []
+        all_divisible = True
         for in_dim, out_dim in zip(spatial_dims, target_shape, strict=False):
             if not isinstance(in_dim, (int, np.integer)):
                 raise NotImplementedError(
@@ -245,19 +277,11 @@ class AdaptivePoolPlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     f"AdaptivePool requires positive dims, got input={in_dim_i}, target={out_dim}."
                 )
-            if in_dim_i % int(out_dim) != 0:
-                raise NotImplementedError(
-                    "AdaptivePool lowering currently supports divisible targets only. "
-                    f"Got input dim {in_dim_i} and target {out_dim}."
-                )
-            kernel_shape.append(in_dim_i // int(out_dim))
-
-        pool_kwargs: dict[str, Any] = {
-            "kernel_shape": tuple(kernel_shape),
-            "strides": tuple(kernel_shape),
-        }
-        if op == "avg":
-            pool_kwargs["count_include_pad"] = 1
+            spatial_dims_int.append(in_dim_i)
+            if in_dim_i % int(out_dim) == 0:
+                kernel_shape.append(in_dim_i // int(out_dim))
+            else:
+                all_divisible = False
 
         pooled_name = (
             ctx.fresh_name("eqx_adaptive_pool_pooled")
@@ -268,20 +292,145 @@ class AdaptivePoolPlugin(PrimitiveLeafPlugin):
             )
         )
 
-        method = getattr(builder, onnx_op, None)
-        if not callable(method):
-            raise AttributeError(f"IR builder missing {onnx_op} for AdaptivePool")
-
-        pooled = method(
-            pooled_input,
-            _outputs=[pooled_name],
-            **pool_kwargs,
-        )
-        if dtype is not None:
-            pooled.type = ir.TensorType(dtype)
         pooled_shape = (1, *out_shape) if rank == spatial_rank + 1 else out_shape
-        _stamp_type_and_shape(pooled, pooled_shape)
-        _ensure_value_metadata(ctx, pooled)
+        if all_divisible:
+            pool_kwargs: dict[str, Any] = {
+                "kernel_shape": tuple(kernel_shape),
+                "strides": tuple(kernel_shape),
+            }
+            if op == "avg":
+                pool_kwargs["count_include_pad"] = 1
+
+            method = getattr(builder, onnx_op, None)
+            if not callable(method):
+                raise AttributeError(f"IR builder missing {onnx_op} for AdaptivePool")
+
+            pooled = method(
+                pooled_input,
+                _outputs=[pooled_name],
+                **pool_kwargs,
+            )
+            if dtype is not None:
+                pooled.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(pooled, pooled_shape)
+            _ensure_value_metadata(ctx, pooled)
+        else:
+            spatial_axes = tuple(range(2, spatial_rank + 2))
+            reduce_axes_input = None
+            if int(getattr(builder, "opset", 21)) >= 18:
+                reduce_axes_input = _const_i64(
+                    ctx,
+                    spatial_axes,
+                    name_hint="eqx_adaptive_pool_reduce_axes",
+                )
+            slice_axes = _const_i64(
+                ctx, spatial_axes, name_hint="eqx_adaptive_pool_slice_axes"
+            )
+            slice_steps = _const_i64(
+                ctx,
+                [1] * spatial_rank,
+                name_hint="eqx_adaptive_pool_slice_steps",
+            )
+            flat_axis = _const_i64(ctx, [2], name_hint="eqx_adaptive_pool_flat_axis")
+
+            input_pooled_shape = (1, *x_shape) if rank == spatial_rank + 1 else x_shape
+            bin_values: list[ir.Value] = []
+            ranges = [range(int(out_dim)) for out_dim in target_shape]
+            for out_index in product(*ranges):
+                starts: list[int] = []
+                ends: list[int] = []
+                for idx, in_dim, out_dim in zip(
+                    out_index, spatial_dims_int, target_shape, strict=False
+                ):
+                    out_dim_i = int(out_dim)
+                    small_bin = in_dim // out_dim_i
+                    large_bin_count = in_dim % out_dim_i
+                    idx_i = int(idx)
+                    if idx_i < large_bin_count:
+                        start = idx_i * (small_bin + 1)
+                        end = start + small_bin + 1
+                    else:
+                        large_prefix = large_bin_count * (small_bin + 1)
+                        start = large_prefix + (idx_i - large_bin_count) * small_bin
+                        end = start + small_bin
+                    starts.append(start)
+                    ends.append(end)
+                starts_val = _const_i64(
+                    ctx, starts, name_hint="eqx_adaptive_pool_slice_starts"
+                )
+                ends_val = _const_i64(
+                    ctx, ends, name_hint="eqx_adaptive_pool_slice_ends"
+                )
+                window = builder.Slice(
+                    pooled_input,
+                    starts_val,
+                    ends_val,
+                    slice_axes,
+                    slice_steps,
+                    _outputs=[ctx.fresh_name("eqx_adaptive_pool_window")],
+                )
+                if dtype is not None:
+                    window.type = ir.TensorType(dtype)
+                window_shape = (
+                    *input_pooled_shape[:2],
+                    *(end - start for start, end in zip(starts, ends)),
+                )
+                _stamp_type_and_shape(window, window_shape)
+                _ensure_value_metadata(ctx, window)
+
+                reduced = builder_reduce_with_axes(
+                    ctx,
+                    window,
+                    op_type="ReduceMean" if op == "avg" else "ReduceMax",
+                    axes=spatial_axes,
+                    axes_input=reduce_axes_input,
+                    keepdims=0,
+                    name_hint="eqx_adaptive_pool_bin",
+                )
+                if dtype is not None:
+                    reduced.type = ir.TensorType(dtype)
+                _stamp_type_and_shape(reduced, input_pooled_shape[:2])
+                _ensure_value_metadata(ctx, reduced)
+
+                flat_bin = builder.Unsqueeze(
+                    reduced,
+                    flat_axis,
+                    _outputs=[ctx.fresh_name("eqx_adaptive_pool_flat_bin")],
+                )
+                if dtype is not None:
+                    flat_bin.type = ir.TensorType(dtype)
+                _stamp_type_and_shape(flat_bin, (*input_pooled_shape[:2], 1))
+                _ensure_value_metadata(ctx, flat_bin)
+                bin_values.append(flat_bin)
+
+            if len(bin_values) == 1:
+                flattened = bin_values[0]
+            else:
+                flattened = builder.Concat(
+                    *bin_values,
+                    axis=2,
+                    _outputs=[ctx.fresh_name("eqx_adaptive_pool_flattened")],
+                )
+                if dtype is not None:
+                    flattened.type = ir.TensorType(dtype)
+                flat_size = int(np.prod(target_shape, dtype=np.int64))
+                _stamp_type_and_shape(flattened, (*input_pooled_shape[:2], flat_size))
+                _ensure_value_metadata(ctx, flattened)
+
+            final_shape = _const_i64(
+                ctx,
+                [0, 0, *target_shape],
+                name_hint="eqx_adaptive_pool_output_shape",
+            )
+            pooled = builder.Reshape(
+                flattened,
+                final_shape,
+                _outputs=[pooled_name],
+            )
+            if dtype is not None:
+                pooled.type = ir.TensorType(dtype)
+            _stamp_type_and_shape(pooled, pooled_shape)
+            _ensure_value_metadata(ctx, pooled)
 
         if rank == spatial_rank + 1:
             squeeze_axes = _const_i64(ctx, [0], name_hint="eqx_adaptive_pool_sq_axes")

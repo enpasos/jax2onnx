@@ -1,0 +1,230 @@
+# jax2onnx/plugins/equinox/internal/control_primitives.py
+
+from __future__ import annotations
+
+from typing import Any
+
+import equinox as eqx
+import numpy as np
+import onnx_ir as ir
+from equinox._unvmap import unvmap_all_p, unvmap_any_p, unvmap_max_p
+from equinox.internal import select_if_vmap_p
+from equinox.internal._nontraceable import nonbatchable_p
+
+from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph
+from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    builder_cast,
+    builder_identity,
+)
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+
+
+def _lower_unvmap_reduction(
+    ctx: LoweringContextProtocol,
+    eqn: Any,
+    *,
+    op_type: str,
+    boolean: bool,
+) -> None:
+    x_var = eqn.invars[0]
+    out_var = eqn.outvars[0]
+    x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("unvmap_in"))
+    input_rank = len(tuple(getattr(x_var.aval, "shape", ())))
+
+    reduction_input = x_val
+    if boolean:
+        reduction_input = builder_cast(
+            ctx,
+            x_val,
+            ir.DataType.INT64,
+            name_hint="unvmap_bool_to_i64",
+        )
+
+    effective_op_type = "ReduceSum" if boolean and op_type == "ReduceMax" else op_type
+    reduction = builder_reduce_with_axes(
+        ctx,
+        reduction_input,
+        op_type=effective_op_type,
+        axes=tuple(range(input_rank)),
+        keepdims=0,
+        name_hint=effective_op_type,
+    )
+    reduction.type = reduction_input.type
+    _stamp_type_and_shape(reduction, ())
+    _ensure_value_metadata(ctx, reduction)
+
+    result = reduction
+    if boolean:
+        result = builder_cast(
+            ctx,
+            reduction,
+            ir.DataType.BOOL,
+            name_hint="unvmap_i64_to_bool",
+        )
+
+    out_dtype = _dtype_to_ir(
+        np.dtype(out_var.aval.dtype), ctx.builder.enable_double_precision
+    )
+    result.type = ir.TensorType(out_dtype)
+    _stamp_type_and_shape(result, ())
+    _ensure_value_metadata(ctx, result)
+    ctx.bind_value_for_var(out_var, result)
+
+
+@register_primitive(
+    jaxpr_primitive=unvmap_any_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "ReduceSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
+        }
+    ],
+    since="0.15.1",
+    context="primitives.eqx",
+    component="unvmap_any",
+    testcases=[
+        {
+            "testcase": "eqx_unvmap_any",
+            "callable": eqx.internal.unvmap_any,
+            "input_shapes": [(2, 3)],
+            "input_dtypes": [np.bool_],
+            "post_check_onnx_graph": expect_graph(["Cast -> ReduceSum -> Cast"]),
+        }
+    ],
+)
+class UnvmapAnyPlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMax", boolean=True)
+
+
+@register_primitive(
+    jaxpr_primitive=unvmap_all_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "ReduceMin",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMin.html",
+        }
+    ],
+    since="0.15.1",
+    context="primitives.eqx",
+    component="unvmap_all",
+    testcases=[
+        {
+            "testcase": "eqx_unvmap_all",
+            "callable": eqx.internal.unvmap_all,
+            "input_shapes": [(2, 3)],
+            "input_dtypes": [np.bool_],
+            "post_check_onnx_graph": expect_graph(["Cast -> ReduceMin -> Cast"]),
+        }
+    ],
+)
+class UnvmapAllPlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMin", boolean=True)
+
+
+@register_primitive(
+    jaxpr_primitive=unvmap_max_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "ReduceMax",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+        }
+    ],
+    since="0.15.1",
+    context="primitives.eqx",
+    component="unvmap_max",
+    testcases=[
+        {
+            "testcase": "eqx_unvmap_max",
+            "callable": eqx.internal.unvmap_max,
+            "input_shapes": [(2, 3)],
+            "input_dtypes": [np.int32],
+            "post_check_onnx_graph": expect_graph(["ReduceMax"]),
+        }
+    ],
+)
+class UnvmapMaxPlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMax", boolean=False)
+
+
+@register_primitive(
+    jaxpr_primitive=select_if_vmap_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        }
+    ],
+    since="0.15.1",
+    context="primitives.eqx",
+    component="select_if_vmap",
+    testcases=[
+        {
+            "testcase": "eqx_select_if_vmap",
+            "callable": lambda pred, x, y: select_if_vmap_p.bind(pred, x, y),
+            "input_values": [
+                np.asarray(False),
+                np.asarray([1.0, 2.0], dtype=np.float32),
+                np.asarray([10.0, 20.0], dtype=np.float32),
+            ],
+            "post_check_onnx_graph": expect_graph(
+                ["Identity:2"],
+                must_absent=["Where"],
+            ),
+        }
+    ],
+)
+class SelectIfVmapPlugin(PrimitiveLeafPlugin):
+    """Lower the unbatched Equinox selector, which always returns ``x``."""
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        x_var = eqn.invars[1]
+        out_var = eqn.outvars[0]
+        x_val = ctx.get_value_for_var(
+            x_var,
+            name_hint=ctx.fresh_name("select_if_vmap_in"),
+        )
+        result = builder_identity(ctx, x_val, name_hint="select_if_vmap_out")
+        ctx.bind_value_for_var(out_var, result)
+
+
+@register_primitive(
+    jaxpr_primitive=nonbatchable_p.name,
+    jax_doc="https://docs.kidger.site/equinox/api/internal/",
+    onnx=[
+        {
+            "component": "Identity",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Identity.html",
+        }
+    ],
+    since="0.15.1",
+    context="primitives.eqx",
+    component="nonbatchable",
+    testcases=[
+        {
+            "testcase": "eqx_nonbatchable",
+            "callable": lambda x: eqx.internal.nonbatchable(x),
+            "input_shapes": [(2, 3)],
+            "post_check_onnx_graph": expect_graph(["Identity:2x3"]),
+        }
+    ],
+)
+class NonbatchablePlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
+        x_val = ctx.get_value_for_var(
+            x_var, name_hint=ctx.fresh_name("nonbatchable_in")
+        )
+        result = builder_identity(ctx, x_val, name_hint="nonbatchable_out")
+        ctx.bind_value_for_var(out_var, result)

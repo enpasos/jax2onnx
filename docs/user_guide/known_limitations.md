@@ -55,6 +55,13 @@ Use `allclose(...)` with tolerances appropriate for the model and dtype. For
 deployment checks, validate representative inputs rather than only zero-valued
 inputs.
 
+Normalization is especially sensitive when a group has zero or near-zero
+variance. JAX and ONNX runtimes can produce different floating-point residuals
+while implementing the same normalization formula, and later layers may amplify
+that roundoff. Use strict parity checks on representative, nonconstant inputs;
+for degenerate normalization inputs, also check finiteness and apply a tolerance
+specific to the model, dtype, and runtime.
+
 ## Training Is Out of Scope
 
 `jax2onnx` exports ONNX artifacts for inference-style execution. It does not

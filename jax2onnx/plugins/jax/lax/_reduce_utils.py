@@ -13,7 +13,8 @@ from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64
+from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 
 
 _REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
@@ -105,6 +106,13 @@ def lower_reduction(
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
 
+    if axes_attr == () and needs_result_cast:
+        # The INT64 work dtype only protects a real unsigned reduction. With
+        # no axes, preserve the input dtype (or apply the requested result
+        # dtype directly) instead of leaking the internal work dtype.
+        work_dtype = requested_dtype
+        needs_result_cast = False
+
     reduced_input = _maybe_cast_input(
         ctx,
         operand_val,
@@ -135,11 +143,6 @@ def lower_reduction(
         ctx.bind_value_for_var(out_var, result)
         return
 
-    inputs = [reduced_input]
-    if axes_attr is not None:
-        axes_const = _const_i64(ctx, list(axes_attr), f"{op_type.lower()}_axes")
-        inputs.append(axes_const)
-
     desired_name = getattr(out_val, "name", None) or ctx.fresh_name(op_type)
     producer = getattr(out_val, "producer", lambda: None)
     if callable(producer) and producer() is not None:
@@ -147,59 +150,25 @@ def lower_reduction(
 
     keepdims_attr = 1 if keepdims else 0
     reduce_outputs = [ctx.fresh_name(op_type)] if needs_result_cast else [desired_name]
-    if op_type == "ReduceSum":
-        result = ctx.builder.ReduceSum(
-            *inputs,
+    if op_type in {
+        "ReduceL1",
+        "ReduceL2",
+        "ReduceLogSum",
+        "ReduceLogSumExp",
+        "ReduceMax",
+        "ReduceMin",
+        "ReduceProd",
+        "ReduceSum",
+        "ReduceSumSquare",
+    }:
+        result = builder_reduce_with_axes(
+            ctx,
+            reduced_input,
+            op_type=op_type,
+            axes=axes_attr,
             keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceProd":
-        result = ctx.builder.ReduceProd(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceMax":
-        result = ctx.builder.ReduceMax(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceMin":
-        result = ctx.builder.ReduceMin(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceL1":
-        result = ctx.builder.ReduceL1(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceL2":
-        result = ctx.builder.ReduceL2(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceLogSum":
-        result = ctx.builder.ReduceLogSum(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceLogSumExp":
-        result = ctx.builder.ReduceLogSumExp(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
-        )
-    elif op_type == "ReduceSumSquare":
-        result = ctx.builder.ReduceSumSquare(
-            *inputs,
-            keepdims=keepdims_attr,
-            _outputs=reduce_outputs,
+            name_hint=op_type.lower(),
+            output_name=reduce_outputs[0],
         )
     else:
         raise ValueError(f"Unsupported reduction op: {op_type}")
@@ -248,6 +217,15 @@ def lower_boolean_reduction(
     operand_var = eqn.invars[0]
     out_var = eqn.outvars[0]
 
+    out_dtype_param = getattr(getattr(out_var, "aval", None), "dtype", None)
+    if out_dtype_param is not None and not np.issubdtype(
+        np.dtype(out_dtype_param), np.bool_
+    ):
+        raise NotImplementedError(
+            "integer bitwise reduce_and/reduce_or/reduce_xor are not supported; "
+            "the boolean reduction lowering only supports boolean outputs"
+        )
+
     params = getattr(eqn, "params", {})
     axes = params.get("axes")
     keepdims = bool(params.get("keepdims", False))
@@ -259,12 +237,27 @@ def lower_boolean_reduction(
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
+    operand_dtype_param = getattr(getattr(operand_var, "aval", None), "dtype", None)
+    operand_dtype = (
+        np.dtype(operand_dtype_param) if operand_dtype_param is not None else None
+    )
+    boolean_operand = operand_val
+    if operand_dtype is None or not np.issubdtype(operand_dtype, np.bool_):
+        # jnp.any/all accept numeric inputs, whose truth value must be computed
+        # elementwise before reducing. Reducing the raw numbers can cancel for
+        # OR (for example [1, -1]) or hide a zero for AND ([0, -1]).
+        boolean_operand = _maybe_cast_input(
+            ctx,
+            operand_val,
+            operand_shape,
+            np.dtype(np.bool_),
+        )
     if axes_attr == ():
         desired_name = ctx.fresh_name(mode)
         result = cast(
             ir.Value,
             ctx.builder.Identity(
-                operand_val,
+                boolean_operand,
                 _outputs=[desired_name],
             ),
         )
@@ -275,43 +268,34 @@ def lower_boolean_reduction(
         ctx.bind_value_for_var(out_var, result)
         return
 
-    int_operand = _maybe_cast_input(ctx, operand_val, operand_shape, np.dtype(np.int64))
+    int_operand = _maybe_cast_input(
+        ctx,
+        boolean_operand,
+        operand_shape,
+        np.dtype(np.int64),
+    )
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
     keepdims_attr = 1 if keepdims else 0
 
-    inputs = [int_operand]
-    if axes_attr is not None:
-        axes_const = _const_i64(ctx, list(axes_attr), f"{mode}_axes")
-        inputs.append(axes_const)
-
     if mode == "reduce_xor":
-        reduce_out = cast(
-            ir.Value,
-            ctx.builder.ReduceSum(
-                *inputs,
-                keepdims=keepdims_attr,
-                _outputs=[ctx.fresh_name("ReduceSum")],
-            ),
-        )
+        reduce_op_type = "ReduceSum"
     elif mode == "reduce_or":
-        reduce_out = cast(
-            ir.Value,
-            ctx.builder.ReduceMax(
-                *inputs,
-                keepdims=keepdims_attr,
-                _outputs=[ctx.fresh_name("ReduceMax")],
-            ),
-        )
+        # ReduceMax returns the integer dtype's minimum value for an empty
+        # reduced dimension. Casting that non-zero identity back to bool would
+        # incorrectly make ``any(empty)`` true. A sum has the required zero
+        # identity and remains equivalent for non-empty boolean inputs.
+        reduce_op_type = "ReduceSum"
     else:
-        reduce_out = cast(
-            ir.Value,
-            ctx.builder.ReduceMin(
-                *inputs,
-                keepdims=keepdims_attr,
-                _outputs=[ctx.fresh_name("ReduceMin")],
-            ),
-        )
+        reduce_op_type = "ReduceMin"
+    reduce_out = builder_reduce_with_axes(
+        ctx,
+        int_operand,
+        op_type=reduce_op_type,
+        axes=axes_attr,
+        keepdims=keepdims_attr,
+        name_hint=reduce_op_type,
+    )
     reduce_out.type = ir.TensorType(ir.DataType.INT64)
     _stamp_type_and_shape(reduce_out, out_shape)
     _ensure_value_metadata(ctx, reduce_out)

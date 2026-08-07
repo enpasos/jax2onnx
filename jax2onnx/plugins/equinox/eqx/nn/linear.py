@@ -470,10 +470,16 @@ class LinearPlugin(PrimitiveLeafPlugin):
     @staticmethod
     def _patch_call(
         orig: Callable[..., jax.Array] | None,
-    ) -> Callable[[eqx.nn.Linear, jax.Array], jax.Array]:
+    ) -> Callable[..., jax.Array]:
         del orig
 
-        def wrapped(self: eqx.nn.Linear, x: jax.Array) -> jax.Array:
+        def wrapped(
+            self: eqx.nn.Linear,
+            x: jax.Array,
+            *,
+            key: jax.Array | None = None,
+        ) -> jax.Array:
+            del key
             weight = jnp.asarray(self.weight)
             bias = self.bias
             if bias is None:

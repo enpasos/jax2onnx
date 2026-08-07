@@ -17,7 +17,7 @@ from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
-from jax2onnx.plugins.jax.lax._index_utils import _const_i64
+from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -154,15 +154,14 @@ class LogSumExpPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("logsumexp")
 
-        inputs = [x_val]
-        if axes_norm is not None:
-            axes_const = _const_i64(ctx, list(axes_norm), "logsumexp_axes")
-            inputs.append(axes_const)
-
-        result = ctx.builder.ReduceLogSumExp(
-            *inputs,
+        result = builder_reduce_with_axes(
+            ctx,
+            x_val,
+            op_type="ReduceLogSumExp",
+            axes=axes_norm,
             keepdims=1 if keepdims else 0,
-            _outputs=[desired_name],
+            name_hint="logsumexp",
+            output_name=desired_name,
         )
         if getattr(out_spec, "type", None) is not None:
             result.type = out_spec.type

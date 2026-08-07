@@ -17,6 +17,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
+from jax2onnx.plugins.jax.lax._opset_utils import (
+    builder_reduce_with_axes,
+    reduction_axes_from_node,
+)
 from jax2onnx.plugins.jax.numpy._common import (
     get_orig_impl,
     jnp_binding_specs,
@@ -143,6 +147,7 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
         if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
+                reduce_axes = reduction_axes_from_node(input_producer)
                 input_attributes = getattr(input_producer, "attributes", {})
                 keepdims_attr = (
                     input_attributes.get("keepdims")
@@ -154,10 +159,14 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
                     if keepdims_attr is not None
                     else 1
                 )
-                result = ctx.builder.ReduceL2(
-                    *reduce_inputs,
+                result = builder_reduce_with_axes(
+                    ctx,
+                    reduce_inputs[0],
+                    op_type="ReduceL2",
+                    axes=reduce_axes,
                     keepdims=keepdims,
-                    _outputs=[desired_name],
+                    name_hint="reducel2",
+                    output_name=desired_name,
                 )
                 if getattr(out_spec, "type", None) is not None:
                     result.type = out_spec.type

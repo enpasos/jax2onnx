@@ -2,7 +2,7 @@
 
 ## Special Thanks
 
-✨ **[@clementpoiret](https://github.com/clementpoiret)** for initiating Equinox support and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox.
+✨ **[@clementpoiret](https://github.com/clementpoiret)** for initiating Equinox support, later returning to help harden the integration, and for [Equimo](https://github.com/clementpoiret/equimo), which brings modern vision models—such as [DINOv3](https://ai.meta.com/dinov3/)—to JAX/Equinox.
 
 ✨ **[@justinchuby](https://github.com/justinchuby)** for introducing **onnx-ir** as a scalable and more efficient way to handle ONNX model construction.  
 

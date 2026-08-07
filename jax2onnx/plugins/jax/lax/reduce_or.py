@@ -18,8 +18,8 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_or.html",
     onnx=[
         {
-            "component": "ReduceMax",
-            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMax.html",
+            "component": "ReduceSum",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSum.html",
         }
     ],
     since="0.6.1",
@@ -32,7 +32,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "input_shapes": [(3, 3)],
             "input_dtypes": [jnp.bool_],
             "post_check_onnx_graph": EG(
-                ["Cast:3x3 -> ReduceMax -> Cast"],
+                ["Cast:3x3 -> ReduceSum -> Cast"],
                 no_unused_inputs=True,
             ),
         },
@@ -43,7 +43,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
                 jnp.array([[False, False], [True, False]], dtype=jnp.bool_)
             ],
             "post_check_onnx_graph": EG(
-                ["Cast:2x2 -> ReduceMax -> Cast"],
+                ["Cast:2x2 -> ReduceSum -> Cast"],
                 no_unused_inputs=True,
             ),
         },
@@ -57,7 +57,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "input_shapes": [(3, 4)],
             "input_dtypes": [jnp.bool_],
             "post_check_onnx_graph": EG(
-                ["Cast:3x4 -> ReduceMax:3 -> Cast:3 -> Reshape:3x1 -> Expand:3x1"],
+                ["Cast:3x4 -> ReduceSum:3 -> Cast:3 -> Reshape:3x1 -> Expand:3x1"],
                 no_unused_inputs=True,
             ),
         },
@@ -68,13 +68,13 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
             "post_check_onnx_graph": EG(
                 ["Identity:3"],
                 no_unused_inputs=True,
-                must_absent=["ReduceMax"],
+                must_absent=["ReduceSum"],
             ),
         },
     ],
 )
 class ReduceOrPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.reduce_or`` via ReduceMax + Cast."""
+    """Lower ``lax.reduce_or`` via an empty-safe ReduceSum + Cast."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lower_boolean_reduction(ctx, eqn, mode="reduce_or")

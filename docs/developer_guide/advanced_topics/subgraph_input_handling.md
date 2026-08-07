@@ -29,8 +29,8 @@ the parent graph stacks or reshapes as required. Tests under
   ONNX Function bodies.
 - If ONNX adjusts the schemas, update the converter code and this guide together so plugin authors retain a single source of truth.
 
-## Constants inside subgraphs (no initializers)
-- ONNX Functions and control‑flow subgraphs must not contain graph initializers. All constants inside `Loop` bodies, including bodies emitted for `jax.lax.scan`, or Function graphs are emitted as `Constant` nodes.
-- Our converter enforces this by running subgraph construction in “function mode”, which makes builder initializer helpers produce `Constant` nodes instead of registering initializers on the body graph.
+## Constants inside subgraphs
+- ONNX Functions cannot contain graph initializers, but control-flow attributes are `GraphProto` values and may legally contain them. During construction, constants inside `Loop` bodies and Function graphs are emitted as `Constant` nodes; optimization may later lift control-flow constants into subgraph initializers.
+- Our converter runs subgraph construction in “function mode”, which makes builder initializer helpers produce `Constant` nodes instead of registering initializers immediately. Imported ONNX Functions remain initializer-free.
 - Plugin authors should always use `ctx.builder.add_initializer_from_*` or `ctx.bind_const_for_var(...)` for constants so the correct form is emitted automatically in subgraphs. Avoid writing to any `_initializers` lists directly.
 - Post‑processing loosens shapes inside subgraphs: value shapes in Loop bodies are set to rank‑only (all dims unknown) to reduce schema friction and improve portability. Structural tests assert this behaviour.
