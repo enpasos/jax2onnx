@@ -553,27 +553,82 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
                 dim if idx in (0, group_axis) else 1
                 for idx, dim in enumerate(grouped_dims)
             )
-            mean = builder_reduce_with_axes(
-                ctx,
-                grouped,
-                op_type="ReduceMean",
-                axes=reduce_axes,
-                keepdims=1,
-                name_hint="gn_mean",
-            )
-            _stamp_x(mean, reduced_dims)
-
-            centered = cast(
-                ir.Value,
-                builder.Sub(
+            if use_fast_variance:
+                mean = builder_reduce_with_axes(
+                    ctx,
                     grouped,
-                    mean,
-                    _outputs=[ctx.fresh_name("gn_centered")],
-                ),
-            )
-            _stamp_x(centered, grouped_dims)
+                    op_type="ReduceMean",
+                    axes=reduce_axes,
+                    keepdims=1,
+                    name_hint="gn_mean",
+                )
+                _stamp_x(mean, reduced_dims)
+                centered = cast(
+                    ir.Value,
+                    builder.Sub(
+                        grouped,
+                        mean,
+                        _outputs=[ctx.fresh_name("gn_centered")],
+                    ),
+                )
+                _stamp_x(centered, grouped_dims)
+                variance_source = grouped
+            else:
+                # Shift by one value per group before reducing so constant groups
+                # remain exactly centered across runtime reduction orders.
+                anchor = cast(
+                    ir.Value,
+                    builder.Slice(
+                        grouped,
+                        _const_i64(
+                            ctx,
+                            [0] * len(reduce_axes),
+                            name_hint="gn_anchor_starts",
+                        ),
+                        _const_i64(
+                            ctx,
+                            [1] * len(reduce_axes),
+                            name_hint="gn_anchor_ends",
+                        ),
+                        _const_i64(ctx, reduce_axes, name_hint="gn_anchor_axes"),
+                        _const_i64(
+                            ctx,
+                            [1] * len(reduce_axes),
+                            name_hint="gn_anchor_steps",
+                        ),
+                        _outputs=[ctx.fresh_name("gn_anchor")],
+                    ),
+                )
+                _stamp_x(anchor, reduced_dims)
+                shifted = cast(
+                    ir.Value,
+                    builder.Sub(
+                        grouped,
+                        anchor,
+                        _outputs=[ctx.fresh_name("gn_shifted")],
+                    ),
+                )
+                _stamp_x(shifted, grouped_dims)
+                shifted_mean = builder_reduce_with_axes(
+                    ctx,
+                    shifted,
+                    op_type="ReduceMean",
+                    axes=reduce_axes,
+                    keepdims=1,
+                    name_hint="gn_shifted_mean",
+                )
+                _stamp_x(shifted_mean, reduced_dims)
+                centered = cast(
+                    ir.Value,
+                    builder.Sub(
+                        shifted,
+                        shifted_mean,
+                        _outputs=[ctx.fresh_name("gn_centered")],
+                    ),
+                )
+                _stamp_x(centered, grouped_dims)
+                variance_source = centered
 
-            variance_source = grouped if use_fast_variance else centered
             squared = cast(
                 ir.Value,
                 builder.Mul(
@@ -877,16 +932,24 @@ def _impl_group_norm(
         for i in range(x_grouped.ndim)
         if i not in (*range(batch_rank), x_grouped.ndim - 2)
     ]
-    mean = jnp.mean(x_grouped, axis=reduce_axes, keepdims=True)
     if use_fast_variance:
+        mean = jnp.mean(x_grouped, axis=reduce_axes, keepdims=True)
+        centered = x_grouped - mean
         second_moment = jnp.mean(jnp.square(x_grouped), axis=reduce_axes, keepdims=True)
         var = second_moment - jnp.square(mean)
     else:
-        var = jnp.mean(jnp.square(x_grouped - mean), axis=reduce_axes, keepdims=True)
+        anchor_index = tuple(
+            slice(0, 1) if axis in reduce_axes else slice(None)
+            for axis in range(x_grouped.ndim)
+        )
+        shifted = x_grouped - x_grouped[anchor_index]
+        shifted_mean = jnp.mean(shifted, axis=reduce_axes, keepdims=True)
+        centered = shifted - shifted_mean
+        var = jnp.mean(jnp.square(centered), axis=reduce_axes, keepdims=True)
     if clamp_negative_variance:
         var = jnp.maximum(jnp.asarray(0.0, dtype=var.dtype), var)
 
-    normed = (x_grouped - mean) / jnp.sqrt(var + epsilon)
+    normed = centered / jnp.sqrt(var + epsilon)
     normed = jnp.reshape(normed, x_last.shape)
 
     scale = jnp.asarray(scale, dtype=normed.dtype)

@@ -299,19 +299,6 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
             use_bias = bool(getattr(self, "use_bias", True))
             scale_param = params.get("scale") if use_scale else None
             bias_param = params.get("bias") if use_bias else None
-            if _can_use_original_linen_slow_path(
-                x,
-                scale_param,
-                bias_param,
-                use_scale=use_scale,
-                use_bias=use_bias,
-                use_fast_variance=use_fast_variance,
-                force_float32_reductions=force_float32_reductions,
-            ):
-                # Preserve Linen's centered-variance implementation whenever
-                # its separate statistics/affine dtypes form a valid graph.
-                return call_orig(self, x, mask=mask)
-
             staged = _stage_linen_norm_operands(
                 x,
                 scale_param,
@@ -323,6 +310,16 @@ class GroupNormPlugin(nnx_group_norm.GroupNormPlugin):
                 force_float32_reductions=force_float32_reductions,
             )
             if staged is None:
+                if _can_use_original_linen_slow_path(
+                    x,
+                    scale_param,
+                    bias_param,
+                    use_scale=use_scale,
+                    use_bias=use_bias,
+                    use_fast_variance=use_fast_variance,
+                    force_float32_reductions=force_float32_reductions,
+                ):
+                    return call_orig(self, x, mask=mask)
                 raise NotImplementedError(
                     "Linen GroupNorm export cannot preserve this configuration's "
                     "separate statistics, input, affine, and result dtype staging."

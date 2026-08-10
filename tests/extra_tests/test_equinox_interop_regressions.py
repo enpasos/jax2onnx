@@ -618,6 +618,10 @@ def test_linen_norm_slow_variance_is_valid_at_opset17(kind: str) -> None:
     sum_squares = [
         node for node in model.graph.node if node.op_type == "ReduceSumSquare"
     ]
+    if kind == "group":
+        assert not sum_squares
+        assert sum(node.op_type == "ReduceMean" for node in model.graph.node) == 2
+        return
     assert sum_squares
     for node in sum_squares:
         assert len(node.input) == 1
