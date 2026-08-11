@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+
 import pytest
 
 
@@ -81,7 +82,10 @@ def _scan_file_for_onnx_usage(pyfile: Path) -> dict[str, list[tuple[int, str]]]:
                     hits["imports"].append((node.lineno, f"import {mod}{as_part}"))
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            if _is_forbidden_import(mod):
+            qualified_names = (f"{mod}.{alias.name}" for alias in node.names if mod)
+            if _is_forbidden_import(mod) or any(
+                _is_forbidden_import(name) for name in qualified_names
+            ):
                 names = ", ".join(
                     f"{a.name}" + (f" as {a.asname}" if a.asname else "")
                     for a in node.names
@@ -108,6 +112,60 @@ def _scan_file_for_onnx_usage(pyfile: Path) -> dict[str, list[tuple[int, str]]]:
                     )
 
     return hits
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import onnx_ir._tape\n",
+        "from onnx_ir._tape import Builder\n",
+        "from onnx_ir import _tape\n",
+        "from onnx_ir import _tape as tape\n",
+        "from onnx_ir import tape, _tape\n",
+    ],
+    ids=[
+        "direct-import",
+        "direct-from-import",
+        "root-from-import",
+        "aliased-root-from-import",
+        "mixed-root-from-import",
+    ],
+)
+def test_scan_rejects_private_onnx_ir_imports(tmp_path: Path, source: str):
+    pyfile = tmp_path / "module.py"
+    pyfile.write_text(source, encoding="utf-8")
+
+    hits = _scan_file_for_onnx_usage(pyfile)
+
+    assert hits["imports"] == [(1, source.strip())]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import onnx_ir\n",
+        "import onnx_ir as ir\n",
+        "from onnx_ir import tape\n",
+        "from onnx_ir import tape as _tape\n",
+        "from onnx_ir.tape import Tape\n",
+        "from another_package import _tape\n",
+    ],
+    ids=[
+        "root-import",
+        "aliased-root-import",
+        "public-root-from-import",
+        "public-root-from-import-private-alias",
+        "public-module-from-import",
+        "unrelated-private-module",
+    ],
+)
+def test_scan_allows_public_onnx_ir_imports(tmp_path: Path, source: str):
+    pyfile = tmp_path / "module.py"
+    pyfile.write_text(source, encoding="utf-8")
+
+    hits = _scan_file_for_onnx_usage(pyfile)
+
+    assert hits["imports"] == []
 
 
 def _find_offenders(root: Path) -> list[tuple[Path, int, str]]:

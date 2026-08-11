@@ -133,7 +133,9 @@ treating the remainder as ONNX attributes:
 - `_domain`: operator domain (default `""`).
 - `_version`: opset version for the operator. Use one consistent value per domain.
 - `_outputs`: either an `int` (number of outputs) or a *sequence* of output names.
-  - When you pass a sequence, make it a list/tuple of strings; plain strings count as sequences of characters and will be split unintentionally.
+  - When you pass a sequence, make it a list/tuple containing only strings.
+    Plain strings, bytes, and sequences containing non-string values raise
+    `TypeError` before a node is added to the graph.
 
 Everything else in `**kwargs` is fed to `_convenience.convert_attributes`, which automatically turns Python scalars, sequences, tensors, and graphs into the right `ir.Attr` instances.
 
@@ -209,7 +211,8 @@ time:
       d = jnp.exp(x)   # wide_fn.py:11
       return a + b * c + d  # wide_fn.py:12
   ```
-- **Output naming**: pass a list (`_outputs=["y"]`), not a bare string.
+- **Output naming**: pass a list (`_outputs=["y"]`), not a bare string; bare
+  strings are rejected with `TypeError`.
 - **Initializer naming**: provide a name whenever the tensor lacks one; `Tape.initializer` raises otherwise.
 - **Multiple opset versions**: if two builder calls request different versions for the same domain, detect and reconcile before finishing the graph.
 - **Optional inputs**: include explicit `None` placeholders to maintain positional semantics.

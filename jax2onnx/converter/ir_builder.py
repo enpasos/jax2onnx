@@ -64,11 +64,20 @@ class _DynamicTapeBuilder(Tape):
         domain = kwargs.pop("_domain", "")
         version = kwargs.pop("_version", None)
         outputs = kwargs.pop("_outputs", 1)
-        if isinstance(outputs, Sequence):
-            num_outputs = len(outputs)
-        else:
-            assert isinstance(outputs, int)
+        output_names: Sequence[str] | None = None
+        if isinstance(outputs, int):
             num_outputs = outputs
+        elif isinstance(outputs, Sequence) and not isinstance(
+            outputs, (str, bytes, bytearray)
+        ):
+            if not all(isinstance(name, str) for name in outputs):
+                raise TypeError(
+                    "_outputs must be an int or a non-text sequence of strings"
+                )
+            output_names = outputs
+            num_outputs = len(output_names)
+        else:
+            raise TypeError("_outputs must be an int or a non-text sequence of strings")
 
         if num_outputs == 1:
             value = super().op(
@@ -78,8 +87,8 @@ class _DynamicTapeBuilder(Tape):
                 domain=domain,
                 version=version,
             )
-            if isinstance(outputs, Sequence):
-                value.name = outputs[0]
+            if output_names is not None:
+                value.name = output_names[0]
             return value
 
         values = super().op_multi_out(
@@ -90,8 +99,8 @@ class _DynamicTapeBuilder(Tape):
             version=version,
             num_outputs=num_outputs,
         )
-        if isinstance(outputs, Sequence):
-            for value, name in zip(values, outputs):
+        if output_names is not None:
+            for value, name in zip(values, output_names):
                 value.name = name
         return values
 
