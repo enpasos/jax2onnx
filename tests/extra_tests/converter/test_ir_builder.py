@@ -3,6 +3,7 @@
 import numpy as np
 import onnx_ir as ir
 import pytest
+from onnx_ir.tape import Tape
 
 from jax2onnx.converter.ir_builder import (
     IRBuilder,
@@ -12,13 +13,13 @@ from jax2onnx.converter.ir_builder import (
     STACKTRACE_METADATA_KEY,
 )
 
-try:  # pragma: no cover - guarded import for environments without tape builder
-    from onnx_ir._tape import Builder as _TapeBuilder
-except Exception:  # pragma: no cover
-    _TapeBuilder = None
+
+def test_ir_builder_uses_public_tape_api() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+
+    assert isinstance(builder._tape_builder, Tape)
 
 
-@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
 def test_ir_builder_forwards_tape_ops() -> None:
     builder = IRBuilder(opset=18, enable_double_precision=False)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
@@ -32,7 +33,27 @@ def test_ir_builder_forwards_tape_ops() -> None:
     assert out.name == "sum"
 
 
-@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
+def test_ir_builder_forwards_multi_output_tape_ops() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[4])
+    k = ir.val("k", dtype=ir.DataType.INT64, shape=[1])
+
+    values, indices = builder.TopK(
+        x,
+        k,
+        axis=-1,
+        _outputs=["values", "indices"],
+        _version=18,
+    )
+
+    node = values.producer()
+    assert node is indices.producer()
+    assert node.op_type == "TopK"
+    assert node.attributes["axis"].as_int() == -1
+    assert [value.name for value in node.outputs] == ["values", "indices"]
+    assert ("", 18) in builder.used_opsets
+
+
 def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
     builder = IRBuilder(opset=18, enable_double_precision=False)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
@@ -46,7 +67,6 @@ def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
     assert PLUGIN_METADATA_KEY not in node.metadata_props
 
 
-@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
 def test_ir_builder_stacktrace_metadata_enabled() -> None:
     builder = IRBuilder(
         opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
@@ -68,7 +88,6 @@ def test_ir_builder_stacktrace_metadata_enabled() -> None:
     assert JAX_TRACE_METADATA_KEY not in node.metadata_props
 
 
-@pytest.mark.skipif(_TapeBuilder is None, reason="onnx_ir tape.Builder unavailable")
 def test_ir_builder_stacktrace_full_mode_includes_detailed_fields() -> None:
     builder = IRBuilder(
         opset=18, enable_double_precision=False, enable_stacktrace_metadata=True
@@ -87,7 +106,10 @@ def test_ir_builder_stacktrace_full_mode_includes_detailed_fields() -> None:
     assert node.metadata_props.get(JAX_CALLSITE_METADATA_KEY) == "call:10"
     assert node.metadata_props.get(PLUGIN_METADATA_KEY) == "Plugin.lower:10"
     assert isinstance(node.metadata_props.get(JAX_TRACE_METADATA_KEY), str)
-    assert isinstance(node.metadata_props.get(STACKTRACE_METADATA_KEY), str)
+    stacktrace = node.metadata_props.get(STACKTRACE_METADATA_KEY)
+    assert isinstance(stacktrace, str)
+    assert "onnx_ir/_tape.py" not in stacktrace
+    assert "onnx_ir/tape.py" not in stacktrace
 
 
 def test_ir_builder_initializer_registration() -> None:

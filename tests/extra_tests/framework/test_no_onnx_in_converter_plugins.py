@@ -8,11 +8,20 @@ import pytest
 
 
 FORBIDDEN_ROOT = "onnx"  # forbid 'onnx' and any submodule 'onnx.*'
+FORBIDDEN_ONNX_IR_PREFIX = "onnx_ir._"
 FORBIDDEN_ATTR_CHAINS = {
     ("onnx", "ModelProto"),
     ("onnx", "helper"),
     ("onnx", "shape_inference"),
 }
+
+
+def _is_forbidden_import(module: str) -> bool:
+    return (
+        module == FORBIDDEN_ROOT
+        or module.startswith(FORBIDDEN_ROOT + ".")
+        or module.startswith(FORBIDDEN_ONNX_IR_PREFIX)
+    )
 
 
 def _attr_chain(node: ast.AST) -> tuple[str, ...] | None:
@@ -67,12 +76,12 @@ def _scan_file_for_onnx_usage(pyfile: Path) -> dict[str, list[tuple[int, str]]]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 mod = alias.name
-                if mod == FORBIDDEN_ROOT or mod.startswith(FORBIDDEN_ROOT + "."):
+                if _is_forbidden_import(mod):
                     as_part = f" as {alias.asname}" if alias.asname else ""
                     hits["imports"].append((node.lineno, f"import {mod}{as_part}"))
         elif isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            if mod == FORBIDDEN_ROOT or mod.startswith(FORBIDDEN_ROOT + "."):
+            if _is_forbidden_import(mod):
                 names = ", ".join(
                     f"{a.name}" + (f" as {a.asname}" if a.asname else "")
                     for a in node.names
@@ -131,11 +140,11 @@ def _find_offenders(root: Path) -> list[tuple[Path, int, str]]:
     return offenders
 
 
-def test_no_onnx_imports_in_converter_and_plugins():
+def test_no_forbidden_onnx_imports_in_converter_and_plugins():
     """
-    Policy test: the new IR2 pipeline (converter, plugins) must not import the
-    ONNX *protobuf* library anywhere. All protobuf operations belong outside
-    converter/plugins (e.g., in a top-level serde/adapter layer).
+    Policy test: the IR pipeline must use onnx-ir's public API and stay free of
+    ONNX protobuf imports. Protobuf operations belong outside converter/plugins
+    (e.g., in a top-level serde/adapter layer).
     """
     root = _project_root(Path(__file__).resolve())
     offenders = _find_offenders(root)
@@ -146,6 +155,7 @@ def test_no_onnx_imports_in_converter_and_plugins():
         ]
         detailed = "\n".join(msg_lines)
         pytest.fail(
-            "onnx imports found in converter/plugins modules.\n"
-            "These packages must be IR-only and must not import 'onnx'.\n" + detailed
+            "Forbidden ONNX imports found in converter/plugins modules.\n"
+            "These packages must be IR-only, must not import 'onnx', and must "
+            "use the public onnx_ir API rather than onnx_ir._* modules.\n" + detailed
         )

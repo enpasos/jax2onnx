@@ -7,7 +7,7 @@
 | [`JAX`](https://github.com/jax-ml/jax) | 0.11.0 |
 | [`Flax`](https://github.com/google/flax) | 0.12.8 |
 | [`Equinox`](https://github.com/patrick-kidger/equinox) | 0.13.8 |
-| [`onnx-ir`](https://github.com/onnx/ir-py) | 0.2.1 |
+| [`onnx-ir`](https://github.com/onnx/ir-py) | 1.0.0 |
 | [`onnx`](https://github.com/onnx/onnx) | 1.22.0 |
 | [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.28.0 |
 | [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.27.0 |

@@ -119,6 +119,7 @@ EXPECTED_TOP_LEVEL_EXPORTS = {
     "Value",
     "convenience",
     "node",
+    "tape",
     "tensor",
     "val",
 }
@@ -180,3 +181,8 @@ def test_top_level_exports_match_expectations() -> None:
     exports = _public_attrs(ir)
     missing = EXPECTED_TOP_LEVEL_EXPORTS - exports
     assert not missing, f"onnx_ir missing top-level exports {sorted(missing)}"
+
+
+def test_tape_surface_supports_jax2onnx() -> None:
+    tape_public = _public_attrs(ir.tape.Tape)
+    assert {"initializer", "op", "op_multi_out", "used_opsets"} <= tape_public
