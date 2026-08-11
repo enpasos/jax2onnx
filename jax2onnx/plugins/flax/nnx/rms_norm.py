@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from flax.nnx.nn import dtypes as nnx_dtypes
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import (
@@ -36,18 +37,27 @@ RMS_NORM_PRIM: Final[Primitive] = Primitive("nnx.rms_norm")
 RMS_NORM_PRIM.multiple_results = False
 
 
-EXPECT_RMS_NORM_GRAPH: Final = EG(
+EXPECT_RMS_NORM_NATIVE: Final = EG(
     [
         (
             "RMSNormalization",
             {
-                "counts": {"RMSNormalization": 1},
+                "counts": {
+                    "RMSNormalization": 1,
+                    "ReduceMean": 0,
+                }
             },
-        ),
+        )
+    ]
+)
+
+EXPECT_RMS_NORM_EXPLICIT: Final = EG(
+    [
         (
             "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul",
             {
                 "counts": {
+                    "RMSNormalization": 0,
                     "Pow": 1,
                     "ReduceMean": 1,
                     "Add": 1,
@@ -56,10 +66,32 @@ EXPECT_RMS_NORM_GRAPH: Final = EG(
                     "Mul": 1,
                 }
             },
-        ),
-    ],
-    mode="any",
+        )
+    ]
 )
+
+# Compatibility alias for framework adapters whose registered cases use auto mode.
+EXPECT_RMS_NORM_GRAPH: Final = EXPECT_RMS_NORM_NATIVE
+
+RMS_NORM_ONNX_COMPONENTS: Final = [
+    {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
+    {
+        "component": "CastLike",
+        "doc": "https://onnx.ai/onnx/operators/onnx__CastLike.html",
+    },
+    {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
+    {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+    {"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"},
+    {
+        "component": "ReduceMean",
+        "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
+    },
+    {
+        "component": "RMSNormalization",
+        "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
+    },
+    {"component": "Sqrt", "doc": "https://onnx.ai/onnx/operators/onnx__Sqrt.html"},
+]
 
 
 def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
@@ -113,12 +145,7 @@ def _const_from_array(
 @register_primitive(
     jaxpr_primitive=RMS_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.RMSNorm",
-    onnx=[
-        {
-            "component": "RMSNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
-        }
-    ],
+    onnx=RMS_NORM_ONNX_COMPONENTS,
     since="0.2.0",
     context="primitives.nnx",
     component="rms_norm",
@@ -135,6 +162,34 @@ def _const_from_array(
             "input_shapes": [(2, 6)],
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_GRAPH,
+        },
+        {
+            "testcase": "rms_norm_opset22",
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 6)],
+            "opset_version": 22,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
+        },
+        {
+            "testcase": "rms_norm_decomposed",
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 6)],
+            "normalization_mode": "decomposed",
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
         },
         {
             "testcase": "rms_norm_use_scale_false",
@@ -228,7 +283,15 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         )
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
-        if opset >= 23 and hasattr(builder, "RMSNormalization"):
+        if (
+            ctx.normalization_mode in {"auto", "semantic"}
+            and opset >= 23
+            and (
+                ctx.normalization_mode == "semantic"
+                or x_ir_dtype in {ir.DataType.FLOAT, ir.DataType.DOUBLE}
+            )
+            and hasattr(builder, "RMSNormalization")
+        ):
             y_val = cast(
                 ir.Value,
                 builder.RMSNormalization(
@@ -236,6 +299,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
                     scale_val,
                     axis=int(axis),
                     epsilon=float(epsilon),
+                    stash_type=int(x_ir_dtype),
                     _outputs=[ctx.fresh_name("RMSNorm")],
                 ),
             )
@@ -249,6 +313,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
 
         two_const = _const_from_array(ctx, "two", np.asarray(2.0, dtype=x_np_dtype))
         eps_const = _const_from_array(ctx, "eps", np.asarray(epsilon, dtype=x_np_dtype))
+        two_const = ctx.cast_like(two_const, x_val, name_hint="rms_two_cast")
+        eps_const = ctx.cast_like(eps_const, x_val, name_hint="rms_eps_cast")
         axes_const = _const_from_array(
             ctx, "axes", np.asarray([int(axis)], dtype=np.int64)
         )
@@ -350,32 +416,42 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             if mask is not None:
                 return orig(self, x, mask=mask)
 
-            param_dtype = getattr(self, "param_dtype", None) or x.dtype
-            if x.dtype != param_dtype:
-                x = x.astype(param_dtype)
+            x_arr = jnp.asarray(x)
+            scale_param = None
+            if getattr(self, "use_scale", True):
+                scale_field = getattr(self, "scale", None)
+                if scale_field is not None:
+                    scale_param = scale_field.value
+            promote_dtype = getattr(self, "promote_dtype", None)
+            if promote_dtype is not nnx_dtypes.promote_dtype:
+                # Custom promotion hooks may alter values as well as dtypes.
+                return orig(self, x, mask=mask)
+            x_promoted, scale_promoted = promote_dtype(
+                (x_arr, scale_param),
+                dtype=getattr(self, "dtype", None),
+            )
+            result_dtype = x_promoted.dtype
+            stats_dtype = jnp.promote_types(result_dtype, jnp.float32)
+            x_stats = jnp.asarray(x_promoted, dtype=stats_dtype)
 
             axis = getattr(self, "feature_axes", -1)
             if isinstance(axis, Sequence):
                 axis = axis[0]
             axis = int(axis)
 
-            feat_dim = x.shape[axis]
+            feat_dim = x_stats.shape[axis]
             if feat_dim is None:
                 raise ValueError("RMSNorm requires a known feature dimension")
 
-            scale_val = None
-            if getattr(self, "use_scale", True):
-                scale_field = getattr(self, "scale", None)
-                if scale_field is not None:
-                    scale_val = scale_field.value
-            scale_vec = cls._prepare_scale(scale_val, feat_dim, param_dtype)
+            scale_vec = cls._prepare_scale(scale_promoted, feat_dim, stats_dtype)
 
-            return cls._PRIM.bind(
-                x,
+            out = cls._PRIM.bind(
+                x_stats,
                 scale_vec,
                 epsilon=float(getattr(self, "epsilon", 1e-5)),
                 axis=axis,
             )
+            return jnp.asarray(out, dtype=result_dtype)
 
         return wrapped
 

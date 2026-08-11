@@ -148,6 +148,9 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
     def enable_double_precision(self) -> bool: ...
 
     @property
+    def normalization_mode(self) -> str: ...
+
+    @property
     def _var2val(self) -> dict[Any, ir.Value]: ...
 
     @property

@@ -253,10 +253,11 @@ def test_nnx_group_norm_explicit_float16_quantizes_float32_input(
     # quantization effect (float16 spacing is 0.03125 around 32).
     x = 32.0 + jnp.arange(2 * 3 * 3 * 4, dtype=jnp.float32).reshape(2, 3, 3, 4) / 100
 
-    _, actual = _convert_and_run(norm, [x], opset=opset)
+    model, actual = _convert_and_run(norm, [x], opset=opset)
     expected = np.asarray(norm(x))
     assert actual[0].dtype == expected.dtype == np.dtype(np.float16)
     np.testing.assert_allclose(actual[0], expected, rtol=2e-3, atol=5e-2)
+    assert not any(node.op_type == "GroupNormalization" for node in model.graph.node)
 
 
 @pytest.mark.parametrize("opset", [17, 18, 21, 23])
@@ -273,12 +274,13 @@ def test_nnx_group_norm_fast_variance_preserves_framework_reduction_layout(
     )
     x = 1000.0 + jnp.arange(2 * 3 * 3 * 4, dtype=jnp.float32).reshape(2, 3, 3, 4) / 10
 
-    _, actual = _convert_and_run(norm, [x], opset=opset)
+    model, actual = _convert_and_run(norm, [x], opset=opset)
     expected = np.asarray(norm(x))
     assert actual[0].dtype == expected.dtype == np.dtype(np.float16)
     # Transposing NHWC to NCHW before the fast E[x**2] - E[x]**2 reduction
     # changes its floating-point reduction order and misses this tolerance.
     np.testing.assert_allclose(actual[0], expected, rtol=3e-3, atol=6e-2)
+    assert not any(node.op_type == "GroupNormalization" for node in model.graph.node)
 
 
 @pytest.mark.parametrize("kind", ["group", "instance"])
@@ -618,6 +620,10 @@ def test_linen_norm_slow_variance_is_valid_at_opset17(kind: str) -> None:
     sum_squares = [
         node for node in model.graph.node if node.op_type == "ReduceSumSquare"
     ]
+    if kind == "group":
+        assert not sum_squares
+        assert sum(node.op_type == "ReduceMean" for node in model.graph.node) == 2
+        return
     assert sum_squares
     for node in sum_squares:
         assert len(node.input) == 1

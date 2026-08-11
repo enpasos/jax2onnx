@@ -649,6 +649,7 @@ def make_test_function(tp: dict[str, Any]):
         inputs_as_nchw = tp.get("inputs_as_nchw")
         outputs_as_nchw = tp.get("outputs_as_nchw")
         export_mode = _generated_export_mode()
+        normalization_mode = tp.get("normalization_mode", "auto")
 
         def _validate_onnxruntime_web_if_enabled(
             xs_for_num_check: Sequence[Any],
@@ -703,7 +704,7 @@ def make_test_function(tp: dict[str, Any]):
             f"Converting '{testcase_name}' to ONNX with input shapes: {processed_input_specs_for_to_onnx}, "
             f"enable_double_precision: {current_enable_double_precision}, "
             f"inputs_as_nchw: {inputs_as_nchw}, outputs_as_nchw: {outputs_as_nchw}, "
-            f"export_mode: {export_mode}"
+            f"export_mode: {export_mode}, normalization_mode: {normalization_mode}"
         )
         try:
             to_onnx_kwargs = dict(
@@ -720,6 +721,7 @@ def make_test_function(tp: dict[str, Any]):
                 input_names=onnx_input_names_from_testcase,
                 output_names=onnx_output_names_from_testcase,
                 export_mode=export_mode,
+                normalization_mode=normalization_mode,
             )
             written_model_path = to_onnx(**to_onnx_kwargs)
             if written_model_path != model_path:

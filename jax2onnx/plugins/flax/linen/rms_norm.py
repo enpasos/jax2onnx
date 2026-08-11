@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, ClassVar, Final, Sequence
 
 import jax.numpy as jnp
 from flax import linen as nn
 
 from jax2onnx._compat.jax import Primitive
+from jax2onnx.plugins.flax.linen.group_norm import _stage_linen_norm_operands
 from jax2onnx.plugins.flax.nnx import rms_norm as nnx_rms_norm
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
@@ -36,12 +38,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
 @register_primitive(
     jaxpr_primitive="linen.rms_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.RMSNorm",
-    onnx=[
-        {
-            "component": "RMSNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
-        }
-    ],
+    onnx=nnx_rms_norm.RMS_NORM_ONNX_COMPONENTS,
     since="0.11.0",
     context="primitives.linen",
     component="rms_norm",
@@ -152,28 +149,32 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
                 return call_orig(self, x, mask=mask)
 
             tail_shape = tuple(x.shape[a] for a in red_axes)
-            param_dtype = getattr(self, "param_dtype", None) or x.dtype
-            if x.dtype != param_dtype:
-                x = x.astype(param_dtype)
-
-            if getattr(self, "use_scale", True):
-                scale_param = params.get("scale")
-                if scale_param is None:
-                    return call_orig(self, x, mask=mask)
-                base_scale = (
-                    jnp.reshape(scale_param, tail_shape)
-                    if tuple(scale_param.shape) != tail_shape
-                    else scale_param
-                )
-                base_scale = jnp.asarray(base_scale, dtype=param_dtype)
-            else:
-                base_scale = jnp.ones(tail_shape, dtype=param_dtype)
+            use_scale = bool(getattr(self, "use_scale", True))
+            scale_param = params.get("scale") if use_scale else None
+            if use_scale and scale_param is None:
+                return call_orig(self, x, mask=mask)
+            channels = math.prod(int(dim) for dim in tail_shape)
+            staged = _stage_linen_norm_operands(
+                x,
+                scale_param,
+                None,
+                channels=channels,
+                dtype=getattr(self, "dtype", None),
+                use_scale=use_scale,
+                use_bias=False,
+                force_float32_reductions=bool(
+                    getattr(self, "force_float32_reductions", True)
+                ),
+            )
+            if staged is None:
+                return call_orig(self, x, mask=mask)
+            x_stats, base_scale, _, result_dtype = staged
 
             eps = float(getattr(self, "epsilon", 1e-5))
-            needs_flatten = (axis0 != x.ndim - 1) or (len(red_axes) > 1)
+            needs_flatten = (axis0 != x_stats.ndim - 1) or (len(red_axes) > 1)
             if needs_flatten:
-                orig_shape = x.shape
-                x_flat = jnp.reshape(x, (*orig_shape[:axis0], -1))
+                orig_shape = x_stats.shape
+                x_flat = jnp.reshape(x_stats, (*orig_shape[:axis0], -1))
                 scale_vec = jnp.reshape(base_scale, (-1,))
                 y_flat = prim.bind(
                     x_flat,
@@ -181,14 +182,15 @@ class RMSNormPlugin(nnx_rms_norm.RMSNormPlugin):
                     epsilon=eps,
                     axis=x_flat.ndim - 1,
                 )
-                return jnp.reshape(y_flat, orig_shape)
+                return jnp.asarray(jnp.reshape(y_flat, orig_shape), dtype=result_dtype)
 
-            return prim.bind(
-                x,
+            out = prim.bind(
+                x_stats,
                 base_scale,
                 epsilon=eps,
                 axis=axis0,
             )
+            return jnp.asarray(out, dtype=result_dtype)
 
         return patched
 

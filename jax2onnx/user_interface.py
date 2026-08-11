@@ -92,6 +92,8 @@ ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
 ExportMode = Literal["standard", "web"]
 _VALID_EXPORT_MODES = {"standard", "web"}
+NormalizationMode = Literal["auto", "semantic", "decomposed"]
+_VALID_NORMALIZATION_MODES = {"auto", "semantic", "decomposed"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
@@ -127,6 +129,16 @@ def _normalize_export_mode(value: str) -> ExportMode:
             f"Unsupported export_mode '{value}'. Expected one of: {sorted(_VALID_EXPORT_MODES)}"
         )
     return cast(ExportMode, mode)
+
+
+def _normalize_normalization_mode(value: str) -> NormalizationMode:
+    mode = value.lower().strip()
+    if mode not in _VALID_NORMALIZATION_MODES:
+        raise ValueError(
+            "Unsupported normalization_mode "
+            f"'{value}'. Expected one of: {sorted(_VALID_NORMALIZATION_MODES)}"
+        )
+    return cast(NormalizationMode, mode)
 
 
 @runtime_checkable
@@ -420,6 +432,7 @@ if TYPE_CHECKING:
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
+        normalization_mode: NormalizationMode = ...,
     ) -> onnx.ModelProto: ...
 
     @overload
@@ -439,6 +452,7 @@ if TYPE_CHECKING:
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
+        normalization_mode: NormalizationMode = ...,
     ) -> ir.Model: ...
 
     @overload
@@ -458,6 +472,7 @@ if TYPE_CHECKING:
         input_names: Optional[Sequence[str]] = ...,
         output_names: Optional[Sequence[str]] = ...,
         export_mode: ExportMode = ...,
+        normalization_mode: NormalizationMode = ...,
     ) -> str: ...
 
 
@@ -477,6 +492,7 @@ def to_onnx(
     input_names: Optional[Sequence[str]] = None,
     output_names: Optional[Sequence[str]] = None,
     export_mode: ExportMode = "standard",
+    normalization_mode: NormalizationMode = "auto",
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """
     Converts a JAX function or model into an ONNX model.
@@ -524,6 +540,13 @@ def to_onnx(
             when needed. `"web"` writes a single self-contained `.onnx` file for
             browser/WASM deployment via `onnxruntime-web`. This only affects
             `return_mode="file"`; `"proto"` and `"ir"` return values are unchanged.
+        normalization_mode: Export policy for normalization plugins that offer
+            both semantic and decomposed forms. `"auto"` preserves the plugin's
+            framework-oriented default, using a standard ONNX operator only when
+            its numerical contract is compatible. `"semantic"` prefers the
+            standard ONNX operator when the selected opset supports it.
+            `"decomposed"` forces the explicit primitive graph. Currently this
+            policy applies to GroupNorm and Flax RMSNorm exports.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
@@ -571,12 +594,13 @@ def to_onnx(
         f"return_mode={return_mode}, output_path={output_path}, "
         f"inputs_as_nchw={inputs_as_nchw}, outputs_as_nchw={outputs_as_nchw}, "
         f"input_names={input_names}, output_names={output_names}, "
-        f"export_mode={export_mode}"
+        f"export_mode={export_mode}, normalization_mode={normalization_mode}"
     )
 
     # Determine the nature of the 'inputs' argument to prepare for to_onnx_impl
     normalized_mode = _normalize_return_mode(return_mode)
     normalized_export_mode = _normalize_export_mode(export_mode)
+    normalized_normalization_mode = _normalize_normalization_mode(normalization_mode)
 
     file_path: Optional[str] = None
     if normalized_mode == "file":
@@ -641,6 +665,7 @@ def to_onnx(
             outputs_as_nchw=outputs_as_nchw,
             input_names=normalized_input_names,
             output_names=normalized_output_names,
+            normalization_mode=normalized_normalization_mode,
         )
 
         postprocess_ir_model(

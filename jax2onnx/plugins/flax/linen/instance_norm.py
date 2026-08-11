@@ -9,7 +9,7 @@ from flax import linen as nn
 
 from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.flax.linen.group_norm import (
-    LINEN_NORM_ONNX_COMPONENTS,
+    LINEN_EXPLICIT_NORM_ONNX_COMPONENTS,
     _can_use_original_linen_slow_path,
     _stage_linen_norm_operands,
 )
@@ -39,7 +39,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
 @register_primitive(
     jaxpr_primitive="linen.instance_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.InstanceNorm",
-    onnx=LINEN_NORM_ONNX_COMPONENTS,
+    onnx=LINEN_EXPLICIT_NORM_ONNX_COMPONENTS,
     since="0.11.0",
     context="primitives.linen",
     component="instance_norm",
@@ -57,7 +57,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
             "input_shapes": [("B", 4, 4, 3)],
             "expected_output_shapes": [("B", 4, 4, 3)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK,
+            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
         {
             "testcase": "instance_norm_rank2",
@@ -72,7 +72,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK,
+            "post_check_onnx_graph": nnx_group_norm.EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
     ],
 )
@@ -82,6 +82,7 @@ class InstanceNormPlugin(nnx_group_norm.GroupNormPlugin):
     _PRIM: ClassVar[Primitive] = Primitive("linen.instance_norm")
     _PRIM.multiple_results = False
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
+    _ALLOW_NATIVE_GROUP_NORMALIZATION: ClassVar[bool] = False
     _ORIGINAL_CALL: ClassVar[Callable[..., Any] | None] = None
 
     @classmethod
