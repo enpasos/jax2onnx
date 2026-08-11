@@ -237,7 +237,7 @@ def _can_use_original_linen_slow_path(
             ),
             "input_shapes": [(3, 7, 7, 64)],
             "expected_output_shapes": [(3, 7, 7, 64)],
-            "normalization_mode": "semantic",
+            "normalization_mode": "prefer_native",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_NATIVE_TRANSPOSED,
         },

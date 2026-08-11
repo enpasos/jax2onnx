@@ -349,7 +349,7 @@ def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
                 rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 5, 5, 32)],
-            "normalization_mode": "semantic",
+            "normalization_mode": "prefer_native",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_NATIVE_TRANSPOSED,
         },
@@ -365,7 +365,7 @@ def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
             ),
             "input_shapes": [("B", 8)],
             "opset_version": 21,
-            "normalization_mode": "semantic",
+            "normalization_mode": "prefer_native",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_NATIVE_RANK2,
         },
@@ -381,7 +381,7 @@ def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
             ),
             "input_shapes": [("B", 2, 3, 5, 8)],
             "opset_version": 21,
-            "normalization_mode": "semantic",
+            "normalization_mode": "prefer_native",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_NATIVE_FLATTENED,
         },
@@ -411,7 +411,7 @@ def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
                 rngs=with_rng_seed(0),
             ),
             "input_shapes": [("B", 5, 5, 32)],
-            "normalization_mode": "decomposed",
+            "normalization_mode": "force_decomposed",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
@@ -1190,7 +1190,7 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
             and use_fast_variance
             and not has_static_zero_dim
             and x_ir_dtype in native_dtypes
-            and ctx.normalization_mode == "semantic"
+            and ctx.normalization_mode == "prefer_native"
             and hasattr(builder, "GroupNormalization")
         )
         final_val = (

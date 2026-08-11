@@ -105,13 +105,17 @@ def test_invalid_export_mode_rejected(tmp_path: Path):
         )
 
 
-def test_invalid_normalization_mode_rejected():
-    with pytest.raises(ValueError, match="Unsupported normalization_mode"):
+@pytest.mark.parametrize("normalization_mode", ["fused", "semantic", "decomposed"])
+def test_invalid_normalization_mode_rejected(normalization_mode: str):
+    with pytest.raises(ValueError, match="Unsupported normalization_mode") as exc_info:
         to_onnx(
             _simple,
             inputs=[(2,)],
-            normalization_mode="fused",  # type: ignore[arg-type]
+            normalization_mode=normalization_mode,  # type: ignore[arg-type]
         )
+    message = str(exc_info.value)
+    assert "prefer_native" in message
+    assert "force_decomposed" in message
 
 
 def test_onnxruntime_web_wasm_validation_smoke(tmp_path: Path):

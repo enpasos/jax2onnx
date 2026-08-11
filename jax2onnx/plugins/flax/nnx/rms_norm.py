@@ -187,7 +187,7 @@ def _const_from_array(
                 rngs=with_rng_seed(0),
             ),
             "input_shapes": [(2, 6)],
-            "normalization_mode": "decomposed",
+            "normalization_mode": "force_decomposed",
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
         },
@@ -284,10 +284,10 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
         if (
-            ctx.normalization_mode in {"auto", "semantic"}
+            ctx.normalization_mode in {"auto", "prefer_native"}
             and opset >= 23
             and (
-                ctx.normalization_mode == "semantic"
+                ctx.normalization_mode == "prefer_native"
                 or x_ir_dtype in {ir.DataType.FLOAT, ir.DataType.DOUBLE}
             )
             and hasattr(builder, "RMSNormalization")

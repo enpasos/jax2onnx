@@ -92,8 +92,8 @@ ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
 ExportMode = Literal["standard", "web"]
 _VALID_EXPORT_MODES = {"standard", "web"}
-NormalizationMode = Literal["auto", "semantic", "decomposed"]
-_VALID_NORMALIZATION_MODES = {"auto", "semantic", "decomposed"}
+NormalizationMode = Literal["auto", "prefer_native", "force_decomposed"]
+_VALID_NORMALIZATION_MODES = {"auto", "prefer_native", "force_decomposed"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
@@ -541,12 +541,13 @@ def to_onnx(
             browser/WASM deployment via `onnxruntime-web`. This only affects
             `return_mode="file"`; `"proto"` and `"ir"` return values are unchanged.
         normalization_mode: Export policy for normalization plugins that offer
-            both semantic and decomposed forms. `"auto"` preserves the plugin's
-            framework-oriented default, using a standard ONNX operator only when
-            its numerical contract is compatible. `"semantic"` prefers the
-            standard ONNX operator when the selected opset supports it.
-            `"decomposed"` forces the explicit primitive graph. Currently this
-            policy applies to GroupNorm and Flax RMSNorm exports.
+            both native ONNX operators and decomposed forms. `"auto"` preserves
+            the plugin's framework-oriented default. `"prefer_native"` uses a
+            standard ONNX normalization operator when the selected opset and the
+            plugin's numerical constraints permit it, otherwise falling back to
+            the explicit graph. `"force_decomposed"` always emits the explicit
+            primitive graph. Currently this policy applies to GroupNorm and Flax
+            RMSNorm exports.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.

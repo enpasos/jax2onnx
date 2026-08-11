@@ -182,7 +182,9 @@ def test_equinox_stable_group_norm_retains_general_parity(
 
 
 @pytest.mark.parametrize("opset", [21, 23])
-def test_nnx_fast_variance_semantic_mode_uses_native_group_norm(opset: int) -> None:
+def test_nnx_fast_variance_prefer_native_mode_uses_native_group_norm(
+    opset: int,
+) -> None:
     norm = nnx.GroupNorm(
         num_features=4,
         num_groups=2,
@@ -195,7 +197,7 @@ def test_nnx_fast_variance_semantic_mode_uses_native_group_norm(opset: int) -> N
         norm,
         x,
         opset=opset,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     group_node = next(
         node for node in model.graph.node if node.op_type == "GroupNormalization"
@@ -229,7 +231,7 @@ def test_rank2_native_group_norm_uses_tensorrt_compatible_rank4_input() -> None:
         norm,
         x,
         opset=21,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     group_node = next(
         node for node in model.graph.node if node.op_type == "GroupNormalization"
@@ -278,7 +280,7 @@ def test_rank3_native_group_norm_uses_tensorrt_compatible_rank4_input() -> None:
         norm,
         x,
         opset=21,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     group_node = next(
         node for node in model.graph.node if node.op_type == "GroupNormalization"
@@ -325,7 +327,7 @@ def test_rank5_native_group_norm_flattens_only_spatial_dimensions() -> None:
         norm,
         x,
         opset=21,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     group_node = next(
         node for node in model.graph.node if node.op_type == "GroupNormalization"
@@ -352,7 +354,7 @@ def test_rank5_native_group_norm_flattens_only_spatial_dimensions() -> None:
 
 
 @pytest.mark.parametrize("shape", [(0, 3, 4), (2, 0, 4)])
-def test_semantic_group_norm_uses_explicit_path_for_static_empty_shapes(
+def test_prefer_native_group_norm_uses_explicit_path_for_static_empty_shapes(
     shape: tuple[int, ...],
 ) -> None:
     norm = nnx.GroupNorm(
@@ -367,7 +369,7 @@ def test_semantic_group_norm_uses_explicit_path_for_static_empty_shapes(
         norm,
         x,
         opset=21,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     assert not any(node.op_type == "GroupNormalization" for node in model.graph.node)
     assert sum(node.op_type == "ReduceMean" for node in model.graph.node) == 2
@@ -380,10 +382,10 @@ def test_semantic_group_norm_uses_explicit_path_for_static_empty_shapes(
     [
         (17, "auto"),
         (18, "auto"),
-        (18, "semantic"),
+        (18, "prefer_native"),
         (21, "auto"),
         (23, "auto"),
-        (23, "decomposed"),
+        (23, "force_decomposed"),
     ],
 )
 def test_nnx_fast_variance_uses_explicit_path_when_requested_or_required(
@@ -413,7 +415,7 @@ def test_nnx_fast_variance_uses_explicit_path_when_requested_or_required(
     np.testing.assert_allclose(actual, np.asarray(norm(x)), rtol=1e-5, atol=1e-5)
 
 
-def test_slow_variance_semantic_mode_remains_framework_explicit() -> None:
+def test_slow_variance_prefer_native_mode_remains_framework_explicit() -> None:
     norm = nnx.GroupNorm(
         num_features=4,
         num_groups=2,
@@ -426,7 +428,7 @@ def test_slow_variance_semantic_mode_remains_framework_explicit() -> None:
         norm,
         x,
         opset=23,
-        normalization_mode="semantic",
+        normalization_mode="prefer_native",
     )
     assert not any(node.op_type == "GroupNormalization" for node in model.graph.node)
     assert sum(node.op_type == "Where" for node in model.graph.node) == 1

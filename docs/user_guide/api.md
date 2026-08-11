@@ -52,10 +52,11 @@ single self-contained `.onnx` file instead of spilling large initializers into a
 - `return_mode`: `"proto"` for an `onnx.ModelProto`, `"ir"` for the intermediate `onnx_ir.Model`, or `"file"` to serialize directly to disk.
 - `export_mode`: `"standard"` for normal serialization, or `"web"` for single-file browser/WASM artifacts.
 - `normalization_mode`: Selection policy for GroupNorm and Flax RMSNorm.
-  `"auto"` (default) preserves the framework-oriented GroupNorm path and uses
-  native RMSNorm when its schema and statistics dtype allow it. `"semantic"`
-  prefers a standard ONNX normalization node where supported. `"decomposed"`
-  forces the explicit primitive graph for these plugins.
+  `"auto"` (default) preserves the framework-oriented policy. `"prefer_native"`
+  uses a standard ONNX normalization operator when the selected opset and the
+  plugin's numerical constraints permit it, otherwise falling back to the
+  explicit graph. `"force_decomposed"` always emits the explicit primitive
+  graph.
 - `enable_double_precision`: Temporarily enables x64 export and emits `tensor(double)` where appropriate.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
@@ -65,17 +66,17 @@ opset 21+, while retaining an explicit compatibility artifact for runtimes or
 inputs where the exported graph should retain the framework reduction layout:
 
 ```python
-semantic_model = to_onnx(
+prefer_native_model = to_onnx(
     fn,
     inputs,
     opset=21,
-    normalization_mode="semantic",
+    normalization_mode="prefer_native",
 )
-decomposed_model = to_onnx(
+force_decomposed_model = to_onnx(
     fn,
     inputs,
     opset=21,
-    normalization_mode="decomposed",
+    normalization_mode="force_decomposed",
 )
 ```
 

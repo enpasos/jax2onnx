@@ -53,9 +53,9 @@ def _run(model: onnx.ModelProto, *inputs: np.ndarray) -> np.ndarray:
     [
         (22, "auto", False),
         (23, "auto", True),
-        (22, "semantic", False),
-        (23, "semantic", True),
-        (23, "decomposed", False),
+        (22, "prefer_native", False),
+        (23, "prefer_native", True),
+        (23, "force_decomposed", False),
     ],
 )
 def test_rms_norm_policy_matches_opset_and_mode(
@@ -88,9 +88,9 @@ def test_rms_norm_policy_matches_opset_and_mode(
 
 @pytest.mark.parametrize(
     ("opset", "normalization_mode"),
-    [(22, "auto"), (23, "decomposed")],
+    [(22, "auto"), (23, "force_decomposed")],
 )
-def test_decomposed_rms_norm_keeps_float16_constants_type_compatible(
+def test_force_decomposed_rms_norm_keeps_float16_constants_type_compatible(
     opset: int,
     normalization_mode: str,
 ) -> None:
@@ -126,7 +126,7 @@ def test_native_rms_norm_promotes_float16_statistics_to_float32() -> None:
     x = jnp.arange(12, dtype=jnp.float16).reshape(2, 6) / jnp.float16(7)
     expected = np.asarray(norm(x))
 
-    model = to_onnx(norm, [x], opset=23, normalization_mode="semantic")
+    model = to_onnx(norm, [x], opset=23, normalization_mode="prefer_native")
     node = next(
         node for node in _iter_nodes(model) if node.op_type == "RMSNormalization"
     )
@@ -146,7 +146,7 @@ def test_native_rms_norm_promotes_float16_statistics_to_float32() -> None:
 
 @pytest.mark.parametrize(
     ("opset", "normalization_mode"),
-    [(22, "auto"), (23, "decomposed")],
+    [(22, "auto"), (23, "force_decomposed")],
 )
 def test_linen_rms_norm_without_float32_promotion_has_typed_explicit_constants(
     opset: int,
@@ -177,7 +177,7 @@ def test_linen_rms_norm_without_float32_promotion_has_typed_explicit_constants(
     np.testing.assert_allclose(actual, expected, rtol=2e-3, atol=2e-3)
 
 
-def test_semantic_mode_does_not_expand_to_linen_instance_norm() -> None:
+def test_prefer_native_mode_does_not_expand_to_linen_instance_norm() -> None:
     module = nn.InstanceNorm(dtype=jnp.float32, param_dtype=jnp.float32)
     x = jnp.arange(2 * 3 * 3 * 4, dtype=jnp.float32).reshape(2, 3, 3, 4) / 7
     variables = module.init(jax.random.PRNGKey(0), x)
@@ -186,7 +186,7 @@ def test_semantic_mode_does_not_expand_to_linen_instance_norm() -> None:
         return module.apply(variables, value)
 
     expected = np.asarray(fn(x))
-    model = to_onnx(fn, [x], opset=23, normalization_mode="semantic")
+    model = to_onnx(fn, [x], opset=23, normalization_mode="prefer_native")
     assert not any(node.op_type == "GroupNormalization" for node in _iter_nodes(model))
     assert sum(node.op_type == "ReduceMean" for node in _iter_nodes(model)) == 2
 
@@ -205,7 +205,7 @@ class _RMSFunction(nnx.Module):
 
 @pytest.mark.parametrize(
     ("normalization_mode", "expect_native"),
-    [("semantic", True), ("decomposed", False)],
+    [("prefer_native", True), ("force_decomposed", False)],
 )
 def test_normalization_mode_reaches_onnx_function_bodies(
     normalization_mode: str,
@@ -231,7 +231,9 @@ def test_normalization_mode_reaches_onnx_function_bodies(
     np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=5e-5)
 
 
-@pytest.mark.parametrize("normalization_mode", ["auto", "semantic", "decomposed"])
+@pytest.mark.parametrize(
+    "normalization_mode", ["auto", "prefer_native", "force_decomposed"]
+)
 def test_normalization_mode_reaches_control_flow_contexts(
     normalization_mode: str,
 ) -> None:
