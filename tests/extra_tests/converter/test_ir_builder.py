@@ -54,6 +54,35 @@ def test_ir_builder_forwards_multi_output_tape_ops() -> None:
     assert ("", 18) in builder.used_opsets
 
 
+def test_ir_builder_accepts_integer_output_count() -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[2])
+
+    outputs = builder.Split(x, _outputs=2, _version=18)
+
+    assert len(outputs) == 2
+    assert outputs[0].producer() is outputs[1].producer()
+    assert len(builder.nodes) == 1
+
+
+@pytest.mark.parametrize(
+    "invalid_outputs",
+    ["result", b"result", ["valid", 1]],
+    ids=["string", "bytes", "non-string-element"],
+)
+def test_ir_builder_rejects_invalid_outputs_before_graph_mutation(
+    invalid_outputs: object,
+) -> None:
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
+
+    with pytest.raises(TypeError, match="int or a non-text sequence of strings"):
+        builder.Identity(x, _outputs=invalid_outputs, _version=18)
+
+    assert len(builder.nodes) == 0
+    assert builder.used_opsets == set()
+
+
 def test_ir_builder_stacktrace_metadata_disabled_by_default() -> None:
     builder = IRBuilder(opset=18, enable_double_precision=False)
     x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[1])
