@@ -51,7 +51,7 @@ EXPECT_GROUP_NORM_FALLBACK: Final = EG(
 @register_primitive(
     jaxpr_primitive="eqx.nn.group_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.GroupNorm",
-    onnx=nnx_group_norm.GROUP_NORM_ONNX_COMPONENTS,
+    onnx=nnx_group_norm.GROUP_NORM_EXPLICIT_COMPONENTS,
     since="0.12.2",
     context="primitives.eqx",
     component="group_norm",

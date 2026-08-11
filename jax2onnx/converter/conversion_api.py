@@ -523,10 +523,12 @@ def _create_ir_context(
     input_specs: Sequence[Any],
     frozen_params: Mapping[str, object],
     record_primitive_calls_file: Optional[str],
+    normalization_mode: str = "auto",
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
         enable_double_precision=enable_double_precision,
+        normalization_mode=normalization_mode,
         input_specs=input_specs,
     )
     ctx._call_input_param_names = set(frozen_params.keys())
@@ -787,6 +789,7 @@ def to_onnx(
     outputs_as_nchw: Optional[Sequence[int]] = None,
     input_names: Optional[Sequence[str]] = None,
     output_names: Optional[Sequence[str]] = None,
+    normalization_mode: str = "auto",
     strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
     """
@@ -817,6 +820,7 @@ def to_onnx(
         ctx = _create_ir_context(
             opset=opset,
             enable_double_precision=enable_double_precision,
+            normalization_mode=normalization_mode,
             input_specs=sds_list,
             frozen_params=frozen_params,
             record_primitive_calls_file=record_primitive_calls_file,

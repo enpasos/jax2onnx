@@ -19,9 +19,11 @@ from jax2onnx.plugins.plugin_system import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 
-EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
-LINEN_NORM_ONNX_COMPONENTS: Final = [
-    *nnx_group_norm.GROUP_NORM_ONNX_COMPONENTS,
+EXPECT_GROUP_NORM_NATIVE_TRANSPOSED: Final = (
+    nnx_group_norm.EXPECT_GROUP_NORM_NATIVE_TRANSPOSED
+)
+EXPECT_GROUP_NORM_EXPLICIT_FAST: Final = nnx_group_norm.EXPECT_GROUP_NORM_EXPLICIT_FAST
+_LINEN_NORM_EXTRA_COMPONENTS: Final = [
     {"component": "Expand", "doc": "https://onnx.ai/onnx/operators/onnx__Expand.html"},
     {
         "component": "ReduceSum",
@@ -31,6 +33,14 @@ LINEN_NORM_ONNX_COMPONENTS: Final = [
         "component": "ReduceSumSquare",
         "doc": "https://onnx.ai/onnx/operators/onnx__ReduceSumSquare.html",
     },
+]
+LINEN_EXPLICIT_NORM_ONNX_COMPONENTS: Final = [
+    *nnx_group_norm.GROUP_NORM_EXPLICIT_COMPONENTS,
+    *_LINEN_NORM_EXTRA_COMPONENTS,
+]
+LINEN_NORM_ONNX_COMPONENTS: Final = [
+    *nnx_group_norm.GROUP_NORM_ONNX_COMPONENTS,
+    *_LINEN_NORM_EXTRA_COMPONENTS,
 ]
 
 
@@ -178,7 +188,7 @@ def _can_use_original_linen_slow_path(
             "input_shapes": [(3, 7, 7, 64)],
             "expected_output_shapes": [(3, 7, 7, 64)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
         {
             "testcase": "group_norm_rank2",
@@ -194,7 +204,7 @@ def _can_use_original_linen_slow_path(
             "input_shapes": [("B", 8)],
             "expected_output_shapes": [("B", 8)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
         {
             "testcase": "group_norm_no_bias_no_scale",
@@ -212,7 +222,41 @@ def _can_use_original_linen_slow_path(
             "input_shapes": [("B", 16, 16, 32)],
             "expected_output_shapes": [("B", 16, 16, 32)],
             "run_only_f32_variant": True,
-            "post_check_onnx_graph": EXPECT_GROUP_NORM_FALLBACK,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_EXPLICIT_FAST,
+        },
+        {
+            "testcase": "group_norm_semantic",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.GroupNorm,
+                input_shape=(1, 7, 7, 64),
+                num_groups=8,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 7, 7, 64)],
+            "expected_output_shapes": [(3, 7, 7, 64)],
+            "normalization_mode": "semantic",
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_NATIVE_TRANSPOSED,
+        },
+        {
+            "testcase": "group_norm_opset18",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.GroupNorm,
+                input_shape=(1, 7, 7, 64),
+                num_groups=8,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(3, 7, 7, 64)],
+            "expected_output_shapes": [(3, 7, 7, 64)],
+            "opset_version": 18,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_GROUP_NORM_EXPLICIT_FAST,
         },
     ],
 )

@@ -173,6 +173,7 @@ class IRContext:
         *,
         opset: int,
         enable_double_precision: bool,
+        normalization_mode: str = "auto",
         input_specs: Sequence[Any] | None = None,
         stacktrace_metadata: Optional[bool] = None,
     ):
@@ -193,6 +194,7 @@ class IRContext:
             enable_stacktrace_metadata=bool(stacktrace_metadata),
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
+        self._normalization_mode = normalization_mode
         if self._stacktrace_metadata_enabled:
             detail_mode = (
                 os.getenv("JAX2ONNX_STACKTRACE_DETAIL", "minimal").strip().lower()
@@ -265,6 +267,10 @@ class IRContext:
     @property
     def enable_double_precision(self) -> bool:
         return self.builder.enable_double_precision
+
+    @property
+    def normalization_mode(self) -> str:
+        return self._normalization_mode
 
     # ------------------------------- Function registry helpers ------------------
 

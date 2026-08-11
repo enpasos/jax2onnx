@@ -62,6 +62,47 @@ that roundoff. Use strict parity checks on representative, nonconstant inputs;
 for degenerate normalization inputs, also check finiteness and apply a tolerance
 specific to the model, dtype, and runtime.
 
+For GroupNorm and Flax RMSNorm, `normalization_mode="auto"` preserves the
+framework-oriented default: Flax Fast-Variance GroupNorm remains explicit
+because ONNX `GroupNormalization` does not model Flax's negative-variance clamp
+or reduction order, while Flax RMSNorm uses `RMSNormalization` at opset 23 or
+newer except for low-precision Linen configurations that deliberately disable
+FP32 statistics. Set `normalization_mode="semantic"` to emit a Fast-Variance
+GroupNorm as `GroupNormalization` at opset 21 or newer. This improves graph
+readability but can produce material runtime-dependent differences for
+high-offset or otherwise ill-conditioned inputs. Slow-Variance GroupNorm stays
+explicit in every mode.
+Set `normalization_mode="decomposed"` to force the explicit reduction layout for
+both plugins. The mode controls the exported ONNX graph; a runtime optimizer may
+still recognize and fuse an explicit normalization pattern.
+
+The opset only selects the ONNX schema contract; it does not assert support in a
+particular runtime version. Validate the chosen `opset` and normalization mode
+against the actual deployment runtime.
+
+For example, [TensorRT 10.9's `GroupNormalization-21` importer](https://github.com/onnx/onnx-tensorrt/blob/d5dce67db7c2e64b07e055571f5ec06f7f254de2/onnxOpImporters.cpp#L2260-L2330)
+internally uses a fixed rank-4 normalization core. Native GroupNorm export
+therefore temporarily extends rank-2/3 inputs with singleton dimensions and
+flattens the spatial dimensions of higher-rank inputs before restoring the
+original shape. The standard `GroupNormalization` node and its channel-wise
+`(C)` parameters remain visible and schema-conformant. TensorRT 10.15's newer
+NormalizationV2 path does not require this physical-shape adaptation, but
+parses the same rank-canonicalized models.
+
+TensorRT's NormalizationV2 importer nevertheless has a separate correctness
+defect for `GroupNormalization(num_groups=1)`: through at least TensorRT
+10.16.1 it normalizes each channel independently instead of reducing over the
+single group containing all channels. Use `normalization_mode="decomposed"` for
+that TensorRT case until a fixed version is verified; see [TensorRT
+#4756](https://github.com/NVIDIA/TensorRT/issues/4756) and the still-open
+[onnx-tensorrt fix](https://github.com/onnx/onnx-tensorrt/pull/1052).
+
+The ONNX schema function for native GroupNorm cannot execute zero-sized batch
+or spatial dimensions in the checked runtimes. Statically known empty shapes
+therefore fall back to the explicit graph even in `"semantic"` mode. If a
+symbolic dimension may become zero at runtime, export with
+`normalization_mode="decomposed"`.
+
 ## Training Is Out of Scope
 
 `jax2onnx` exports ONNX artifacts for inference-style execution. It does not

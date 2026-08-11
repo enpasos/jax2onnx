@@ -105,6 +105,15 @@ def test_invalid_export_mode_rejected(tmp_path: Path):
         )
 
 
+def test_invalid_normalization_mode_rejected():
+    with pytest.raises(ValueError, match="Unsupported normalization_mode"):
+        to_onnx(
+            _simple,
+            inputs=[(2,)],
+            normalization_mode="fused",  # type: ignore[arg-type]
+        )
+
+
 def test_onnxruntime_web_wasm_validation_smoke(tmp_path: Path):
     if shutil.which("node") is None:
         pytest.skip("Node.js is required for onnxruntime-web validation")

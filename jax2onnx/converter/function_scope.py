@@ -71,6 +71,7 @@ class FunctionScope:
         self.ctx = IRContext(
             opset=parent_opset,
             enable_double_precision=parent_x64,
+            normalization_mode=parent.normalization_mode,
             input_specs=[],  # set on begin()
             stacktrace_metadata=getattr(parent, "_stacktrace_metadata_enabled", None),
         )

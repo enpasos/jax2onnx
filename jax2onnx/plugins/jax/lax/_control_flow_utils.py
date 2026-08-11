@@ -120,6 +120,7 @@ def make_subgraph_context(
         "enable_double_precision": getattr(
             parent_ctx.builder, "enable_double_precision", False
         ),
+        "normalization_mode": getattr(parent_ctx, "normalization_mode", "auto"),
         "input_specs": [],
     }
     stacktrace_metadata = getattr(parent_ctx, "_stacktrace_metadata_enabled", None)
@@ -129,6 +130,7 @@ def make_subgraph_context(
         child_ctx = type(parent_ctx)(**child_kwargs)
     except TypeError:
         child_kwargs.pop("stacktrace_metadata", None)
+        child_kwargs.pop("normalization_mode", None)
         child_ctx = type(parent_ctx)(**child_kwargs)
     child_ctx_any = cast(Any, child_ctx)
     child_ctx_any.record_primitive_calls_file = getattr(
