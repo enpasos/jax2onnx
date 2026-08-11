@@ -1,9 +1,9 @@
 # ONNX IR Builder Guide
 
-This guide distills the guardrails we enforce around `onnx_ir._tape.Builder` and
-the project wrapper `jax2onnx.converter.ir_builder.IRBuilder`: how to wire
-values, record constants, and keep tests green now that the converter is
-IR-first.
+This guide distills the guardrails we enforce around the public
+`onnx_ir.tape.Tape` API and the project wrapper
+`jax2onnx.converter.ir_builder.IRBuilder`: how to wire values, record constants,
+and keep tests green now that the converter is IR-first.
 
 ## Policy Checklist
 - Always pass `name=` when calling `builder.initializer(...)` or `ctx.builder.add_initializer_from_*`. `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` verifies this.
@@ -12,7 +12,9 @@ IR-first.
 - Run `scripts/check_ir_builder_usage.py` before sending patches (it is also wired into the pre-commit stack).
 
 ## Quick Checklist
-- Emit ops through `ctx.builder` (or `_tape.Builder`) rather than constructing `ir.Node` manually. Fall back only when the builder cannot express the behaviour.
+- Emit ops through `ctx.builder` rather than constructing `ir.Node` manually.
+  For lower-level construction, use the public `Tape.op` / `Tape.op_multi_out`
+  methods that `IRBuilder` forwards.
 - After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and run `_ensure_value_metadata(...)` so the `ir.Value` carries normalized shape/type metadata (no separate `value_info` bucket).
 - Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
 - When defining plugin metadata, use `construct_and_call(...)` with placeholder
@@ -29,7 +31,9 @@ IR-first.
   `with_requested_dtype()` placeholders handles per-dtype rebuilds.
 
 ## Validation Hooks
-- `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` enforces both the "no protobuf" policy and initializer naming for every builder call.
+- `tests/extra_tests/framework/test_no_onnx_in_converter_plugins.py` enforces
+  the "no protobuf" and "no private onnx-ir API" policies plus initializer
+  naming for every builder call.
 - `tests/extra_tests/framework/test_ir_builder_contracts.py` walks the AST to guarantee `_outputs=` uses sequence types.
 - `scripts/check_ir_builder_usage.py` wraps the same heuristics for local iteration and runs as a pre-commit hook. Invoke it manually with `poetry run python scripts/check_ir_builder_usage.py` when editing converter/plugins code.
 
@@ -38,95 +42,94 @@ Everything below expands on the why and how behind those rules.
 ## Prerequisites and Imports
 - The ONNX IR package ships with ONNX Script and is available as `onnx_ir`; install `onnx-script` or `onnx-ir` and ensure runtime dependencies (notably `numpy`) are available.
 - When working from a source checkout, set `PYTHONPATH=src` before importing.
-- The builder lives in an internal module. Import it explicitly:
+- Import the public tape API for low-level graph construction, or the project
+  wrapper for converter/plugin work:
 
 ```python
 import onnx_ir as ir
-from onnx_ir._tape import Builder
+from onnx_ir.tape import Tape
+
+from jax2onnx.converter.ir_builder import IRBuilder
 ```
 
-> **Stability note**: `_tape.Builder` is currently internal API (the leading underscore is intentional) and can change. Keep direct use confined to the project builder layer where possible so updates are easy.
+> **Stability note**: Do not import `onnx_ir._tape`. `onnx-ir` 1.x documents
+> `onnx_ir.tape.Tape` as the public API. `IRBuilder` implements its dynamic
+> `builder.Add(...)` shorthand locally on top of that public surface.
 
 > **Legacy note**: The converter no longer maintains a `builder.value_info` list. Plugins should rely exclusively on `_ensure_value_metadata(...)` and the fields on each `ir.Value` when they need shape/type information. Avoid appending to or expecting a global `value_info` registry.
 
 ## Core Concept
-`Builder` subclasses `onnx_ir.tape.Tape`. It records nodes, initializers, and the opsets they require while exposing every ONNX operator as a dynamic method (for example, `builder.Add`, `builder.Conv`).
+`Tape` records nodes, initializers, and the opsets they require. `IRBuilder`
+adds the dynamic operator methods used throughout the converter (for example,
+`builder.Add` and `builder.Conv`) without depending on an upstream private
+builder class.
 
-Use it when you want to script graph construction but still hand the collected nodes to `ir.Graph` or `ir.Function` later. If you need finer-grained control (custom outputs, metadata, overload selection, or pre-existing `ir.Value` objects), drop down to `Tape.op` / `Tape.op_multi_out` or construct `ir.Node` directly.
+Use `IRBuilder` for normal converter work. If you need finer-grained control
+(custom outputs, metadata, overload selection, or pre-existing `ir.Value`
+objects), call its forwarded `Tape.op` / `Tape.op_multi_out` methods. Use a
+standalone `Tape` when extending an existing `ir.Graph` or `ir.Function`.
 
 ## End-to-End Workflow
 ```python
 import numpy as np
 import onnx_ir as ir
-from onnx_ir._tape import Builder
+
+from jax2onnx.converter.ir_builder import IRBuilder
 
 # 1. Provide typed graph values up front.
 X = ir.val("X", dtype=ir.DataType.FLOAT, shape=[1])
 Y = ir.val("Y", dtype=ir.DataType.FLOAT, shape=[1])
 
-# 2. Create a builder (optionally tie it to an existing graph/function).
-builder = Builder()
+# 2. Create the project builder and register graph inputs.
+builder = IRBuilder(opset=18, enable_double_precision=False)
+builder.inputs.extend([X, Y])
 
 # 3. Register any constant tensors through the builder so outputs stay in sync.
-weight_init = builder.initializer(
-    ir.tensor(np.array([0.25], dtype=np.float32)),
+weight_init = builder.add_initializer_from_array(
     name="weight",
+    array=np.array([0.25], dtype=np.float32),
 )
 
 # 4. Emit operators. Positional args become inputs; keyword args become ONNX attributes.
 scaled = builder.Mul(X, weight_init, _outputs=["scaled"])  # returns ir.Value
 summed = builder.Add(scaled, Y, _domain="", _version=18)
 
-# 5. Package the recording into a graph/model when ready.
-def to_opset_imports(used_opsets: set[tuple[str, int | None]]):
-    result: dict[str, int] = {}
-    for domain, version in used_opsets:
-        if version is None:
-            continue  # fall back to the containing graph's default
-        previous = result.get(domain)
-        if previous is not None and previous != version:
-            raise ValueError(
-                f"Mixed opset versions requested for domain '{domain}': {previous} vs {version}"
-            )
-        result[domain] = version
-    return result or {"": 18}  # choose an explicit default for the model
-
-graph = ir.Graph(
-    inputs=[X, Y],
-    outputs=[summed],
-    nodes=builder.nodes,
-    initializers=builder.initializers,
-    opset_imports=to_opset_imports(builder.used_opsets),
-    name="scale_and_sum",
-)
-model = ir.Model(graph=graph, ir_version=10)
+# 5. Mark graph outputs and package the graph into a model.
+builder.outputs.append(summed)
+model = builder.to_ir_model(name="scale_and_sum", ir_version=10)
 ```
 
-## Bringing Existing Models Into the Builder
+## Bringing Existing Models Into a Tape
 The official docs highlight converting `onnx.ModelProto` to the IR via `ir.from_proto` or `onnx_ir.load`. That makes it easy to combine scripted nodes with imported graphs:
 
 ```python
 import onnx
 import onnx_ir as ir
-from onnx_ir._tape import Builder
+from onnx_ir.tape import Tape
 
 model_proto = onnx.parser.parse_model(MODEL_TEXT)
 model = ir.from_proto(model_proto)
 
-builder = Builder(model.graph)
-extra = builder.Identity(model.graph.outputs[0])
+tape = Tape(model.graph)
+extra = tape.op("Identity", [model.graph.outputs[0]])
+model.graph.outputs.clear()
 model.graph.outputs.append(extra)
 ```
 
 You can reverse the process with `ir.to_proto(model)` when you need to serialize back to protobuf.
 
-## What the Builder Does for You
-- Tracks every created `ir.Node` in insertion order via `builder.nodes` so you can extend a graph or build a new one.
-- Keeps initializers created through `builder.initializer` aligned with the eventual graph. When the builder is constructed with `graph_like=ir.Graph(...)`, the initializer is immediately registered on that graph.
-- Records `builder.used_opsets` as `(domain, version)` pairs so you can populate `Graph.opset_imports` consistently.
+## What Tape and IRBuilder Do for You
+- `Tape` tracks every node it creates in insertion order and records
+  `used_opsets` as `(domain, version)` pairs.
+- `Tape.initializer(...)` immediately registers the value when the tape is bound
+  to an `ir.Graph`.
+- `IRBuilder` owns the converter graph, exposes its live node/input/output
+  containers, adds initializer deduplication, and preserves the established
+  dynamic operator shorthand.
 
 ## Reserved Keyword Arguments
-`Builder` intercepts a few keyword arguments before treating the remainder as ONNX attributes:
+The dynamic `IRBuilder` shorthand intercepts a few keyword arguments before
+treating the remainder as ONNX attributes:
 - `_domain`: operator domain (default `""`).
 - `_version`: opset version for the operator. Use one consistent value per domain.
 - `_outputs`: either an `int` (number of outputs) or a *sequence* of output names.
@@ -137,8 +140,11 @@ Everything else in `**kwargs` is fed to `_convenience.convert_attributes`, which
 ## Tape API Highlights
 The public documentation for `onnx_ir.tape` at <https://onnx.ai/ir-py/api/ir_tape.html> spells out the signatures for `Tape.op`, `Tape.op_multi_out`, and `Tape.initializer`:
 - `Tape.op` returns the first output `ir.Value` and accepts keyword-only arguments such as `overload`, `graph`, `name`, `doc_string`, `metadata_props`, and `output`.
-- `Tape.op_multi_out` requires either `num_outputs` or `outputs` (but not both) and returns an immutable tuple of `ir.Value` objects.
-- `Tape.initializer` insists on a name and on the provided tensor having `const_value` set; ONNX functions intentionally reject initializers.
+- `Tape.op_multi_out` requires either `num_outputs` or `outputs` (but not both)
+  and returns a sequence of `ir.Value` objects.
+- `Tape.initializer` requires `name=` unless the tensor itself is named. A tape
+  bound to an ONNX function keeps the initializer only on the tape because
+  functions cannot register graph initializers.
 
 Keep these signatures in mind when deciding between builder convenience and direct tape usage.
 
@@ -152,7 +158,7 @@ values, indices = builder.TopK(
     _version=18,
 )
 ```
-- The return type is a tuple of `ir.Value`. Pull out the node again with
+- The return type is a sequence of `ir.Value`. Pull out the node again with
   `values.producer()` if you need to mutate metadata.
 - For heterogeneous arity where ONNX requires empty slots, pass `None` in the positional inputs (for example, `builder.MaxPool(X, None, strides=[1, 1], _outputs=2)`).
 
@@ -168,18 +174,26 @@ values, indices = builder.TopK(
 ## Integrating with Existing Graphs or Functions
 ```python
 graph = ir.Graph(inputs=[X], outputs=[Z], nodes=[])
-builder = Builder(graph)
-intermediate = builder.Relu(X)
+tape = Tape(graph)
+intermediate = tape.op("Relu", [X])
 # The node is already appended to `graph`, and names are assigned by the graph's name authority.
 ```
-- When bound to a graph, builder calls reuse the graph's naming authority and automatically respect graph invariants.
-- Initializers are registered only for graphs. ONNX functions do not permit initializers, so the builder simply stores them locally when `graph_like` is an `ir.Function`.
+- When bound to a graph, tape calls reuse the graph's naming authority and
+  automatically respect graph invariants.
+- Initializers are registered only for graphs. ONNX functions do not permit
+  initializers, so the tape simply stores them locally when `graph_like` is an
+  `ir.Function`.
 
-## Limitations Compared to `Tape.op`
-Because `_make_node` forwards the remaining keyword arguments into the attribute map, the builder cannot set certain `Tape` parameters at construction time:
+## Limitations of the Dynamic Shorthand
+Because the dynamic shorthand forwards the remaining keyword arguments into
+the attribute map, it cannot set certain `Tape` parameters at construction
+time:
 - `overload`, `graph`, `name`, `doc_string`, `metadata_props`, and `output` are interpreted as attributes. Set them on the resulting node (`value.producer()`) after creation or call `Tape.op` directly when you need those parameters.
-- To attach a node to a different graph than `builder.graph_like`, instantiate another builder or fall back to `Tape.op(graph=...)`.
-- To reuse pre-created `ir.Value` outputs, call `Tape.op(output=existing_value)` or `Tape.op_multi_out(outputs=[...])` rather than relying on `_outputs`.
+- To attach a node to a different graph, use `builder.op(..., graph=target_graph)`
+  or create a standalone tape for that graph.
+- To reuse pre-created `ir.Value` outputs, call
+  `builder.op(..., output=existing_value)` or
+  `builder.op_multi_out(..., outputs=[...])` rather than relying on `_outputs`.
 
 ## Common Pitfalls and How to Avoid Them
 - **Node metadata via kwargs**: `builder.Add(..., name="foo")` creates an attribute named `name`; it does *not* rename the node. Use `summed.producer().name = "foo"` after creation instead.

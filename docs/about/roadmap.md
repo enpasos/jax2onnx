@@ -21,6 +21,17 @@
 ### **jax2onnx 0.15.2**
 
 
+* **Harden the `onnx-ir` integration without changing export contracts:**
+  Validate the resolved dependency stack against `onnx-ir` 1.0.0, replace the
+  private tape-builder dependency with a local adapter based on the public
+  `onnx_ir.tape.Tape` API, prohibit private `onnx_ir` imports in converter and
+  plugin code, and exercise the required public surface in minimum-dependency
+  CI while retaining compatibility with the declared `onnx-ir>=0.2.1` floor.
+* **Keep behavior-changing `onnx-ir` 1.0 features deliberate:** Continue
+  emitting IR version 10 and preserving the existing external-data artifact
+  layout. Revisit IR version 11 device and sharding metadata only after graph
+  optimization is placement-safe and runtime round trips are covered; consider
+  external-data sharding only together with a justified public export contract.
 * **Add configurable normalization export policies:** Add `normalization_mode`
   to `to_onnx(...)`: `"auto"` preserves framework-oriented defaults,
   `"prefer_native"` selects standard ONNX normalization operators when eligible

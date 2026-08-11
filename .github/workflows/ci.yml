@@ -102,6 +102,7 @@ jobs:
         poetry run pytest -q \
           tests/extra_tests/framework/test_jax_compat.py \
           tests/extra_tests/framework/test_minimum_dependency_installer.py \
+          tests/extra_tests/framework/test_onnx_ir_surface.py \
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py
 

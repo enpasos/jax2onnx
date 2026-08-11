@@ -19,7 +19,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import onnx_ir as ir
-from onnx_ir._tape import Builder as _TapeBuilder
+from onnx_ir.tape import Tape
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     ir_shape_from_dims,
@@ -36,6 +36,7 @@ PLUGIN_METADATA_KEY: Final[str] = "pkg.jax2onnx.plugin"
 _STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
     "jax2onnx/converter/ir_builder.py",
     "onnx_ir/_tape.py",
+    "onnx_ir/tape.py",
     "traceback.py",
 )
 
@@ -46,6 +47,53 @@ def _dtype_to_ir(dtype: Optional[np.dtype], enable_double: bool) -> ir.DataType:
     Floats are normalized by enable_double flag.
     """
     return numpy_dtype_to_ir_with_float_policy(dtype, enable_double)
+
+
+class _DynamicTapeBuilder(Tape):
+    """Preserve ``builder.Op(...)`` syntax on top of the public Tape API."""
+
+    def __getattr__(self, op_type: str) -> Any:
+        return lambda *args, **kwargs: self._make_node(op_type, args, kwargs)
+
+    def _make_node(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value | None],
+        kwargs: dict[str, Any],
+    ) -> ir.Value | Sequence[ir.Value]:
+        domain = kwargs.pop("_domain", "")
+        version = kwargs.pop("_version", None)
+        outputs = kwargs.pop("_outputs", 1)
+        if isinstance(outputs, Sequence):
+            num_outputs = len(outputs)
+        else:
+            assert isinstance(outputs, int)
+            num_outputs = outputs
+
+        if num_outputs == 1:
+            value = super().op(
+                op_type,
+                inputs=inputs,
+                attributes=kwargs,
+                domain=domain,
+                version=version,
+            )
+            if isinstance(outputs, Sequence):
+                value.name = outputs[0]
+            return value
+
+        values = super().op_multi_out(
+            op_type,
+            inputs=inputs,
+            attributes=kwargs,
+            domain=domain,
+            version=version,
+            num_outputs=num_outputs,
+        )
+        if isinstance(outputs, Sequence):
+            for value, name in zip(values, outputs):
+                value.name = name
+        return values
 
 
 class _InitializerList(MutableSequence[ir.Value]):
@@ -226,7 +274,7 @@ class IRBuilder:
         self._outputs: MutableSequence[ir.Value] = graph.outputs
         self._nodes: ir.Graph = graph
         self._initializers = _InitializerList(graph)
-        self._tape_builder = _TapeBuilder(graph)
+        self._tape_builder = _DynamicTapeBuilder(graph)
         self.used_opsets: set[tuple[str, int | None]] = self._tape_builder.used_opsets
 
         # Intermediate ValueInfo entries (propagated to ir.Graph)

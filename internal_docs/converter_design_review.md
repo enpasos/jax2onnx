@@ -24,7 +24,7 @@ serialization; that remains in `jax2onnx/user_interface.py`.
 | ------ | ------------ |
 | `conversion_api.py` | End-to-end conversion orchestration: plugin activation, JAXPR tracing, context setup, equation lowering, model assembly, optimization, late shape normalization. |
 | `ir_context.py` | Plugin-facing lowering context. Owns the JAX var to IR value map, constant binding, symbolic dimension origins, function-mode behavior, and small graph input helpers. |
-| `ir_builder.py` | Thin wrapper around `onnx_ir._tape.Builder` plus graph-owned live lists, initializer deduplication, deterministic names, and optional stacktrace metadata. |
+| `ir_builder.py` | Thin dynamic-op adapter over the public `onnx_ir.tape.Tape` API plus graph-owned live lists, initializer deduplication, deterministic names, and optional stacktrace metadata. |
 | `function_scope.py` | Builds ONNX Function bodies in child `IRContext` instances and snapshots them into `onnx_ir.Function` definitions. |
 | `lowering_dispatch.py` | Shared plugin lookup, metadata identification, primitive/function invocation, equation finalization, and nested JAXPR lowering helpers. |
 | `output_binding.py` | Shared post-dispatch guardrails that bind returned `ir.Value` objects and verify every non-drop equation output is graph-connected. |
