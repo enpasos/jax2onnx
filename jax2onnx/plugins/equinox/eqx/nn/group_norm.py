@@ -12,6 +12,7 @@ from jax.extend.core import Primitive
 from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.flax.nnx import group_norm as nnx_group_norm
 from jax2onnx.plugins.plugin_system import register_primitive
 
@@ -32,7 +33,19 @@ _EQX_GROUP_NORM_NO_AFFINE: Final[eqx.nn.GroupNorm] = eqx.nn.GroupNorm(
     eps=1e-5,
     channelwise_affine=False,
 )
-EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_FALLBACK
+EXPECT_GROUP_NORM_FALLBACK: Final = EG(
+    [
+        (
+            "Slice -> Sub -> ReduceMean -> Sub -> Div",
+            {
+                "counts": {
+                    "GroupNormalization": 0,
+                    "ReduceMean": 2,
+                }
+            },
+        )
+    ]
+)
 
 
 @register_primitive(
