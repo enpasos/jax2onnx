@@ -1,12 +1,17 @@
 # Past Versions
 
-- **Unreleased**: Added `normalization_mode` to opt Fast-Variance GroupNorm into
-  native `GroupNormalization` nodes at opset 21+ while retaining the
-  framework-oriented decomposition by default; aligned Flax RMSNorm with the
-  same `prefer_native`/`force_decomposed` policy; and replaced anchor-based
-  constant-group centering with a finite constant-group correction that
-  preserves high-offset, non-finite, and empty-shape behavior; and replaced the
-  private `onnx-ir` tape builder dependency with the public `Tape` API.
+- **0.15.1**: Added explicit Flax NNX convolution-padding support, batched
+  `jnp.split` handling with zero-length outputs, and non-divisible Equinox
+  adaptive pooling; hardened Equinox, Flax NNX, and Flax Linen normalization
+  semantics across layouts, mapped batch axes, symbolic shapes, opsets, dtypes,
+  and constant, near-constant, and high-offset inputs; preserved Equinox PRNG
+  and batching behavior, added internal primitive lowerings, and corrected
+  vmapped `while_loop` masking, captures, and initializer ownership;
+  centralized opset-aware reductions with correct empty-axis, dtype, boolean,
+  and fusion behavior; made IR rewrites, scatter-broadcast handling, and
+  symbolic-shape metadata semantics-preserving; kept optional ORMQR discovery
+  and generated-test execution portable; and expanded checker, runtime-parity,
+  and structural regression coverage.
 - **0.15.0**: Added deterministic continuous- and discrete-control RL policy exports for the documented inference-only `obs -> action` contract, with generated runtime-contract hooks and integrated deployment-readiness summaries covering optional shape inference, additional concrete batch sizes, output constraints, checker and strict shape-inference status, public I/O metadata, initializers, operator inventories, and dimension warnings without expanding the public API; added JAX 0.11 compatibility for `scan` flat-tree descriptors, merged `ClosedJaxpr`/`Jaxpr` behavior, relocated internal APIs, and the new `jnp.empty` lowering while retaining the declared `jax>=0.8.1` floor and Python 3.11 validation against the older JAX stack; accepted Flax 0.12.8 `out_sharding` in the NNX `LinearGeneral` monkey-patch; refreshed the validation and tooling stack to JAX `0.11.0`, Flax `0.12.8`, ONNX Runtime `1.28.0`, `onnxruntime-web` `1.27.0`, `protobufjs` `7.6.5`, and mypy `1.20.2` with Python 3.12 type checking; and made generated coverage-table updates validate every optional MaxText and MaxDiffusion target before writing, with explicit `--allow-removals` support for intentional deletions.
 - **0.14.1**: Added targeted Opset 27 coverage by preserving the Opset 23 default while using native FP16/BF16 `Range` for `opset=27` exports and keeping older exports on the cast fallback, including new JAX 0.10 resize methods where the ONNX mapping is exact; centralized JAX internal API compatibility in a package-level compatibility layer, migrating direct `jax.core` / `jax.extend.core` usage across converter and plugin code and guarding `Literal` resolution across JAX layout differences so JAX internal API moves are handled in one place; validated declared lower bounds in CI by raising the installable minimum JAX version to `0.8.1` for Flax/NNX `0.12.1` compatibility, adding a minimum-dependency workflow job, and covering the lower-bound installer with focused tests; and refreshed the documented validation stack to JAX `0.10.2`, Equinox `0.13.8`, ONNX `1.22.0`, and ONNX Runtime `1.27.0`.
 - **0.14.0**: Added browser/WASM deployment support through `export_mode="web"`, self-contained ONNX artifacts, `allclose_onnxruntime_web(...)`, Node.js and Chrome validation scripts, smoke/full Web runtime gates, and Browser/WASM documentation; hardened Web-facing shape/runtime parity cases including broadcast metadata, attention metadata, and JAX sort NaN ordering through ONNX `TopK`; expanded BF16 export confidence with Linen pool-add fixes plus capability-matrix coverage across representative JAX NumPy and Flax Linen operations; fixed JAX and Flax NNX SiLU/Swish exports with ONNX `Swish` emission for opset 24+; and refreshed the documented validation stack to JAX `0.10.1`, Equinox `0.13.8`, ONNX Runtime `1.26.0`, and documented `onnxruntime-web` versions.
