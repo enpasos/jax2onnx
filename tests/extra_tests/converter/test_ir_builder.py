@@ -1,16 +1,18 @@
 # tests/extra_tests/converter/test_ir_builder.py
 
+import importlib.metadata
+
 import numpy as np
 import onnx_ir as ir
 import pytest
 from onnx_ir.tape import Tape
 
 from jax2onnx.converter.ir_builder import (
-    IRBuilder,
     JAX_CALLSITE_METADATA_KEY,
     JAX_TRACE_METADATA_KEY,
     PLUGIN_METADATA_KEY,
     STACKTRACE_METADATA_KEY,
+    IRBuilder,
 )
 
 
@@ -250,6 +252,22 @@ def test_ir_builder_model_roundtrip_preserves_initializer_connections() -> None:
     w2 = g.initializers["w"]
     node = list(g)[0]
     assert node.inputs[1] is w2
+
+
+def test_ir_builder_model_sets_producer_version() -> None:
+    # Exported models previously left producer_version unset (empty string),
+    # even though onnx_ir.Model accepts it directly -- see issue about
+    # metadata_props/doc_string/producer_version being empty on every
+    # jax2onnx-produced model in a public ONNX-on-the-Hub census.
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.Value(name="x", shape=ir.Shape((1,)), type=ir.TensorType(ir.DataType.FLOAT))
+    builder.inputs.append(x)
+    builder.outputs.append(x)
+
+    model = builder.to_ir_model(name="m", ir_version=11)
+
+    assert model.producer_name == "jax2onnx"
+    assert model.producer_version == importlib.metadata.version("jax2onnx")
 
 
 def test_ir_builder_add_node_converts_mapping_attributes() -> None:

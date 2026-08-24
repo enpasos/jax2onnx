@@ -2,6 +2,8 @@
 
 
 from __future__ import annotations
+
+import importlib.metadata
 import os
 import traceback
 from collections.abc import Mapping, MutableSequence, Sequence
@@ -20,19 +22,34 @@ import numpy as np
 import numpy.typing as npt
 import onnx_ir as ir
 from onnx_ir.tape import Tape
+
 from jax2onnx.ir_utils import (
     const_value_to_numpy,
     ir_shape_from_dims,
     numpy_dtype_to_ir_with_float_policy,
     tensor_attr,
 )
-from .typing_support import SymbolicDimOrigin
 
+from .typing_support import SymbolicDimOrigin
 
 STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
 JAX_TRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.jax_traceback"
 JAX_CALLSITE_METADATA_KEY: Final[str] = "pkg.jax2onnx.callsite"
 PLUGIN_METADATA_KEY: Final[str] = "pkg.jax2onnx.plugin"
+
+
+def _installed_producer_version() -> Optional[str]:
+    """Best-effort jax2onnx package version for the exported model's
+    producer_version field. Returns None (leaving the field unset) when
+    running from a source tree without installed package metadata, rather
+    than raising."""
+    try:
+        return importlib.metadata.version("jax2onnx")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+_PRODUCER_VERSION: Final[Optional[str]] = _installed_producer_version()
 _STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
     "jax2onnx/converter/ir_builder.py",
     "onnx_ir/_tape.py",
@@ -784,4 +801,9 @@ class IRBuilder:
         )
         if name:
             graph.name = name
-        return ir.Model(graph, ir_version=ir_version, producer_name="jax2onnx")
+        return ir.Model(
+            graph,
+            ir_version=ir_version,
+            producer_name="jax2onnx",
+            producer_version=_PRODUCER_VERSION,
+        )
