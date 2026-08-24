@@ -9,6 +9,9 @@ concurrency:
   group: nightly-qs-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   check-changes:
     runs-on: ubuntu-latest

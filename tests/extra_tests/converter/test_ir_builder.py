@@ -1,10 +1,14 @@
 # tests/extra_tests/converter/test_ir_builder.py
 
+import importlib.metadata
+from pathlib import Path
+
 import numpy as np
 import onnx_ir as ir
 import pytest
 from onnx_ir.tape import Tape
 
+from jax2onnx.converter import ir_builder as ir_builder_module
 from jax2onnx.converter.ir_builder import (
     IRBuilder,
     JAX_CALLSITE_METADATA_KEY,
@@ -250,6 +254,68 @@ def test_ir_builder_model_roundtrip_preserves_initializer_connections() -> None:
     w2 = g.initializers["w"]
     node = list(g)[0]
     assert node.inputs[1] is w2
+
+
+def test_resolve_producer_version_prefers_source_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pyproject_path = tmp_path / "pyproject.toml"
+    pyproject_path.write_text(
+        '[project]\nname = "jax2onnx"\nversion = "9.8.7"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(ir_builder_module, "_SOURCE_TREE_PYPROJECT", pyproject_path)
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.5.2")
+
+    assert ir_builder_module._resolve_producer_version() == "9.8.7"
+
+
+def test_resolve_producer_version_uses_installed_distribution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        ir_builder_module, "_SOURCE_TREE_PYPROJECT", tmp_path / "missing.toml"
+    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "1.2.3")
+
+    assert ir_builder_module._resolve_producer_version() == "1.2.3"
+
+
+def test_resolve_producer_version_without_package_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        ir_builder_module, "_SOURCE_TREE_PYPROJECT", tmp_path / "missing.toml"
+    )
+
+    def _missing_distribution(_name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(importlib.metadata, "version", _missing_distribution)
+
+    assert ir_builder_module._resolve_producer_version() is None
+
+
+def test_ir_builder_serializes_producer_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Exported models previously left producer_version unset (empty string),
+    # even though onnx_ir.Model accepts it directly -- see issue about
+    # metadata_props/doc_string/producer_version being empty on every
+    # jax2onnx-produced model in a public ONNX-on-the-Hub census.
+    monkeypatch.setattr(ir_builder_module, "_PRODUCER_VERSION", "9.8.7")
+    builder = IRBuilder(opset=18, enable_double_precision=False)
+    x = ir.Value(name="x", shape=ir.Shape((1,)), type=ir.TensorType(ir.DataType.FLOAT))
+    builder.inputs.append(x)
+    builder.outputs.append(x)
+
+    model = builder.to_ir_model(name="m", ir_version=11)
+
+    assert model.producer_name == "jax2onnx"
+    assert model.producer_version == "9.8.7"
+
+    model_proto = ir.serde.serialize_model(model)
+    assert model_proto.producer_name == "jax2onnx"
+    assert model_proto.producer_version == "9.8.7"
 
 
 def test_ir_builder_add_node_converts_mapping_attributes() -> None:
