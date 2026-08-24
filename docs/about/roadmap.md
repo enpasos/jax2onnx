@@ -15,6 +15,26 @@
   examples, and physics/simulation use cases.
 
 
+## Upcoming Version
+
+
+### **jax2onnx 0.16.1**
+
+
+* **Record trustworthy model provenance:** Populate exported ONNX models with
+  the active `jax2onnx` producer version while handling source checkouts safely,
+  so the metadata identifies the converter build without changing graph
+  semantics.
+* **Harden and modernize GitHub Actions:** Pin third-party actions to immutable
+  commit SHAs, declare least-privilege token access for CI and nightly jobs, and
+  update the documentation workflow to the Node 24-based v6 releases of
+  `actions/checkout` and `actions/setup-python`.
+* **Automate dependency maintenance with bounded noise:** Add grouped,
+  rate-limited Dependabot updates on a deliberate cadence, keep major upgrades
+  isolated for review, and defer separate `uv` automation until Poetry and uv
+  lockfile synchronization has a defined policy.
+
+
 ## Current Version
 
 
