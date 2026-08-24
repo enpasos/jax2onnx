@@ -84,7 +84,7 @@ priority = "supplemental"
 
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.4"
+pytest = ">=8.3.4,<10.0.0"
 pytest-json-report = "^1.5.0"
 pre-commit = "^4.1.0"
 ruff = "^0.9.5"
