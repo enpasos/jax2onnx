@@ -1,16 +1,43 @@
 version: 2
+
+# uv is deliberately not configured yet. Poetry and uv share pyproject.toml
+# but maintain separate lockfiles; add uv after agreeing on a workflow that
+# keeps poetry.lock and uv.lock consistent in one reviewed update.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 3
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 2
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
