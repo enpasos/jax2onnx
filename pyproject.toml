@@ -87,7 +87,7 @@ priority = "supplemental"
 pytest = ">=8.3.4,<10.0.0"
 pytest-json-report = "^1.5.0"
 pre-commit = "^4.1.0"
-ruff = "^0.9.5"
+ruff = ">=0.9.5,<0.17.0"
 pytest-order = "^1.3.0"
 black = "^25.1.0"
 types-pyyaml = "^6.0.12.20250822"
@@ -118,6 +118,9 @@ target-version = ["py310"]
 target-version = "py310"
 # extend-select = ["I", "B", "UP", "N"]
 # extend-ignore = ["E501"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 # numpy >=2.5 ships PEP 695 stubs, which mypy only parses when targeting 3.12+.
