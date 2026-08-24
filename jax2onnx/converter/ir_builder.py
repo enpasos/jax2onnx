@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
+import tomllib
 import traceback
 from collections.abc import Mapping, MutableSequence, Sequence
+from pathlib import Path
 from typing import (
     Any,
     Final,
@@ -36,20 +38,39 @@ STACKTRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.stacktrace"
 JAX_TRACE_METADATA_KEY: Final[str] = "pkg.jax2onnx.jax_traceback"
 JAX_CALLSITE_METADATA_KEY: Final[str] = "pkg.jax2onnx.callsite"
 PLUGIN_METADATA_KEY: Final[str] = "pkg.jax2onnx.plugin"
+_SOURCE_TREE_PYPROJECT: Final[Path] = (
+    Path(__file__).resolve().parents[2] / "pyproject.toml"
+)
 
 
-def _installed_producer_version() -> Optional[str]:
-    """Best-effort jax2onnx package version for the exported model's
-    producer_version field. Returns None (leaving the field unset) when
-    running from a source tree without installed package metadata, rather
-    than raising."""
+def _source_tree_producer_version() -> str | None:
+    """Return the static project version when imported from a source tree."""
+    try:
+        with _SOURCE_TREE_PYPROJECT.open("rb") as pyproject_file:
+            pyproject = tomllib.load(pyproject_file)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    project = pyproject.get("project")
+    if not isinstance(project, dict) or project.get("name") != "jax2onnx":
+        return None
+    version = project.get("version")
+    return version if isinstance(version, str) and version else None
+
+
+def _resolve_producer_version() -> str | None:
+    """Resolve model producer metadata without trusting an unrelated install."""
+    source_version = _source_tree_producer_version()
+    if source_version is not None:
+        return source_version
+
     try:
         return importlib.metadata.version("jax2onnx")
     except importlib.metadata.PackageNotFoundError:
         return None
 
 
-_PRODUCER_VERSION: Final[Optional[str]] = _installed_producer_version()
+_PRODUCER_VERSION: Final[str | None] = _resolve_producer_version()
 _STACKTRACE_IGNORE_PATTERNS: Final[tuple[str, ...]] = (
     "jax2onnx/converter/ir_builder.py",
     "onnx_ir/_tape.py",
