@@ -18,6 +18,9 @@ on:
       - 'AGENTS.md'
       - 'work_notes**'
 
+permissions:
+  contents: read
+
 jobs:
   onnxruntime-web-smoke:
     name: onnxruntime-web smoke
