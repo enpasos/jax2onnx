@@ -132,6 +132,41 @@ jobs:
         poetry install --no-interaction
         poetry run pip install pytest-xdist
 
+    - name: Verify locked JAX 0.11 stack
+      if: matrix.python-version == '3.13' || matrix.python-version == '3.14'
+      run: |
+        poetry run python - <<'PY'
+        from importlib.metadata import version
+        import sys
+
+        from packaging.version import Version
+
+        expected_series = (0, 11)
+        resolved = {
+            package: Version(version(package))
+            for package in ("jax", "jaxlib")
+        }
+        wrong = {
+            package: str(package_version)
+            for package, package_version in resolved.items()
+            if package_version.release[:2] != expected_series
+        }
+
+        if wrong:
+            raise SystemExit(
+                "The locked modern test stack must resolve jax and jaxlib "
+                f"to 0.11.x on Python {sys.version_info.major}."
+                f"{sys.version_info.minor}; resolved {wrong}. "
+                "If this is an intentional JAX upgrade, update this guard "
+                "and the compatibility coverage in the same PR."
+            )
+
+        print(
+            "Verified locked modern stack: "
+            + ", ".join(f"{name}=={value}" for name, value in resolved.items())
+        )
+        PY
+
     - name: Run full checks (with MaxText and MaxDiffusion)
       if: matrix.python-version == '3.12'
       env:
