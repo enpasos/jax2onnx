@@ -6,7 +6,7 @@
     "validate:onnxruntime-web:chrome": "node scripts/validate_onnxruntime_web_chrome.mjs"
   },
   "devDependencies": {
-    "onnxruntime-web": "^1.27.0",
+    "onnxruntime-web": "^1.29.0",
     "playwright": "^1.62.1"
   }
 }

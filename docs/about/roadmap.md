@@ -12,10 +12,11 @@
   library, loading a trained actor and exporting the inference-only
   `obs -> action` policy contract.
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
-  examples, and physics/simulation use cases.
+  examples, and physics/simulation use cases, including classification of newly
+  published upstream APIs before claiming them as supported.
 
 
-## Upcoming Version
+## Current Version
 
 
 ### **jax2onnx 0.16.1**
@@ -23,56 +24,22 @@
 
 * **Record trustworthy model provenance:** Populate exported ONNX models with
   the active `jax2onnx` producer version while handling source checkouts safely,
-  so the metadata identifies the converter build without changing graph
-  semantics.
+  so metadata identifies the converter build without changing graph semantics.
 * **Harden and modernize GitHub Actions:** Pin third-party actions to immutable
   commit SHAs, declare least-privilege token access for CI and nightly jobs, and
-  update the documentation workflow to the Node 24-based v6 releases of
-  `actions/checkout` and `actions/setup-python`.
-* **Automate dependency maintenance with bounded noise:** Add grouped,
-  rate-limited Dependabot updates on a deliberate cadence, keep major upgrades
-  isolated for review, and defer separate `uv` automation until Poetry and uv
-  lockfile synchronization has a defined policy.
-
-
-## Current Version
-
-
-### **jax2onnx 0.16.0**
-
-
-* **Harden the `onnx-ir` integration without changing export contracts:**
-  Validate the resolved dependency stack against `onnx-ir` 1.0.0, replace the
-  private tape-builder dependency with a local adapter based on the public
-  `onnx_ir.tape.Tape` API, prohibit private `onnx_ir` imports in converter and
-  plugin code, and exercise the required public surface in minimum-dependency
-  CI while retaining compatibility with the declared `onnx-ir>=0.2.1` floor.
-* **Keep behavior-changing `onnx-ir` 1.0 features deliberate:** Continue
-  emitting IR version 10 and preserving the existing external-data artifact
-  layout. Revisit IR version 11 device and sharding metadata only after graph
-  optimization is placement-safe and runtime round trips are covered; consider
-  external-data sharding only together with a justified public export contract.
-* **Add configurable normalization export policies:** Add `normalization_mode`
-  to `to_onnx(...)`: `"auto"` preserves framework-oriented defaults,
-  `"prefer_native"` selects standard ONNX normalization operators when eligible
-  and falls back to the explicit graph otherwise, and `"force_decomposed"`
-  always emits the explicit graph. Apply the policy to Fast-Variance Flax
-  GroupNorm and Flax RMSNorm according to the target opset and statistics dtype.
-* **Harden opt-in native GroupNorm portability:** Preserve arbitrary channel
-  axes and mapped batch dimensions, adapt rank-2/3 and higher-rank inputs around
-  the native node for runtime compatibility, retain channel-wise affine
-  parameters, and fall back to the explicit decomposition for slow variance or
-  statically empty shapes.
-* **Stabilize slow-variance GroupNorm exports:** Add a finite constant-group
-  correction that keeps finite constants exactly centered while preserving the
-  existing reduction semantics for non-constant high-offset groups and
-  retaining NaN/Inf behavior; cover symbolic and empty shapes across Equinox
-  and Flax normalization paths.
-* **Expand normalization coverage and guidance:** Add structural tests across
-  policies, opsets, dtypes, and ranks; verify policy propagation into ONNX
-  Function bodies and control-flow contexts; extend ONNX checker and ONNX
-  Runtime parity coverage for numerical and empty-shape edge cases; document
-  runtime-specific tradeoffs and refresh the generated component matrix.
+  move workflows to the Node 24-based `actions/checkout` 7.0.1 and
+  `actions/setup-python` 7.0.0 releases.
+* **Automate dependency maintenance with bounded noise:** Group minor and patch
+  updates for GitHub Actions and npm, rate-limit update traffic across Actions,
+  Python, npm, and pre-commit dependencies, keep major upgrades isolated for
+  review, and defer separate `uv` automation until lockfile synchronization has
+  a defined policy.
+* **Protect both supported JAX stacks:** Retain JAX/JAXLIB 0.10.2 for Python
+  3.11/3.12 and 0.11.0 for Python 3.13/3.14 in the Poetry lockfile, with a CI
+  guard that verifies the modern stack remains present.
+* **Refresh the validation and tooling stack:** Validate against ONNX Runtime
+  and `onnxruntime-web` 1.29.0, Playwright 1.62.1, pytest 9.1.1, and Ruff 0.16.4,
+  with an explicit `E4`, `E7`, `E9`, and `F` lint baseline.
 
 ## Past Versions
 

@@ -1,5 +1,16 @@
 # Past Versions
 
+- **0.16.0**: Hardened the `onnx-ir` integration against 1.0.0 while retaining
+  the declared `onnx-ir>=0.2.1` floor by replacing the private tape builder with
+  a local adapter over public `onnx_ir.tape.Tape`, prohibiting private imports,
+  and testing the required public surface; kept IR version 10 and external-data
+  contracts unchanged; added `normalization_mode` (`auto`, `prefer_native`,
+  `force_decomposed`) for Fast-Variance Flax GroupNorm and Flax RMSNorm;
+  hardened native GroupNorm layouts, ranks, mapped axes, affine parameters, and
+  empty shapes; stabilized slow-variance constant-group centering across
+  Equinox and Flax; and expanded structural, checker, ONNX Runtime, dtype,
+  opset, rank, symbolic-shape, function-body, and control-flow coverage and
+  guidance.
 - **0.15.1**: Added explicit Flax NNX convolution-padding support, batched
   `jnp.split` handling with zero-length outputs, and non-divisible Equinox
   adaptive pooling; hardened Equinox, Flax NNX, and Flax Linen normalization

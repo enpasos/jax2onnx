@@ -9,10 +9,10 @@
 | [`Equinox`](https://github.com/patrick-kidger/equinox) | 0.13.8 |
 | [`onnx-ir`](https://github.com/onnx/ir-py) | 1.0.0 |
 | [`onnx`](https://github.com/onnx/onnx) | 1.22.0 |
-| [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.28.0 |
-| [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.27.0 |
+| [`onnxruntime`](https://github.com/microsoft/onnxruntime) | 1.29.0 |
+| [`onnxruntime-web`](https://www.npmjs.com/package/onnxruntime-web) | 1.29.0 |
 
-`onnxruntime-web` tracks the latest stable npm release; move it to a matching
-`1.28.x` version once that line is published as a stable Web package.
+`onnxruntime-web` tracks the latest stable npm release and is validated in both
+Node.js/WASM and Chromium smoke flows.
 
 *For minimum supported versions and optional extras, see [`pyproject.toml`](https://github.com/enpasos/jax2onnx/blob/main/pyproject.toml). For the fully resolved Poetry environment, see `poetry.lock`.*
