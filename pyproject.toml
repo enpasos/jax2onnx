@@ -28,7 +28,7 @@ optional = true
 
 [tool.poetry.group.test.dependencies]
 treescope = ">=0.1.8"
-torch = "==2.4.0"   
+torch = "==2.13.0"
 
 [tool.poetry.group.gpu]
 optional = true
