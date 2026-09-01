@@ -10,6 +10,7 @@ import numpy as np
 import jax
 
 from jax._src import core as jcore
+from jax2onnx._compat.jax import fresh_var_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
@@ -57,11 +58,7 @@ class JitPlugin(PrimitiveLeafPlugin):
                 return v
             if v in var_map:
                 return var_map[v]
-            var_map[v] = jcore.Var(
-                v.aval,
-                getattr(v, "initial_qdd", None),
-                getattr(v, "final_qdd", None),
-            )
+            var_map[v] = fresh_var_like(v)
             return var_map[v]
 
         def _map_vars(seq: Any) -> list[Any]:

@@ -27,6 +27,22 @@ except AttributeError:  # pragma: no cover - compatibility with older JAX versio
     DropVar = jax_core.DropVar
 
 
+def fresh_var_like(var: Any) -> Any:
+    """Return a fresh ``Var`` while preserving supported quantization metadata.
+
+    JAX 0.11 reduced ``Var`` construction to the abstract value alone. Older
+    supported releases expose optional quantization metadata on both the value
+    and constructor, so forward only fields that exist on the active object.
+    """
+
+    metadata = {
+        name: getattr(var, name)
+        for name in ("initial_qdd", "final_qdd")
+        if hasattr(var, name)
+    }
+    return Var(var.aval, **metadata)
+
+
 def _resolve_literal_type() -> type[Any]:
     literal_type = getattr(jax_core_ext, "Literal", None)
     if isinstance(literal_type, type):
@@ -181,6 +197,7 @@ __all__ = [
     "definitely_equal_shape",
     "dim_constant",
     "ensure_batching_not_mapped_attr",
+    "fresh_var_like",
     "jax_core",
     "jax_core_ext",
     "new_jaxpr_eqn",

@@ -47,6 +47,42 @@ def test_jax_compat_concrete_or_error_returns_static_value() -> None:
     assert compat.concrete_or_error(int, 7, "must be static") == 7
 
 
+def test_fresh_var_like_uses_current_jax_constructor() -> None:
+    aval = compat.ShapedArray((2, 3), jnp.float32)
+    original = compat.Var(aval)
+
+    fresh = compat.fresh_var_like(original)
+
+    assert isinstance(fresh, compat.Var)
+    assert fresh is not original
+    assert fresh.aval is aval
+
+
+def test_fresh_var_like_preserves_legacy_quantization_metadata(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class LegacyVar:
+        def __init__(
+            self,
+            aval: Any,
+            initial_qdd: Any = None,
+            final_qdd: Any = None,
+        ) -> None:
+            self.aval = aval
+            self.initial_qdd = initial_qdd
+            self.final_qdd = final_qdd
+
+    original = LegacyVar("aval", initial_qdd="initial", final_qdd="final")
+    monkeypatch.setattr(compat, "Var", LegacyVar)
+
+    fresh = compat.fresh_var_like(original)
+
+    assert fresh is not original
+    assert fresh.aval == "aval"
+    assert fresh.initial_qdd == "initial"
+    assert fresh.final_qdd == "final"
+
+
 def _scan_arity_of(fn: Any, *args: Any) -> tuple[int, int, int]:
     closed = jax.make_jaxpr(fn)(*args)
     for eqn in closed.jaxpr.eqns:
