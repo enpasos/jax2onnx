@@ -94,9 +94,8 @@ types-pyyaml = "^6.0.12.20250822"
 pytest-cov = "^7.0.0"
 mypy = "==1.20.2"
 mkdocs-material = "^9.5.0"
-mkdocstrings = {extras = ["python"], version = "0.26.1"}
+mkdocstrings = {extras = ["python"], version = "1.0.6"}
 mkdocs = "^1.6.0"
-griffe = ">=0.44,<1.0" 
 pytest-xdist = "^3.8.0"
 
 [build-system]

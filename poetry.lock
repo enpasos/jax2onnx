@@ -1281,19 +1281,19 @@ files = [
 six = "*"
 
 [[package]]
-name = "griffe"
-version = "0.49.0"
+name = "griffelib"
+version = "2.2.0"
 description = "Signatures for entire Python programs. Extract the structure, the frame, the skeleton of your project, to generate API documentation or find breaking changes in your API."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "griffe-0.49.0-py3-none-any.whl", hash = "sha256:c0d505f2a444ac342b22f4647d6444c8db64964b6a379c14f401fc467c0741a3"},
-    {file = "griffe-0.49.0.tar.gz", hash = "sha256:a7e1235c27d8139e0fd24a5258deef6061bc876a9fda8117a5cf7b53ee940a91"},
+    {file = "griffelib-2.2.0-py3-none-any.whl", hash = "sha256:d71c3bc2bbed9f958488634fe788b843a9f705d6d2838ca32cd6c25eeb64dfc4"},
+    {file = "griffelib-2.2.0.tar.gz", hash = "sha256:e1bc36fe9cd21d4b6b659b456346755e4cfdc5676c0a5214083126ee12612b3c"},
 ]
 
-[package.dependencies]
-colorama = ">=0.4"
+[package.extras]
+pypi = ["pip (>=24.0)", "platformdirs (>=4.2)", "wheel (>=0.42)"]
 
 [[package]]
 name = "grpcio"
@@ -2261,48 +2261,46 @@ files = [
 
 [[package]]
 name = "mkdocstrings"
-version = "0.26.1"
+version = "1.0.6"
 description = "Automatic documentation from sources, for MkDocs."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "mkdocstrings-0.26.1-py3-none-any.whl", hash = "sha256:29738bfb72b4608e8e55cc50fb8a54f325dc7ebd2014e4e3881a49892d5983cf"},
-    {file = "mkdocstrings-0.26.1.tar.gz", hash = "sha256:bb8b8854d6713d5348ad05b069a09f3b79edbc6a0f33a34c6821141adb03fe33"},
+    {file = "mkdocstrings-1.0.6-py3-none-any.whl", hash = "sha256:2703708697487d1b6d6d7b412e176fa436edf120c1bf81dc9e126b12d00893c7"},
+    {file = "mkdocstrings-1.0.6.tar.gz", hash = "sha256:a0b8c2bdd29a6416c80d717aa369bbf7831946bd9f23c2a66db1b1dbe7693dbd"},
 ]
 
 [package.dependencies]
-click = ">=7.0"
-Jinja2 = ">=2.11.1"
+Jinja2 = ">=3.1"
 Markdown = ">=3.6"
 MarkupSafe = ">=1.1"
-mkdocs = ">=1.4"
-mkdocs-autorefs = ">=1.2"
-mkdocstrings-python = {version = ">=0.5.2", optional = true, markers = "extra == \"python\""}
-platformdirs = ">=2.2"
+mkdocs = ">=1.6"
+mkdocs-autorefs = ">=1.4"
+mkdocstrings-python = {version = ">=1.16.2", optional = true, markers = "extra == \"python\""}
 pymdown-extensions = ">=6.3"
 
 [package.extras]
 crystal = ["mkdocstrings-crystal (>=0.3.4)"]
-python = ["mkdocstrings-python (>=0.5.2)"]
+python = ["mkdocstrings-python (>=1.16.2)"]
 python-legacy = ["mkdocstrings-python-legacy (>=0.2.1)"]
 
 [[package]]
 name = "mkdocstrings-python"
-version = "1.13.0"
+version = "2.0.8"
 description = "A Python handler for mkdocstrings."
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "mkdocstrings_python-1.13.0-py3-none-any.whl", hash = "sha256:b88bbb207bab4086434743849f8e796788b373bd32e7bfefbf8560ac45d88f97"},
-    {file = "mkdocstrings_python-1.13.0.tar.gz", hash = "sha256:2dbd5757e8375b9720e81db16f52f1856bf59905428fd7ef88005d1370e2f64c"},
+    {file = "mkdocstrings_python-2.0.8-py3-none-any.whl", hash = "sha256:e555d9ef53b0febdeae4dd603144d4f86ec90fef672276645ea3bb61232c3d24"},
+    {file = "mkdocstrings_python-2.0.8.tar.gz", hash = "sha256:34545b54681cf0b212aab95394d37b0f5326a93b102f6ad1df3d965c79384c9d"},
 ]
 
 [package.dependencies]
-griffe = ">=0.49"
-mkdocs-autorefs = ">=1.2"
-mkdocstrings = ">=0.26"
+griffelib = ">=2.0"
+mkdocs-autorefs = ">=1.4"
+mkdocstrings = ">=0.30"
 
 [[package]]
 name = "ml-dtypes"
@@ -2357,7 +2355,7 @@ files = [
 [package.dependencies]
 numpy = [
     {version = ">=2.1.0", markers = "python_version >= \"3.13\""},
-    {version = ">=2.0.0"},
+    {version = ">=2.0.0", markers = "python_version < \"3.13\""},
     {version = ">=2.3.0", markers = "python_version >= \"3.14\""},
 ]
 
@@ -3464,7 +3462,7 @@ files = [
 [package.dependencies]
 typing-extensions = [
     {version = ">=4.12.0", markers = "python_version >= \"3.13\""},
-    {version = ">=4.10.0", markers = "python_version < \"3.13\""},
+    {version = ">=4.10.0"},
     {version = ">=4.14.0", markers = "python_version >= \"3.15\""},
 ]
 
@@ -5532,7 +5530,7 @@ description = "A language and compiler for custom Deep Learning operations"
 optional = false
 python-versions = "*"
 groups = ["test"]
-markers = "python_version < \"3.13\" and platform_system == \"Linux\" and platform_machine == \"x86_64\""
+markers = "platform_system == \"Linux\" and platform_machine == \"x86_64\" and python_version < \"3.13\""
 files = [
     {file = "triton-3.0.0-1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e1efef76935b2febc365bfadf74bcb65a6f959a9872e5bddf44cc9e0adce1e1a"},
     {file = "triton-3.0.0-1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5ce8520437c602fb633f1324cc3871c47bee3b67acf9756c1a66309b60e3216c"},
@@ -6284,4 +6282,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "3b4806f2b996e82d926668561feaf48404cd71f6f7794e2745b696a1856b1648"
+content-hash = "f897f99cdacae3c12dce2d4e6a4e68ad212f650cea91644b1042ca5912da1ded"
