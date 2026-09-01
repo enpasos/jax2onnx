@@ -4,8 +4,8 @@
 
 | Library       | Version |
 |:--------------|:--------|
-| [`JAX`](https://github.com/jax-ml/jax) | 0.11.0 |
-| [`Flax`](https://github.com/google/flax) | 0.12.8 |
+| [`JAX`](https://github.com/jax-ml/jax) | 0.11.1 |
+| [`Flax`](https://github.com/google/flax) | 0.12.9 |
 | [`Equinox`](https://github.com/patrick-kidger/equinox) | 0.13.8 |
 | [`onnx-ir`](https://github.com/onnx/ir-py) | 1.0.0 |
 | [`onnx`](https://github.com/onnx/onnx) | 1.22.0 |
