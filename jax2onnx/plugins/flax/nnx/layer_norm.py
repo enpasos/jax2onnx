@@ -26,6 +26,11 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     _ensure_value_metadata,
 )
+from jax2onnx.plugins._normalization_utils import (
+    LAYER_NORM_ONNX_COMPONENTS,
+    lower_explicit_layer_norm,
+    use_native_layer_norm,
+)
 
 
 def _attr_value(node: Any, name: str) -> Optional[Any]:
@@ -132,18 +137,14 @@ LAYER_NORM_PRIM.multiple_results = False
 @register_primitive(
     jaxpr_primitive=LAYER_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
-    onnx=[
-        {
-            "component": "LayerNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
-        }
-    ],
+    onnx=LAYER_NORM_ONNX_COMPONENTS,
     since="0.1.0",
     context="primitives.nnx",
     component="layer_norm",
     testcases=[
         {
             "testcase": "layer_norm",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -162,6 +163,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -181,6 +183,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_bias_no_scale",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -203,6 +206,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_no_bias_scale",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -222,6 +226,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_bias_scale",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -241,6 +246,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_multiaxis",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=3 * 3 * 64,
@@ -283,6 +289,7 @@ LAYER_NORM_PRIM.multiple_results = False
         # when normalizing the last dimension (axis=-1/2 in this rank).
         {
             "testcase": "layer_norm_symbolic_batch_seq10_feat3",
+            "normalization_mode": "prefer_native",
             # Use epsilon=1e-5 to match ONNX LayerNormalization default (so we can omit the attr)
             "callable": construct_and_call(
                 nnx.LayerNorm,
@@ -304,6 +311,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_symbolic_batch_seq10_feat3_2",
+            "normalization_mode": "prefer_native",
             # Exercise the JAX default epsilon (1e-6). Ensure the exported ONNX keeps
             # the explicit epsilon/axis attrs so inference matches JAX numerics.
             "callable": construct_and_call(
@@ -328,6 +336,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_negative_axis_no_div",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 nnx.LayerNorm,
                 num_features=32,
@@ -345,6 +354,115 @@ LAYER_NORM_PRIM.multiple_results = False
             )
             and all(n.op_type != "Div" for n in m.graph.node),
         },
+        {
+            "testcase": "layer_norm_decomposed",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                epsilon=1e-5,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Mul:Bx20x32 -> ReduceMean:Bx20x1 -> Sub:Bx20x1 -> Max:Bx20x1 -> Add:Bx20x1 -> Sqrt:Bx20x1 -> Div:Bx20x32 -> Mul:Bx20x32 -> Add:Bx20x32"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Where"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_slow_variance_decomposed",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                epsilon=1e-5,
+                use_fast_variance=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "ReduceMean:Bx20x1 -> Sub:Bx20x32 -> Where:Bx20x32 -> Mul:Bx20x32 -> ReduceMean:Bx20x1 -> Add:Bx20x1 -> Sqrt:Bx20x1 -> Div:Bx20x32 -> Mul:Bx20x32 -> Add:Bx20x32"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Max"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_slow_variance",
+            "normalization_mode": "prefer_native",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                epsilon=1e-5,
+                use_fast_variance=False,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["LayerNormalization:Bx20x32"],
+                symbols={"B": None},
+                must_absent=["Where", "ReduceMean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_multiaxis_decomposed",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=3 * 3 * 64,
+                reduction_axes=(1, 2, 3),
+                feature_axes=(1, 2, 3),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 3, 3, 64)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Reshape:Bx576 -> Mul:Bx576 -> ReduceMean:Bx1 -> Sub:Bx1 -> Max:Bx1 -> Add:Bx1 -> Sqrt:Bx1 -> Div:Bx576 -> Mul:Bx576 -> Add:Bx576 -> Reshape:Bx3x3x64"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_opset16",
+            "callable": construct_and_call(
+                nnx.LayerNorm,
+                num_features=32,
+                epsilon=1e-5,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "opset_version": 16,
+            "check_onnx_load": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Mul:Bx20x32 -> ReduceMean:Bx20x1 -> Sub:Bx20x1 -> Max:Bx20x1 -> Add:Bx20x1 -> Sqrt:Bx20x1 -> Div:Bx20x32 -> Mul:Bx20x32 -> Add:Bx20x32"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class LayerNormPlugin(PrimitiveLeafPlugin):
@@ -352,7 +470,13 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def abstract_eval(
-        x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int
+        x: Any,
+        scale: Any,
+        bias: Any,
+        *,
+        epsilon: float,
+        axis: int,
+        use_fast_variance: bool = True,
     ) -> ShapedArray:
         x_aval = x if isinstance(x, ShapedArray) else ShapedArray(x.shape, x.dtype)
         return ShapedArray(x_aval.shape, x_aval.dtype)
@@ -364,13 +488,34 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         params: dict[str, Any] | None = None,
     ) -> None:
         """
-        Emit a single LayerNormalization node.
+        Emit a single LayerNormalization node (opset >= 17, unless
+        normalization_mode="force_decomposed" selects the explicit graph).
         scale/bias are already shaped to X.shape[axis:] by the monkey-patch,
         so we don't need any Reshape or attributes here.
         """
         x_v = ctx.get_value_for_var(eqn.invars[0])
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])
+
+        p = params or getattr(eqn, "params", {}) or {}
+        if not use_native_layer_norm(ctx):
+            # Follow Flax's statistics: clamped E[x^2]-E[x]^2 or a two-pass variance.
+            fast = bool(p.get("use_fast_variance", True))
+            ctx.bind_value_for_var(
+                eqn.outvars[0],
+                lower_explicit_layer_norm(
+                    ctx,
+                    x_v,
+                    scale_v,
+                    bias_v,
+                    x_shape=tuple(getattr(eqn.invars[0].aval, "shape", ())),
+                    axis=int(p.get("axis", -1)),
+                    epsilon=float(p.get("epsilon", 1e-5)),
+                    use_fast_variance=fast,
+                    clamp_negative_variance=fast,
+                ),
+            )
+            return
 
         # --- IMPORTANT: align param dtypes with input to avoid FP32/FP64 drift ---
         # On symbolic shapes, JAX literals/params can surface with a wider dtype
@@ -382,7 +527,6 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         builder = ctx.builder
 
         # Read axis/epsilon from JAXPR params so the builder attaches them directly.
-        p = params or getattr(eqn, "params", {}) or {}
         in_shape = tuple(getattr(eqn.invars[0].aval, "shape", ()))
         rank = len(in_shape)
         axis = int(p.get("axis", -1))
@@ -467,6 +611,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 base_bias = jnp.zeros(tail_shape, dtype=param_dtype)
 
             eps = float(getattr(self, "epsilon", 1e-5))
+            fast = bool(getattr(self, "use_fast_variance", True))
 
             # If we normalize the last dim only, we can bind directly.
             # Otherwise, flatten the tail so ONNX LN default (last dim) is correct,
@@ -479,6 +624,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                     base_bias,  # shape: (last_dim,)
                     epsilon=eps,
                     axis=int(axis0),
+                    use_fast_variance=fast,
                 )
 
             # Flatten tail dims to a single last dimension
@@ -493,6 +639,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 bias_vec,
                 epsilon=eps,
                 axis=x_flat.ndim - 1,  # last dimension
+                use_fast_variance=fast,
             )
             return jnp.reshape(y_flat, orig_shape)
 
@@ -508,10 +655,19 @@ LAYER_NORM_PRIM.def_abstract_eval(LayerNormPlugin.abstract_eval)
 # This mirrors the ONNX LayerNormalization math & order-of-ops to minimize
 # numeric drift vs. ORT, while our lowering still emits a single LN node.
 # ---------------------------------------------------------------------------
-def _ln_impl(x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int) -> Any:
+def _ln_impl(
+    x: Any,
+    scale: Any,
+    bias: Any,
+    *,
+    epsilon: float,
+    axis: int,
+    use_fast_variance: bool = True,
+) -> Any:
     """
-    Compute LayerNorm like ORT:
-      var = E[x^2] - (E[x])^2
+    Compute LayerNorm with Flax's statistics:
+      var = max(E[x^2] - (E[x])^2, 0)   (use_fast_variance, the Flax default)
+      var = E[(x - E[x])^2]             (otherwise)
       y   = (x - mean) * rsqrt(var + eps) * scale + bias
     Broadcast scale/bias across the normalized axes the same way ONNX does.
     """
@@ -527,8 +683,11 @@ def _ln_impl(x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int) -> Any
     # multi-axis cases are flattened before binding, matching our lowering)
     # Keep dims for broadcasting
     mean = jnp.mean(x, axis=normalized_axis, keepdims=True)
-    mean2 = jnp.mean(jnp.square(x), axis=normalized_axis, keepdims=True)
-    var = mean2 - jnp.square(mean)
+    if use_fast_variance:
+        mean2 = jnp.mean(jnp.square(x), axis=normalized_axis, keepdims=True)
+        var = jnp.maximum(mean2 - jnp.square(mean), 0.0)
+    else:
+        var = jnp.mean(jnp.square(x - mean), axis=normalized_axis, keepdims=True)
     inv = jnp.reciprocal(jnp.sqrt(var + epsilon))
 
     # Broadcast scale/bias like ONNX: shape (..., C) on the last axis.

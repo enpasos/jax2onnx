@@ -19,6 +19,11 @@ from jax2onnx.plugins._ir_shapes import (
     _ensure_value_metadata,
     _stamp_type_and_shape,
 )
+from jax2onnx.plugins._normalization_utils import (
+    LAYER_NORM_ONNX_COMPONENTS,
+    lower_explicit_layer_norm,
+    use_native_layer_norm,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
@@ -28,18 +33,14 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 @register_primitive(
     jaxpr_primitive="eqx.nn.layer_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.LayerNorm",
-    onnx=[
-        {
-            "component": "LayerNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
-        }
-    ],
+    onnx=LAYER_NORM_ONNX_COMPONENTS,
     since="0.8.0",
     context="primitives.eqx",
     component="layer_norm",
     testcases=[
         {
             "testcase": "layer_norm",
+            "normalization_mode": "prefer_native",
             "callable": eqx.nn.LayerNorm(32, eps=1e-5),
             "input_shapes": [(32,)],
             "post_check_onnx_graph": expect_graph(
@@ -49,6 +50,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
         },
         {
             "testcase": "layer_norm_multiaxis",
+            "normalization_mode": "prefer_native",
             "callable": eqx.nn.LayerNorm((20, 32)),
             "input_shapes": [(20, 32)],
             "post_check_onnx_graph": expect_graph(
@@ -58,6 +60,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
         },
         {
             "testcase": "batched_layer_norm",
+            "normalization_mode": "prefer_native",
             "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
             "input_shapes": [("B", 32)],
             "post_check_onnx_graph": expect_graph(
@@ -67,10 +70,74 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
+            "normalization_mode": "prefer_native",
             "callable": eqx.nn.LayerNorm(32, use_bias=False, use_weight=False),
             "input_shapes": [(32,)],
             "post_check_onnx_graph": expect_graph(
                 ["LayerNormalization:32"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_decomposed",
+            "callable": eqx.nn.LayerNorm(32, eps=1e-5),
+            "input_shapes": [(32,)],
+            "post_check_onnx_graph": expect_graph(
+                [
+                    (
+                        "ReduceMean:1 -> Sub:32 -> Where:32 -> Mul:32 -> ReduceMean:1 -> Add:1 -> Sqrt:1 -> Div:32 -> Mul:32 -> Add:32",
+                        {"counts": {"ReduceMin": 1, "ReduceMax": 1, "Where": 1}},
+                    )
+                ],
+                must_absent=["LayerNormalization", "Max"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_multiaxis_decomposed",
+            "callable": eqx.nn.LayerNorm((20, 32)),
+            "input_shapes": [(20, 32)],
+            "post_check_onnx_graph": expect_graph(
+                [
+                    (
+                        "ReduceMean:1x1 -> Sub:20x32 -> Where:20x32 -> Mul:20x32 -> ReduceMean:1x1 -> Add:1x1 -> Sqrt:1x1 -> Div:20x32 -> Mul:20x32 -> Add:20x32",
+                        {"counts": {"ReduceMin": 1, "ReduceMax": 1, "Where": 1}},
+                    )
+                ],
+                must_absent=["LayerNormalization", "Max"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "batched_layer_norm_decomposed",
+            "callable": jax.vmap(eqx.nn.LayerNorm(32, eps=1e-5)),
+            "input_shapes": [("B", 32)],
+            "post_check_onnx_graph": expect_graph(
+                [
+                    (
+                        "ReduceMean:Bx1 -> Sub:Bx32 -> Where:Bx32 -> Mul:Bx32 -> ReduceMean:Bx1 -> Add:Bx1 -> Sqrt:Bx1 -> Div:Bx32 -> Mul:Bx32 -> Add:Bx32",
+                        {"counts": {"ReduceMin": 1, "ReduceMax": 1, "Where": 1}},
+                    )
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Max"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_opset16",
+            "callable": eqx.nn.LayerNorm(32, eps=1e-5),
+            "input_shapes": [(32,)],
+            "opset_version": 16,
+            "check_onnx_load": True,
+            "post_check_onnx_graph": expect_graph(
+                [
+                    (
+                        "ReduceMean:1 -> Sub:32 -> Where:32 -> Mul:32 -> ReduceMean:1 -> Add:1 -> Sqrt:1 -> Div:32 -> Mul:32 -> Add:32",
+                        {"counts": {"ReduceMin": 1, "ReduceMax": 1, "Where": 1}},
+                    )
+                ],
+                must_absent=["LayerNormalization", "Max"],
                 no_unused_inputs=True,
             ),
         },
@@ -101,14 +168,32 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
             scale_var, name_hint=ctx.fresh_name("ln_scale")
         )
         bias_val = ctx.get_value_for_var(bias_var, name_hint=ctx.fresh_name("ln_bias"))
-        scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="ln_scale_cast")
-        bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="ln_bias_cast")
-
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ln_out"))
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
         scale_shape = tuple(getattr(getattr(scale_var, "aval", None), "shape", ()))
         axis = max(len(x_shape) - len(scale_shape), 0)
         epsilon = float(eqn.params.get("epsilon", 1e-5))
+
+        if not use_native_layer_norm(ctx):
+            # Equinox uses a two-pass variance; its maximum(0, var) is a no-op.
+            ctx.bind_value_for_var(
+                out_var,
+                lower_explicit_layer_norm(
+                    ctx,
+                    x_val,
+                    scale_val,
+                    bias_val,
+                    x_shape=x_shape,
+                    axis=axis,
+                    epsilon=epsilon,
+                    use_fast_variance=False,
+                    clamp_negative_variance=False,
+                ),
+            )
+            return
+
+        scale_val = cast_param_like(ctx, scale_val, x_val, name_hint="ln_scale_cast")
+        bias_val = cast_param_like(ctx, bias_val, x_val, name_hint="ln_bias_cast")
+        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("ln_out"))
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("LayerNorm")
         result = ctx.builder.LayerNormalization(
@@ -163,7 +248,9 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
                 raise ValueError(
                     "`LayerNorm(shape)(x)` requires `x.shape == shape`; consider jax.vmap."
                 )
-            dtype = getattr(x, "dtype", None) or jnp.result_type(x)
+            # Equinox computes in at least float32 (and casts back afterwards).
+            with jax.numpy_dtype_promotion("standard"):
+                dtype = jnp.result_type(jnp.result_type(x), jnp.float32)
             if getattr(self, "use_weight", True):
                 scale = jnp.asarray(self.weight, dtype=dtype)
             else:
@@ -197,20 +284,23 @@ def _layer_norm_impl(
     epsilon: float,
 ) -> jax.Array:
     x_arr = jnp.asarray(x)
-    scale_arr = jnp.asarray(scale, dtype=x_arr.dtype)
-    bias_arr = jnp.asarray(bias, dtype=x_arr.dtype)
+    with jax.numpy_dtype_promotion("standard"):
+        dtype = jnp.result_type(x_arr.dtype, jnp.float32)
+    x_stats = x_arr.astype(dtype)
+    scale_arr = jnp.asarray(scale, dtype=dtype)
+    bias_arr = jnp.asarray(bias, dtype=dtype)
     tail_ndim = scale_arr.ndim or 1
     axis0 = x_arr.ndim - tail_ndim
     if axis0 < 0:
         axis0 = 0
     axes = tuple(range(axis0, x_arr.ndim))
-    mean = jnp.mean(x_arr, axis=axes, keepdims=True)
-    var = jnp.var(x_arr, axis=axes, keepdims=True)
-    norm = (x_arr - mean) / jnp.sqrt(var + float(epsilon))
+    mean = jnp.mean(x_stats, axis=axes, keepdims=True)
+    var = jnp.maximum(0.0, jnp.var(x_stats, axis=axes, keepdims=True))
+    norm = (x_stats - mean) * jax.lax.rsqrt(var + float(epsilon))
     reshape_shape = (1,) * axis0 + scale_arr.shape
     scale_b = jnp.reshape(scale_arr, reshape_shape)
     bias_b = jnp.reshape(bias_arr, reshape_shape)
-    return norm * scale_b + bias_b
+    return (norm * scale_b + bias_b).astype(x_arr.dtype)
 
 
 def _layer_norm_batch_rule(

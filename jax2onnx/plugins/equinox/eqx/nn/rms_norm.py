@@ -25,6 +25,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
+from jax2onnx.plugins.flax.nnx.rms_norm import RMS_NORM_ONNX_COMPONENTS
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
@@ -42,12 +43,7 @@ def _aval_shape(value: object) -> tuple[DimInput, ...]:
 @register_primitive(
     jaxpr_primitive="eqx.nn.rms_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.RMSNorm",
-    onnx=[
-        {
-            "component": "RMSNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__RMSNormalization.html",
-        }
-    ],
+    onnx=RMS_NORM_ONNX_COMPONENTS,
     since="0.10.2",
     context="primitives.eqx",
     component="rms_norm",
@@ -67,6 +63,52 @@ def _aval_shape(value: object) -> tuple[DimInput, ...]:
             "input_shapes": [(8,)],
             "post_check_onnx_graph": expect_graph(
                 ["Div:8 -> Mul:8 -> Add:8 -> Identity:8"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "rms_norm_prefer_native",
+            "callable": eqx.nn.RMSNorm(16, eps=1e-5),
+            "input_shapes": [(16,)],
+            "normalization_mode": "prefer_native",
+            "post_check_onnx_graph": expect_graph(
+                ["RMSNormalization:16 -> Add:16 -> Identity:16"],
+                must_absent=["ReduceMean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "rms_norm_multiaxis_prefer_native",
+            "callable": eqx.nn.RMSNorm((4, 8)),
+            "input_shapes": [(4, 8)],
+            "normalization_mode": "prefer_native",
+            "post_check_onnx_graph": expect_graph(
+                ["RMSNormalization:4x8 -> Add:4x8 -> Identity:4x8"],
+                must_absent=["ReduceMean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "batched_rms_norm_prefer_native",
+            "callable": jax.vmap(eqx.nn.RMSNorm(16, eps=1e-5)),
+            "input_shapes": [("B", 16)],
+            "normalization_mode": "prefer_native",
+            "post_check_onnx_graph": expect_graph(
+                ["RMSNormalization:Bx16 -> Add:Bx16 -> Identity:Bx16"],
+                symbols={"B": None},
+                must_absent=["ReduceMean"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "rms_norm_prefer_native_opset22",
+            "callable": eqx.nn.RMSNorm(16, eps=1e-5),
+            "input_shapes": [(16,)],
+            "normalization_mode": "prefer_native",
+            "opset_version": 22,
+            "post_check_onnx_graph": expect_graph(
+                ["Div:16 -> Mul:16 -> Add:16 -> Identity:16"],
+                must_absent=["RMSNormalization"],
                 no_unused_inputs=True,
             ),
         },
@@ -107,7 +149,6 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         scale_shape = _aval_shape(scale_var)
 
         axes = _axes_for_tail(len(x_shape), len(scale_shape))
-        axes_val = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "rms_axes")
 
         epsilon = float(eqn.params.get("epsilon", 1e-5))
         result_dtype = np.dtype(
@@ -117,73 +158,95 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         x_np_dtype = np.dtype(
             getattr(getattr(x_var, "aval", None), "dtype", np.float32)
         )
-        two_val = ctx.bind_const_for_var(object(), np.asarray(2.0, dtype=x_np_dtype))
-        eps_val = ctx.bind_const_for_var(
-            object(), np.asarray(epsilon, dtype=x_np_dtype)
-        )
-
         builder = ctx.builder
         x_dtype = x_val.dtype
 
-        pow_out: ir.Value = builder.Pow(
-            x_val,
-            two_val,
-            _outputs=[ctx.fresh_name("rms_pow")],
-        )
-        if x_dtype is not None:
-            pow_out.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(pow_out, x_shape)
+        if (
+            ctx.normalization_mode == "prefer_native"
+            and int(ctx.opset) >= 23
+            and hasattr(builder, "RMSNormalization")
+        ):
+            # Equinox computes in at least float32 (the patch casts x), so the
+            # statistics are stashed in x's dtype. ONNX RMSNormalization has no
+            # bias; Equinox's optional bias is added below.
+            scaled: ir.Value = builder.RMSNormalization(
+                x_val,
+                scale_val,
+                axis=int(axes[0]) if axes else -1,
+                epsilon=epsilon,
+                stash_type=int(x_dtype if x_dtype is not None else ir.DataType.FLOAT),
+                _outputs=[ctx.fresh_name("rms_native")],
+            )
+            if x_dtype is not None:
+                scaled.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(scaled, x_shape)
+        else:
+            axes_val = _const_i64(ctx, np.asarray(axes, dtype=np.int64), "rms_axes")
+            eps_val = ctx.bind_const_for_var(
+                object(), np.asarray(epsilon, dtype=x_np_dtype)
+            )
 
-        mean_dims = list(x_shape)
-        for axis in axes:
-            if axis < len(mean_dims):
-                mean_dims[axis] = 1
-        mean_dims_tuple = tuple(mean_dims)
+            # Square with Mul rather than Pow: ONNX Runtime fuses the Pow form into
+            # its own SimplifiedLayerNormalization kernel, bypassing this graph.
+            squared: ir.Value = builder.Mul(
+                x_val,
+                x_val,
+                _outputs=[ctx.fresh_name("rms_squared")],
+            )
+            if x_dtype is not None:
+                squared.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(squared, x_shape)
 
-        mean_out: ir.Value = builder.ReduceMean(
-            pow_out,
-            axes_val,
-            keepdims=1,
-            _outputs=[ctx.fresh_name("rms_mean")],
-        )
-        if x_dtype is not None:
-            mean_out.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(mean_out, mean_dims_tuple)
+            mean_dims = list(x_shape)
+            for axis in axes:
+                if axis < len(mean_dims):
+                    mean_dims[axis] = 1
+            mean_dims_tuple = tuple(mean_dims)
 
-        add_out: ir.Value = builder.Add(
-            mean_out,
-            eps_val,
-            _outputs=[ctx.fresh_name("rms_add")],
-        )
-        if x_dtype is not None:
-            add_out.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(add_out, mean_dims_tuple)
+            mean_out: ir.Value = builder.ReduceMean(
+                squared,
+                axes_val,
+                keepdims=1,
+                _outputs=[ctx.fresh_name("rms_mean")],
+            )
+            if x_dtype is not None:
+                mean_out.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(mean_out, mean_dims_tuple)
 
-        sqrt_out: ir.Value = builder.Sqrt(
-            add_out,
-            _outputs=[ctx.fresh_name("rms_sqrt")],
-        )
-        if x_dtype is not None:
-            sqrt_out.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(sqrt_out, mean_dims_tuple)
+            add_out: ir.Value = builder.Add(
+                mean_out,
+                eps_val,
+                _outputs=[ctx.fresh_name("rms_add")],
+            )
+            if x_dtype is not None:
+                add_out.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(add_out, mean_dims_tuple)
 
-        div_out: ir.Value = builder.Div(
-            x_val,
-            sqrt_out,
-            _outputs=[ctx.fresh_name("rms_div")],
-        )
-        if x_dtype is not None:
-            div_out.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(div_out, x_shape)
+            sqrt_out: ir.Value = builder.Sqrt(
+                add_out,
+                _outputs=[ctx.fresh_name("rms_sqrt")],
+            )
+            if x_dtype is not None:
+                sqrt_out.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(sqrt_out, mean_dims_tuple)
 
-        scaled: ir.Value = builder.Mul(
-            div_out,
-            scale_val,
-            _outputs=[ctx.fresh_name("rms_scaled")],
-        )
-        if x_dtype is not None:
-            scaled.type = ir.TensorType(x_dtype)
-        _stamp_type_and_shape(scaled, x_shape)
+            div_out: ir.Value = builder.Div(
+                x_val,
+                sqrt_out,
+                _outputs=[ctx.fresh_name("rms_div")],
+            )
+            if x_dtype is not None:
+                div_out.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(div_out, x_shape)
+
+            scaled = builder.Mul(
+                div_out,
+                scale_val,
+                _outputs=[ctx.fresh_name("rms_scaled")],
+            )
+            if x_dtype is not None:
+                scaled.type = ir.TensorType(x_dtype)
+            _stamp_type_and_shape(scaled, x_shape)
 
         affine: ir.Value = builder.Add(
             scaled,

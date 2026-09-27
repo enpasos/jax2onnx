@@ -109,7 +109,55 @@ jobs:
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py
 
-  test: 
+  normalization-accuracy:
+    name: normalization accuracy (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Python 3.12 resolves the JAX 0.10 stack, 3.13 the JAX 0.11 stack.
+        python-version: ['3.12', '3.13']
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Poetry
+      run: pip install "poetry>=2.0,<3.0"
+
+    - name: Install dependencies
+      run: poetry install --no-interaction
+
+    - name: Report reference profile
+      run: |
+        {
+          echo "### Normalization accuracy profile (Python ${{ matrix.python-version }})"
+          echo '```'
+          echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+          lscpu | grep -E '^(Model name|Architecture|CPU\(s\)|Flags):'
+          poetry run python - <<'PY'
+        from importlib.metadata import version
+
+        for package in ("jax", "jaxlib", "flax", "equinox", "onnx", "onnxruntime"):
+            print(f"{package}=={version(package)}")
+        PY
+          echo '```'
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Run normalization accuracy gate
+      env:
+        JAX_PLATFORMS: cpu
+      run: |
+        poetry run pytest -q \
+          tests/extra_tests/test_layer_norm_precision.py \
+          tests/extra_tests/test_cos_precision.py
+
+  test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

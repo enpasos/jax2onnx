@@ -56,9 +56,10 @@ _COS_PRIM: Final = make_jnp_primitive("jax.numpy.cos")
             "testcase": "jnp_cos_basic",
             "callable": lambda x: jnp.cos(x),
             "input_shapes": [(3,)],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Cos:3", "Add:3 -> Sin:3"],
-                mode="any",
+                ["Cos:3"],
+                must_absent=["Sin"],
                 no_unused_inputs=True,
             ),
         },
@@ -67,9 +68,10 @@ _COS_PRIM: Final = make_jnp_primitive("jax.numpy.cos")
             "callable": lambda x: jnp.cos(x),
             "input_values": [np.array([0, 1, 2], dtype=np.int32)],
             "expected_output_dtypes": [np.float32],
+            "run_only_f32_variant": True,
             "post_check_onnx_graph": EG(
-                ["Cast:3 -> Cos:3", "Cast:3 -> Add:3 -> Sin:3"],
-                mode="any",
+                ["Cast:3 -> Cos:3"],
+                must_absent=["Sin"],
                 no_unused_inputs=True,
             ),
         },
@@ -81,6 +83,7 @@ _COS_PRIM: Final = make_jnp_primitive("jax.numpy.cos")
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
                 ["Add:3 -> Sin:3"],
+                must_absent=["Cos"],
                 no_unused_inputs=True,
             ),
         },
@@ -135,8 +138,9 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("jnp_cos_out")
 
-        if np.issubdtype(out_dtype, np.floating):
-            # Use cos(x) = sin(x + pi/2) for broad ORT kernel compatibility.
+        if out_dtype == np.float64:
+            # ONNX Runtime has no float64 Cos kernel; use cos(x) = sin(x + pi/2).
+            # Lower precisions keep Cos: the shifted argument would lose accuracy.
             pi_over_two = ctx.bind_const_for_var(
                 object(),
                 np.asarray(np.pi / 2, dtype=out_dtype),

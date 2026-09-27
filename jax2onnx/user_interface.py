@@ -541,13 +541,18 @@ def to_onnx(
             browser/WASM deployment via `onnxruntime-web`. This only affects
             `return_mode="file"`; `"proto"` and `"ir"` return values are unchanged.
         normalization_mode: Export policy for normalization plugins that offer
-            both native ONNX operators and decomposed forms. `"auto"` preserves
-            the plugin's framework-oriented default. `"prefer_native"` uses a
-            standard ONNX normalization operator when the selected opset and the
-            plugin's numerical constraints permit it, otherwise falling back to
-            the explicit graph. `"force_decomposed"` always emits the explicit
-            primitive graph. Currently this policy applies to GroupNorm and Flax
-            RMSNorm exports.
+            both native ONNX operators and decomposed forms. `"auto"` (default)
+            exports the representation with the best reproducible accuracy and
+            uses a native ONNX operator only when it meets the same locked
+            accuracy bounds; currently this is the explicit graph, which
+            reproduces the framework's own statistics.
+            `"prefer_native"` uses a standard ONNX normalization operator when
+            the selected opset and the plugin's numerical constraints permit it
+            (`LayerNormalization` from opset 17, `GroupNormalization` from 21,
+            `RMSNormalization` from 23), otherwise falling back to the explicit
+            graph. `"force_decomposed"` always emits the explicit primitive
+            graph. Currently this policy applies to GroupNorm and to
+            Equinox/Flax RMSNorm and LayerNorm exports.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.

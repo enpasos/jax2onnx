@@ -97,6 +97,13 @@ BF16_CAPABILITY_CASES = [
         source=("primitives.linen", "layer_norm", "layer_norm"),
     ),
     CapabilityCase(
+        id="linen_layer_norm_explicit",
+        source=("primitives.linen", "layer_norm", "layer_norm_decomposed"),
+        # Like Linen itself, the default explicit LayerNorm computes statistics
+        # in float32 while preserving bfloat16 at the public boundary.
+        require_all_float_tensors_dtype=False,
+    ),
+    CapabilityCase(
         id="linen_group_norm",
         source=("primitives.linen", "group_norm", "group_norm_rank2"),
         numeric_rtol=8e-2,

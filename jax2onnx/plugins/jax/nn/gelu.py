@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Final
+from typing import Callable, ClassVar, Final, cast
 
 import jax
 from jax2onnx._compat.jax import (
@@ -14,10 +14,15 @@ from jax2onnx._compat.jax import (
     batching,
 )
 import jax.numpy as jnp
+import numpy as np
+import onnx_ir as ir
 from numpy.typing import ArrayLike
 
+from jax2onnx.ir_utils import ir_dtype_to_numpy
+from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
+from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
@@ -28,12 +33,89 @@ _GELU_PRIM: Final[Primitive] = Primitive("jax.nn.gelu")
 _GELU_PRIM.multiple_results = False
 _JAX_GELU_ORIG: Final = jax.nn.gelu
 
+# ONNX ``Gelu`` was introduced in opset 20.
+_GELU_MIN_OPSET: Final[int] = 20
+_SQRT_HALF: Final[float] = 0.7071067811865476
+_SQRT_2_OVER_PI: Final[float] = 0.7978845608028654
+_GELU_TANH_COEFF: Final[float] = 0.044715
+
+
+def lower_gelu(
+    ctx: LoweringContextProtocol, eqn: JaxprEqn, *, approximate: bool
+) -> None:
+    """Lower GELU to ONNX ``Gelu``, or to its formula below opset 20.
+
+    The decomposition follows ``jax.nn.gelu``: ``0.5*x*(1 + erf(x/sqrt(2)))``
+    when exact, ``x*0.5*(1 + tanh(sqrt(2/pi)*(x + 0.044715*x**3)))`` when
+    approximate.
+    """
+    if int(ctx.builder.opset) >= _GELU_MIN_OPSET:
+        lower_unary_elementwise(
+            ctx,
+            eqn,
+            op_name="Gelu",
+            input_hint="gelu_in",
+            output_hint="gelu_out",
+            attrs={"approximate": "tanh" if approximate else "none"},
+        )
+        return
+
+    (x_var,) = eqn.invars
+    (y_var,) = eqn.outvars
+    x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("gelu_in"))
+    out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("gelu_out"))
+    x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
+    np_dtype = ir_dtype_to_numpy(x_val.dtype, default=None)
+    if np_dtype is None:
+        np_dtype = np.dtype(getattr(getattr(x_var, "aval", None), "dtype", np.float32))
+
+    desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("gelu_out")
+    producer = getattr(out_spec, "producer", None)
+    if callable(producer) and producer() is not None:
+        desired_name = ctx.fresh_name("gelu_out")
+
+    def scalar(value: float) -> ir.Value:
+        const = ctx.bind_const_for_var(object(), np.asarray(value, dtype=np_dtype))
+        return cast_param_like(ctx, const, x_val, name_hint="gelu_const_cast")
+
+    def node(op_type: str, *inputs: ir.Value, name: str | None = None) -> ir.Value:
+        out = cast(
+            ir.Value,
+            getattr(ctx.builder, op_type)(
+                *inputs, _outputs=[name or ctx.fresh_name(f"gelu_{op_type.lower()}")]
+            ),
+        )
+        out.type = x_val.type
+        _stamp_type_and_shape(out, x_shape)
+        return out
+
+    if approximate:
+        x_cubed = node("Mul", node("Mul", x_val, x_val), x_val)
+        inner = node("Add", x_val, node("Mul", x_cubed, scalar(_GELU_TANH_COEFF)))
+        tanh = node("Tanh", node("Mul", inner, scalar(_SQRT_2_OVER_PI)))
+        cdf = node("Mul", node("Add", tanh, scalar(1.0)), scalar(0.5))
+        result = node("Mul", x_val, cdf, name=desired_name)
+    else:
+        half_x = node("Mul", x_val, scalar(0.5))
+        erf = node("Erf", node("Mul", x_val, scalar(_SQRT_HALF)))
+        result = node("Mul", half_x, node("Add", erf, scalar(1.0)), name=desired_name)
+
+    if getattr(out_spec, "type", None) is not None:
+        result.type = out_spec.type
+    if getattr(out_spec, "shape", None) is not None:
+        result.shape = out_spec.shape
+    ctx.bind_value_for_var(y_var, result)
+
 
 @register_primitive(
     jaxpr_primitive=_GELU_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html",
     onnx=[
-        {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
+        {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"},
+        {"component": "Erf", "doc": "https://onnx.ai/onnx/operators/onnx__Erf.html"},
+        {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     ],
     since="0.7.1",
     context="primitives.nn",
@@ -91,6 +173,33 @@ _JAX_GELU_ORIG: Final = jax.nn.gelu
             ),
         },
         {
+            "testcase": "jaxnn_gelu_exact_opset18",
+            "callable": lambda x: jax.nn.gelu(x, approximate=False),
+            "input_shapes": [(2, 5)],
+            "opset_version": 18,
+            "check_onnx_load": True,
+            # ONNX Runtime has no float64 Erf kernel.
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                ["Erf:2x5 -> Add:2x5 -> Mul:2x5"],
+                must_absent=["Gelu"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "jaxnn_gelu_tanh_opset18",
+            "callable": lambda x: jax.nn.gelu(x, approximate=True),
+            "input_shapes": [("B", 3)],
+            "opset_version": 18,
+            "check_onnx_load": True,
+            "post_check_onnx_graph": EG(
+                ["Tanh:Bx3 -> Add:Bx3 -> Mul:Bx3 -> Mul:Bx3"],
+                symbols={"B": None},
+                must_absent=["Gelu"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
             "testcase": "gelu_grad_issue_batch_diff_rules",
             "callable": lambda x: jax.grad(
                 lambda y: jnp.sum(jax.nn.gelu(y, approximate=False) ** 2)
@@ -101,7 +210,7 @@ _JAX_GELU_ORIG: Final = jax.nn.gelu
     ],
 )
 class GeluPlugin(PrimitiveLeafPlugin):
-    """Lower ``jax.nn.gelu`` to ONNX ``Gelu``."""
+    """Lower ``jax.nn.gelu`` to ONNX ``Gelu`` (opset >= 20) or its formula."""
 
     _PRIM: ClassVar[Primitive] = _GELU_PRIM
     _ABSTRACT_EVAL_BOUND: ClassVar[bool] = False
@@ -112,18 +221,7 @@ class GeluPlugin(PrimitiveLeafPlugin):
         return ShapedArray(x.shape, x.dtype)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        approximate = bool(eqn.params.get("approximate", True))
-
-        approx_attr = "tanh" if approximate else "none"
-
-        lower_unary_elementwise(
-            ctx,
-            eqn,
-            op_name="Gelu",
-            input_hint="gelu_in",
-            output_hint="gelu_out",
-            attrs={"approximate": approx_attr},
-        )
+        lower_gelu(ctx, eqn, approximate=bool(eqn.params.get("approximate", True)))
 
     @classmethod
     def ensure_abstract_eval_bound(cls) -> None:

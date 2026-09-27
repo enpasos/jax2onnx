@@ -62,19 +62,55 @@ that roundoff. Use strict parity checks on representative, nonconstant inputs;
 for degenerate normalization inputs, also check finiteness and apply a tolerance
 specific to the model, dtype, and runtime.
 
-For GroupNorm and Flax RMSNorm, `normalization_mode="auto"` preserves the
-framework-oriented default: Flax Fast-Variance GroupNorm remains explicit
-because ONNX `GroupNormalization` does not model Flax's negative-variance clamp
-or reduction order, while Flax RMSNorm uses `RMSNormalization` at opset 23 or
-newer except for low-precision Linen configurations that deliberately disable
-FP32 statistics. Set `normalization_mode="prefer_native"` to emit a
-Fast-Variance GroupNorm as `GroupNormalization` at opset 21 or newer. This
-improves graph readability but can produce material runtime-dependent
-differences for high-offset or otherwise ill-conditioned inputs. Slow-Variance
-GroupNorm stays explicit in every mode. Set
-`normalization_mode="force_decomposed"` to force the explicit reduction layout
-for both plugins. The mode controls the exported ONNX graph; a runtime optimizer
-may still recognize and fuse an explicit normalization pattern.
+By default (`normalization_mode="auto"`), each normalization plugin exports the
+representation with the best reproducible accuracy, and uses a native ONNX
+operator only when it meets the same locked accuracy bounds. Currently no
+native operator does, so GroupNorm and Equinox/Flax RMSNorm and LayerNorm
+export explicit graphs that reproduce the framework's own statistics,
+independently of the runtime's normalization kernels. Set
+`normalization_mode="prefer_native"` to opt into the standard ONNX operators
+where the opset defines them and the plugin can map faithfully:
+`LayerNormalization` from opset 17, Fast-Variance `GroupNormalization` from
+opset 21, and `RMSNormalization` from opset 23. Native operators give smaller
+graphs that runtimes can accelerate, but they can produce material
+runtime-dependent differences for high-offset or otherwise ill-conditioned
+inputs. ONNX `GroupNormalization` does not model Flax's negative-variance clamp
+or reduction order, and ONNX Runtime's CPU `LayerNormalization` kernel
+accumulates its statistics in a single sequential float32 pass, which is
+noticeably less accurate than the framework reductions on rows with very large
+activations, such as DINOv3-style residual streams with outlier channels; deep
+models can amplify this into output differences above tight parity tolerances.
+ONNX Runtime's CUDA `LayerNormalization` kernel does not show that precision
+loss. Slow-Variance GroupNorm stays explicit in every mode, and
+`normalization_mode="force_decomposed"` always emits the explicit graph.
+
+The explicit LayerNorm uses a two-pass variance for Equinox and for Flax with
+`use_fast_variance=False`, which also keeps exact zeros for constant rows, or
+Flax's default clamped fast variance `E[x²] - E[x]²`. The fast variance follows
+Flax faithfully but is itself sensitive to large offsets, so set
+`use_fast_variance=False` in the model when precision matters. Float16 and
+bfloat16 inputs are normalized with float32 statistics. The explicit LayerNorm
+costs about a dozen nodes per layer. The explicit LayerNorm and RMSNorm graphs
+square with `Mul` so that ONNX Runtime's optimizer does not fuse them back into
+its native normalization kernels; other runtimes may still recognize and fuse
+explicit normalization patterns.
+
+The LayerNorm accuracy bounds are locked in
+`tests/extra_tests/test_layer_norm_precision.py`, which is the source of truth.
+On float32 rows with massive activations (384 features, outlier channels up to
+1700), float32 outputs must stay within these maximum absolute errors on the
+ONNX Runtime CPU provider, with graph optimizations enabled or disabled:
+
+| Mode | LayerNorm variant | vs. float64 reference | vs. JAX |
+| --- | --- | --- | --- |
+| `auto`, `force_decomposed` | Equinox, Flax slow variance | 4.1e-6 | 3.9e-6 |
+| `auto`, `force_decomposed` | Flax fast variance (default) | 4.1e-6 | 5.8e-6 |
+| `prefer_native` | Equinox, Flax slow variance | 1.2e-5 | 1.2e-5 |
+| `prefer_native` | Flax fast variance (default) | 1.2e-5 | 1.4e-5 |
+
+The bounds were measured with ONNX Runtime 1.29 on an x86-64 CPU and rounded
+up to two significant digits; JAX itself is about 3e-6 from the float64
+reference on these rows.
 
 The opset only selects the ONNX schema contract; it does not assert support in a
 particular runtime version. Validate the chosen `opset` and normalization mode

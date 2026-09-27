@@ -16,9 +16,7 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.jax.nn._builder_utils import (
-    lower_unary_elementwise,
-)
+from jax2onnx.plugins.jax.nn.gelu import lower_gelu
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 
 
@@ -40,7 +38,11 @@ def _make_gelu_checker(
     jaxpr_primitive="nnx.gelu",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.gelu",
     onnx=[
-        {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"}
+        {"component": "Gelu", "doc": "https://onnx.ai/onnx/operators/onnx__Gelu.html"},
+        {"component": "Erf", "doc": "https://onnx.ai/onnx/operators/onnx__Erf.html"},
+        {"component": "Tanh", "doc": "https://onnx.ai/onnx/operators/onnx__Tanh.html"},
+        {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
+        {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
     ],
     since="0.1.0",
     context="primitives.nnx",
@@ -89,10 +91,37 @@ def _make_gelu_checker(
                 "Gelu:Bx10", symbols={"B": None}, approx="tanh"
             ),
         },
+        {
+            "testcase": "gelu_exact_opset18",
+            "callable": lambda x: nnx.gelu(x, approximate=False),
+            "input_shapes": [(1, 10)],
+            "opset_version": 18,
+            "check_onnx_load": True,
+            # ONNX Runtime has no float64 Erf kernel.
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": expect_graph(
+                ["Erf:1x10 -> Add:1x10 -> Mul:1x10"],
+                must_absent=["Gelu"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "gelu_tanh_opset19",
+            "callable": lambda x: nnx.gelu(x),
+            "input_shapes": [("B", 10)],
+            "opset_version": 19,
+            "check_onnx_load": True,
+            "post_check_onnx_graph": expect_graph(
+                ["Tanh:Bx10 -> Add:Bx10 -> Mul:Bx10 -> Mul:Bx10"],
+                symbols={"B": None},
+                must_absent=["Gelu"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class GeluPlugin(PrimitiveLeafPlugin):
-    """IR-only plugin for flax.nnx.gelu → ONNX Gelu."""
+    """IR-only plugin for flax.nnx.gelu → ONNX Gelu (opset >= 20) or its formula."""
 
     _PRIM: ClassVar[Primitive] = Primitive("nnx.gelu")
     _PRIM.multiple_results = False
@@ -106,16 +135,7 @@ class GeluPlugin(PrimitiveLeafPlugin):
 
     # ---------- lowering (IR) ----------
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        approximate = bool(eqn.params.get("approximate", True))
-        approx_str = "tanh" if approximate else "none"
-        lower_unary_elementwise(
-            ctx,
-            eqn,
-            op_name="Gelu",
-            input_hint="gelu_in",
-            output_hint="gelu_out",
-            attrs={"approximate": approx_str},
-        )
+        lower_gelu(ctx, eqn, approximate=bool(eqn.params.get("approximate", True)))
 
     # ---------- runtime impl (eager) ----------
     @staticmethod

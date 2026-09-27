@@ -137,6 +137,7 @@ def export_capability_case(case: CapabilityCase) -> CapabilityResult:
             outputs_as_nchw=param.get("outputs_as_nchw"),
             input_names=param.get("input_names"),
             output_names=param.get("output_names"),
+            normalization_mode=param.get("normalization_mode", "auto"),
         )
 
     onnx.checker.check_model(model)

@@ -155,6 +155,7 @@ register_example(
     testcases=[
         {
             "testcase": "tiny_decoder_with_sequential",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 TransformerDecoder,
                 num_layers=1,
@@ -180,6 +181,7 @@ register_example(
         },
         {
             "testcase": "tiny_decoder_with_sequential_and_full_dynamic_shapes",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 TransformerDecoder,
                 num_layers=1,
@@ -202,6 +204,51 @@ register_example(
                 ],
                 search_functions=True,
                 symbols={"B": None, "H": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "tiny_decoder_with_sequential_auto",
+            "callable": construct_and_call(
+                TransformerDecoder,
+                num_layers=1,
+                embed_dim=16,
+                num_heads=4,
+                ff_dim=32,
+                attention_dropout=0.5,
+                encoder_attention_dropout=0.5,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 8, 16), (2, 4, 16)],
+            "expected_output_shapes": [(2, 8, 16)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [],
+                must_absent=["LayerNormalization"],
+                search_functions=True,
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "tiny_decoder_with_sequential_auto_and_full_dynamic_shapes",
+            "callable": construct_and_call(
+                TransformerDecoder,
+                num_layers=1,
+                embed_dim=16,
+                num_heads=4,
+                ff_dim=32,
+                attention_dropout=0.5,
+                encoder_attention_dropout=0.5,
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", "H", 16), ("B", "X", 16)],
+            "expected_output_shapes": [("B", "H", 16)],
+            "run_only_dynamic": True,
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [],
+                must_absent=["LayerNormalization"],
+                search_functions=True,
                 no_unused_inputs=True,
             ),
         },

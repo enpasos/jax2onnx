@@ -20,8 +20,13 @@ from jax2onnx.plugins._complex_utils import (
     split_packed_real_imag,
     coerce_dim_values,
 )
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    _ensure_value_metadata,
+    _is_static_int,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
@@ -153,6 +158,132 @@ def _flip_spatial_dims(
     return flipped
 
 
+def _transpose_kernel(
+    ctx: LoweringContextProtocol,
+    val: ir.Value,
+    perm: Sequence[int],
+    shape: tuple[int, ...],
+    name_hint: str,
+) -> ir.Value:
+    out = _as_value(
+        ctx.builder.Transpose(
+            val, _outputs=[ctx.fresh_name(name_hint)], perm=list(perm)
+        )
+    )
+    out.type = ir.TensorType(_require_dtype(val, context="conv kernel transpose"))
+    _stamp_type_and_shape(out, shape)
+    _ensure_value_metadata(ctx, out)
+    return out
+
+
+def _reshape_kernel(
+    ctx: LoweringContextProtocol,
+    val: ir.Value,
+    shape: tuple[int, ...],
+    name_hint: str,
+) -> ir.Value:
+    shape_val = _const_i64(ctx, list(shape), name_hint=f"{name_hint}_shape")
+    out = _as_value(
+        ctx.builder.Reshape(val, shape_val, _outputs=[ctx.fresh_name(name_hint)])
+    )
+    out.type = ir.TensorType(_require_dtype(val, context="conv kernel reshape"))
+    _stamp_type_and_shape(out, shape)
+    _ensure_value_metadata(ctx, out)
+    return out
+
+
+def _conv_transpose_pads(
+    pad_pairs: Sequence[Sequence[int]],
+    kernel_spatial: Sequence[int],
+    rhs_dilation: Sequence[int],
+) -> tuple[list[int], list[int], list[int]]:
+    """Map lhs-dilated conv padding onto ONNX ``ConvTranspose`` pads.
+
+    JAX pads the dilated input, while ConvTranspose pads crop its full output, so
+    ``pad_onnx = k_eff - 1 - pad_jax``. A negative result means JAX pads beyond
+    the kernel's reach; those output positions are zeros, so the deficit is
+    returned separately (before, after) for an explicit ``Pad`` of the output.
+    ``output_padding`` cannot express it in general: ONNX Runtime requires it to
+    be smaller than ``max(stride, dilation)``.
+    """
+    kernel_effective = [
+        (int(k) - 1) * int(d) + 1
+        for k, d in zip(kernel_spatial, rhs_dilation, strict=True)
+    ]
+    starts = [
+        k - 1 - int(lo) for k, (lo, _) in zip(kernel_effective, pad_pairs, strict=True)
+    ]
+    ends = [
+        k - 1 - int(hi) for k, (_, hi) in zip(kernel_effective, pad_pairs, strict=True)
+    ]
+    onnx_pads = [max(p, 0) for p in starts + ends]
+    return onnx_pads, [max(-p, 0) for p in starts], [max(-p, 0) for p in ends]
+
+
+def _conv_transpose_kernel(
+    ctx: LoweringContextProtocol,
+    val: ir.Value,
+    shape: tuple[int, ...],
+    layout: str,
+    groups: int,
+) -> ir.Value:
+    """Turn an lhs-dilated conv kernel into an ONNX ``ConvTranspose`` weight.
+
+    ``conv_general_dilated`` correlates the dilated input with an ``(O, I/g, *k)``
+    kernel; ConvTranspose scatters with an ``(I, O/g, *k)`` weight. The
+    equivalent weight is the spatially flipped kernel with input and output
+    channels swapped within each feature group.
+    """
+    kernel = _flip_spatial_dims(ctx, val, shape, layout, "conv_rhs_transpose")
+    target_layout = _canonical_kernel_layout(layout, is_transpose=True)
+    if groups == 1:
+        perm = _perm(layout, target_layout)
+        return _transpose_kernel(
+            ctx,
+            kernel,
+            perm,
+            tuple(shape[i] for i in perm),
+            f"conv_rhs_{target_layout.lower()}",
+        )
+
+    if not all(_is_static_int(dim) for dim in shape):
+        raise NotImplementedError(
+            f"Grouped transposed convolution requires a static kernel shape; got {shape}."
+        )
+    oi_layout = _canonical_kernel_layout(layout, is_transpose=False)
+    perm = _perm(layout, oi_layout)
+    out_channels, in_per_group, *spatial = (int(shape[i]) for i in perm)
+    if layout != oi_layout:
+        kernel = _transpose_kernel(
+            ctx,
+            kernel,
+            perm,
+            (out_channels, in_per_group, *spatial),
+            f"conv_rhs_{oi_layout.lower()}",
+        )
+    out_per_group = out_channels // groups
+    kernel = _reshape_kernel(
+        ctx,
+        kernel,
+        (groups, out_per_group, in_per_group, *spatial),
+        "conv_rhs_grouped",
+    )
+    swap = [0, 2, 1, *range(3, 3 + len(spatial))]
+    kernel = _transpose_kernel(
+        ctx,
+        kernel,
+        swap,
+        (groups, in_per_group, out_per_group, *spatial),
+        "conv_rhs_group_swap",
+    )
+    return _reshape_kernel(
+        ctx,
+        kernel,
+        (groups * in_per_group, out_per_group, *spatial),
+        f"conv_rhs_{target_layout.lower()}",
+    )
+
+
 @register_primitive(
     jaxpr_primitive=jax.lax.conv_general_dilated_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.conv.html",
@@ -160,7 +291,15 @@ def _flip_spatial_dims(
         {
             "component": "Conv",
             "doc": "https://onnx.ai/onnx/operators/onnx__Conv.html",
-        }
+        },
+        {
+            "component": "ConvTranspose",
+            "doc": "https://onnx.ai/onnx/operators/onnx__ConvTranspose.html",
+        },
+        {
+            "component": "Pad",
+            "doc": "https://onnx.ai/onnx/operators/onnx__Pad.html",
+        },
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -384,10 +523,177 @@ def _flip_spatial_dims(
                 no_unused_inputs=True,
             ),
         },
+        {
+            "testcase": "conv_transpose_lhs_dilation_nchw",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding=((1, 1), (1, 1)),
+                lhs_dilation=(2, 2),
+            ),
+            "input_shapes": [(1, 4, 2, 3), (4, 4, 2, 2)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [("ConvTranspose:1x4x4x6", {"counts": {"ConvTranspose": 1}})],
+                must_absent=["Conv", "Pad"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_nhwc_same",
+            "callable": lambda x, w: jax.lax.conv_transpose(
+                x,
+                w,
+                strides=(2, 2),
+                padding="SAME",
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_shapes": [(1, 3, 5, 4), (3, 3, 4, 6)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Transpose:1x4x3x5 -> ConvTranspose:1x6x6x10 -> "
+                    "Transpose:1x6x10x6"
+                ],
+                must_absent=["Pad"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_valid_stride_gt_kernel",
+            "callable": lambda x, w: jax.lax.conv_transpose(
+                x,
+                w,
+                strides=(3, 3),
+                padding="VALID",
+                dimension_numbers=("NCHW", "OIHW", "NCHW"),
+            ),
+            "input_shapes": [(1, 2, 3, 3), (3, 2, 2, 2)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "ConvTranspose:1x3x8x8 -> Pad:1x3x9x9",
+                        {"inputs": {1: {"const": [0, 0, 0, 0, 0, 0, 1, 1]}}},
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_valid_stride_gt_kernel_dynamic",
+            "callable": lambda x, w: jax.lax.conv_transpose(
+                x,
+                w,
+                strides=(3, 3),
+                padding="VALID",
+                dimension_numbers=("NCHW", "OIHW", "NCHW"),
+            ),
+            "input_shapes": [("B", 2, 3, 3), (3, 2, 2, 2)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                ["ConvTranspose:Bx3x8x8 -> Pad:Bx3x9x9"],
+                symbols={"B": None},
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_1d_leading_output_pad",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1,),
+                padding=((3, 0),),
+                lhs_dilation=(2,),
+            ),
+            "input_shapes": [(1, 2, 4), (3, 2, 2)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "ConvTranspose:1x3x7 -> Pad:1x3x9",
+                        {"inputs": {1: {"const": [0, 0, 2, 0, 0, 0]}}},
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_grouped",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding=((1, 2), (1, 2)),
+                lhs_dilation=(2, 2),
+                feature_group_count=2,
+            ),
+            "input_shapes": [(1, 4, 3, 3), (6, 2, 3, 3)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Slice:6x2x3x3 -> Reshape:2x3x2x3x3 -> Transpose:2x2x3x3x3 -> "
+                    "Reshape:4x3x3x3 -> ConvTranspose:1x6x6x6"
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_grouped_nhwc",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding=((1, 2), (1, 2)),
+                lhs_dilation=(2, 2),
+                feature_group_count=2,
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            ),
+            "input_shapes": [(1, 3, 3, 4), (3, 3, 2, 6)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                [
+                    (
+                        "Transpose:1x4x3x3 -> ConvTranspose:1x6x6x6 -> "
+                        "Transpose:1x6x6x6",
+                        {"counts": {"Reshape": 2, "Transpose": 4}},
+                    )
+                ],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "conv_transpose_asymmetric",
+            "callable": lambda x, w: jax.lax.conv_general_dilated(
+                x,
+                w,
+                window_strides=(1, 1),
+                padding=((0, 1), (2, 1)),
+                lhs_dilation=(2, 3),
+                rhs_dilation=(1, 2),
+            ),
+            "input_shapes": [(1, 2, 3, 4), (3, 2, 2, 3)],
+            "run_only_f32_variant": True,
+            "check_deployment_readiness_report": True,
+            "post_check_onnx_graph": EG(
+                ["ConvTranspose:1x3x5x9"],
+                must_absent=["Pad"],
+                no_unused_inputs=True,
+            ),
+        },
     ],
 )
 class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.conv_general_dilated`` to ONNX ``Conv``."""
+    """Lower ``lax.conv_general_dilated`` to ONNX ``Conv``, or to ``ConvTranspose``
+    when the input is dilated (``lhs_dilation > 1``)."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         lhs_var, rhs_var = eqn.invars[:2]
@@ -415,20 +721,53 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         rhs_shape = tuple(getattr(rhs_var.aval, "shape", ()))
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
 
-        conv_kwargs: dict[str, object] = {}
-        strides = params.get("window_strides", (1, 1))
-        conv_kwargs["strides"] = [int(s) for s in strides]
+        batch_group_count = int(params.get("batch_group_count", 1))
+        if batch_group_count != 1:
+            raise NotImplementedError(
+                "conv_general_dilated with batch_group_count="
+                f"{batch_group_count} is not supported in ONNX lowering."
+            )
 
-        lhs_dilation = params.get("lhs_dilation")
-        is_transpose = lhs_dilation and any(d > 1 for d in lhs_dilation)
+        strides = [int(s) for s in params.get("window_strides", (1, 1))]
+        lhs_dilation = [int(d) for d in params.get("lhs_dilation") or ()]
+        # lhs (input) dilation is a transposed convolution: ONNX ConvTranspose
+        # strides are the input dilation, and the window stride must be 1.
+        is_transpose = any(d != 1 for d in lhs_dilation)
+        if is_transpose and any(s != 1 for s in strides):
+            raise NotImplementedError(
+                f"conv_general_dilated with lhs_dilation={tuple(lhs_dilation)} and "
+                f"window_strides={tuple(strides)} has no ONNX ConvTranspose "
+                "equivalent; only unit window strides are supported with input "
+                "dilation."
+            )
         op_type = "ConvTranspose" if is_transpose else "Conv"
         target_input_layout = _canonical_input_layout(lhs_layout)
         target_kernel_layout = _canonical_kernel_layout(
-            rhs_layout, is_transpose=bool(is_transpose)
+            rhs_layout, is_transpose=is_transpose
         )
+
+        conv_kwargs: dict[str, object] = {
+            "strides": lhs_dilation if is_transpose else strides
+        }
+        rhs_dilation = [int(d) for d in params.get("rhs_dilation") or ()]
+        if rhs_dilation:
+            conv_kwargs["dilations"] = rhs_dilation
+        groups = int(params.get("feature_group_count", 1))
+        if groups != 1:
+            conv_kwargs["group"] = groups
+
+        # Per-axis zeros padded around a ConvTranspose output when JAX pads the
+        # dilated input beyond the kernel's reach (see _conv_transpose_pads).
+        output_pad_before: list[int] = []
+        output_pad_after: list[int] = []
 
         padding = params.get("padding", "VALID")
         if isinstance(padding, str):
+            if is_transpose:
+                raise NotImplementedError(
+                    "Transposed conv_general_dilated requires explicit (low, high) "
+                    f"padding pairs; got {padding!r}."
+                )
             pad_mode = padding.upper()
             if pad_mode in ("SAME", "SAME_UPPER"):
                 conv_kwargs["auto_pad"] = "SAME_UPPER"
@@ -456,64 +795,21 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
                             "Expected padding as sequence of (low, high) pairs"
                         )
                     pad_pairs = cast(Sequence[Sequence[int]], padding_seq)
-            conv_kwargs["pads"] = _flatten_padding(pad_pairs)
-
-        rhs_dilation = params.get("rhs_dilation")
-        if rhs_dilation:
-            conv_kwargs["dilations"] = [int(d) for d in rhs_dilation]
-
-        if is_transpose and "pads" in conv_kwargs:
-            # JAX conv_general_dilated padding for transpose conv is "input padding" (on dilated input),
-            # while ONNX ConvTranspose pads are "output padding" (reducing output size).
-            # Formula: pad_onnx = kernel_effective - 1 - pad_jax
-            pads_jax_raw = conv_kwargs["pads"]
-            if not isinstance(pads_jax_raw, Sequence):
-                raise TypeError("conv transpose pads must be a sequence")
-            pads_jax = [int(p) for p in pads_jax_raw]
-            num_spatial = len(pads_jax) // 2
-            pads_jax_starts = pads_jax[:num_spatial]
-            pads_jax_ends = pads_jax[num_spatial:]
-
-            (
-                rhs_shape[2:] if rhs_layout == "OIHW" else rhs_shape[:2]
-            )  # Assuming 2D spatial
-            # Actually we should use rhs_layout to find spatial dims.
-            # But we can infer from len(pads_jax).
-            # rhs_shape is N-D.
-            # If layout is OIHW, spatial is [2:].
-            # If layout is HWIO, spatial is [:-2].
-            spatial_dims_indices = [
-                i for i, c in enumerate(rhs_layout) if c not in "OI"
-            ]
-            kernel_spatial = [rhs_shape[i] for i in spatial_dims_indices]
-
-            dilations_raw = conv_kwargs.get("dilations", [1] * num_spatial)
-            if not isinstance(dilations_raw, Sequence):
-                raise TypeError("conv transpose dilations must be a sequence")
-            dilations = [int(d) for d in dilations_raw]
-            kernel_effective = [
-                (k - 1) * d + 1 for k, d in zip(kernel_spatial, dilations)
-            ]
-
-            pads_onnx_starts = [
-                k - 1 - p for k, p in zip(kernel_effective, pads_jax_starts)
-            ]
-            pads_onnx_ends = [
-                k - 1 - p for k, p in zip(kernel_effective, pads_jax_ends)
-            ]
-
-            conv_kwargs["pads"] = pads_onnx_starts + pads_onnx_ends
-
-            # JAX conv_transpose implies a spatial flip of the kernel relative to conv_general_dilated.
-            # We need to flip it back (or forward?) to match ONNX ConvTranspose semantics.
-            # Empirical evidence shows flipping is required.
-            rhs_val = _flip_spatial_dims(
-                ctx, rhs_val, rhs_shape, rhs_layout, "conv_rhs_transpose"
-            )
-
-        groups = params.get("feature_group_count", 1)
-        if groups != 1:
-            conv_kwargs["group"] = int(groups)
+            if is_transpose:
+                kernel_spatial = [
+                    rhs_shape[i] for i, c in enumerate(rhs_layout) if c not in "OI"
+                ]
+                (
+                    conv_kwargs["pads"],
+                    output_pad_before,
+                    output_pad_after,
+                ) = _conv_transpose_pads(
+                    pad_pairs,
+                    kernel_spatial,
+                    rhs_dilation or [1] * len(kernel_spatial),
+                )
+            else:
+                conv_kwargs["pads"] = _flatten_padding(pad_pairs)
 
         conv_dtype_enum = _dtype_to_ir(
             np.dtype(
@@ -565,7 +861,11 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             canonical_input = transposed
 
         canonical_kernel = rhs_val
-        if rhs_layout != target_kernel_layout:
+        if is_transpose:
+            canonical_kernel = _conv_transpose_kernel(
+                ctx, rhs_val, rhs_shape, rhs_layout, groups
+            )
+        elif rhs_layout != target_kernel_layout:
             perm = _perm(rhs_layout, target_kernel_layout)
             transposed = _as_value(
                 ctx.builder.Transpose(
@@ -595,9 +895,10 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             ctx, canonical_kernel, conv_dtype_enum, name_hint="conv_rhs_cast"
         )
 
+        need_output_pad = any(output_pad_before) or any(output_pad_after)
         conv_output_name = (
             ctx.fresh_name(f"conv_out_{target_input_layout.lower()}")
-            if need_output_transpose
+            if need_output_transpose or need_output_pad
             else (getattr(out_spec, "name", None) or ctx.fresh_name(op_type))
         )
         if op_type == "ConvTranspose":
@@ -625,6 +926,33 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
         else:
             conv_shape_intermediate = tuple(out_shape)
         conv_result.type = ir.TensorType(conv_dtype_enum)
+
+        if need_output_pad:
+            spatial_pads = zip(output_pad_before, output_pad_after, strict=True)
+            pad_totals = [0, 0, *(before + after for before, after in spatial_pads)]
+            unpadded_shape = tuple(
+                dim if not pad else int(dim) - pad if _is_static_int(dim) else None
+                for dim, pad in zip(conv_shape_intermediate, pad_totals, strict=True)
+            )
+            _stamp_type_and_shape(conv_result, unpadded_shape)
+            _ensure_value_metadata(ctx, conv_result)
+            pads_val = _const_i64(
+                ctx,
+                [0, 0, *output_pad_before, 0, 0, *output_pad_after],
+                name_hint="conv_transpose_output_pads",
+            )
+            padded_name = (
+                ctx.fresh_name(f"conv_out_{target_input_layout.lower()}_padded")
+                if need_output_transpose
+                else (getattr(out_spec, "name", None) or ctx.fresh_name("Pad"))
+            )
+            conv_result = _as_value(
+                ctx.builder.Pad(
+                    conv_result, pads_val, mode="constant", _outputs=[padded_name]
+                )
+            )
+            conv_result.type = ir.TensorType(conv_dtype_enum)
+
         _stamp_type_and_shape(conv_result, conv_shape_intermediate)
         _ensure_value_metadata(ctx, conv_result)
 
@@ -690,6 +1018,11 @@ class ConvGeneralDilatedPlugin(PrimitiveLeafPlugin):
             )
         if not (complex_hint or packed_hint):
             return False
+        if op_type == "ConvTranspose":
+            raise NotImplementedError(
+                "Complex transposed convolution (lhs_dilation > 1) is not supported "
+                "in ONNX lowering."
+            )
 
         lhs_packed, lhs_base = ensure_packed_real_pair(
             ctx, lhs_val, name_hint="conv_lhs_pack"

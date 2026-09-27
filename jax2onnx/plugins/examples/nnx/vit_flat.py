@@ -194,6 +194,7 @@ register_example(
     testcases=[
         {
             "testcase": "vit_mnist_conv_embedding_flat",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 ConvEmbedding,
                 embed_dims=[32, 64, 128],
@@ -520,6 +521,7 @@ register_example(
     testcases=[
         {
             "testcase": "vit_classification_head_flat",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 ClassificationHead,
                 num_hiddens=256,
@@ -736,6 +738,7 @@ register_example(
     testcases=[
         {
             "testcase": "vit_model_conv_embedding_flat",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 VisionTransformer,
                 height=28,
@@ -761,6 +764,7 @@ register_example(
         },
         {
             "testcase": "vit_model_patch_embedding_flat",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 VisionTransformer,
                 height=28,

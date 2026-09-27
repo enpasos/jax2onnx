@@ -113,6 +113,7 @@ register_example(
     testcases=[
         {
             "testcase": "mlp_training_mode",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 _training_ctor(batched=False),
                 linear1_key=with_prng_key(0),
@@ -142,6 +143,7 @@ register_example(
         },
         {
             "testcase": "mlp_inference_mode",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 _inference_ctor(batched=False),
                 linear1_key=with_prng_key(3),
@@ -169,6 +171,7 @@ register_example(
         },
         {
             "testcase": "mlp_batched_training_mode",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 _training_ctor(batched=True),
                 linear1_key=with_prng_key(5),

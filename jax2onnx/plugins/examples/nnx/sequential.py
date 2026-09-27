@@ -72,6 +72,7 @@ register_example(
     testcases=[
         {
             "testcase": "sequential_nested_with_residual",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 ComplexParentWithResidual,
                 rngs=with_rng_seed(0),

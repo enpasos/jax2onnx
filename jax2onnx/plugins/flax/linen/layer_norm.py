@@ -20,6 +20,11 @@ from jax2onnx.plugins.plugin_system import (
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._normalization_utils import (
+    LAYER_NORM_ONNX_COMPONENTS,
+    lower_explicit_layer_norm,
+    use_native_layer_norm,
+)
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins._ir_shapes import (
     _dim_label_from_value_or_aval,
@@ -145,18 +150,14 @@ LAYER_NORM_PRIM.multiple_results = False
 @register_primitive(
     jaxpr_primitive=LAYER_NORM_PRIM.name,
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.LayerNorm",
-    onnx=[
-        {
-            "component": "LayerNormalization",
-            "doc": "https://onnx.ai/onnx/operators/onnx__LayerNormalization.html",
-        }
-    ],
+    onnx=LAYER_NORM_ONNX_COMPONENTS,
     since="0.11.0",
     context="primitives.linen",
     component="layer_norm",
     testcases=[
         {
             "testcase": "layer_norm",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 linen_to_nnx,
                 module_cls=nn.LayerNorm,
@@ -176,6 +177,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_no_bias_no_scale",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 linen_to_nnx,
                 module_cls=nn.LayerNorm,
@@ -197,6 +199,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_multiaxis",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 linen_to_nnx,
                 module_cls=nn.LayerNorm,
@@ -218,6 +221,7 @@ LAYER_NORM_PRIM.multiple_results = False
         },
         {
             "testcase": "layer_norm_default_epsilon",
+            "normalization_mode": "prefer_native",
             "callable": construct_and_call(
                 linen_to_nnx,
                 module_cls=nn.LayerNorm,
@@ -231,6 +235,73 @@ LAYER_NORM_PRIM.multiple_results = False
             "run_only_f32_variant": True,
             "post_check_onnx_graph": lambda m: (
                 _layer_norm_attr_check(m, axis=2, epsilon=1e-6)
+            ),
+        },
+        {
+            "testcase": "layer_norm_decomposed",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.LayerNorm,
+                input_shape=(1, 20, 32),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Mul:Bx20x32 -> ReduceMean:Bx20x1 -> Sub:Bx20x1 -> Max:Bx20x1 -> Add:Bx20x1 -> Sqrt:Bx20x1 -> Div:Bx20x32 -> Mul:Bx20x32 -> Add:Bx20x32"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Where"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_multiaxis_decomposed",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.LayerNorm,
+                input_shape=(1, 3, 3, 64),
+                reduction_axes=(1, 2, 3),
+                feature_axes=(1, 2, 3),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 3, 3, 64)],
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Reshape:Bx576 -> Mul:Bx576 -> ReduceMean:Bx1 -> Sub:Bx1 -> Max:Bx1 -> Add:Bx1 -> Sqrt:Bx1 -> Div:Bx576 -> Mul:Bx576 -> Add:Bx576 -> Reshape:Bx3x3x64"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Where"],
+                no_unused_inputs=True,
+            ),
+        },
+        {
+            "testcase": "layer_norm_opset16",
+            "callable": construct_and_call(
+                linen_to_nnx,
+                module_cls=nn.LayerNorm,
+                input_shape=(1, 20, 32),
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [("B", 20, 32)],
+            "run_only_f32_variant": True,
+            "opset_version": 16,
+            "check_onnx_load": True,
+            "post_check_onnx_graph": EG(
+                [
+                    "Mul:Bx20x32 -> ReduceMean:Bx20x1 -> Sub:Bx20x1 -> Max:Bx20x1 -> Add:Bx20x1 -> Sqrt:Bx20x1 -> Div:Bx20x32 -> Mul:Bx20x32 -> Add:Bx20x32"
+                ],
+                symbols={"B": None},
+                must_absent=["LayerNormalization", "Where"],
+                no_unused_inputs=True,
             ),
         },
     ],
@@ -252,6 +323,25 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         x_v = ctx.get_value_for_var(eqn.invars[0])
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])
+
+        if not use_native_layer_norm(ctx):
+            # The patch only binds Linen's fast-variance path (clamped E[x^2]-E[x]^2).
+            p = getattr(eqn, "params", {}) or {}
+            ctx.bind_value_for_var(
+                eqn.outvars[0],
+                lower_explicit_layer_norm(
+                    ctx,
+                    x_v,
+                    scale_v,
+                    bias_v,
+                    x_shape=tuple(getattr(eqn.invars[0].aval, "shape", ())),
+                    axis=int(p.get("axis", -1)),
+                    epsilon=float(p.get("epsilon", 1e-5)),
+                    use_fast_variance=True,
+                    clamp_negative_variance=True,
+                ),
+            )
+            return
 
         scale_v = cast_param_like(ctx, scale_v, x_v, name_hint="ln_scale_cast")
         bias_v = cast_param_like(ctx, bias_v, x_v, name_hint="ln_bias_cast")
@@ -410,7 +500,7 @@ def _ln_impl(x: Any, scale: Any, bias: Any, *, epsilon: float, axis: int) -> Any
 
     mean = jnp.mean(x, axis=normalized_axis, keepdims=True)
     mean2 = jnp.mean(jnp.square(x), axis=normalized_axis, keepdims=True)
-    var = mean2 - jnp.square(mean)
+    var = jnp.maximum(mean2 - jnp.square(mean), 0.0)
     inv = jnp.reciprocal(jnp.sqrt(var + epsilon))
 
     rank_i: int = int(cast(int, getattr(x, "ndim", 0)))

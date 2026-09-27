@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from pathlib import Path
 
+import equinox as eqx
 from flax import linen as nn
 from flax import nnx
 import jax
@@ -11,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx
 import onnxruntime as ort  # type: ignore[import-untyped]
+from onnx import TensorProto, helper
 from onnx.reference import ReferenceEvaluator
 import pytest
 
@@ -48,27 +51,41 @@ def _run(model: onnx.ModelProto, *inputs: np.ndarray) -> np.ndarray:
     return actual
 
 
+def _rms_norm_module(framework: str) -> Callable[[jax.Array], jax.Array]:
+    if framework == "nnx":
+        return nnx.RMSNorm(
+            num_features=6,
+            dtype=jnp.float32,
+            param_dtype=jnp.float32,
+            rngs=nnx.Rngs(0),
+        )
+    # A nonzero bias exercises the Add that follows native RMSNormalization.
+    layer = eqx.tree_at(
+        lambda m: m.bias,
+        eqx.nn.RMSNorm(6),
+        jnp.linspace(-1.0, 1.0, 6, dtype=jnp.float32),
+    )
+    return jax.vmap(layer)
+
+
+@pytest.mark.parametrize("framework", ["nnx", "eqx"])
 @pytest.mark.parametrize(
     ("opset", "normalization_mode", "expect_native"),
     [
         (22, "auto", False),
-        (23, "auto", True),
+        (23, "auto", False),
         (22, "prefer_native", False),
         (23, "prefer_native", True),
         (23, "force_decomposed", False),
     ],
 )
 def test_rms_norm_policy_matches_opset_and_mode(
+    framework: str,
     opset: int,
     normalization_mode: str,
     expect_native: bool,
 ) -> None:
-    norm = nnx.RMSNorm(
-        num_features=6,
-        dtype=jnp.float32,
-        param_dtype=jnp.float32,
-        rngs=nnx.Rngs(0),
-    )
+    norm = _rms_norm_module(framework)
     x = jnp.arange(12, dtype=jnp.float32).reshape(2, 6) / 7
     expected = np.asarray(norm(x))
 
@@ -84,6 +101,69 @@ def test_rms_norm_policy_matches_opset_and_mode(
 
     actual = _run(model, np.asarray(x))
     np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=5e-5)
+
+
+_FUSED_NORMALIZATION_OPS = {
+    "LayerNormalization",
+    "RMSNormalization",
+    "SimplifiedLayerNormalization",
+    "SkipLayerNormalization",
+    "SkipSimplifiedLayerNormalization",
+}
+
+
+def _fused_normalization_count(model: onnx.ModelProto, path: Path) -> int:
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.optimized_model_filepath = str(path)
+    ort.InferenceSession(
+        model.SerializeToString(), options, providers=["CPUExecutionProvider"]
+    )
+    optimized = onnx.load(str(path))
+    return sum(
+        node.op_type in _FUSED_NORMALIZATION_OPS for node in optimized.graph.node
+    )
+
+
+def _textbook_pow_rms_norm() -> onnx.ModelProto:
+    nodes = [
+        helper.make_node("Pow", ["x", "two"], ["x2"]),
+        helper.make_node("ReduceMean", ["x2", "axes"], ["ms"]),
+        helper.make_node("Add", ["ms", "eps"], ["mse"]),
+        helper.make_node("Sqrt", ["mse"], ["rms"]),
+        helper.make_node("Div", ["x", "rms"], ["n"]),
+        helper.make_node("Mul", ["n", "scale"], ["y"]),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "textbook_rms_norm",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 6])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 6])],
+        [
+            helper.make_tensor("two", TensorProto.FLOAT, [], [2.0]),
+            helper.make_tensor("axes", TensorProto.INT64, [1], [-1]),
+            helper.make_tensor("eps", TensorProto.FLOAT, [], [1e-6]),
+            helper.make_tensor("scale", TensorProto.FLOAT, [6], [1.0] * 6),
+        ],
+    )
+    return helper.make_model(
+        graph, ir_version=10, opset_imports=[helper.make_opsetid("", 18)]
+    )
+
+
+@pytest.mark.parametrize("framework", ["nnx", "eqx"])
+def test_explicit_rms_norm_is_not_refused_by_onnxruntime(
+    framework: str, tmp_path: Path
+) -> None:
+    # Positive control: ORT must fuse a Pow-based textbook RMSNorm, otherwise
+    # the negative assertion below would be vacuous.
+    if not _fused_normalization_count(_textbook_pow_rms_norm(), tmp_path / "c.onnx"):
+        pytest.skip("this onnxruntime does not fuse textbook RMSNorm patterns")
+    x = jnp.arange(12, dtype=jnp.float32).reshape(2, 6) / 7
+
+    model = to_onnx(_rms_norm_module(framework), [x], opset=23)
+
+    assert _fused_normalization_count(model, tmp_path / "opt.onnx") == 0
 
 
 @pytest.mark.parametrize(

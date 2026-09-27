@@ -990,14 +990,15 @@ class GroupNormPlugin(PrimitiveLeafPlugin):
                     object(),
                     np.asarray(0.0, dtype=x_np_dtype),
                 )
-                # Self-subtraction is zero for every finite supported dtype and
-                # NaN for +/-Inf or NaN. Unlike IsInf, this also works for FP16
-                # in the older opsets supported by the explicit fallback.
+                # The mean's self-subtraction is zero only if every element is
+                # finite: ReduceMin/ReduceMax may skip NaN, but ReduceMean
+                # propagates it. Unlike IsInf, this also works for FP16 in the
+                # older opsets supported by the explicit fallback.
                 finite_delta = cast(
                     ir.Value,
                     builder.Sub(
-                        group_min,
-                        group_min,
+                        mean,
+                        mean,
                         _outputs=[ctx.fresh_name("gn_finite_delta")],
                     ),
                 )

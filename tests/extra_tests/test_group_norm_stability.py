@@ -489,6 +489,33 @@ def test_slow_group_norm_does_not_zero_nonfinite_constant_groups(value: float) -
     assert np.isnan(actual).all()
 
 
+@pytest.mark.parametrize("normalization_mode", ["auto", "force_decomposed"])
+@pytest.mark.parametrize(
+    "position", [(0, 0), (1, 1), (2, 1)], ids=["first", "middle", "last"]
+)
+def test_slow_group_norm_propagates_nan_in_otherwise_constant_groups(
+    position: tuple[int, int], normalization_mode: str
+) -> None:
+    norm = nnx.GroupNorm(
+        num_features=4,
+        num_groups=2,
+        use_fast_variance=False,
+        use_scale=False,
+        use_bias=False,
+        rngs=nnx.Rngs(0),
+    )
+    values: np.ndarray = np.ones((1, 1, 3, 4), np.float32)
+    values[(0, 0, *position)] = np.nan
+    x = jnp.asarray(values)
+
+    _, actual = _convert_and_run(
+        norm, x, opset=23, normalization_mode=normalization_mode
+    )
+    expected = np.asarray(norm(x))
+    assert np.isnan(expected[..., :2]).all()
+    np.testing.assert_array_equal(actual, expected)
+
+
 @pytest.mark.parametrize("opset", [17, 18, 21, 23])
 def test_slow_group_norm_supports_symbolic_empty_spatial_dimensions(
     opset: int,

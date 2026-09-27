@@ -54,24 +54,25 @@ EXPECT_RMS_NORM_NATIVE: Final = EG(
 EXPECT_RMS_NORM_EXPLICIT: Final = EG(
     [
         (
-            "Pow -> ReduceMean -> Add -> Sqrt -> Div -> Mul",
+            "Mul -> ReduceMean -> Add -> Sqrt -> Div -> Mul",
             {
                 "counts": {
                     "RMSNormalization": 0,
-                    "Pow": 1,
+                    "Pow": 0,
                     "ReduceMean": 1,
                     "Add": 1,
                     "Sqrt": 1,
                     "Div": 1,
-                    "Mul": 1,
+                    "Mul": 2,
                 }
             },
         )
     ]
 )
 
-# Compatibility alias for framework adapters whose registered cases use auto mode.
-EXPECT_RMS_NORM_GRAPH: Final = EXPECT_RMS_NORM_NATIVE
+# Compatibility alias for framework adapters whose registered cases use auto mode,
+# which emits the explicit graph.
+EXPECT_RMS_NORM_GRAPH: Final = EXPECT_RMS_NORM_EXPLICIT
 
 RMS_NORM_ONNX_COMPONENTS: Final = [
     {"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"},
@@ -81,7 +82,6 @@ RMS_NORM_ONNX_COMPONENTS: Final = [
     },
     {"component": "Div", "doc": "https://onnx.ai/onnx/operators/onnx__Div.html"},
     {"component": "Mul", "doc": "https://onnx.ai/onnx/operators/onnx__Mul.html"},
-    {"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"},
     {
         "component": "ReduceMean",
         "doc": "https://onnx.ai/onnx/operators/onnx__ReduceMean.html",
@@ -176,6 +176,20 @@ def _const_from_array(
             "opset_version": 22,
             "run_only_f32_variant": True,
             "post_check_onnx_graph": EXPECT_RMS_NORM_EXPLICIT,
+        },
+        {
+            "testcase": "rms_norm_prefer_native",
+            "callable": construct_and_call(
+                nnx.RMSNorm,
+                num_features=6,
+                dtype=with_requested_dtype(),
+                param_dtype=with_requested_dtype(),
+                rngs=with_rng_seed(0),
+            ),
+            "input_shapes": [(2, 6)],
+            "normalization_mode": "prefer_native",
+            "run_only_f32_variant": True,
+            "post_check_onnx_graph": EXPECT_RMS_NORM_NATIVE,
         },
         {
             "testcase": "rms_norm_decomposed",
@@ -284,12 +298,8 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         x_ir_dtype = getattr(getattr(x_val, "type", None), "dtype", ir.DataType.FLOAT)
 
         if (
-            ctx.normalization_mode in {"auto", "prefer_native"}
+            ctx.normalization_mode == "prefer_native"
             and opset >= 23
-            and (
-                ctx.normalization_mode == "prefer_native"
-                or x_ir_dtype in {ir.DataType.FLOAT, ir.DataType.DOUBLE}
-            )
             and hasattr(builder, "RMSNormalization")
         ):
             y_val = cast(
@@ -311,24 +321,24 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
             ctx.bind_value_for_var(y_var, y_val)
             return
 
-        two_const = _const_from_array(ctx, "two", np.asarray(2.0, dtype=x_np_dtype))
         eps_const = _const_from_array(ctx, "eps", np.asarray(epsilon, dtype=x_np_dtype))
-        two_const = ctx.cast_like(two_const, x_val, name_hint="rms_two_cast")
         eps_const = ctx.cast_like(eps_const, x_val, name_hint="rms_eps_cast")
         axes_const = _const_from_array(
             ctx, "axes", np.asarray([int(axis)], dtype=np.int64)
         )
 
-        pow_out = cast(
+        # Square with Mul rather than Pow: ONNX Runtime fuses the Pow form into
+        # its own SimplifiedLayerNormalization kernel, bypassing this graph.
+        squared = cast(
             ir.Value,
-            builder.Pow(
+            builder.Mul(
                 x_val,
-                two_const,
-                _outputs=[ctx.fresh_name("rms_pow")],
+                x_val,
+                _outputs=[ctx.fresh_name("rms_squared")],
             ),
         )
-        pow_out.type = ir.TensorType(x_ir_dtype)
-        _stamp_type_and_shape(pow_out, dims)
+        squared.type = ir.TensorType(x_ir_dtype)
+        _stamp_type_and_shape(squared, dims)
 
         mean_shape = list(x_shape)
         if axis < len(mean_shape):
@@ -338,7 +348,7 @@ class RMSNormPlugin(PrimitiveLeafPlugin):
         mean_out = cast(
             ir.Value,
             builder.ReduceMean(
-                pow_out,
+                squared,
                 axes_const,
                 keepdims=1,
                 _outputs=[ctx.fresh_name("rms_mean")],

@@ -19,6 +19,52 @@
 ## Current Version
 
 
+### **jax2onnx 0.16.2**
+
+
+* **Preserve transposed-convolution geometry:** Lower input-dilated
+  `lax.conv_general_dilated` (used by `eqx.nn.ConvTranspose`,
+  `nnx.ConvTranspose`, `jax.lax.conv_transpose`, and `nnx.Conv` with
+  `input_dilation`) to ONNX `ConvTranspose` with the input dilation as its
+  strides, a group-aware kernel layout, and an explicit output `Pad` where JAX
+  pads beyond the kernel's reach, so exported shapes and values match JAX; fail
+  export explicitly for strided input dilation, `batch_group_count > 1`, and
+  complex transposed convolutions instead of emitting different semantics.
+* **Make GELU exports opset-aware:** Emit ONNX `Gelu` only for opset 20 and
+  newer, and lower `jax.nn.gelu` and `nnx.gelu` below opset 20 to the exact
+  (`Erf`) or tanh-approximate formula so the graph validates at the requested
+  opset.
+* **Behavior change: explicit normalization graphs by default.**
+  `normalization_mode="auto"` now exports the representation with the best
+  reproducible accuracy and prefers native operators only when they meet the
+  same locked accuracy bounds. For GroupNorm, Flax RMSNorm, and Equinox/Flax
+  LayerNorm this is currently the explicit graph that reproduces the
+  framework's statistics, instead of ONNX `LayerNormalization` (opset 17+) or
+  `RMSNormalization` (opset 23+). Pass `normalization_mode="prefer_native"` to
+  keep the native operators, for example for smaller graphs on accelerated
+  runtimes.
+* **Add precision-faithful LayerNorm export:** Equinox, Flax NNX, and Flax Linen
+  LayerNorm now honor `normalization_mode`. The explicit graph follows the
+  framework's statistics (two-pass variance with exact zeros for constant rows,
+  or Flax's clamped fast variance, in float32 for low-precision inputs) and is
+  not re-fused by ONNX Runtime, whose CPU `LayerNormalization` kernel loses
+  precision on rows with very large activations. Exports below opset 17 no
+  longer emit an operator the opset does not define.
+* **Add native Equinox RMSNorm export:** `eqx.nn.RMSNorm` now honors
+  `normalization_mode`; `"prefer_native"` emits ONNX `RMSNormalization` (plus an
+  `Add` for Equinox's optional bias) at opset 23 or newer, matching Flax RMSNorm,
+  while other modes and older opsets keep the explicit graph.
+* **Keep explicit RMSNorm graphs explicit at runtime:** Equinox and Flax RMSNorm
+  now square with `Mul` instead of `Pow`, so ONNX Runtime no longer fuses the
+  explicit graph into its `SimplifiedLayerNormalization` kernel.
+* **Propagate NaN through Slow-Variance GroupNorm:** A group containing NaN
+  among otherwise equal values is no longer exported as exactly centered
+  zeros; it yields NaN like JAX.
+* **Export `jnp.cos` as `Cos` below float64:** Keep the `Sin(x + π/2)`
+  workaround only for float64, which ONNX Runtime's `Cos` kernel lacks, so
+  float32 rotary embeddings no longer lose accuracy to the shifted argument.
+
+
 ### **jax2onnx 0.16.1**
 
 

@@ -51,12 +51,17 @@ single self-contained `.onnx` file instead of spilling large initializers into a
 - `input_params`: Runtime flags or keyword-like values that should stay model inputs instead of being baked into the export.
 - `return_mode`: `"proto"` for an `onnx.ModelProto`, `"ir"` for the intermediate `onnx_ir.Model`, or `"file"` to serialize directly to disk.
 - `export_mode`: `"standard"` for normal serialization, or `"web"` for single-file browser/WASM artifacts.
-- `normalization_mode`: Selection policy for GroupNorm and Flax RMSNorm.
-  `"auto"` (default) preserves the framework-oriented policy. `"prefer_native"`
-  uses a standard ONNX normalization operator when the selected opset and the
-  plugin's numerical constraints permit it, otherwise falling back to the
-  explicit graph. `"force_decomposed"` always emits the explicit primitive
-  graph.
+- `normalization_mode`: Selection policy for GroupNorm and Equinox/Flax RMSNorm
+  and LayerNorm. `"auto"` (default) exports the representation with the best
+  reproducible accuracy, and uses a native ONNX operator only when it meets the
+  same locked accuracy bounds; currently this is the explicit graph that
+  reproduces the framework's statistics. `"prefer_native"` uses a standard ONNX normalization
+  operator (`LayerNormalization` from opset 17, `GroupNormalization` from 21,
+  `RMSNormalization` from 23) when the plugin's numerical constraints permit it,
+  otherwise falling back to the explicit graph; it gives smaller graphs that
+  runtimes can accelerate. `"force_decomposed"` always emits the explicit
+  primitive graph. See [Known Limitations](known_limitations.md) for the
+  precision trade-offs.
 - `enable_double_precision`: Temporarily enables x64 export and emits `tensor(double)` where appropriate.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
