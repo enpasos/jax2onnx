@@ -16,11 +16,10 @@
   published upstream APIs before claiming them as supported.
 
 
-## Current Version
 
+## Upcoming Version
 
-### **jax2onnx 0.16.2**
-
+### **jax2onnx 0.17.0**
 
 * **Preserve transposed-convolution geometry:** Lower input-dilated
   `lax.conv_general_dilated` (used by `eqx.nn.ConvTranspose`,
@@ -28,17 +27,27 @@
   `input_dilation`) to ONNX `ConvTranspose` with the input dilation as its
   strides, a group-aware kernel layout, and an explicit output `Pad` where JAX
   pads beyond the kernel's reach, so exported shapes and values match JAX; fail
-  export explicitly for strided input dilation, `batch_group_count > 1`, and
-  complex transposed convolutions instead of emitting different semantics.
+  export explicitly for strided input dilation and complex transposed
+  convolutions, and reject `batch_group_count > 1` for all
+  `lax.conv_general_dilated` lowerings.
 * **Make GELU exports opset-aware:** Emit ONNX `Gelu` only for opset 20 and
   newer, and lower `jax.nn.gelu` and `nnx.gelu` below opset 20 to the exact
   (`Erf`) or tanh-approximate formula so the graph validates at the requested
   opset.
+* **Keep JIT lowering compatible with JAX 0.11.1+:** Create fresh JAX
+  variables through the compatibility layer, which supports the newer `Var`
+  constructor and preserves quantization metadata on older JAX releases.
+* **Restore gradient exports on JAX 0.11.2:** Lower its new
+  `lax.one_minus_square` primitive as `(1 + x) * (1 - x)` to retain
+  precision near `|x| = 1`. This fixes the generated CI cases for `tanh`,
+  `acos`, `asin`, and `atanh` gradients. Cast the scalar constant to the
+  input dtype so the lowering also works in float32 `lax.scan` bodies when
+  double-precision export is enabled.
 * **Behavior change: explicit normalization graphs by default.**
   `normalization_mode="auto"` now exports the representation with the best
   reproducible accuracy and prefers native operators only when they meet the
-  same locked accuracy bounds. For GroupNorm, Flax RMSNorm, and Equinox/Flax
-  LayerNorm this is currently the explicit graph that reproduces the
+  same locked accuracy bounds. For GroupNorm, Equinox/Flax RMSNorm, and
+  Equinox/Flax LayerNorm this is currently the explicit graph that reproduces the
   framework's statistics, instead of ONNX `LayerNormalization` (opset 17+) or
   `RMSNormalization` (opset 23+). Pass `normalization_mode="prefer_native"` to
   keep the native operators, for example for smaller graphs on accelerated
@@ -57,16 +66,31 @@
 * **Keep explicit RMSNorm graphs explicit at runtime:** Equinox and Flax RMSNorm
   now square with `Mul` instead of `Pow`, so ONNX Runtime no longer fuses the
   explicit graph into its `SimplifiedLayerNormalization` kernel.
-* **Propagate NaN through Slow-Variance GroupNorm:** A group containing NaN
-  among otherwise equal values is no longer exported as exactly centered
-  zeros; it yields NaN like JAX.
+* **Propagate nonfinite values through explicit normalization:** Slow-variance
+  LayerNorm and GroupNorm no longer turn otherwise constant rows or groups
+  containing NaN or infinity into zeros; they preserve JAX's nonfinite results.
 * **Export `jnp.cos` as `Cos` below float64:** Keep the `Sin(x + π/2)`
   workaround only for float64, which ONNX Runtime's `Cos` kernel lacks, so
   float32 rotary embeddings no longer lose accuracy to the shifted argument.
+* **Guard normalization accuracy in CI:** Add CPU checks on Python 3.12/JAX
+  0.10 and Python 3.13/JAX 0.11 with fixed LayerNorm and cosine accuracy
+  bounds; add BF16 capability coverage and static/dynamic NNX decoder examples
+  for the explicit `auto` graph.
+* **Refresh locked Python dependencies:** Keep JAX/JAXLIB 0.10.2 and Flax
+  0.12.8 for Python 3.11/3.12, and resolve JAX/JAXLIB 0.11.2 and Flax
+  0.12.10 for Python 3.13+; update ONNX to 1.23.0 and ONNX Runtime to 1.30.0.
+  The dependency guide now separates latest upstream releases from the
+  `onnxruntime-web` 1.29.0 lock used in smoke tests.
+* **Update test, documentation, and CI tools:** Upgrade optional test Torch to
+  2.13.0, mkdocstrings to 1.0.6 while dropping the direct Griffe bound, and
+  the resolved Ruff to 0.16.9; update Ruff pre-commit to 0.16.5 and
+  `actions/setup-node` to 7.0.0.
 
+
+
+## Current Version
 
 ### **jax2onnx 0.16.1**
-
 
 * **Record trustworthy model provenance:** Populate exported ONNX models with
   the active `jax2onnx` producer version while handling source checkouts safely,
