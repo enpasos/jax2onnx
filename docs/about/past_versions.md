@@ -24,6 +24,16 @@
   regressions; enabled CI for documentation changes and release tags; and
   recorded dependency versions, runner image, CPU hardware, and tested commits
   for the normalization accuracy jobs.
+- **0.16.1**: Recorded the active `jax2onnx` producer version in exported ONNX
+  metadata, including safe handling of source checkouts; hardened GitHub Actions
+  with immutable action SHAs, least-privilege permissions, and Node 24-based
+  checkout/setup-python releases; grouped Actions/npm dependency updates and
+  rate-limited updates across Actions, Python, npm, and pre-commit while keeping
+  major upgrades separate; retained JAX/JAXLIB 0.10.2 for Python 3.11/3.12 and 0.11.0 for Python
+  3.13/3.14 with a CI guard for the modern stack; and refreshed validation and
+  tooling to ONNX Runtime and `onnxruntime-web` 1.29.0, Playwright 1.62.1,
+  pytest 9.1.1, and Ruff 0.16.4 with an explicit `E4`, `E7`, `E9`, and `F` lint
+  baseline.
 - **0.16.0**: Hardened the `onnx-ir` integration against 1.0.0 while retaining
   the declared `onnx-ir>=0.2.1` floor by replacing the private tape builder with
   a local adapter over public `onnx_ir.tape.Tape`, prohibiting private imports,

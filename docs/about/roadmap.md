@@ -17,7 +17,7 @@
 
 
 
-## Upcoming Version
+## Current Version
 
 ### **jax2onnx 0.17.0**
 
@@ -96,40 +96,9 @@
   NNX decoder examples for the explicit `auto` graph. Keep CI enabled for
   documentation changes and release tags, allow manual runs, and record the
   tested commit, dependency versions, runner image, and CPU hardware.
-* **Refresh locked Python dependencies:** Keep JAX/JAXLIB 0.10.2 and Flax
-  0.12.8 for Python 3.11/3.12, and resolve JAX/JAXLIB 0.11.2 and Flax
-  0.12.10 for Python 3.13+; update ONNX to 1.23.0 and ONNX Runtime to 1.30.0.
-  Update the Web/WASM smoke-test lock to `onnxruntime-web` 1.30.0 as well;
-  preserve the supported Python runtime minimum of ONNX Runtime 1.24.1.
-* **Update test, documentation, and CI tools:** Upgrade optional test Torch to
-  2.13.0, mkdocstrings to 1.0.6 while dropping the direct Griffe bound, and
-  the resolved Ruff to 0.16.9; update Ruff pre-commit to 0.16.5 and
-  `actions/setup-node` to 7.0.0.
 
 
 
-## Current Version
-
-### **jax2onnx 0.16.1**
-
-* **Record trustworthy model provenance:** Populate exported ONNX models with
-  the active `jax2onnx` producer version while handling source checkouts safely,
-  so metadata identifies the converter build without changing graph semantics.
-* **Harden and modernize GitHub Actions:** Pin third-party actions to immutable
-  commit SHAs, declare least-privilege token access for CI and nightly jobs, and
-  move workflows to the Node 24-based `actions/checkout` 7.0.1 and
-  `actions/setup-python` 7.0.0 releases.
-* **Automate dependency maintenance with bounded noise:** Group minor and patch
-  updates for GitHub Actions and npm, rate-limit update traffic across Actions,
-  Python, npm, and pre-commit dependencies, keep major upgrades isolated for
-  review, and defer separate `uv` automation until lockfile synchronization has
-  a defined policy.
-* **Protect both supported JAX stacks:** Retain JAX/JAXLIB 0.10.2 for Python
-  3.11/3.12 and 0.11.0 for Python 3.13/3.14 in the Poetry lockfile, with a CI
-  guard that verifies the modern stack remains present.
-* **Refresh the validation and tooling stack:** Validate against ONNX Runtime
-  and `onnxruntime-web` 1.29.0, Playwright 1.62.1, pytest 9.1.1, and Ruff 0.16.4,
-  with an explicit `E4`, `E7`, `E9`, and `F` lint baseline.
 
 ## Past Versions
 
