@@ -96,6 +96,46 @@ allclose(
 )
 ```
 
+## Decoder Normalization Benchmark
+
+To compare `normalization_mode="auto"` and `"prefer_native"` on the built-in tiny
+NNX decoder, run from the repository root on an otherwise idle machine:
+
+```bash
+JAX_PLATFORMS=cpu poetry run python scripts/benchmark_decoder_normalization.py \
+  --warmup 100 --iterations 5000 --repeats 7 \
+  --output /tmp/decoder-normalization.json
+```
+
+The benchmark uses identical deterministic weights and float32 inputs for all
+four combinations of static/symbolic export and normalization mode. It runs
+ONNX Runtime CPU with one thread and all graph optimizations enabled. The
+reported latency is the median of seven mean inference times, including Python
+call overhead; export, session creation, JAX reference execution, and warmup are
+excluded. The JSON report records dependency versions, CPU, source revision,
+input shapes, errors against JAX, and operator counts before and after runtime
+optimization. Generated ONNX graphs are temporary. Use `--help` to adjust input
+sizes and the number of repetitions.
+
+A sample run on an AMD Ryzen 9 7950X3D under Linux/WSL2, Python 3.12.9,
+ONNX Runtime 1.30.0, JAX 0.11.2, Flax 0.12.10, and NumPy 2.5.3 produced:
+
+| Export shape | `auto` latency | `prefer_native` latency | Latency reduction |
+| --- | ---: | ---: | ---: |
+| Static | 0.0443 ms | 0.0343 ms | 22.6% |
+| Symbolic | 0.0514 ms | 0.0410 ms | 20.2% |
+
+This run used the command above with the default inputs `(2, 8, 16)` and
+`(2, 4, 16)`, model seed 0, input seed 1, and opset 23. All four cases had a
+maximum absolute error of `7.15e-7` against the same JAX float32 output.
+ONNX Runtime fused the native exports into three `SkipLayerNormalization`
+nodes. These measurements describe one small model and input sample; the
+benchmark checks JAX parity with `rtol=atol=1e-4` and does not establish an
+independent float64 accuracy guarantee. Runtime and error measurements on the
+actual deployment model should guide use of `prefer_native`. The stricter
+[LayerNorm accuracy gates](known_limitations.md#scope-of-the-fixed-layernorm-limits)
+continue to determine the default `auto` policy.
+
 ## Browser/WASM Validation
 
 For browser deployment, export with `export_mode="web"`:
@@ -141,6 +181,9 @@ scripts/run_onnxruntime_web_smoke.sh
 npx playwright install chromium
 scripts/run_onnxruntime_web_chrome_smoke.sh
 ```
+
+Both runners above use the WASM execution provider, including Chromium. They
+do not validate WebGPU execution.
 
 For full-suite validation, use:
 

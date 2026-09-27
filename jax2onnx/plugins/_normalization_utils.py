@@ -6,10 +6,11 @@
 best reproducible accuracy (see ``tests/extra_tests/test_layer_norm_precision.py``
 for the locked bounds). It follows the framework's statistics: two-pass variance (with exact zeros for constant
 rows) or Flax's clamped fast variance. ONNX ``LayerNormalization`` is emitted
-only for ``"prefer_native"`` at opset 17 or newer; ONNX Runtime's CPU kernel for
-it accumulates statistics in one sequential float32 pass, which loses precision
-on rows with large activations. Squares are written as ``Mul`` so ONNX Runtime's
-``LayerNormFusion`` does not rebuild the native op.
+only for ``"prefer_native"`` at opset 17 or newer. Native accuracy depends on the
+runtime, CPU, and input shape: ONNX Runtime 1.30 adds an AVX2 two-pass kernel,
+but the checked native path still exceeds the explicit graph's locked error
+bounds on the selected outlier inputs. Squares are written as ``Mul`` so the
+tested ONNX Runtime CPU ``LayerNormFusion`` does not rebuild the native op.
 """
 
 from __future__ import annotations
