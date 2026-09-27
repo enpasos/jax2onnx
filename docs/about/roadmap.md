@@ -44,28 +44,32 @@
   input dtype so the lowering also works in float32 `lax.scan` bodies when
   double-precision export is enabled.
 * **Behavior change: explicit normalization graphs by default.**
-  `normalization_mode="auto"` now exports the representation with the best
-  reproducible accuracy and prefers native operators only when they meet the
-  same locked accuracy bounds. For GroupNorm, Equinox/Flax RMSNorm, and
-  Equinox/Flax LayerNorm this is currently the explicit graph that reproduces the
-  framework's statistics, instead of ONNX `LayerNormalization` (opset 17+) or
-  `RMSNormalization` (opset 23+). Pass `normalization_mode="prefer_native"` to
-  keep the native operators, for example for smaller graphs on accelerated
-  runtimes.
+  `normalization_mode="auto"` selects the representation with the best
+  reproducible accuracy in a defined test environment, then permits a native
+  operator only when it meets the same fixed acceptance bounds. Export uses the
+  resulting plugin policy; it does not benchmark each model. The current choice
+  is explicit graphs for Flax NNX/Linen GroupNorm and Equinox/Flax NNX/Linen
+  RMSNorm and LayerNorm.
+  Fixed comparative bounds currently cover selected float32 LayerNorm cases on
+  ONNX Runtime CPU; equivalent GroupNorm and RMSNorm bounds remain future work.
+  `"prefer_native"` requests an eligible native operator, while
+  `"force_decomposed"` requests the explicit graph.
 * **Add precision-faithful LayerNorm export:** Equinox, Flax NNX, and Flax Linen
   LayerNorm now honor `normalization_mode`. The explicit graph follows the
-  framework's statistics (two-pass variance with exact zeros for constant rows,
-  or Flax's clamped fast variance, in float32 for low-precision inputs) and is
-  not re-fused by ONNX Runtime, whose CPU `LayerNormalization` kernel loses
-  precision on rows with very large activations. Exports below opset 17 no
-  longer emit an operator the opset does not define.
+  framework's statistics: two-pass variance with a constant-row safeguard
+  for Equinox and slow-variance NNX, or Flax's clamped fast variance. Linen
+  slow-variance LayerNorm continues to trace JAX in every mode. The tested
+  explicit paths stay explicit under ONNX Runtime CPU optimizations; the native
+  `LayerNormalization` path has higher error on the fixed outlier-input cases.
+  Exports below opset 17 no longer emit an operator the opset does not define.
 * **Add native Equinox RMSNorm export:** `eqx.nn.RMSNorm` now honors
   `normalization_mode`; `"prefer_native"` emits ONNX `RMSNormalization` (plus an
-  `Add` for Equinox's optional bias) at opset 23 or newer, matching Flax RMSNorm,
-  while other modes and older opsets keep the explicit graph.
-* **Keep explicit RMSNorm graphs explicit at runtime:** Equinox and Flax RMSNorm
-  now square with `Mul` instead of `Pow`, so ONNX Runtime no longer fuses the
-  explicit graph into its `SimplifiedLayerNormalization` kernel.
+  `Add` for Equinox's optional bias) at opset 23 or newer, matching Flax
+  NNX/Linen RMSNorm. Other modes and older opsets keep the explicit graph.
+* **Keep explicit RMSNorm graphs explicit at runtime:** Equinox and Flax
+  NNX/Linen RMSNorm now square with `Mul` instead of `Pow`. In the tested ONNX
+  Runtime CPU configuration, the checked explicit paths avoid fusion into
+  `SimplifiedLayerNormalization`.
 * **Propagate nonfinite values through explicit normalization:** Slow-variance
   LayerNorm and GroupNorm no longer turn otherwise constant rows or groups
   containing NaN or infinity into zeros; they preserve JAX's nonfinite results.
@@ -73,9 +77,11 @@
   workaround only for float64, which ONNX Runtime's `Cos` kernel lacks, so
   float32 rotary embeddings no longer lose accuracy to the shifted argument.
 * **Guard normalization accuracy in CI:** Add CPU checks on Python 3.12/JAX
-  0.10 and Python 3.13/JAX 0.11 with fixed LayerNorm and cosine accuracy
-  bounds; add BF16 capability coverage and static/dynamic NNX decoder examples
-  for the explicit `auto` graph.
+  0.10 and Python 3.13/JAX 0.11 with fixed accuracy bounds for selected
+  LayerNorm and cosine cases; add BF16 capability coverage and static/dynamic
+  NNX decoder examples for the explicit `auto` graph. Keep CI enabled for
+  documentation changes and release tags, allow manual runs, and record the
+  tested commit, dependency versions, runner image, and CPU hardware.
 * **Refresh locked Python dependencies:** Keep JAX/JAXLIB 0.10.2 and Flax
   0.12.8 for Python 3.11/3.12, and resolve JAX/JAXLIB 0.11.2 and Flax
   0.12.10 for Python 3.13+; update ONNX to 1.23.0 and ONNX Runtime to 1.30.0.

@@ -62,55 +62,117 @@ that roundoff. Use strict parity checks on representative, nonconstant inputs;
 for degenerate normalization inputs, also check finiteness and apply a tolerance
 specific to the model, dtype, and runtime.
 
-By default (`normalization_mode="auto"`), each normalization plugin exports the
-representation with the best reproducible accuracy, and uses a native ONNX
-operator only when it meets the same locked accuracy bounds. Currently no
-native operator does, so GroupNorm and Equinox/Flax RMSNorm and LayerNorm
-export explicit graphs that reproduce the framework's own statistics,
-independently of the runtime's normalization kernels. Set
-`normalization_mode="prefer_native"` to opt into the standard ONNX operators
-where the opset defines them and the plugin can map faithfully:
-`LayerNormalization` from opset 17, Fast-Variance `GroupNormalization` from
-opset 21, and `RMSNormalization` from opset 23. Native operators give smaller
-graphs that runtimes can accelerate, but they can produce material
-runtime-dependent differences for high-offset or otherwise ill-conditioned
-inputs. ONNX `GroupNormalization` does not model Flax's negative-variance clamp
-or reduction order, and ONNX Runtime's CPU `LayerNormalization` kernel
-accumulates its statistics in a single sequential float32 pass, which is
-noticeably less accurate than the framework reductions on rows with very large
-activations, such as DINOv3-style residual streams with outlier channels; deep
-models can amplify this into output differences above tight parity tolerances.
-ONNX Runtime's CUDA `LayerNormalization` kernel does not show that precision
-loss. Slow-Variance GroupNorm stays explicit in every mode, and
-`normalization_mode="force_decomposed"` always emits the explicit graph.
+### Normalization export policy
 
-The explicit LayerNorm uses a two-pass variance for Equinox and for Flax with
-`use_fast_variance=False`, which also keeps exact zeros for constant rows, or
-Flax's default clamped fast variance `E[x²] - E[x]²`. The fast variance follows
-Flax faithfully but is itself sensitive to large offsets, so set
-`use_fast_variance=False` in the model when precision matters. Float16 and
-bfloat16 inputs are normalized with float32 statistics. The explicit LayerNorm
-costs about a dozen nodes per layer. The explicit LayerNorm and RMSNorm graphs
-square with `Mul` so that ONNX Runtime's optimizer does not fuse them back into
-its native normalization kernels; other runtimes may still recognize and fuse
-explicit normalization patterns.
+`normalization_mode="auto"` follows a two-step policy. First, choose the
+implementation with the best reproducible accuracy in a defined test
+environment and lock its acceptance bounds. Then prefer a native ONNX operator
+if it can replace that choice while satisfying the same bounds. Export applies
+the plugin's current selection; it does not benchmark implementations for each
+model. The current selection is an explicit graph for Flax NNX and Linen
+GroupNorm, and Equinox, Flax NNX, and Linen RMSNorm and LayerNorm. **Fixed
+comparative accuracy bounds currently cover only the selected LayerNorm cases
+below.** Equivalent GroupNorm and RMSNorm bounds have yet to be established,
+so the LayerNorm results must not be read as guarantees for those operators or
+for other models, inputs, or hardware.
 
-The LayerNorm accuracy bounds are locked in
-`tests/extra_tests/test_layer_norm_precision.py`, which is the source of truth.
-On float32 rows with massive activations (384 features, outlier channels up to
-1700), float32 outputs must stay within these maximum absolute errors on the
-ONNX Runtime CPU provider, with graph optimizations enabled or disabled:
+`normalization_mode="prefer_native"` requests a standard ONNX operator when
+the plugin can map the operation, the builder supports the operator, and the
+selected opset defines it: `LayerNormalization` from opset 17, fast-variance
+`GroupNormalization` from opset 21, and `RMSNormalization` from opset 23. The
+plugin falls back to its explicit graph when these conditions do not hold.
+This is a representation choice: export does not measure numerical error or
+fall back based on the `"auto"` accuracy limits. The selected native LayerNorm
+cases have their own, looser acceptance limits in the table below. Masks,
+distributed axis settings, unsupported reduction layouts, and some dtype
+configurations can bypass the specialized module plugin and trace framework
+operations instead.
 
-| Mode | LayerNorm variant | vs. float64 reference | vs. JAX |
-| --- | --- | --- | --- |
-| `auto`, `force_decomposed` | Equinox, Flax slow variance | 4.1e-6 | 3.9e-6 |
-| `auto`, `force_decomposed` | Flax fast variance (default) | 4.1e-6 | 5.8e-6 |
-| `prefer_native` | Equinox, Flax slow variance | 1.2e-5 | 1.2e-5 |
-| `prefer_native` | Flax fast variance (default) | 1.2e-5 | 1.4e-5 |
+Slow-variance GroupNorm remains explicit in every mode; native GroupNorm also
+requires a supported floating dtype and a shape without statically known empty
+dimensions. For symbolic dimensions that may become zero at runtime, select
+`normalization_mode="force_decomposed"`. That mode chooses the explicit
+primitive graph at export. Native operators can produce smaller graphs and may
+be accelerated by a runtime, but they can also produce larger numerical
+differences on high-offset or otherwise ill-conditioned inputs.
 
-The bounds were measured with ONNX Runtime 1.29 on an x86-64 CPU and rounded
-up to two significant digits; JAX itself is about 3e-6 from the float64
-reference on these rows.
+This choice controls the **exported graph**. A runtime may subsequently
+optimize or fuse that graph. The explicit LayerNorm and RMSNorm paths square
+with `Mul` instead of `Pow`; targeted tests check that ONNX Runtime does not
+re-fuse these patterns into its native normalization kernels with
+`ORT_ENABLE_ALL`. Other runtimes may rewrite the graphs differently. In the
+tested CPU environment, the native `LayerNormalization` path has larger errors
+on the selected rows with large outlier activations than the explicit graph.
+GPU measurements are supplementary to the CPU acceptance gate. ONNX
+`GroupNormalization` does not model Flax's negative-variance clamp or
+reduction order, and deep models may amplify normalization roundoff. Validate
+the chosen representation on representative inputs and the actual deployment
+runtime.
+
+The specialized explicit LayerNorm uses a two-pass variance for Equinox and
+Flax NNX with `use_fast_variance=False`. Its constant-row safeguard preserves
+exact centered zeros for constant rows when the computed mean is finite; the
+final affine bias still applies. Fast-variance Flax NNX and Linen LayerNorm
+instead follow the clamped `E[x²] - E[x]²` formula, which is sensitive to
+large offsets. Flax Linen LayerNorm with `use_fast_variance=False` traces the
+original JAX computation in every mode and does not use that constant-row
+safeguard. It is outside the fixed comparative limits below. The specialized
+explicit LayerNorm computes float16 and bfloat16 statistics in float32. The
+fixed comparisons below cover float32 inputs; validate other configurations
+for the model's inputs.
+
+### Scope of the fixed LayerNorm limits
+
+The [LayerNorm accuracy
+test](https://github.com/enpasos/jax2onnx/blob/main/tests/extra_tests/test_layer_norm_precision.py)
+exports at opset 23 and runs the same float32 inputs through ONNX Runtime's
+`CPUExecutionProvider` with `ORT_ENABLE_ALL` and `ORT_DISABLE_ALL`. It uses
+257 rows of 384 float32 features from `np.random.default_rng(0)`: standard
+normal samples with channel 7 shifted by +1700, channel 123 by -900, and
+channel 300 by +300 or -300 using the same generator. Epsilon is `1e-5`, with
+the tested modules' default unit scale and zero bias. JAX x64 is disabled for
+the tested functions; only the independent reference uses float64. The
+variants are Equinox LayerNorm, Flax NNX LayerNorm with slow or default fast
+variance, and Flax Linen LayerNorm with default fast variance. For each case,
+the test computes the **maximum absolute error over all outputs** against two
+separate comparators: an independent float64 two-pass LayerNorm reference and
+the corresponding JAX output. JAX parity therefore does not stand in for error
+against the float64 reference.
+
+The following values are **fixed acceptance limits**, not errors measured by a
+particular CI run. Both limits in each row must hold for both optimization
+settings:
+
+| Export mode | LayerNorm variant | Maximum error vs. float64 reference | Maximum error vs. JAX |
+| --- | --- | ---: | ---: |
+| `auto`, `force_decomposed` | Equinox, Flax NNX slow variance | 4.1e-6 | 3.9e-6 |
+| `auto`, `force_decomposed` | Flax NNX and Linen fast variance | 4.1e-6 | 5.8e-6 |
+| `prefer_native` | Equinox, Flax NNX slow variance | 1.2e-5 | 1.2e-5 |
+| `prefer_native` | Flax NNX and Linen fast variance | 1.2e-5 | 1.4e-5 |
+
+The [GroupNorm stability
+tests](https://github.com/enpasos/jax2onnx/blob/main/tests/extra_tests/test_group_norm_stability.py)
+and [RMSNorm policy
+tests](https://github.com/enpasos/jax2onnx/blob/main/tests/extra_tests/test_normalization_export_policy.py)
+use case-specific JAX parity tolerances: for example, representative float32
+GroupNorm cases use `rtol=atol=1e-5`; selected Equinox and NNX float32 RMSNorm
+cases use `rtol=atol=5e-5`; and the selected float16 RMSNorm cases use
+`rtol=atol=2e-3`. These checks do not compare against an independent float64
+reference and do not establish fixed comparative bounds for GroupNorm or
+RMSNorm.
+
+The limits were set from measurements with ONNX Runtime 1.29 on an AMD Ryzen 9
+9950X3D CPU using JAX 0.10.2 and 0.11.1, then rounded up to two significant
+digits. The current lockfile's CPU accuracy jobs target Python 3.12 with JAX
+and JAXLIB 0.10.2, Flax 0.12.8, and NumPy 2.4.6; and Python 3.13 with JAX and
+JAXLIB 0.11.2, Flax 0.12.10, and NumPy 2.5.3. Both use Equinox 0.13.8, ONNX
+1.23.0, ONNX IR 1.0.0, and ONNX Runtime 1.30.0. Each GitHub Actions accuracy
+job records its actual dependency versions, runner image, and CPU hardware in
+its job summary; use that record when interpreting a run. The CPU jobs are the
+authoritative numerical acceptance gate. Changes to limits, reference
+calculation, inputs, or test conditions require explicit justification and
+before/after evidence. Tests must never derive or rewrite their own acceptance
+bounds from the current run.
 
 The opset only selects the ONNX schema contract; it does not assert support in a
 particular runtime version. Validate the chosen `opset` and normalization mode

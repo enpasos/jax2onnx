@@ -3,20 +3,10 @@ name: CI
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'README.md'
-      - 'docs/**' 
-      - 'onnx/**' 
-      - 'AGENTS.md'
-      - 'work_notes**' 
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'README.md'
-      - 'docs/**' 
-      - 'onnx/**' 
-      - 'AGENTS.md'
-      - 'work_notes**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -138,14 +128,29 @@ jobs:
         {
           echo "### Normalization accuracy profile (Python ${{ matrix.python-version }})"
           echo '```'
+          echo "checked-out commit: $(git rev-parse HEAD)"
+          echo "event commit: ${GITHUB_SHA}"
           echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
           lscpu | grep -E '^(Model name|Architecture|CPU\(s\)|Flags):'
           poetry run python - <<'PY'
         from importlib.metadata import version
+        import platform
 
-        for package in ("jax", "jaxlib", "flax", "equinox", "onnx", "onnxruntime"):
+        import onnxruntime as ort
+
+        print(f"python=={platform.python_version()}")
+        for package in (
+            "numpy", "scipy", "jax", "jaxlib", "flax", "equinox",
+            "onnx", "onnx-ir", "onnxruntime",
+        ):
             print(f"{package}=={version(package)}")
+        print(f"onnxruntime available providers: {ort.get_available_providers()}")
         PY
+          echo 'gate: test_layer_norm_precision.py and test_cos_precision.py; JAX_PLATFORMS=cpu'
+          echo 'locked LayerNorm cases: eqx, nnx_slow, nnx_fast, linen; auto, force_decomposed, prefer_native'
+          echo 'locked LayerNorm input: float32 [257, 384], seed 0, epsilon 1e-5, ONNX opset 23'
+          echo 'locked LayerNorm runtime: CPUExecutionProvider; ORT_ENABLE_ALL and ORT_DISABLE_ALL'
+          echo 'locked comparisons: maximum absolute error versus independent two-pass float64 reference and JAX output'
           echo '```'
         } | tee -a "$GITHUB_STEP_SUMMARY"
 

@@ -51,17 +51,14 @@ single self-contained `.onnx` file instead of spilling large initializers into a
 - `input_params`: Runtime flags or keyword-like values that should stay model inputs instead of being baked into the export.
 - `return_mode`: `"proto"` for an `onnx.ModelProto`, `"ir"` for the intermediate `onnx_ir.Model`, or `"file"` to serialize directly to disk.
 - `export_mode`: `"standard"` for normal serialization, or `"web"` for single-file browser/WASM artifacts.
-- `normalization_mode`: Selection policy for GroupNorm and Equinox/Flax RMSNorm
-  and LayerNorm. `"auto"` (default) exports the representation with the best
-  reproducible accuracy, and uses a native ONNX operator only when it meets the
-  same locked accuracy bounds; currently this is the explicit graph that
-  reproduces the framework's statistics. `"prefer_native"` uses a standard ONNX normalization
-  operator (`LayerNormalization` from opset 17, `GroupNormalization` from 21,
-  `RMSNormalization` from 23) when the plugin's numerical constraints permit it,
-  otherwise falling back to the explicit graph; it gives smaller graphs that
-  runtimes can accelerate. `"force_decomposed"` always emits the explicit
-  primitive graph. See [Known Limitations](known_limitations.md) for the
-  precision trade-offs.
+- `normalization_mode`: Export representation for Flax NNX and Linen GroupNorm,
+  and Equinox, Flax NNX, and Linen RMSNorm and LayerNorm.
+  `"auto"` (default) follows the plugin's current accuracy selection;
+  `"prefer_native"` requests an eligible standard ONNX operator; and
+  `"force_decomposed"` emits the explicit primitive graph. See
+  [Normalization Representation](#normalization-representation) and
+  [Known Limitations](known_limitations.md) for the selection rules and tested
+  accuracy limits.
 - `enable_double_precision`: Temporarily enables x64 export and emits `tensor(double)` where appropriate.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
@@ -84,6 +81,36 @@ force_decomposed_model = to_onnx(
     normalization_mode="force_decomposed",
 )
 ```
+
+## Normalization Representation
+
+The `"auto"` policy has two steps: first, choose the implementation with the
+best reproducible accuracy in a defined test environment and fix its
+acceptance bounds; then prefer a native operator if it can replace that choice
+while meeting the same bounds. This is a release qualification policy;
+`to_onnx` does not benchmark each model. The current selection is an explicit
+graph for Flax NNX and Linen GroupNorm, and Equinox, Flax NNX, and Linen
+RMSNorm and LayerNorm. Fixed comparative bounds currently cover selected
+float32 LayerNorm cases on ONNX Runtime CPU; equivalent bounds for GroupNorm
+and RMSNorm have not yet been established.
+
+`"prefer_native"` requests `LayerNormalization` at opset 17+, fast-variance
+`GroupNormalization` at opset 21+, or `RMSNormalization` at opset 23+ when the
+plugin can map the operation and the ONNX builder supports it. Ineligible
+cases use the explicit graph, including slow-variance GroupNorm, statically
+empty GroupNorm shapes, and requests below the relevant opset. Linen LayerNorm
+with `use_fast_variance=False` traces the original JAX computation in every
+mode. Native eligibility does not include a per-model accuracy check; The
+selected native LayerNorm cases are tested against separate, looser limits
+than `"auto"`, as documented in Known Limitations. Native operators can yield
+smaller graphs but may have different runtime precision.
+
+`"force_decomposed"` explicitly chooses the primitive graph at export. Runtime
+graph optimization happens after export and may rewrite either graph; the
+tested ONNX Runtime configuration preserves the explicit LayerNorm and RMSNorm
+paths covered by the tests. See [Known
+Limitations](known_limitations.md#scope-of-the-fixed-layernorm-limits) for the
+fixed LayerNorm acceptance limits, test conditions, and deployment guidance.
 
 ## Browser/WASM Validation
 

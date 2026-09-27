@@ -541,18 +541,22 @@ def to_onnx(
             browser/WASM deployment via `onnxruntime-web`. This only affects
             `return_mode="file"`; `"proto"` and `"ir"` return values are unchanged.
         normalization_mode: Export policy for normalization plugins that offer
-            both native ONNX operators and decomposed forms. `"auto"` (default)
-            exports the representation with the best reproducible accuracy and
-            uses a native ONNX operator only when it meets the same locked
-            accuracy bounds; currently this is the explicit graph, which
-            reproduces the framework's own statistics.
-            `"prefer_native"` uses a standard ONNX normalization operator when
-            the selected opset and the plugin's numerical constraints permit it
-            (`LayerNormalization` from opset 17, `GroupNormalization` from 21,
-            `RMSNormalization` from 23), otherwise falling back to the explicit
-            graph. `"force_decomposed"` always emits the explicit primitive
-            graph. Currently this policy applies to GroupNorm and to
-            Equinox/Flax RMSNorm and LayerNorm exports.
+            both native ONNX operators and explicit graphs. `"auto"` (default)
+            follows a two-step policy: choose the most reproducibly accurate
+            implementation in a defined test environment and fix its acceptance
+            bounds; then permit a native replacement only if it meets those
+            bounds. Export does not benchmark each model. The current selection
+            is explicit for Flax NNX and Linen GroupNorm, and Equinox, Flax
+            NNX, and Linen RMSNorm and LayerNorm. Fixed
+            comparative bounds currently cover selected LayerNorm cases,
+            not GroupNorm or RMSNorm. `"prefer_native"` requests a native operator
+            when eligible (`LayerNormalization` from opset 17, fast-variance
+            `GroupNormalization` from 21, `RMSNormalization` from 23), falling
+            back to the explicit graph otherwise. Eligibility is determined
+            by the plugin and opset, without a per-model accuracy check. Linen
+            LayerNorm with use_fast_variance=False traces JAX in every mode.
+            `"force_decomposed"` selects the explicit graph. Runtime graph optimization is separate from
+            the exported representation. See the user guide for tested limits.
 
     Returns:
         * If `return_mode="proto"` (default): Returns an `onnx.ModelProto` object.
