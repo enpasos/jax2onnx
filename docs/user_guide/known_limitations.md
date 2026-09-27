@@ -62,6 +62,17 @@ that roundoff. Use strict parity checks on representative, nonconstant inputs;
 for degenerate normalization inputs, also check finiteness and apply a tolerance
 specific to the model, dtype, and runtime.
 
+### Float64 cosine
+
+Float32 cosine uses native ONNX `Cos`. For float64, `jnp.cos` and `lax.cos`
+use the equivalent expression `1 - 2 * Sin(x / 2)²`. This supports older
+ONNX Runtime CPU versions without a double-precision `Cos` kernel and avoids
+losing the phase shift in `Sin(x + π/2)` for large arguments. The half-angle
+formula can lose relative accuracy near cosine zeros; its regression checks
+use an absolute tolerance of `2e-15` on selected finite float64 inputs, including
+large arguments. NaN and infinity retain their NaN cosine results. These checks
+cover ONNX Runtime CPU; validate the actual deployment provider separately.
+
 ### Normalization export policy
 
 `normalization_mode="auto"` follows a two-step policy. First, choose the
@@ -108,6 +119,13 @@ GPU measurements are supplementary to the CPU acceptance gate. ONNX
 reduction order, and deep models may amplify normalization roundoff. Validate
 the chosen representation on representative inputs and the actual deployment
 runtime.
+
+ONNX Runtime 1.30 adds AVX2 kernels for native float32 LayerNorm and RMSNorm.
+The LayerNorm kernel uses two-pass statistics on eligible x86 CPUs; native
+accuracy therefore depends on the CPU, runtime version, and normalized width.
+The selected native LayerNorm cases still exceed the explicit graph's stricter
+acceptance bounds below. To measure the model-specific latency and JAX parity
+tradeoff, use the [decoder benchmark](validation.md#decoder-normalization-benchmark).
 
 The specialized explicit LayerNorm uses a two-pass variance for Equinox and
 Flax NNX with `use_fast_variance=False`. Its constant-row safeguard preserves

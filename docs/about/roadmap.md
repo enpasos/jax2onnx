@@ -73,9 +73,23 @@
 * **Propagate nonfinite values through explicit normalization:** Slow-variance
   LayerNorm and GroupNorm no longer turn otherwise constant rows or groups
   containing NaN or infinity into zeros; they preserve JAX's nonfinite results.
-* **Export `jnp.cos` as `Cos` below float64:** Keep the `Sin(x + π/2)`
-  workaround only for float64, which ONNX Runtime's `Cos` kernel lacks, so
-  float32 rotary embeddings no longer lose accuracy to the shifted argument.
+* **Improve cosine accuracy across dtypes:** Export `jnp.cos` as native
+  `Cos` below float64 so float32 rotary embeddings avoid phase-shift error.
+  Float64 `jnp.cos` and `lax.cos` use `1 - 2 * Sin(x / 2)²`, avoiding the
+  large-angle error of `Sin(x + π/2)` while retaining compatibility with ONNX
+  Runtime 1.24.1, whose CPU kernels lack double-precision `Cos`. Regression
+  tests cover large arguments, cosine zeros, nonfinite values, and symbolic
+  shapes with runtime optimizations enabled and disabled.
+* **Preserve FP16 matrix-product types:** Keep the actual operand dtype on
+  `jnp.matmul` and `jnp.dot` outputs, and cast operands when an explicit
+  `preferred_element_type` requests wider accumulation. Add CPU runtime
+  checks for matrix products, NNX Linear, and bias-plus-GELU with static and
+  dynamic batches, including ONNX Runtime's FP32 fallback for FP16 operations.
+* **Measure decoder normalization tradeoffs:** Add a reproducible CPU benchmark
+  comparing `auto` and `prefer_native` on identical tiny-decoder weights and
+  inputs, with static and symbolic exports, JAX parity, optimized operator
+  counts, and runtime/hardware metadata. Update the native-kernel description
+  for ONNX Runtime 1.30's AVX2 implementation; retain the fixed accuracy gates.
 * **Guard normalization accuracy in CI:** Add CPU checks on Python 3.12/JAX
   0.10 and Python 3.13/JAX 0.11 with fixed accuracy bounds for selected
   LayerNorm and cosine cases; add BF16 capability coverage and static/dynamic
@@ -85,8 +99,8 @@
 * **Refresh locked Python dependencies:** Keep JAX/JAXLIB 0.10.2 and Flax
   0.12.8 for Python 3.11/3.12, and resolve JAX/JAXLIB 0.11.2 and Flax
   0.12.10 for Python 3.13+; update ONNX to 1.23.0 and ONNX Runtime to 1.30.0.
-  The dependency guide now separates latest upstream releases from the
-  `onnxruntime-web` 1.29.0 lock used in smoke tests.
+  Update the Web/WASM smoke-test lock to `onnxruntime-web` 1.30.0 as well;
+  preserve the supported Python runtime minimum of ONNX Runtime 1.24.1.
 * **Update test, documentation, and CI tools:** Upgrade optional test Torch to
   2.13.0, mkdocstrings to 1.0.6 while dropping the direct Griffe bound, and
   the resolved Ruff to 0.16.9; update Ruff pre-commit to 0.16.5 and

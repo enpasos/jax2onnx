@@ -1,5 +1,29 @@
 # Past Versions
 
+- **0.17.0**: Selected explicit normalization graphs for `normalization_mode="auto"`
+  based on the documented accuracy policy, with fixed CPU acceptance bounds for
+  selected float32 LayerNorm cases; added precision-faithful Equinox and Flax
+  LayerNorm exports, native Equinox RMSNorm in `prefer_native` mode, and
+  nonfinite-value handling for explicit normalization; kept the checked explicit
+  LayerNorm/RMSNorm graphs explicit under ONNX Runtime CPU optimizations;
+  preserved transposed-convolution geometry across JAX, Equinox, and Flax NNX;
+  made GELU emission opset-aware; and restored JIT and gradient export on JAX
+  0.11.1/0.11.2, including the stable `one_minus_square` lowering.
+  Improved cosine accuracy with native `Cos` below float64 and the compatible
+  `1 - 2 * Sin(x / 2)²` identity for float64 `jnp.cos` and `lax.cos`, avoiding
+  large-angle phase-shift error while supporting ONNX Runtime 1.24.1.
+  Fixed FP16 output types for `jnp.matmul` and `jnp.dot`, honored explicit
+  `preferred_element_type` requests by casting operands, and added static and
+  dynamic CPU checks for matrix products, NNX Linear, and bias-plus-GELU.
+  Added a reproducible tiny-decoder benchmark comparing `auto` and
+  `prefer_native` latency, JAX parity, and runtime graph fusion; updated native
+  normalization guidance for ONNX Runtime 1.30's AVX2 kernels.
+  Refreshed ONNX to 1.23.0 and ONNX Runtime/Web to 1.30.0, retained both supported
+  JAX/Flax stacks and the ONNX Runtime 1.24.1 minimum, and validated Node.js and
+  Chromium WASM execution. Expanded minimum-version CI with cosine and FP16
+  regressions; enabled CI for documentation changes and release tags; and
+  recorded dependency versions, runner image, CPU hardware, and tested commits
+  for the normalization accuracy jobs.
 - **0.16.0**: Hardened the `onnx-ir` integration against 1.0.0 while retaining
   the declared `onnx-ir>=0.2.1` floor by replacing the private tape builder with
   a local adapter over public `onnx_ir.tape.Tape`, prohibiting private imports,

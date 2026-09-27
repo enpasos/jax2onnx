@@ -97,7 +97,9 @@ jobs:
           tests/extra_tests/framework/test_minimum_dependency_installer.py \
           tests/extra_tests/framework/test_onnx_ir_surface.py \
           tests/primitives/test_linen.py \
-          tests/extra_tests/test_bfloat16_capability_matrix.py
+          tests/extra_tests/test_bfloat16_capability_matrix.py \
+          tests/extra_tests/test_cos_precision.py \
+          tests/extra_tests/test_float16_cpu_inference.py
 
   normalization-accuracy:
     name: normalization accuracy (Python ${{ matrix.python-version }})

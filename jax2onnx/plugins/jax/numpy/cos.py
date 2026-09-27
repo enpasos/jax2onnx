@@ -16,6 +16,7 @@ from onnx_ir import TensorType
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
@@ -82,7 +83,7 @@ _COS_PRIM: Final = make_jnp_primitive("jax.numpy.cos")
             "expected_output_dtypes": [np.float64],
             "run_only_f64_variant": True,
             "post_check_onnx_graph": EG(
-                ["Add:3 -> Sin:3"],
+                ["Mul:3 -> Sin:3 -> Mul:3 -> Mul:3 -> Sub:3"],
                 must_absent=["Cos"],
                 no_unused_inputs=True,
             ),
@@ -139,20 +140,30 @@ class JnpCosPlugin(PrimitiveLeafPlugin):
             desired_name = ctx.fresh_name("jnp_cos_out")
 
         if out_dtype == np.float64:
-            # ONNX Runtime has no float64 Cos kernel; use cos(x) = sin(x + pi/2).
-            # Lower precisions keep Cos: the shifted argument would lose accuracy.
-            pi_over_two = ctx.bind_const_for_var(
-                object(),
-                np.asarray(np.pi / 2, dtype=out_dtype),
+            # Keep compatibility with older ORT CPU kernels using
+            # cos(x) = 1 - 2*sin(x/2)**2. Scaling by 1/2 avoids the large-angle
+            # phase loss of sin(x + pi/2). Near cosine zeros, cancellation limits
+            # relative accuracy; the absolute error remains small.
+            half = ctx.bind_const_for_var(object(), np.asarray(0.5, dtype=out_dtype))
+            two = ctx.bind_const_for_var(object(), np.asarray(2.0, dtype=out_dtype))
+            one = ctx.bind_const_for_var(object(), np.asarray(1.0, dtype=out_dtype))
+            half_x = ctx.builder.Mul(
+                op_input, half, _outputs=[ctx.fresh_name("jnp_cos_half_x")]
             )
-            shifted = ctx.builder.Add(
-                op_input,
-                pi_over_two,
-                _outputs=[ctx.fresh_name("jnp_cos_shifted")],
+            sin_half = ctx.builder.Sin(
+                half_x, _outputs=[ctx.fresh_name("jnp_cos_sin_half")]
             )
-            shifted.type = op_input.type
-            shifted.shape = op_input.shape
-            result = ctx.builder.Sin(shifted, _outputs=[desired_name])
+            squared = ctx.builder.Mul(
+                sin_half, sin_half, _outputs=[ctx.fresh_name("jnp_cos_sin_squared")]
+            )
+            twice_squared = ctx.builder.Mul(
+                squared, two, _outputs=[ctx.fresh_name("jnp_cos_twice_sin_squared")]
+            )
+            result = ctx.builder.Sub(one, twice_squared, _outputs=[desired_name])
+            for value in (half_x, sin_half, squared, twice_squared, result):
+                value.type = op_input.type
+                _stamp_type_and_shape(value, getattr(out_var.aval, "shape", ()))
+                _ensure_value_metadata(ctx, value)
         else:
             result = ctx.builder.Cos(op_input, _outputs=[desired_name])
 

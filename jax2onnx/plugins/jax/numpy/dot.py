@@ -16,6 +16,8 @@ import onnx_ir as ir
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.ir_utils import numpy_dtype_to_ir
+from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -123,6 +125,17 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
         if builder is None:
             raise AttributeError("IR build context missing builder for dot lowering")
 
+        if eqn.params.get("preferred_element_type") is not None:
+            # ONNX MatMul has a single dtype for inputs and output, so a JAX
+            # request for wider accumulation must promote both operands.
+            target_dtype = numpy_dtype_to_ir(out_var.aval.dtype)
+            a_val = cast_real_tensor(
+                ctx, a_val, target_dtype, name_hint="matmul_a_cast"
+            )
+            b_val = cast_real_tensor(
+                ctx, b_val, target_dtype, name_hint="matmul_b_cast"
+            )
+
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("MatMul")
         result = builder.MatMul(
             a_val,
@@ -130,13 +143,14 @@ class JnpDotPlugin(PrimitiveLeafPlugin):
             _outputs=[out_name],
         )
 
-        out_type = getattr(out_spec, "type", None)
-        if out_type is not None:
-            result.type = out_type
-        else:
-            a_dtype = getattr(getattr(a_val, "type", None), "dtype", None)
-            if a_dtype is not None:
-                result.type = ir.TensorType(a_dtype)
+        # MatMul preserves its operands' dtype. The context's output
+        # placeholder may use the default float32 policy for float16 avals.
+        # Reusing it would make an otherwise valid FP16 graph inconsistent.
+        a_dtype = a_val.dtype
+        if a_dtype is not None:
+            result.type = ir.TensorType(a_dtype)
+        elif out_spec.type is not None:
+            result.type = out_spec.type
 
         out_shape = tuple(getattr(getattr(out_var, "aval", None), "shape", ()))
         _stamp_type_and_shape(result, out_shape)
