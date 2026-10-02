@@ -7,6 +7,6 @@
   },
   "devDependencies": {
     "onnxruntime-web": "^1.30.0",
-    "playwright": "^1.62.1"
+    "playwright": "^1.63.0"
   }
 }
