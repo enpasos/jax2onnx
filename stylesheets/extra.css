@@ -1,0 +1,150 @@
+/* Custom column widths for coverage tables */
+.coverage-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.coverage-table table th,
+.coverage-table table td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.coverage-table table th:nth-child(1),
+.coverage-table table td:nth-child(1) {
+  width: 25%;
+}
+
+.coverage-table table th:nth-child(2),
+.coverage-table table td:nth-child(2) {
+  width: 10%;
+}
+
+.coverage-table table th:nth-child(3),
+.coverage-table table td:nth-child(3) {
+  width: 60%;
+}
+
+.coverage-table table th:nth-child(4),
+.coverage-table table td:nth-child(4) {
+  width: 5%;
+}
+
+/* Custom column widths for examples tables */
+.examples-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.examples-table table th,
+.examples-table table td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.examples-table table th:nth-child(1),
+.examples-table table td:nth-child(1) {
+  width: 20%;
+}
+
+.examples-table table th:nth-child(2),
+.examples-table table td:nth-child(2) {
+  width: 20%;
+}
+
+.examples-table table th:nth-child(3),
+.examples-table table td:nth-child(3) {
+  width: 50%;
+}
+
+.examples-table table th:nth-child(4),
+.examples-table table td:nth-child(4) {
+  width: 10%;
+}
+
+/* ONNX operator coverage matrix */
+.onnx-operator-coverage-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.onnx-operator-coverage-table table th,
+.onnx-operator-coverage-table table td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.onnx-operator-coverage-table table th:nth-child(1),
+.onnx-operator-coverage-table table td:nth-child(1) {
+  width: 12%;
+}
+
+.onnx-operator-coverage-table table th:nth-child(2),
+.onnx-operator-coverage-table table td:nth-child(2),
+.onnx-operator-coverage-table table th:nth-child(3),
+.onnx-operator-coverage-table table td:nth-child(3),
+.onnx-operator-coverage-table table th:nth-child(4),
+.onnx-operator-coverage-table table td:nth-child(4) {
+  width: 6%;
+}
+
+.onnx-operator-coverage-table table th:nth-child(5),
+.onnx-operator-coverage-table table td:nth-child(5) {
+  width: 22%;
+}
+
+.onnx-operator-coverage-table table th:nth-child(6),
+.onnx-operator-coverage-table table td:nth-child(6) {
+  width: 22%;
+}
+
+.onnx-operator-coverage-table table th:nth-child(7),
+.onnx-operator-coverage-table table td:nth-child(7) {
+  width: 26%;
+}
+
+.onnx-operator-extra-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.onnx-operator-extra-table table th,
+.onnx-operator-extra-table table td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.onnx-operator-extra-table table th:nth-child(1),
+.onnx-operator-extra-table table td:nth-child(1) {
+  width: 14%;
+}
+
+.onnx-operator-extra-table table th:nth-child(2),
+.onnx-operator-extra-table table td:nth-child(2),
+.onnx-operator-extra-table table th:nth-child(3),
+.onnx-operator-extra-table table td:nth-child(3) {
+  width: 6%;
+}
+
+.onnx-operator-extra-table table th:nth-child(4),
+.onnx-operator-extra-table table td:nth-child(4) {
+  width: 22%;
+}
+
+.onnx-operator-extra-table table th:nth-child(5),
+.onnx-operator-extra-table table td:nth-child(5) {
+  width: 22%;
+}
+
+.onnx-operator-extra-table table th:nth-child(6),
+.onnx-operator-extra-table table td:nth-child(6) {
+  width: 30%;
+}
