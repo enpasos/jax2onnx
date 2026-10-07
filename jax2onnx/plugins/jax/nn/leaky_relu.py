@@ -131,7 +131,11 @@ class LeakyReluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.leaky_relu not found")
-            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
+            def _patched(x: ArrayLike, negative_slope: float = 0.01) -> ArrayLike:
+                return cls._PRIM.bind(x, negative_slope=negative_slope)
+
+            return _patched
 
         return [
             AssignSpec("jax.nn", "leaky_relu_p", cls._PRIM, delete_if_missing=True),

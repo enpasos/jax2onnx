@@ -16,6 +16,19 @@
   published upstream APIs before claiming them as supported.
 
 
+## Upcoming Version
+
+### **jax2onnx 0.17.1**
+
+* **Fix activation argument binding:** Preserve positional and keyword scalar
+  options for JAX and Flax Linen GELU, ELU, CELU, and LeakyReLU exports. This restores
+  Keras GELU export with its JAX backend and prevents positional CELU `alpha`
+  from silently falling back to the default value. See
+  [issue #270](https://github.com/enpasos/jax2onnx/issues/270).
+
+
+
+
 
 ## Current Version
 

@@ -368,48 +368,135 @@ def test_explicit_layer_norm_float16_computes_statistics_in_float32() -> None:
     np.testing.assert_allclose(actual, expected, rtol=2e-3, atol=2e-3)
 
 
-def _reduce_mean_input_dtypes(model: onnx.ModelProto) -> list[int]:
-    """Dtype of the tensor fed to each ``ReduceMean``, in graph order."""
-    elem_types = {
-        value_info.name: value_info.type.tensor_type.elem_type
-        for value_info in (
-            list(model.graph.input)
-            + list(model.graph.value_info)
-            + list(model.graph.output)
-        )
-        if value_info.type.tensor_type.elem_type
-    }
-    elem_types.update(
-        (initializer.name, initializer.data_type)
-        for initializer in model.graph.initializer
-    )
-    return [
-        elem_types.get(node.input[0], TensorProto.UNDEFINED)
-        for node in _iter_nodes(model)
-        if node.op_type == "ReduceMean"
-    ]
-
-
 @pytest.mark.parametrize(
-    "make_fn",
-    [lambda: _eqx_ln(384), lambda: _nnx_ln(384, fast=False)],
-    ids=["eqx", "nnx_slow_variance"],
+    ("framework", "input_dtype", "use_fast_variance"),
+    [
+        ("eqx", "float32", False),
+        ("nnx", "float32", False),
+        ("nnx", "float32", True),
+        ("eqx", "float16", False),
+        ("eqx", "bfloat16", False),
+        ("nnx", "float16", False),
+        ("nnx", "bfloat16", False),
+        ("eqx", "float64", False),
+        ("nnx", "float64", False),
+    ],
+    ids=[
+        "eqx_fp32",
+        "nnx_slow_fp32",
+        "nnx_fast_fp32",
+        "eqx_fp16",
+        "eqx_bf16",
+        "nnx_fp16",
+        "nnx_bf16",
+        "eqx_fp64",
+        "nnx_fp64",
+    ],
 )
-def test_slow_variance_layer_norm_accumulates_float32_in_float64(
-    make_fn: Callable[[], Callable[[jax.Array], jax.Array]],
+@pytest.mark.parametrize(
+    ("opset", "normalization_mode"),
+    [(16, "auto"), (23, "force_decomposed")],
+)
+def test_explicit_layer_norm_variance_accumulation_precision(
+    framework: str,
+    input_dtype: str,
+    use_fast_variance: bool,
+    opset: int,
+    normalization_mode: str,
 ) -> None:
-    """The float32 variance reduction accumulates in float64 and rounds back.
+    enable_x64 = input_dtype == "float64"
+    jax.config.update("jax_enable_x64", enable_x64)
+    dtype = jnp.dtype(input_dtype)
+    fn: Callable[[jax.Array], jax.Array]
+    if framework == "eqx":
+        fn = _eqx_ln(8)
+    else:
+        # Match both dtypes: NNX otherwise casts the input to param_dtype before
+        # lowering, which would accidentally exercise the FP32 path.
+        fn = nnx.LayerNorm(
+            8,
+            epsilon=1e-5,
+            dtype=dtype,
+            param_dtype=dtype,
+            use_fast_variance=use_fast_variance,
+            rngs=nnx.Rngs(0),
+        )
+    x = jnp.arange(24, dtype=dtype).reshape(3, 8) / jnp.asarray(7, dtype=dtype)
 
-    ``ReduceMean`` inputs are ``[mean, variance]``: the mean stays float32, the
-    variance is widened to float64, and the exported result returns to float32.
-    """
-    fn = make_fn()
-    x = np.asarray(jax.random.normal(jax.random.PRNGKey(5), (9, 384)), np.float32)
+    model = to_onnx(
+        fn,
+        [x],
+        opset=opset,
+        normalization_mode=normalization_mode,
+        enable_double_precision=enable_x64,
+    )
+    assert bool(jax.config.read("jax_enable_x64")) == enable_x64
+    onnx.checker.check_model(model, full_check=True)
+    model = onnx.shape_inference.infer_shapes(model, strict_mode=True)
+    graph = model.graph
+    value_types = {
+        value.name: value.type.tensor_type.elem_type
+        for value in [*graph.input, *graph.value_info, *graph.output]
+    }
+    producers = {output: node for node in graph.node for output in node.output}
+    expected_io_type = {
+        "float16": TensorProto.FLOAT16,
+        "bfloat16": TensorProto.BFLOAT16,
+        "float32": TensorProto.FLOAT,
+        "float64": TensorProto.DOUBLE,
+    }[input_dtype]
+    assert value_types[graph.input[0].name] == expected_io_type
+    assert value_types[graph.output[0].name] == expected_io_type
 
-    model = to_onnx(fn, [x], opset=23, normalization_mode="auto")
+    reductions = [node for node in graph.node if node.op_type == "ReduceMean"]
+    mean, variance = reductions
+    stats_type = TensorProto.DOUBLE if enable_x64 else TensorProto.FLOAT
+    assert value_types[mean.input[0]] == stats_type
+    assert value_types[mean.output[0]] == stats_type
+    widen_variance = input_dtype == "float32" and not use_fast_variance
+    variance_type = TensorProto.DOUBLE if widen_variance else stats_type
+    assert value_types[variance.input[0]] == variance_type
+    assert value_types[variance.output[0]] == variance_type
 
-    assert _reduce_mean_input_dtypes(model) == [TensorProto.FLOAT, TensorProto.DOUBLE]
-    assert model.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
+    if widen_variance:
+        widened = producers[variance.input[0]]
+        assert widened.op_type == "Cast"
+        assert (
+            helper.get_attribute_value(
+                next(attr for attr in widened.attribute if attr.name == "to")
+            )
+            == TensorProto.DOUBLE
+        )
+        squared = producers[widened.input[0]]
+        assert squared.op_type == "Mul"
+        assert squared.input[0] == squared.input[1]
+        assert value_types[squared.input[0]] == TensorProto.FLOAT
+        assert value_types[squared.output[0]] == TensorProto.FLOAT
+        # Check the edge itself, rather than merely counting a FLOAT Cast that
+        # might instead belong to parameters or another part of the graph.
+        (cast_back,) = [
+            node
+            for node in graph.node
+            if node.op_type == "Cast" and node.input[0] == variance.output[0]
+        ]
+        assert (
+            helper.get_attribute_value(
+                next(attr for attr in cast_back.attribute if attr.name == "to")
+            )
+            == TensorProto.FLOAT
+        )
+        assert value_types[cast_back.output[0]] == TensorProto.FLOAT
+    elif not enable_x64:
+        assert TensorProto.DOUBLE not in value_types.values()
+        assert all(
+            tensor.data_type != TensorProto.DOUBLE for tensor in graph.initializer
+        )
+
+    # Centering, squaring, epsilon and normalization use the statistics dtype;
+    # the DOUBLE reduction must not widen the rest of an FP32 normalization.
+    for node in graph.node:
+        if node.op_type in {"Sub", "Mul", "Where", "Add", "Sqrt", "Div"}:
+            assert all(value_types[output] == stats_type for output in node.output)
 
 
 def test_explicit_layer_norm_inside_loop_below_opset_17() -> None:
