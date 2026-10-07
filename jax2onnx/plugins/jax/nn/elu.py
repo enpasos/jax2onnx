@@ -126,7 +126,11 @@ class EluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.elu not found")
-            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
+            def _patched(x: ArrayLike, alpha: float = 1.0) -> ArrayLike:
+                return cls._PRIM.bind(x, alpha=alpha)
+
+            return _patched
 
         return [
             AssignSpec("jax.nn", "elu_p", cls._PRIM, delete_if_missing=True),
