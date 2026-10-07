@@ -101,7 +101,8 @@ def lower_explicit_layer_norm(
     stats_np_dtype = ir_dtype_to_numpy(stats_dtype, default=None)
     if stats_np_dtype is None:
         raise TypeError(f"unsupported LayerNorm dtype {x_dtype}")
-    # Float32 inputs widen the slow-variance reduction to float64.
+    # Float32 slow-variance statistics accumulate in float64, making the exported
+    # reduction order-independent. Costs two Casts; fast variance is unchanged.
     variance_accum_dtype = ir.DataType.DOUBLE if x_dtype is ir.DataType.FLOAT else None
 
     def stamp(

@@ -368,6 +368,50 @@ def test_explicit_layer_norm_float16_computes_statistics_in_float32() -> None:
     np.testing.assert_allclose(actual, expected, rtol=2e-3, atol=2e-3)
 
 
+def _reduce_mean_input_dtypes(model: onnx.ModelProto) -> list[int]:
+    """Dtype of the tensor fed to each ``ReduceMean``, in graph order."""
+    elem_types = {
+        value_info.name: value_info.type.tensor_type.elem_type
+        for value_info in (
+            list(model.graph.input)
+            + list(model.graph.value_info)
+            + list(model.graph.output)
+        )
+        if value_info.type.tensor_type.elem_type
+    }
+    elem_types.update(
+        (initializer.name, initializer.data_type)
+        for initializer in model.graph.initializer
+    )
+    return [
+        elem_types.get(node.input[0], TensorProto.UNDEFINED)
+        for node in _iter_nodes(model)
+        if node.op_type == "ReduceMean"
+    ]
+
+
+@pytest.mark.parametrize(
+    "make_fn",
+    [lambda: _eqx_ln(384), lambda: _nnx_ln(384, fast=False)],
+    ids=["eqx", "nnx_slow_variance"],
+)
+def test_slow_variance_layer_norm_accumulates_float32_in_float64(
+    make_fn: Callable[[], Callable[[jax.Array], jax.Array]],
+) -> None:
+    """The float32 variance reduction accumulates in float64 and rounds back.
+
+    ``ReduceMean`` inputs are ``[mean, variance]``: the mean stays float32, the
+    variance is widened to float64, and the exported result returns to float32.
+    """
+    fn = make_fn()
+    x = np.asarray(jax.random.normal(jax.random.PRNGKey(5), (9, 384)), np.float32)
+
+    model = to_onnx(fn, [x], opset=23, normalization_mode="auto")
+
+    assert _reduce_mean_input_dtypes(model) == [TensorProto.FLOAT, TensorProto.DOUBLE]
+    assert model.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
+
+
 def test_explicit_layer_norm_inside_loop_below_opset_17() -> None:
     layer = eqx.nn.LayerNorm(16, eps=1e-5)
 
