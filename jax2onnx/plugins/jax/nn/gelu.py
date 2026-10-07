@@ -236,7 +236,11 @@ class GeluPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.gelu not found")
-            return lambda *args, **kwargs: cls._PRIM.bind(*args, **kwargs)
+
+            def _patched(x: ArrayLike, approximate: bool = True) -> ArrayLike:
+                return cls._PRIM.bind(x, approximate=approximate)
+
+            return _patched
 
         return [
             AssignSpec("jax.nn", "gelu_p", cls._PRIM, delete_if_missing=True),

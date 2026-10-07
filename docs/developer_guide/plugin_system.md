@@ -164,6 +164,13 @@ Patch rules:
 
 - Patches must be scoped. They are applied only while tracing and restored on
   exit.
+- Preserve the public function's positional and keyword calling conventions.
+  Bind tensor arguments as primitive operands and static options as named
+  parameters. For example, a GELU wrapper with signature
+  `wrapper(x, approximate=True)` must call
+  `primitive.bind(x, approximate=approximate)` even when the caller passes
+  `approximate` positionally; forwarding both values as operands changes the
+  primitive's arity and loses the requested option during lowering.
 - The wrapper must call the original implementation for unsupported modes, not
   silently lower an unsupported case.
 - Do not seed, allocate modules, or capture mutable state inside the patch
