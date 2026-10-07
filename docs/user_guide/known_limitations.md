@@ -135,7 +135,13 @@ instead follow the clamped `E[x²] - E[x]²` formula, which is sensitive to
 large offsets. Flax Linen LayerNorm with `use_fast_variance=False` traces the
 original JAX computation in every mode and does not use that constant-row
 safeguard. It is outside the fixed comparative limits below. The specialized
-explicit LayerNorm computes float16 and bfloat16 statistics in float32. The
+explicit LayerNorm computes float16 and bfloat16 statistics in float32. For
+float32 inputs, only the slow-variance reduction accumulates the float32 squared
+centered values in float64, then rounds the variance back to float32; the mean,
+centering, squares, epsilon, normalization, and affine math remain float32.
+Float64 inputs retain native float64 statistics, and fast variance is unchanged.
+Widening this accumulation improves accuracy portability across runtime
+reduction orders; it does not guarantee identical results across runtimes. The
 fixed comparisons below cover float32 inputs; validate other configurations
 for the model's inputs.
 
@@ -149,7 +155,7 @@ exports at opset 23 and runs the same float32 inputs through ONNX Runtime's
 normal samples with channel 7 shifted by +1700, channel 123 by -900, and
 channel 300 by +300 or -300 using the same generator. Epsilon is `1e-5`, with
 the tested modules' default unit scale and zero bias. JAX x64 is disabled for
-the tested functions; only the independent reference uses float64. The
+the tested functions; the independent reference uses float64. The
 variants are Equinox LayerNorm, Flax NNX LayerNorm with slow or default fast
 variance, and Flax Linen LayerNorm with default fast variance. For each case,
 the test computes the **maximum absolute error over all outputs** against two

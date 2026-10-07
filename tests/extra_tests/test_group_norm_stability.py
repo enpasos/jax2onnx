@@ -155,10 +155,43 @@ def test_flax_slow_group_norm_is_exactly_centered(
 def test_vmapped_equinox_group_norm_keeps_batches_independent() -> None:
     norm = eqx.nn.GroupNorm(groups=4, channels=4)
     fn = jax.vmap(norm)
-    x = jnp.stack([_constant_nchw(), _constant_nchw() + jnp.float32(0.25)])
+    constant_samples = (
+        _constant_nchw(),
+        _constant_nchw() + jnp.float32(0.25),
+    )
+    rng = np.random.default_rng(12)
+    nonconstant_samples = tuple(
+        jnp.asarray(
+            rng.normal(loc=offset, scale=scale, size=(4, 32, 32)).astype(np.float32)
+        )
+        for offset, scale in ((-2.0, 0.5), (3.0, 2.0))
+    )
 
-    model, actual = _convert_and_run(fn, x, opset=23)
-    _assert_explicit_stable_result(model, actual, np.asarray(fn(x)))
+    for samples, constant in ((constant_samples, True), (nonconstant_samples, False)):
+        _, actual = _convert_and_run(fn, jnp.stack(samples), opset=23)
+        independent_outputs = []
+        for sample in samples:
+            _, independent = _convert_and_run(norm, sample, opset=23)
+            independent_outputs.append(independent)
+            if constant:
+                # Unit scale and zero bias give exact zeros mathematically;
+                # native JAX reductions may leave a floating-point residual.
+                np.testing.assert_array_equal(independent, np.zeros_like(independent))
+            else:
+                np.testing.assert_allclose(
+                    independent, np.asarray(norm(sample)), rtol=1e-5, atol=1e-5
+                )
+        if constant:
+            np.testing.assert_array_equal(actual, np.zeros_like(actual))
+        else:
+            np.testing.assert_allclose(
+                actual, np.asarray(fn(jnp.stack(samples))), rtol=1e-5, atol=1e-5
+            )
+        # Each mapped sample must agree with its separately exported runtime
+        # result, without depending on the other sample's offset or variance.
+        np.testing.assert_allclose(
+            actual, np.stack(independent_outputs), rtol=1e-5, atol=1e-5
+        )
 
 
 @pytest.mark.parametrize("opset", [18, 23])

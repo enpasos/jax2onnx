@@ -204,7 +204,42 @@ def lower_explicit_layer_norm(
             builder.Mul(centered, centered, _outputs=[ctx.fresh_name("ln_squared")]),
             dims,
         )
-        variance = reduce(squared, "ReduceMean", "ln_variance")
+        if x_dtype == ir.DataType.FLOAT:
+            # Widen only accumulation: centered values and squares remain float32.
+            squared_double = stamp(
+                cast(
+                    ir.Value,
+                    builder.Cast(
+                        squared,
+                        to=int(ir.DataType.DOUBLE.value),
+                        _outputs=[ctx.fresh_name("ln_squared_double")],
+                    ),
+                ),
+                dims,
+                ir.DataType.DOUBLE,
+            )
+            variance_double = stamp(
+                builder_reduce_with_axes(
+                    ctx,
+                    squared_double,
+                    op_type="ReduceMean",
+                    axes=reduce_axes,
+                    keepdims=1,
+                    name_hint="ln_variance_double",
+                ),
+                reduced_dims,
+                ir.DataType.DOUBLE,
+            )
+            variance = stats(
+                builder.Cast(
+                    variance_double,
+                    to=int(stats_dtype.value),
+                    _outputs=[ctx.fresh_name("ln_variance")],
+                ),
+                reduced_dims,
+            )
+        else:
+            variance = reduce(squared, "ReduceMean", "ln_variance")
 
     if clamp_negative_variance:
         variance = stats(
