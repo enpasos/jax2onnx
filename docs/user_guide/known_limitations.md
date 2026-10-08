@@ -154,7 +154,7 @@ exports at opset 23 and runs the same float32 inputs through ONNX Runtime's
 normal samples with channel 7 shifted by +1700, channel 123 by -900, and
 channel 300 by +300 or -300 using the same generator. Epsilon is `1e-5`, with
 the tested modules' default unit scale and zero bias. JAX x64 is disabled for
-the tested functions; only the independent reference uses float64. The
+the tested functions; the independent reference uses float64. The
 variants are Equinox LayerNorm, Flax NNX LayerNorm with slow or default fast
 variance, and Flax Linen LayerNorm with default fast variance. For each case,
 the test computes the **maximum absolute error over all outputs** against two
