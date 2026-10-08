@@ -101,6 +101,9 @@ def lower_explicit_layer_norm(
     stats_np_dtype = ir_dtype_to_numpy(stats_dtype, default=None)
     if stats_np_dtype is None:
         raise TypeError(f"unsupported LayerNorm dtype {x_dtype}")
+    # Float32 slow-variance reduction accumulates in float64 to reduce sensitivity
+    # to reduction order. Costs two Casts; fast variance is unchanged.
+    variance_accum_dtype = ir.DataType.DOUBLE if x_dtype is ir.DataType.FLOAT else None
 
     def stamp(
         value: ir.Value, value_dims: Sequence[Any], dtype: ir.DataType
@@ -116,7 +119,30 @@ def lower_explicit_layer_norm(
     def boolean(value: Any) -> ir.Value:
         return stamp(cast(ir.Value, value), reduced_dims, ir.DataType.BOOL)
 
-    def reduce(value: ir.Value, op_type: str, name_hint: str) -> ir.Value:
+    def cast_to(
+        value: ir.Value,
+        dtype: ir.DataType,
+        value_dims: Sequence[Any],
+        name_hint: str,
+    ) -> ir.Value:
+        return stamp(
+            cast(
+                ir.Value,
+                builder.Cast(
+                    value, to=int(dtype.value), _outputs=[ctx.fresh_name(name_hint)]
+                ),
+            ),
+            value_dims,
+            dtype,
+        )
+
+    def reduce_value(
+        value: ir.Value,
+        op_type: str,
+        name_hint: str,
+        dtype: ir.DataType | None = None,
+    ) -> ir.Value:
+        """Reduce ``value`` over ``reduce_axes`` and stamp the result."""
         out = builder_reduce_with_axes(
             ctx,
             value,
@@ -125,18 +151,29 @@ def lower_explicit_layer_norm(
             keepdims=1,
             name_hint=name_hint,
         )
-        return stats(out, reduced_dims)
+        return stamp(out, reduced_dims, dtype or stats_dtype)
+
+    def reduce(
+        value: ir.Value,
+        op_type: str,
+        name_hint: str,
+        accumulate_dtype: ir.DataType | None = None,
+    ) -> ir.Value:
+        """Reduce a ``dims``-shaped statistics tensor to ``reduced_dims``.
+
+        ``accumulate_dtype`` sets the dtype for the reduction. The return
+        value uses ``stats_dtype``.
+        """
+        if accumulate_dtype is None or accumulate_dtype == value.dtype:
+            return reduce_value(value, op_type, name_hint)
+        widened = f"{name_hint}_double"
+        wide_value = cast_to(value, accumulate_dtype, dims, widened)
+        wide_result = reduce_value(wide_value, op_type, widened, accumulate_dtype)
+        return cast_to(wide_result, stats_dtype, reduced_dims, name_hint)
 
     x = x_val
     if stats_dtype != x_dtype:
-        x = stats(
-            builder.Cast(
-                x_val,
-                to=int(stats_dtype.value),
-                _outputs=[ctx.fresh_name("ln_stats_input")],
-            ),
-            dims,
-        )
+        x = cast_to(x_val, stats_dtype, dims, "ln_stats_input")
 
     def scalar(value: float, name_hint: str) -> ir.Value:
         const = ctx.bind_const_for_var(
@@ -204,7 +241,12 @@ def lower_explicit_layer_norm(
             builder.Mul(centered, centered, _outputs=[ctx.fresh_name("ln_squared")]),
             dims,
         )
-        variance = reduce(squared, "ReduceMean", "ln_variance")
+        variance = reduce(
+            squared,
+            "ReduceMean",
+            "ln_variance",
+            accumulate_dtype=variance_accum_dtype,
+        )
 
     if clamp_negative_variance:
         variance = stats(
@@ -238,16 +280,5 @@ def lower_explicit_layer_norm(
         builder.Add(scaled, bias, _outputs=[ctx.fresh_name("LayerNorm")]), dims
     )
     if stats_dtype != x_dtype:
-        result = stamp(
-            cast(
-                ir.Value,
-                builder.Cast(
-                    result,
-                    to=int(x_dtype.value),
-                    _outputs=[ctx.fresh_name("LayerNorm")],
-                ),
-            ),
-            dims,
-            x_dtype,
-        )
+        result = cast_to(result, x_dtype, dims, "LayerNorm")
     return result
