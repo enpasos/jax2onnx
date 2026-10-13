@@ -43,14 +43,16 @@ Current order:
 7. `remove_identity_reshapes`
 8. `common_subexpression_elimination`
 9. `lift_constants_to_initializers`
-10. `rewrite_mul_rsqrt_as_div`
-11. `inline_dropout_training_mode_constants`
-12. `propagate_elementwise_shapes`
-13. `propagate_unary_shapes`
-14. `remove_redundant_casts_after_propagation`
-15. `remove_dead_nodes`
-16. `remove_orphan_transposes`
-17. `prune_unused_graph_inputs`
+10. `fold_conv_transpose_constant_bias`
+11. `rewrite_mul_sigmoid_as_swish`
+12. `rewrite_mul_rsqrt_as_div`
+13. `inline_dropout_training_mode_constants`
+14. `propagate_elementwise_shapes`
+15. `propagate_unary_shapes`
+16. `remove_redundant_casts_after_propagation`
+17. `remove_dead_nodes`
+18. `remove_orphan_transposes`
+19. `prune_unused_graph_inputs`
 
 Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
@@ -69,6 +71,8 @@ dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 | `remove_identity_reshapes` | graph + functions | Drop reshapes whose requested static shape exactly matches the input shape. |
 | `common_subexpression_elimination` | model | Run the ONNX Script CSE pass on the top-level model. |
 | `lift_constants_to_initializers` | model | Lift eligible `Constant` nodes to graph initializers. |
+| `fold_conv_transpose_constant_bias` | graph + functions | Attach a direct immutable channel bias as an absent ConvTranspose bias input. |
+| `rewrite_mul_sigmoid_as_swish` | graph + functions | Replace an exact input-times-sigmoid pattern with Swish where the opset supports it. |
 | `rewrite_mul_rsqrt_as_div` | graph + functions | Rewrite multiplication by reciprocal square root into direct division where the producer chain is exact. |
 | `inline_dropout_training_mode_constants` | graph + functions | Inline static Dropout `training_mode` inputs so inference exports stay compact. |
 | `propagate_elementwise_shapes` | graph + functions | Propagate known shape metadata through elementwise operators. |
@@ -77,6 +81,38 @@ dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 | `remove_dead_nodes` | model | Remove nodes that are unreachable from graph outputs. |
 | `remove_orphan_transposes` | graph + functions | Remove layout transposes whose outputs no longer feed live consumers. |
 | `prune_unused_graph_inputs` | graph only | Remove unused top-level graph inputs while preserving ONNX Function signatures. |
+
+---
+
+## ConvTranspose Constant Bias Folding
+
+**Pattern:** `ConvTranspose(x, weights) → Add(channel_bias)`.
+
+The pass attaches an immutable float32 or float64 channel bias as the third
+ConvTranspose input. The convolution must have no existing bias, and its raw
+output must have exactly one use and must not be a graph output. The Add must
+broadcast only across the NCHW channel dimension without changing the output
+shape. Constant reshape, squeeze, unsqueeze, identity, and transpose views of
+the bias can be unwrapped when their shapes prove that vector order is unchanged.
+
+The equivalent layout pattern
+`ConvTranspose → Transpose → Add(channel_bias) → inverse Transpose` is also
+folded when the permutations are explicitly inverse, all intermediate shapes
+and dtypes agree, and none of the intermediate outputs is shared or observable.
+This exposes the native NCHW pair emitted by channels-last NNX models without
+moving across an activation or padding operation.
+
+The pass preserves the Add's output value, public name, dtype, and shape. Shared
+initializers remain unchanged, and function/subgraph constants remain in their
+own scope. It performs no parameter arithmetic, combines no existing bias, and
+does not cross a Pad or another intervening operator. FP16/BF16 are excluded
+because integrating the bias can change intermediate rounding.
+
+This structure exposes eligible `ConvTranspose → BatchNormalization` pairs to
+[ONNX Runtime 1.31's BatchNorm fusion](https://github.com/microsoft/onnxruntime/pull/29542).
+The rewrite itself uses standard ONNX inputs and does not depend on the installed
+runtime. Runtime results can still differ slightly through floating-point
+evaluation order; regression tests check dtype-appropriate numerical parity.
 
 ---
 

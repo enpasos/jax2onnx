@@ -148,6 +148,25 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
     assert ctx.require_value_for_var(outvar) is allocated
 
 
+@pytest.mark.parametrize("enable_double_precision", [False, True])
+def test_unbound_float16_outputs_keep_their_traced_dtype(
+    enable_double_precision: bool,
+) -> None:
+    closed = jax.make_jaxpr(jnp.negative)(jax.ShapeDtypeStruct((2, 3), jnp.float16))
+    ctx = _create_ir_context(
+        opset=23,
+        enable_double_precision=enable_double_precision,
+        input_specs=[],
+        frozen_params={},
+        record_primitive_calls_file=None,
+    )
+
+    output = ctx.allocate_value_for_var(closed.jaxpr.outvars[0])
+
+    assert output.dtype == ir.DataType.FLOAT16
+    assert output.shape == ir.Shape((2, 3))
+
+
 def test_layout_adapter_uses_context_symbol_origin_methods() -> None:
     trace = _trace_to_jaxpr(
         fn=_identity,

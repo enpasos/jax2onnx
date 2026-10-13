@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
+import jax.numpy as jnp
 from flax import nnx
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -25,6 +28,8 @@ class TransformerDecoderLayer(nnx.Module):
         attention_dropout: float = 0.0,
         encoder_attention_dropout: float = 0.0,
         allow_residue: bool = True,
+        dtype: Any | None = None,
+        param_dtype: Any = jnp.float32,
     ):
         self.self_attn = nnx.MultiHeadAttention(
             num_heads=num_heads,
@@ -32,6 +37,8 @@ class TransformerDecoderLayer(nnx.Module):
             qkv_features=embed_dim,
             dropout_rate=attention_dropout,
             decode=False,
+            dtype=dtype,
+            param_dtype=param_dtype,
             rngs=rngs,
         )
         self.cross_attn = nnx.MultiHeadAttention(
@@ -40,16 +47,45 @@ class TransformerDecoderLayer(nnx.Module):
             qkv_features=embed_dim,
             dropout_rate=encoder_attention_dropout,
             decode=False,
+            dtype=dtype,
+            param_dtype=param_dtype,
             rngs=rngs,
         )
         self.ffn = nnx.Sequential(
-            nnx.Linear(in_features=embed_dim, out_features=ff_dim, rngs=rngs),
+            nnx.Linear(
+                in_features=embed_dim,
+                out_features=ff_dim,
+                dtype=dtype,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            ),
             nnx.relu,
-            nnx.Linear(in_features=ff_dim, out_features=embed_dim, rngs=rngs),
+            nnx.Linear(
+                in_features=ff_dim,
+                out_features=embed_dim,
+                dtype=dtype,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            ),
         )
-        self.layernorm1 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
-        self.layernorm2 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
-        self.layernorm3 = nnx.LayerNorm(num_features=embed_dim, rngs=rngs)
+        self.layernorm1 = nnx.LayerNorm(
+            num_features=embed_dim,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.layernorm2 = nnx.LayerNorm(
+            num_features=embed_dim,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.layernorm3 = nnx.LayerNorm(
+            num_features=embed_dim,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
         self.dropout1 = nnx.Dropout(rate=rate, rngs=rngs)
         self.dropout2 = nnx.Dropout(rate=rate, rngs=rngs)
         self.dropout3 = nnx.Dropout(rate=rate, rngs=rngs)
@@ -100,6 +136,8 @@ class TransformerDecoder(nnx.Module):
         attention_dropout: float = 0.0,
         encoder_attention_dropout: float = 0.0,
         allow_residue: bool = True,
+        dtype: Any | None = None,
+        param_dtype: Any = jnp.float32,
     ):
         self.layers = nnx.List(
             [
@@ -112,6 +150,8 @@ class TransformerDecoder(nnx.Module):
                     attention_dropout=attention_dropout,
                     encoder_attention_dropout=encoder_attention_dropout,
                     allow_residue=allow_residue,
+                    dtype=dtype,
+                    param_dtype=param_dtype,
                 )
                 for _ in range(num_layers)
             ]

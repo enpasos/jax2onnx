@@ -45,7 +45,7 @@ primitive-specific lowering policy such as how `lax.conv_general_dilated`,
 - [Control-Flow Body Inputs](advanced_topics/subgraph_input_handling.md) -
   body input wiring for `If`/`Loop` and function-style subgraphs.
 - [IR Optimizer Guide](advanced_topics/ir_optimizer.md) - pass order and
-  optimizer invariants.
+  optimizer invariants, including conservative ConvTranspose bias-input folding.
 - [ONNX Functions](../user_guide/onnx_functions.md) - user-facing behavior of
   `@onnx_function`.
 - [Supported Components](../user_guide/supported_components.md) and

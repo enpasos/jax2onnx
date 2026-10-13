@@ -25,7 +25,7 @@
 
 **Example contributions:** [@burakssen](https://github.com/burakssen), [@Cadynum](https://github.com/Cadynum), [@clementpoiret](https://github.com/clementpoiret), [@PVirie](https://github.com/PVirie), [@Artoriuz](https://github.com/Artoriuz)
 
-**Plugin contributions:** [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam), [@benmacadam64](https://github.com/benmacadam64)
+**Plugin contributions:** [@burakssen](https://github.com/burakssen), [@clementpoiret](https://github.com/clementpoiret), [@Clouder0](https://github.com/Clouder0), [@rakadam](https://github.com/rakadam), [@benmacadam64](https://github.com/benmacadam64), [@jakelee8](https://github.com/jakelee8)
 
 ## Community
 

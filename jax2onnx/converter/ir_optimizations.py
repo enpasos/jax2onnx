@@ -38,6 +38,7 @@ from .optimizer_graph_utils import (
     _set_node_inputs,
     _v_name,
 )
+from .conv_transpose_bias_folding import fold_conv_transpose_constant_bias
 
 # ---------------- Config ----------------
 
@@ -2670,6 +2671,7 @@ _OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
     _model_pass(
         "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
     ),
+    _graph_pass("fold_conv_transpose_constant_bias", fold_conv_transpose_constant_bias),
     _graph_pass("rewrite_mul_sigmoid_as_swish", rewrite_mul_sigmoid_as_swish_ir),
     _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
     _graph_pass(

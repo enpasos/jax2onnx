@@ -188,8 +188,8 @@ The limits were set from measurements with ONNX Runtime 1.29 on an AMD Ryzen 9
 9950X3D CPU using JAX 0.10.2 and 0.11.1, then rounded up to two significant
 digits. The current lockfile's CPU accuracy jobs target Python 3.12 with JAX
 and JAXLIB 0.10.2, Flax 0.12.8, and NumPy 2.4.6; and Python 3.13 with JAX and
-JAXLIB 0.11.2, Flax 0.12.10, and NumPy 2.5.3. Both use Equinox 0.13.8, ONNX
-1.23.0, ONNX IR 1.0.0, and ONNX Runtime 1.30.0. Each GitHub Actions accuracy
+JAXLIB 0.11.2, Flax 0.12.10, and NumPy 2.5.4. Both use Equinox 0.13.8, ONNX
+1.23.2, ONNX IR 1.0.0, and ONNX Runtime 1.31.0. Each GitHub Actions accuracy
 job records its actual dependency versions, runner image, and CPU hardware in
 its job summary; use that record when interpreting a run. The CPU jobs are the
 authoritative numerical acceptance gate. Changes to limits, reference

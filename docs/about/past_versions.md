@@ -1,5 +1,23 @@
 # Past Versions
 
+- **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
+  with explicit errors for input dilation combined with non-unit
+  `window_strides` and complex transposed convolutions, and rejected
+  `batch_group_count > 1` in convolution lowerings;
+  made GELU exports opset-aware with formula fallbacks below opset 20;
+  restored JIT and gradient export compatibility with JAX 0.11.1/0.11.2;
+  extended explicit normalization defaults through
+  `normalization_mode="auto"`, added precision-faithful LayerNorm lowering
+  and native Equinox RMSNorm at opset 23+, kept explicit RMSNorm graphs
+  explicit under the tested ONNX Runtime CPU optimizations, and preserved
+  NaN/infinity propagation in slow-variance LayerNorm and GroupNorm;
+  improved cosine accuracy across dtypes while retaining ONNX Runtime 1.24.1
+  compatibility; preserved FP16 matrix-product output types and honored
+  `preferred_element_type`; added static/dynamic decoder examples and CPU
+  normalization benchmarks, BF16 capability coverage, and fixed accuracy
+  gates for selected float32 LayerNorm and cosine cases on both supported JAX
+  stacks; and enabled CI for documentation changes, release tags, and
+  manual runs with recorded commit, dependency, runner, and CPU details.
 - **0.16.1**: Recorded the active `jax2onnx` producer version in exported ONNX
   metadata, including safe handling of source checkouts; hardened GitHub Actions
   with immutable action SHAs, least-privilege permissions, and Node 24-based
