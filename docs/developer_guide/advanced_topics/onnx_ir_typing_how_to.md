@@ -72,12 +72,45 @@ aligned with project policy.
 - Annotate lowerings with `LoweringContextProtocol` from
   `jax2onnx.converter.typing_support`.
 - Use `IRBuilderProtocol` for helpers that only need the builder surface.
+- Prefer its explicitly typed `op` / `op_multi_out` methods. `op` returns
+  `ir.Value`; `op_multi_out` returns `Sequence[ir.Value]`. Optional input slots
+  are typed `ir.Value | None`, and `output=` / `outputs=` accept existing IR
+  values without casts or result-shape guessing.
 - Use `SymbolicDimOrigin` when passing symbolic-dimension provenance between the
   converter, `dim_as_value`, and shape helpers.
 - Use `AxisOverrideInfo` / `AxisOverrideMap` only for loop/scan extent metadata
   where axis-0 overrides must survive nested graph rewrites.
 - Use `PrimitiveLowering` and `FunctionLowering` protocols when dispatch code
   needs to accept plugin instances without depending on concrete base classes.
+
+### A Typed Builder Call
+
+```python
+import onnx_ir as ir
+
+from jax2onnx.converter.typing_support import IRBuilderProtocol
+
+
+def transpose(builder: IRBuilderProtocol, value: ir.Value) -> ir.Value:
+    output = ir.val("transposed", dtype=value.dtype, shape=[3, 2])
+    return builder.op(
+        "Transpose",
+        [value],
+        {"perm": ir.AttrInt64s("perm", [1, 0])},
+        output=output,
+    )
+```
+
+Use public `ir.Attr` constructors for sequence/tensor/graph attributes and
+scalar Python values for simple attributes. The public ONNX IR module does
+not expose Tape's complete attribute union; do not import that alias from a
+private module or create local stubs. The dynamic operator shorthand retains
+its existing compatibility contract, while the typed methods make inputs,
+outputs, and node metadata parameters checkable at each call site.
+
+See the [typed emission pattern](onnx_ir_builder.md#typed-emission-pattern)
+for the complete lowering contract, with `NegPlugin` and `TopKPlugin` as
+executable single-/multi-output examples.
 
 ## What to Avoid
 

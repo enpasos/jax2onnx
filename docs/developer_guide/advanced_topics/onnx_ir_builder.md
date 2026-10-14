@@ -13,8 +13,8 @@ and keep tests green now that the converter is IR-first.
 
 ## Quick Checklist
 - Emit ops through `ctx.builder` rather than constructing `ir.Node` manually.
-  For lower-level construction, use the public `Tape.op` / `Tape.op_multi_out`
-  methods that `IRBuilder` forwards.
+  Prefer typed `op` / `op_multi_out` calls for new or touched lowerings. Their
+  explicit signatures forward the public `Tape` API and retain project metadata.
 - After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and run `_ensure_value_metadata(...)` so the `ir.Value` carries normalized shape/type metadata (no separate `value_info` bucket).
 - Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
 - When defining plugin metadata, use `construct_and_call(...)` with placeholder
@@ -63,10 +63,69 @@ adds the dynamic operator methods used throughout the converter (for example,
 `builder.Add` and `builder.Conv`) without depending on an upstream private
 builder class.
 
-Use `IRBuilder` for normal converter work. If you need finer-grained control
-(custom outputs, metadata, overload selection, or pre-existing `ir.Value`
-objects), call its forwarded `Tape.op` / `Tape.op_multi_out` methods. Use a
-standalone `Tape` when extending an existing `ir.Graph` or `ir.Function`.
+Use `IRBuilder` for normal converter work. Its typed `op` / `op_multi_out`
+methods expose custom outputs, metadata, overload selection, and pre-existing
+`ir.Value` objects directly. Use a standalone `Tape` when extending an existing
+`ir.Graph` or `ir.Function`.
+
+## Typed Emission Pattern
+
+The canonical lowering reads required inputs, allocates explicit outputs, and
+binds the emitted values. `NegPlugin` is the single-output reference:
+
+```python
+from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+
+
+def lower(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    x = ctx.require_value_for_var(eqn.invars[0])
+    outvar = eqn.outvars[0]
+    output = ctx.allocate_value_for_var(outvar, name_hint=ctx.fresh_name("neg_out"))
+    result = ctx.builder.op("Neg", [x], output=output)
+    ctx.bind_value_for_var(outvar, result)
+```
+
+`op` returns `ir.Value`. Passing `output=` keeps the placeholder's name, dtype,
+shape, and identity; the node becomes its producer. It does not infer missing
+metadata. Set dtype/shape on new intermediate values, using
+`_stamp_type_and_shape` and `_ensure_value_metadata` when shape normalization is
+needed. An explicit output must not already have a producer.
+
+`op_multi_out` returns `Sequence[ir.Value]`. Specify either `outputs=` with
+existing values or `num_outputs=`; specifying both fails before graph mutation.
+Optional ONNX input slots use `None`:
+
+```python
+first = ir.val("first", dtype=ir.DataType.FLOAT, shape=[2])
+second = ir.val("second", dtype=ir.DataType.FLOAT, shape=[2])
+values = builder.op_multi_out(
+    "Split",
+    [x, None],
+    {"axis": 0, "num_outputs": 2},
+    outputs=[first, second],
+    version=18,
+)
+assert values[0] is first
+```
+
+`TopKPlugin` is the multi-output lowering reference. It emits a typed `TopK`
+output sequence, preserves the ONNX INT64 index output, and casts indices to
+the JAX output dtype before binding them.
+
+The typed attribute map accepts `ir.Attr` and Python scalar `str`/`int`/`float`
+values. For sequences, tensors, and graphs, use public constructors such as
+`ir.AttrInt64s`, `ir.AttrTensor`, and `ir.AttrGraph`. This avoids relying on the
+upstream private attribute union:
+
+```python
+transposed = builder.op("Transpose", [x], {"perm": ir.AttrInt64s("perm", [1, 0])})
+```
+
+Both typed methods retain stacktrace/plugin metadata and Tape opset tracking.
+The dynamic `builder.Neg(...)` shorthand remains supported for existing code.
+Keep constants in the named initializer helpers so graph and function scopes
+retain their established constant representation.
 
 ## End-to-End Workflow
 ```python

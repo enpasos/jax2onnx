@@ -34,17 +34,10 @@ class NegPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("neg_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("neg_out"))
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("neg_out")
+        )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("neg_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("neg_out")
-
-        result = ctx.builder.Neg(x_val, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        result = ctx.builder.op("Neg", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)

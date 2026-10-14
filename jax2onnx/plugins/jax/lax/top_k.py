@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import numpy as np
 
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
@@ -44,18 +45,20 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
     ],
 )
 class TopKPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         (arr_var,) = eqn.invars
         values_var, indices_var = eqn.outvars
 
-        arr_val = ctx.get_value_for_var(arr_var, name_hint=ctx.fresh_name("topk_in"))
-        ctx.get_value_for_var(values_var, name_hint=ctx.fresh_name("topk_values"))
-        indices_spec = ctx.get_value_for_var(
+        arr_val = ctx.require_value_for_var(arr_var)
+        values_spec = ctx.allocate_value_for_var(
+            values_var, name_hint=ctx.fresh_name("topk_values")
+        )
+        indices_spec = ctx.allocate_value_for_var(
             indices_var, name_hint=ctx.fresh_name("topk_indices")
         )
 
-        arr_shape = tuple(getattr(getattr(arr_var, "aval", None), "shape", ()))
-        arr_dtype = getattr(getattr(arr_val, "type", None), "dtype", None)
+        arr_shape = tuple(arr_var.aval.shape)
+        arr_dtype = arr_val.dtype
 
         k = int(eqn.params.get("k", 1))
         axis = int(eqn.params.get("axis", eqn.params.get("dimension", -1)))
@@ -63,19 +66,12 @@ class TopKPlugin(PrimitiveLeafPlugin):
             axis += len(arr_shape)
 
         k_val = _const_i64(ctx, np.asarray([k], dtype=np.int64), "topk_k")
-        values, indices = cast(
-            tuple[ir.Value, ir.Value],
-            ctx.builder.TopK(
-                arr_val,
-                k_val,
-                axis=axis,
-                largest=1,
-                sorted=1,
-                _outputs=[
-                    ctx.fresh_name("TopK_Values"),
-                    ctx.fresh_name("TopK_Indices"),
-                ],
-            ),
+        values_spec.name = ctx.fresh_name("TopK_Values")
+        values, indices = ctx.builder.op_multi_out(
+            "TopK",
+            [arr_val, k_val],
+            {"axis": axis, "largest": 1, "sorted": 1},
+            outputs=[values_spec, ir.Value(name=ctx.fresh_name("TopK_Indices"))],
         )
 
         if arr_dtype is not None:
@@ -92,22 +88,15 @@ class TopKPlugin(PrimitiveLeafPlugin):
         _ensure_value_metadata(ctx, values)
         _ensure_value_metadata(ctx, indices)
 
-        target_idx_dtype: np.dtype[Any] = np.dtype(
-            getattr(getattr(indices_var, "aval", None), "dtype", np.int32)
-        )
+        target_idx_dtype: np.dtype[Any] = np.dtype(indices_var.aval.dtype)
         idx_dtype_enum = numpy_dtype_to_ir(target_idx_dtype)
         result_indices = indices
         if idx_dtype_enum != ir.DataType.INT64:
-            result_indices = cast(
-                ir.Value,
-                ctx.builder.Cast(
-                    indices,
-                    to=int(idx_dtype_enum.value),
-                    _outputs=[
-                        getattr(indices_spec, "name", None)
-                        or ctx.fresh_name("topk_indices")
-                    ],
-                ),
+            result_indices = ctx.builder.op(
+                "Cast",
+                [indices],
+                {"to": int(idx_dtype_enum.value)},
+                output=indices_spec,
             )
             result_indices.type = ir.TensorType(idx_dtype_enum)
             _stamp_type_and_shape(result_indices, result_shape)
