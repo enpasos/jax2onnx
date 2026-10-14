@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import (
     Any,
+    TYPE_CHECKING,
     Callable,
     Collection,
     Iterable,
@@ -12,11 +13,18 @@ from typing import (
     MutableSequence,
     Protocol,
     Sequence,
+    TypeAlias,
     runtime_checkable,
 )
 
 import numpy as np
 import onnx_ir as ir
+
+from jax2onnx._compat.jax import JaxprEqn
+
+if TYPE_CHECKING:
+    from jax2onnx.utils.debug import RecordedPrimitiveCallLog
+    from .ir_constants import ConstantFolder
 
 ResolverFn = Callable[[object], object | None]
 
@@ -98,7 +106,58 @@ class IRBuilderProtocol(Protocol):
     @property
     def nodes(self) -> Sequence[ir.Node]: ...
 
+    @property
+    def stacktrace_metadata_enabled(self) -> bool: ...
+
+    @property
+    def current_jax_traceback(self) -> str | None: ...
+
+    @property
+    def current_plugin_identifier(self) -> str | None: ...
+
+    @property
+    def current_plugin_line(self) -> str | None: ...
+
+    def set_current_jax_traceback(self, trace: str | None) -> None: ...
+
+    def set_current_plugin_identifier(
+        self, plugin_id: str | None, line: str | None = None
+    ) -> None: ...
+
     def fresh_name(self, base: str) -> str: ...
+
+    def op(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value | None],
+        attributes: Mapping[str, ir.Attr | str | int | float] | None = None,
+        *,
+        domain: str = "",
+        overload: str = "",
+        version: int | None = None,
+        graph: ir.Graph | None = None,
+        name: str | None = None,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+        output: ir.Value | None = None,
+    ) -> ir.Value: ...
+
+    def op_multi_out(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value | None],
+        attributes: Mapping[str, ir.Attr | str | int | float] | None = None,
+        *,
+        num_outputs: int | None = None,
+        outputs: Sequence[ir.Value] | None = None,
+        domain: str = "",
+        overload: str = "",
+        version: int | None = None,
+        graph: ir.Graph | None = None,
+        name: str | None = None,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+    ) -> Sequence[ir.Value]: ...
 
     def add_initializer_from_scalar(self, name: str, value: object) -> ir.Value: ...
 
@@ -138,6 +197,15 @@ class IRBuilderProtocol(Protocol):
 
 @runtime_checkable
 class LoweringContextProtocol(SymbolicDimTracker, Protocol):
+    record_primitive_calls_file: str | None
+    _current_eqn: JaxprEqn | None
+    _primitive_call_records: list[RecordedPrimitiveCallLog]
+    _lowering_record_depth: int
+    _lowering_record_owner: LoweringContextProtocol
+
+    @property
+    def _const_folder(self) -> ConstantFolder: ...
+
     @property
     def builder(self) -> IRBuilderProtocol: ...
 
@@ -191,6 +259,8 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
         *,
         prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
+
+    def lookup_value_for_var(self, var: object) -> ir.Value | None: ...
 
     def allocate_value_for_var(
         self,
@@ -262,10 +332,11 @@ class PrimitiveLowering(Protocol):
     def lower(
         self,
         ctx: LoweringContextProtocol,
-        eqn: Any,
-        *extra: Any,
-        **kwargs: Any,
-    ) -> Any: ...
+        eqn: JaxprEqn,
+    ) -> None: ...
+
+
+CanonicalLowering: TypeAlias = Callable[[LoweringContextProtocol, JaxprEqn], None]
 
 
 @runtime_checkable

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import jax
 import jax.numpy as jnp
-import onnx_ir as ir
 import pytest
 
+from jax2onnx._compat.jax import Primitive
 from jax2onnx.converter import conversion_api
+from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     import_all_plugins,
@@ -120,42 +120,32 @@ def test_disconnected_outvar_binding_fails_at_primitive(monkeypatch) -> None:
 
 
 def test_nested_lowering_source_labels_missing_plugin_errors() -> None:
-    jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(primitive=SimpleNamespace(name="missing_nested_primitive"))
-        ]
-    )
+    jaxpr = jax.make_jaxpr(lambda x: x + x)(
+        jax.ShapeDtypeStruct((2,), jnp.float32)
+    ).jaxpr
+    eqn = jaxpr.eqns[0].replace(primitive=Primitive("missing_nested_primitive"))
+    jaxpr = jaxpr.replace(eqns=[eqn])
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx.add_input_for_invar(jaxpr.invars[0], 0)
 
     with pytest.raises(
         NotImplementedError,
         match=r"\[jit\] No plugins registered for primitive 'missing_nested_primitive'",
     ):
-        lower_jaxpr_eqns(SimpleNamespace(), jaxpr, source="jit")
+        lower_jaxpr_eqns(ctx, jaxpr, source="jit")
 
 
 def test_nested_lowering_dispatches_function_plugins(monkeypatch) -> None:
-    outvar = object()
-    input_value = ir.Value(name="nested_input")
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        ),
-        bind_value_for_var=lambda var, value: ctx.builder._var2val.__setitem__(
-            var, value
-        ),
+    jaxpr = jax.make_jaxpr(lambda x: x + x)(
+        jax.ShapeDtypeStruct((2,), jnp.float32)
+    ).jaxpr
+    eqn = jaxpr.eqns[0].replace(
+        primitive=Primitive("function_style_nested"), params={"marker": "nested"}
     )
-    jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="function_style_nested"),
-                outvars=[outvar],
-                params={"marker": "nested"},
-            )
-        ]
-    )
+    jaxpr = jaxpr.replace(eqns=[eqn])
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx.add_input_for_invar(jaxpr.invars[0], 0)
+    input_value = ctx.builder.inputs[0]
     monkeypatch.setitem(
         PLUGIN_REGISTRY,
         "function_style_nested",
@@ -164,4 +154,4 @@ def test_nested_lowering_dispatches_function_plugins(monkeypatch) -> None:
 
     lower_jaxpr_eqns(ctx, jaxpr, source="jit")
 
-    assert ctx.builder._var2val[outvar] is input_value
+    assert ctx.lookup_value_for_var(eqn.outvars[0]) is input_value

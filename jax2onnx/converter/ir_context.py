@@ -29,7 +29,9 @@ from jax2onnx.ir_utils import (
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
-from .typing_support import SymbolicDimOrigin
+from .typing_support import LoweringContextProtocol, SymbolicDimOrigin
+from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
 from numpy.typing import NDArray
 
@@ -231,10 +233,10 @@ class IRContext:
         self._call_input_param_literals: dict[str, Any] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
         self._const_folder = ConstantFolder()
-        self._current_eqn: Any = None
-        self._primitive_call_records: list[Any] = []
+        self._current_eqn: JaxprEqn | None = None
+        self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
         self._lowering_record_depth: int = 0
-        self._lowering_record_owner: Any = self
+        self._lowering_record_owner: LoweringContextProtocol = self
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None
@@ -643,6 +645,12 @@ class IRContext:
             arr = arr.astype(literal_dtype, copy=False)
         return self.bind_const_for_var(var, arr)
 
+    def lookup_value_for_var(self, var: object) -> ir.Value | None:
+        """Look up a variable binding; literal values are materialized separately."""
+        if isinstance(var, _LITERAL_TYPES):
+            return None
+        return self.builder._var2val.get(var)
+
     def require_value_for_var(
         self,
         var: Any,
@@ -650,13 +658,14 @@ class IRContext:
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         """Return an already-bound input value, binding JAX literals as constants."""
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
+        if isinstance(var, _LITERAL_TYPES):
             return self._bind_literal_value_for_var(
                 var,
                 prefer_np_dtype=prefer_np_dtype,
             )
-        if var in self.builder._var2val:
-            return self.builder._var2val[var]
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            return value
         raise KeyError(f"No IR value is bound for JAX var {var!r}")
 
     def allocate_value_for_var(
@@ -667,10 +676,13 @@ class IRContext:
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
         """Return a bound value, allocating an output placeholder when needed."""
-        try:
-            return self.require_value_for_var(var, prefer_np_dtype=prefer_np_dtype)
-        except KeyError:
-            pass
+        if isinstance(var, _LITERAL_TYPES):
+            return self._bind_literal_value_for_var(
+                var, prefer_np_dtype=prefer_np_dtype
+            )
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            return value
 
         aval = _maybe_aval(var)
         if aval is None:
@@ -713,6 +725,10 @@ class IRContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
+        """Compatibility convenience that reuses or allocates a value.
+
+        New lowerings should require inputs and allocate outputs explicitly.
+        """
         return self.allocate_value_for_var(
             var,
             name_hint=name_hint,

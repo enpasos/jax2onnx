@@ -6,13 +6,17 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import jax
+import jax.numpy as jnp
 import onnx_ir as ir
 import pytest
 
-from jax2onnx.converter.ir_constants import ConstantFolder
-from jax2onnx.converter import lowering_dispatch
+from jax2onnx import to_onnx
+from jax2onnx._compat.jax import Jaxpr, JaxprEqn
+from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter import lowering_registry
 from jax2onnx.converter.lowering_dispatch import (
-    _LOWER_SIGNATURE_CACHE,
     dispatch_plugin_lowering,
     get_registered_lowering_plugin,
     identify_lowering_plugin,
@@ -20,6 +24,16 @@ from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
     make_converter_facade,
 )
+from jax2onnx.converter.lowering_registry import PluginRegistry
+from jax2onnx.plugins import plugin_system
+
+
+def _recorded_function(x):
+    return x + x
+
+
+def _call_recorded_function(x):
+    return _recorded_function(x)
 
 
 class _PrimitiveNoParams:
@@ -46,57 +60,49 @@ class _FunctionStylePlugin:
 
 
 class _AssertMetadataPlugin:
-    def lower(self, ctx: Any, eqn: Any) -> ir.Value:
-        assert getattr(ctx, "_current_eqn") is eqn
-        assert ctx.builder.current_jax_traceback == "jax traceback"
-        assert ctx.builder.current_plugin_identifier.endswith(
-            "._AssertMetadataPlugin.lower"
-        )
-        return ctx.builder.inputs[0]
+    def __init__(self, traceback: str, fail: bool = False) -> None:
+        self.traceback = traceback
+        self.fail = fail
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        assert ctx._current_eqn is eqn
+        assert ctx.builder.current_jax_traceback == self.traceback
+        identifier = ctx.builder.current_plugin_identifier
+        assert identifier is not None
+        assert identifier.endswith("._AssertMetadataPlugin.lower")
+        if self.fail:
+            raise ValueError("lowering failed")
+        ctx.bind_value_for_var(eqn.outvars[0], ctx.builder.inputs[0])
 
 
 class _NestedRecordingPlugin:
-    def lower(self, ctx: Any, eqn: Any) -> ir.Value:
-        inner_outvar = object()
-        inner_jaxpr = SimpleNamespace(
-            eqns=[
-                SimpleNamespace(
-                    primitive=SimpleNamespace(name="inner"),
-                    invars=[],
-                    outvars=[inner_outvar],
-                    params={},
-                )
-            ]
-        )
+    def __init__(self, jaxpr: Jaxpr) -> None:
+        self.jaxpr = jaxpr
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        ctx.bind_value_for_var(self.jaxpr.invars[0], ctx.builder.inputs[0])
         lower_jaxpr_with_plugins(
             ctx=ctx,
-            jaxpr=inner_jaxpr,
-            registry={"inner": _ReturnGraphInputPlugin()},
+            jaxpr=self.jaxpr,
+            registry={"add": _ReturnGraphInputPlugin()},
             source="inner",
         )
-        return ctx.builder.inputs[0]
+        ctx.bind_value_for_var(eqn.outvars[0], ctx.builder.inputs[0])
 
 
-class _FakeMetadataBuilder:
-    stacktrace_metadata_enabled = True
-
-    def __init__(self, input_value: ir.Value) -> None:
-        self.inputs = [input_value]
-        self.initializers: list[ir.Value] = []
-        self.nodes: list[ir.Node] = []
-        self._var2val: dict[object, ir.Value] = {}
-        self.current_jax_traceback: str | None = "previous-trace"
-        self.current_plugin_identifier: str | None = "previous-plugin"
-        self.current_plugin_line: str | None = "7"
-
-    def set_current_jax_traceback(self, trace: str | None) -> None:
-        self.current_jax_traceback = trace
-
-    def set_current_plugin_identifier(
-        self, identifier: str | None, line: str | None = None
-    ) -> None:
-        self.current_plugin_identifier = identifier
-        self.current_plugin_line = line
+def _jaxpr_and_context(
+    *, nested: bool = False, stacktrace_metadata: bool = False
+) -> tuple[Jaxpr, IRContext]:
+    fn = (lambda x: jax.jit(lambda y: y + y)(x)) if nested else (lambda x: x + x)
+    jaxpr = jax.make_jaxpr(fn)(jax.ShapeDtypeStruct((2,), jnp.float32)).jaxpr
+    ctx = IRContext(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=[],
+        stacktrace_metadata=stacktrace_metadata,
+    )
+    ctx.add_input_for_invar(jaxpr.invars[0], 0)
+    return jaxpr, ctx
 
 
 def test_get_registered_lowering_plugin_returns_registered_plugin() -> None:
@@ -184,39 +190,21 @@ def test_dispatches_primitive_with_params() -> None:
     assert result == ("primitive_params", ctx, eqn, {"axis": 1})
 
 
-def test_dispatch_caches_lower_signature_lookup(monkeypatch) -> None:
-    _LOWER_SIGNATURE_CACHE.clear()
+def test_registered_lowering_inspects_signature_once(monkeypatch) -> None:
     signature_calls = 0
-    original_signature = lowering_dispatch.inspect.signature
+    original_signature = lowering_registry._inspect_signature
 
     def _counted_signature(obj: Any) -> Any:
         nonlocal signature_calls
         signature_calls += 1
         return original_signature(obj)
 
-    monkeypatch.setattr(
-        lowering_dispatch.inspect,
-        "signature",
-        _counted_signature,
-    )
-    plugin = _PrimitiveWithParams()
-    ctx = SimpleNamespace(builder=SimpleNamespace())
-    eqn = SimpleNamespace(params={"axis": 1})
-
-    dispatch_plugin_lowering(
-        plugin,
-        ctx=ctx,
-        eqn=eqn,
-        primitive_name="sample",
-        source="test",
-    )
-    dispatch_plugin_lowering(
-        plugin,
-        ctx=ctx,
-        eqn=eqn,
-        primitive_name="sample",
-        source="test",
-    )
+    monkeypatch.setattr(lowering_registry, "_inspect_signature", _counted_signature)
+    jaxpr, ctx = _jaxpr_and_context()
+    registry = PluginRegistry({"add": _ReturnGraphInputPlugin()})
+    lower = registry.prepared_lowerings()["add"].lower
+    lower(ctx, jaxpr.eqns[0])
+    lower(ctx, jaxpr.eqns[0])
 
     assert signature_calls == 1
 
@@ -258,242 +246,158 @@ def test_dispatches_function_plugin_with_default_converter_facade() -> None:
 
 
 def test_lower_equation_with_plugin_dispatches_and_finalizes_outputs() -> None:
-    outvar = object()
-    input_value = ir.Value(name="input")
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        )
-    )
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    eqn = SimpleNamespace(outvars=[outvar])
+    jaxpr, ctx = _jaxpr_and_context()
+    eqn = jaxpr.eqns[0]
 
     result = lower_equation_with_plugin(
         _ReturnGraphInputPlugin(),
         ctx=ctx,
         eqn=eqn,
-        primitive_name="return_input",
+        primitive_name="add",
         eqn_index=0,
         source="test",
     )
 
-    assert result is input_value
-    assert ctx.builder._var2val[outvar] is input_value
+    assert result is None
+    assert ctx.lookup_value_for_var(eqn.outvars[0]) is ctx.builder.inputs[0]
 
 
 def test_lower_equation_with_plugin_rejects_unbound_input() -> None:
-    outvar = object()
-    invar = object()
-    input_value = ir.Value(name="input")
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        )
-    )
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    eqn = SimpleNamespace(invars=[invar], outvars=[outvar])
+    jaxpr, _ = _jaxpr_and_context()
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
 
-    with pytest.raises(
-        RuntimeError,
-        match="Primitive 'return_input'.*has unbound input 0",
-    ):
+    with pytest.raises(RuntimeError, match="Primitive 'add'.*has unbound input 0"):
         lower_equation_with_plugin(
             _ReturnGraphInputPlugin(),
             ctx=ctx,
-            eqn=eqn,
-            primitive_name="return_input",
+            eqn=jaxpr.eqns[0],
+            primitive_name="add",
             eqn_index=0,
             source="test",
         )
 
 
-def test_lower_equation_with_plugin_stages_metadata_and_current_eqn() -> None:
-    outvar = object()
-    input_value = ir.Value(name="input")
-    builder = _FakeMetadataBuilder(input_value)
-    ctx = SimpleNamespace(builder=builder)
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    eqn = SimpleNamespace(
-        invars=[],
-        outvars=[outvar],
-        source_info=SimpleNamespace(traceback="jax traceback"),
-    )
+@pytest.mark.parametrize("fail", [False, True])
+def test_lower_equation_with_plugin_stages_metadata_and_current_eqn(fail: bool) -> None:
+    jaxpr, ctx = _jaxpr_and_context(stacktrace_metadata=True)
+    eqn = jaxpr.eqns[0]
+    traceback = str(eqn.source_info.traceback)
+    builder = ctx.builder
+    builder.set_current_jax_traceback("previous-trace")
+    builder.set_current_plugin_identifier("previous-plugin", "7")
+    plugin = _AssertMetadataPlugin(traceback, fail)
 
-    lower_equation_with_plugin(
-        _AssertMetadataPlugin(),
-        ctx=ctx,
-        eqn=eqn,
-        primitive_name="metadata",
-        eqn_index=0,
-        source="test",
-    )
+    if fail:
+        with pytest.raises(ValueError, match="lowering failed"):
+            lower_equation_with_plugin(
+                plugin,
+                ctx=ctx,
+                eqn=eqn,
+                primitive_name="add",
+                eqn_index=0,
+                source="test",
+            )
+    else:
+        lower_equation_with_plugin(
+            plugin, ctx=ctx, eqn=eqn, primitive_name="add", eqn_index=0, source="test"
+        )
 
-    assert not hasattr(ctx, "_current_eqn")
+    assert ctx._current_eqn is None
     assert builder.current_jax_traceback == "previous-trace"
     assert builder.current_plugin_identifier == "previous-plugin"
     assert builder.current_plugin_line == "7"
 
 
 def test_lower_jaxpr_with_plugins_lowers_all_equations() -> None:
-    outvars = [object(), object()]
-    input_value = ir.Value(name="input")
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        )
-    )
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="return_input"),
-                outvars=[outvars[0]],
-            ),
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="return_input"),
-                outvars=[outvars[1]],
-            ),
-        ]
-    )
+    jaxpr = jax.make_jaxpr(lambda x: (x + x) + x)(
+        jax.ShapeDtypeStruct((2,), jnp.float32)
+    ).jaxpr
+    ctx = IRContext(opset=21, enable_double_precision=False, input_specs=[])
+    ctx.add_input_for_invar(jaxpr.invars[0], 0)
 
     lower_jaxpr_with_plugins(
-        ctx=ctx,
-        jaxpr=jaxpr,
-        registry={"return_input": _ReturnGraphInputPlugin()},
-        source="test",
+        ctx=ctx, jaxpr=jaxpr, registry={"add": _ReturnGraphInputPlugin()}, source="test"
     )
 
-    assert ctx.builder._var2val[outvars[0]] is input_value
-    assert ctx.builder._var2val[outvars[1]] is input_value
+    assert len(jaxpr.eqns) == 2
+    for eqn in jaxpr.eqns:
+        assert ctx.lookup_value_for_var(eqn.outvars[0]) is ctx.builder.inputs[0]
 
 
 def test_lower_jaxpr_with_plugins_records_nested_calls_once(tmp_path) -> None:
-    outvar = object()
-    input_value = ir.Value(name="input")
+    jaxpr, ctx = _jaxpr_and_context(nested=True)
+    inner_jaxpr = jaxpr.eqns[0].params["jaxpr"].jaxpr
     log_path = tmp_path / "primitive_calls.json"
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        ),
-        record_primitive_calls_file=str(log_path),
-    )
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="outer"),
-                invars=[],
-                outvars=[outvar],
-                params={},
-            )
-        ]
-    )
+    ctx.record_primitive_calls_file = str(log_path)
 
     lower_jaxpr_with_plugins(
         ctx=ctx,
         jaxpr=jaxpr,
-        registry={"outer": _NestedRecordingPlugin()},
+        registry={"jit": _NestedRecordingPlugin(inner_jaxpr)},
         source="outer",
     )
 
     records = json.loads(log_path.read_text(encoding="utf-8"))
-    primitive_names = [record["primitive_name"] for record in records]
-    assert primitive_names == ["inner", "outer"]
+    assert [record["primitive_name"] for record in records] == ["add", "jit"]
+    assert ctx._lowering_record_depth == 0
+    assert len(ctx._primitive_call_records) == 2
+
+
+def test_function_body_recording_shares_the_parent_log(tmp_path) -> None:
+    plugin_system.onnx_function(_recorded_function)
+    qualified = f"{_recorded_function.__module__}.{_recorded_function.__name__}"
+    log_path = tmp_path / "function_calls.json"
+    try:
+        to_onnx(
+            _call_recorded_function,
+            inputs=[jax.ShapeDtypeStruct((2,), jnp.float32)],
+            record_primitive_calls_file=str(log_path),
+            return_mode="ir",
+        )
+        records = json.loads(log_path.read_text(encoding="utf-8"))
+        assert [record["primitive_name"] for record in records] == [
+            "add",
+            f"onnx_fn::{qualified}",
+        ]
+        assert all(record["outputs_onnx_names"] for record in records)
+    finally:
+        plugin_system.PLUGIN_REGISTRY.pop(f"onnx_fn::{qualified}", None)
+        plugin_system.ONNX_FUNCTION_PLUGIN_REGISTRY.pop(qualified, None)
 
 
 def test_lower_jaxpr_with_plugins_restores_existing_constant_producers() -> None:
-    outer_outvar = object()
-    inner_outvar = object()
-    input_value = ir.Value(name="input")
-    ctx = SimpleNamespace(
-        builder=SimpleNamespace(
-            inputs=[input_value],
-            initializers=[],
-            nodes=[],
-            _var2val={},
-        ),
-        _const_folder=ConstantFolder(),
-    )
-    ctx.bind_value_for_var = lambda var, value: ctx.builder._var2val.__setitem__(
-        var, value
-    )
-    outer_jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="outer"),
-                invars=[],
-                outvars=[outer_outvar],
-            )
-        ]
-    )
-    inner_jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="return_input"),
-                outvars=[inner_outvar],
-            )
-        ]
-    )
+    outer_jaxpr, ctx = _jaxpr_and_context()
+    inner_jaxpr, _ = _jaxpr_and_context()
+    ctx.bind_value_for_var(inner_jaxpr.invars[0], ctx.builder.inputs[0])
     ctx._const_folder.install_producers(outer_jaxpr)
 
     lower_jaxpr_with_plugins(
         ctx=ctx,
         jaxpr=inner_jaxpr,
-        registry={"return_input": _ReturnGraphInputPlugin()},
+        registry={"add": _ReturnGraphInputPlugin()},
         source="test",
     )
 
-    assert ctx.builder._var2val[inner_outvar] is input_value
-    assert id(outer_outvar) in ctx._const_folder._producer
-    assert id(inner_outvar) not in ctx._const_folder._producer
+    assert ctx.lookup_value_for_var(inner_jaxpr.outvars[0]) is ctx.builder.inputs[0]
+    assert id(outer_jaxpr.outvars[0]) in ctx._const_folder._producer
+    assert id(inner_jaxpr.outvars[0]) not in ctx._const_folder._producer
 
 
 def test_lower_jaxpr_with_plugins_reports_missing_plugin_detail() -> None:
-    jaxpr = SimpleNamespace(
-        eqns=[
-            SimpleNamespace(
-                primitive=SimpleNamespace(name="missing_inner"),
-                outvars=[object()],
-            )
-        ]
-    )
+    jaxpr, ctx = _jaxpr_and_context()
 
     with pytest.raises(
         NotImplementedError,
-        match=(
-            r"\[onnx_function\] No plugins registered for primitive "
-            r"'missing_inner' in function body"
-        ),
+        match=r"\[onnx_function\] No plugins registered for primitive 'add' in function body",
     ):
         lower_jaxpr_with_plugins(
-            ctx=SimpleNamespace(builder=SimpleNamespace()),
+            ctx=ctx,
             jaxpr=jaxpr,
             registry={},
             source="onnx_function",
             missing_plugin_detail="in function body",
         )
+    assert ctx._lowering_record_depth == 0
 
 
 def test_reports_unsupported_plugin_type() -> None:

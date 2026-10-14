@@ -3,60 +3,42 @@
 from __future__ import annotations
 
 import inspect
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from collections.abc import Mapping
-from types import SimpleNamespace
-from typing import Any, Iterator
+from typing import Iterator, TypeVar
+
+from jax2onnx._compat.jax import Jaxpr, JaxprEqn, Literal, ShapedArray, Var
 
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog, save_primitive_calls_log
 
 from .output_binding import (
     assert_eqn_inputs_bound,
-    finalize_eqn_lowering_outputs,
-    get_bound_value,
+    assert_eqn_outputs_bound,
 )
 from .typing_support import (
     FunctionLowering,
+    IRBuilderProtocol,
     LoweringContextProtocol,
     PrimitiveLowering,
 )
+from .lowering_registry import (
+    RegisteredLowering,
+    make_converter_facade as make_converter_facade,
+    prepare_legacy_call,
+    prepare_lowering,
+    prepared_lowerings,
+)
 
-_LOWER_SIGNATURE_CACHE: dict[object, bool] = {}
-_MISSING: object = object()
-
-
-def _lower_accepts_params(lower: Any) -> bool:
-    cache_key = getattr(lower, "__func__", lower)
-    try:
-        cached = _LOWER_SIGNATURE_CACHE.get(cache_key)
-    except TypeError:
-        cached = None
-    if cached is not None:
-        return cached
-
-    try:
-        accepts_params = "params" in inspect.signature(lower).parameters
-    except (TypeError, ValueError):
-        accepts_params = False
-    try:
-        _LOWER_SIGNATURE_CACHE[cache_key] = accepts_params
-    except TypeError:
-        pass
-    return accepts_params
-
-
-def make_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
-    """Build the minimal converter facade expected by function lowerings."""
-    return SimpleNamespace(builder=getattr(ctx, "builder", None), ctx=ctx)
+_PluginT = TypeVar("_PluginT")
 
 
 def get_registered_lowering_plugin(
-    registry: Mapping[str, object],
+    registry: Mapping[str, _PluginT],
     primitive_name: str,
     *,
     source: str,
     detail: str | None = None,
-) -> object:
+) -> _PluginT:
     """Return the registered plugin for ``primitive_name`` or raise a source label."""
     plugin = registry.get(primitive_name)
     if plugin is not None:
@@ -76,44 +58,27 @@ def identify_lowering_plugin(
     if plugin is None:
         return primitive_name, None
 
-    try:
-        if isinstance(plugin, PrimitiveLowering):
-            lower = plugin.lower
-            func_name = getattr(lower, "__name__", "lower")
-            identifier = (
-                f"{type(plugin).__module__}.{type(plugin).__name__}.{func_name}"
-            )
-            try:
-                _, start_line = inspect.getsourcelines(lower)
-            except (OSError, TypeError):
-                return identifier, None
-            return identifier, str(start_line)
+    plugin_class = f"{type(plugin).__module__}.{type(plugin).__name__}"
+    if isinstance(plugin, PrimitiveLowering):
+        lower = plugin.lower
+        func_name = getattr(lower, "__name__", "lower")
+        identifier = f"{plugin_class}.{func_name}"
+        try:
+            _, start_line = inspect.getsourcelines(lower)
+        except (OSError, TypeError):
+            return identifier, None
+        return identifier, str(start_line)
 
-        if isinstance(plugin, FunctionLowering):
-            return (
-                f"{type(plugin).__module__}.{type(plugin).__name__}.get_handler",
-                None,
-            )
-
-        if hasattr(plugin, "__class__"):
-            return f"{type(plugin).__module__}.{type(plugin).__name__}", None
-    except Exception:
-        pass
-
-    return primitive_name, None
+    if isinstance(plugin, FunctionLowering):
+        return f"{plugin_class}.get_handler", None
+    return plugin_class, None
 
 
-def _aval_log_entry(var: object) -> tuple[tuple[object, ...], str, str]:
-    aval = getattr(var, "aval", None)
-    if aval is None:
-        return ((), "", type(var).__name__)
-    raw_shape = getattr(aval, "shape", ())
-    try:
-        shape = tuple(raw_shape)
-    except TypeError:
-        shape = ()
-    dtype = getattr(aval, "dtype", "")
-    return (shape, str(dtype), type(aval).__name__)
+def _aval_log_entry(var: Var | Literal) -> tuple[tuple[object, ...], str, str]:
+    aval = var.aval
+    if isinstance(aval, ShapedArray):
+        return tuple(aval.shape), str(aval.dtype), type(aval).__name__
+    return (), "", type(aval).__name__
 
 
 def _var_log_name(var: object) -> str:
@@ -123,8 +88,8 @@ def _var_log_name(var: object) -> str:
         return repr(var)
 
 
-def _bound_value_name(ctx: object, var: object) -> str:
-    value = get_bound_value(ctx, var)
+def _bound_value_name(ctx: LoweringContextProtocol, var: object) -> str:
+    value = ctx.lookup_value_for_var(var)
     if value is None:
         return ""
     return value.name or ""
@@ -150,18 +115,16 @@ def _plugin_file_hint(plugin_ref: object, prim_name: str) -> str:
 
 
 def _primitive_call_record(
-    ctx: object,
-    eqn: object,
+    ctx: LoweringContextProtocol,
+    eqn: JaxprEqn,
     *,
     eqn_index: int,
     primitive_name: str,
     plugin_ref: object,
 ) -> RecordedPrimitiveCallLog:
-    invars = list(getattr(eqn, "invars", ()))
-    outvars = list(getattr(eqn, "outvars", ()))
-    params = getattr(eqn, "params", {})
-    if not isinstance(params, Mapping):
-        params = {}
+    invars = eqn.invars
+    outvars = eqn.outvars
+    params = eqn.params
     return RecordedPrimitiveCallLog(
         sequence_id=eqn_index,
         primitive_name=primitive_name,
@@ -177,26 +140,17 @@ def _primitive_call_record(
     )
 
 
-def _record_owner(ctx: object) -> object:
-    return getattr(ctx, "_lowering_record_owner", ctx)
-
-
 def _append_primitive_call_record(
-    ctx: object,
-    eqn: object,
+    ctx: LoweringContextProtocol,
+    eqn: JaxprEqn,
     *,
     eqn_index: int,
     primitive_name: str,
     plugin_ref: object,
 ) -> None:
-    if not getattr(ctx, "record_primitive_calls_file", None):
+    if not ctx.record_primitive_calls_file:
         return
-    owner = _record_owner(ctx)
-    records = getattr(owner, "_primitive_call_records", None)
-    if not isinstance(records, list):
-        records = []
-        setattr(owner, "_primitive_call_records", records)
-    records.append(
+    ctx._lowering_record_owner._primitive_call_records.append(
         _primitive_call_record(
             ctx,
             eqn,
@@ -208,168 +162,131 @@ def _append_primitive_call_record(
 
 
 @contextmanager
-def primitive_recording_scope(ctx: object) -> Iterator[None]:
-    owner = _record_owner(ctx)
-    previous_depth = int(getattr(owner, "_lowering_record_depth", 0) or 0)
-    setattr(owner, "_lowering_record_depth", previous_depth + 1)
+def primitive_recording_scope(ctx: LoweringContextProtocol) -> Iterator[None]:
+    owner = ctx._lowering_record_owner
+    previous_depth = owner._lowering_record_depth
+    owner._lowering_record_depth = previous_depth + 1
     try:
         yield
     finally:
-        next_depth = max(int(getattr(owner, "_lowering_record_depth", 1)) - 1, 0)
-        setattr(owner, "_lowering_record_depth", next_depth)
-        record_file = getattr(ctx, "record_primitive_calls_file", None)
-        records = getattr(owner, "_primitive_call_records", None)
-        if next_depth == 0 and record_file and isinstance(records, list):
-            save_primitive_calls_log(records, str(record_file))
+        owner._lowering_record_depth = previous_depth
+        if previous_depth == 0 and ctx.record_primitive_calls_file:
+            save_primitive_calls_log(
+                owner._primitive_call_records, ctx.record_primitive_calls_file
+            )
 
 
-def _eqn_jax_traceback(eqn: object) -> str | None:
-    source_info = getattr(eqn, "source_info", None)
-    if source_info is None:
-        return None
-    traceback = getattr(source_info, "traceback", None)
-    if traceback is None:
-        return None
-    try:
-        return str(traceback)
-    except Exception:
-        return None
-
-
-def _stacktrace_metadata_enabled(builder: object) -> bool:
-    enabled = getattr(builder, "stacktrace_metadata_enabled", False)
-    if callable(enabled):
-        try:
-            return bool(enabled())
-        except Exception:
-            return False
-    return bool(enabled)
+def _eqn_jax_traceback(eqn: JaxprEqn) -> str | None:
+    traceback = eqn.source_info.traceback
+    return str(traceback) if traceback is not None else None
 
 
 @contextmanager
 def staged_lowering_metadata(
-    builder: object,
+    builder: IRBuilderProtocol,
     *,
-    eqn: object,
+    eqn: JaxprEqn,
     plugin_ref: object,
     primitive_name: str,
 ) -> Iterator[None]:
-    set_jax_traceback = getattr(builder, "set_current_jax_traceback", None)
-    set_plugin_identifier = getattr(builder, "set_current_plugin_identifier", None)
-    if not callable(set_jax_traceback) or not callable(set_plugin_identifier):
-        yield
-        return
-
-    prev_jax_trace = getattr(builder, "current_jax_traceback", None)
-    prev_plugin_id = getattr(builder, "current_plugin_identifier", None)
-    prev_plugin_line = getattr(builder, "current_plugin_line", None)
+    prev_jax_trace = builder.current_jax_traceback
+    prev_plugin_id = builder.current_plugin_identifier
+    prev_plugin_line = builder.current_plugin_line
     jax_trace: str | None = None
     plugin_identifier: str | None = None
     plugin_line: str | None = None
 
-    if _stacktrace_metadata_enabled(builder):
+    if builder.stacktrace_metadata_enabled:
         jax_trace = _eqn_jax_traceback(eqn)
         plugin_identifier, plugin_line = identify_lowering_plugin(
             plugin_ref,
             primitive_name,
         )
 
-    set_jax_traceback(jax_trace)
-    set_plugin_identifier(plugin_identifier, plugin_line)
+    builder.set_current_jax_traceback(jax_trace)
+    builder.set_current_plugin_identifier(plugin_identifier, plugin_line)
     try:
         yield
     finally:
-        set_jax_traceback(prev_jax_trace)
-        set_plugin_identifier(prev_plugin_id, prev_plugin_line)
+        builder.set_current_jax_traceback(prev_jax_trace)
+        builder.set_current_plugin_identifier(prev_plugin_id, prev_plugin_line)
 
 
 @contextmanager
-def current_eqn_scope(ctx: object, eqn: object) -> Iterator[None]:
-    previous_eqn = getattr(ctx, "_current_eqn", _MISSING)
-    setattr(ctx, "_current_eqn", eqn)
+def current_eqn_scope(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> Iterator[None]:
+    previous_eqn = ctx._current_eqn
+    ctx._current_eqn = eqn
     try:
         yield
     finally:
-        if previous_eqn is _MISSING:
-            try:
-                delattr(ctx, "_current_eqn")
-            except AttributeError:
-                pass
-        else:
-            setattr(ctx, "_current_eqn", previous_eqn)
+        ctx._current_eqn = previous_eqn
 
 
 def dispatch_plugin_lowering(
     plugin: object,
     *,
     ctx: LoweringContextProtocol,
-    eqn: object,
+    eqn: JaxprEqn,
     primitive_name: str,
     source: str,
     converter: object | None = None,
 ) -> object:
-    """Invoke a registered lowering plugin for a single JAXPR equation."""
-    if isinstance(plugin, PrimitiveLowering):
-        lower = plugin.lower
-        if _lower_accepts_params(lower):
-            return lower(ctx, eqn, getattr(eqn, "params", None))
-        return lower(ctx, eqn)
-
-    if isinstance(plugin, FunctionLowering):
-        converter_facade = converter or make_converter_facade(ctx)
-        handler = plugin.get_handler(converter_facade)
-        return handler(
-            converter_facade,
-            eqn,
-            getattr(eqn, "params", {}) or {},
-        )
-
-    raise NotImplementedError(
-        f"[{source}] Unsupported plugin type for primitive '{primitive_name}'"
-    )
+    """Compatibility call for raw plugins; preserve their returned result."""
+    call = prepare_legacy_call(plugin, primitive_name=primitive_name, source=source)
+    return call(ctx, eqn, converter)
 
 
 def lower_equation_with_plugin(
     plugin: object,
     *,
     ctx: LoweringContextProtocol,
-    eqn: object,
+    eqn: JaxprEqn,
     primitive_name: str,
     eqn_index: int,
     source: str,
     converter: object | None = None,
-) -> object:
-    """Dispatch a plugin and verify the equation output contract."""
-    builder = getattr(ctx, "builder", None)
-    metadata_scope = (
-        staged_lowering_metadata(
-            builder,
-            eqn=eqn,
-            plugin_ref=plugin,
-            primitive_name=primitive_name,
-        )
-        if builder is not None
-        else nullcontext()
+) -> None:
+    """Prepare a raw plugin at this compatibility boundary, then lower it."""
+    entry = prepare_lowering(plugin, primitive_name=primitive_name, source=source)
+    if converter is not None:
+        entry = entry.with_converter(converter)
+    _lower_registered_equation(
+        entry,
+        ctx=ctx,
+        eqn=eqn,
+        primitive_name=primitive_name,
+        eqn_index=eqn_index,
     )
-    with current_eqn_scope(ctx, eqn), metadata_scope:
+
+
+def _lower_registered_equation(
+    entry: RegisteredLowering,
+    *,
+    ctx: LoweringContextProtocol,
+    eqn: JaxprEqn,
+    primitive_name: str,
+    eqn_index: int,
+) -> None:
+    """Invoke the canonical contract and validate graph-connected outputs."""
+    with (
+        current_eqn_scope(ctx, eqn),
+        staged_lowering_metadata(
+            ctx.builder,
+            eqn=eqn,
+            plugin_ref=entry.plugin,
+            primitive_name=primitive_name,
+        ),
+    ):
         assert_eqn_inputs_bound(
             ctx,
             eqn,
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
-        lowering_result = dispatch_plugin_lowering(
-            plugin,
-            ctx=ctx,
-            eqn=eqn,
-            primitive_name=primitive_name,
-            source=source,
-            converter=converter,
-        )
-        finalize_eqn_lowering_outputs(
+        entry.lower(ctx, eqn)
+        assert_eqn_outputs_bound(
             ctx,
             eqn,
-            lowering_result,
             primitive_name=primitive_name,
             eqn_index=eqn_index,
         )
@@ -378,39 +295,34 @@ def lower_equation_with_plugin(
             eqn,
             eqn_index=eqn_index,
             primitive_name=primitive_name,
-            plugin_ref=plugin,
+            plugin_ref=entry.plugin,
         )
-    return lowering_result
 
 
 def lower_jaxpr_with_plugins(
     *,
     ctx: LoweringContextProtocol,
-    jaxpr: object,
+    jaxpr: Jaxpr,
     registry: Mapping[str, object],
     source: str,
     converter: object | None = None,
     missing_plugin_detail: str | None = None,
 ) -> None:
-    """Lower every equation in a JAXPR-like object with registered plugins."""
-    const_folder = getattr(ctx, "_const_folder", None)
-    producer_scope = getattr(const_folder, "producer_scope", None)
-    scope = producer_scope(jaxpr) if callable(producer_scope) else nullcontext()
-    with primitive_recording_scope(ctx), scope:
-        for eqn_index, eqn in enumerate(getattr(jaxpr, "eqns", ())):
+    """Lower equations through prepared ``(ctx, eqn) -> None`` plugins."""
+    lowerings = prepared_lowerings(registry, converter)
+    with primitive_recording_scope(ctx), ctx._const_folder.producer_scope(jaxpr):
+        for eqn_index, eqn in enumerate(jaxpr.eqns):
             primitive_name = eqn.primitive.name
             plugin = get_registered_lowering_plugin(
-                registry,
+                lowerings,
                 primitive_name,
                 source=source,
                 detail=missing_plugin_detail,
             )
-            lower_equation_with_plugin(
+            _lower_registered_equation(
                 plugin,
                 ctx=ctx,
                 eqn=eqn,
                 primitive_name=primitive_name,
                 eqn_index=eqn_index,
-                source=source,
-                converter=converter,
             )

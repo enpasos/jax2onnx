@@ -58,47 +58,47 @@ bodies see the same primitive bindings as the top-level trace.
 ## Primitive Plugins
 
 Most primitive support is implemented as a subclass of `PrimitiveLeafPlugin`
-registered with `@register_primitive(...)`.
+registered with `@register_primitive(...)`. The complete example below matches `NegPlugin` in
+`jax2onnx/plugins/jax/lax/neg.py`: require the input, allocate an output with
+the traced dtype and shape, emit into that value, and bind it explicitly.
 
 ```python
 import jax
-import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
 
 
 @register_primitive(
-    jaxpr_primitive=jax.lax.abs_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.abs.html",
-    onnx=[{"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"}],
-    since="0.5.0",
+    jaxpr_primitive=jax.lax.neg_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.neg.html",
+    onnx=[{"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"}],
+    since="0.2.0",
     context="primitives.lax",
-    component="abs",
+    component="neg",
     testcases=[
         {
-            "testcase": "abs",
-            "callable": lambda x: jax.lax.abs(x),
+            "testcase": "neg",
+            "callable": lambda x: -x,
             "input_shapes": [(3,)],
-            "post_check_onnx_graph": EG(["Abs:3"], no_unused_inputs=True),
+            "post_check_onnx_graph": EG(["Neg:3"], no_unused_inputs=True),
         }
     ],
 )
-class AbsPlugin(PrimitiveLeafPlugin):
+class NegPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        x_val = ctx.get_value_for_var(eqn.invars[0])
-        out_val = ctx.get_value_for_var(eqn.outvars[0], name_hint=ctx.fresh_name("abs"))
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-        result = ctx.builder.Abs(x_val, _outputs=[out_val.name or ctx.fresh_name("abs")])
-        result.type = out_val.type
-        result.shape = out_val.shape
-        _stamp_type_and_shape(result, tuple(getattr(eqn.outvars[0].aval, "shape", ())))
-        _ensure_value_metadata(ctx, result)
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("neg_out")
+        )
 
-        ctx.bind_value_for_var(eqn.outvars[0], result)
+        result = ctx.builder.op("Neg", [x_val], output=out_spec)
+        ctx.bind_value_for_var(out_var, result)
 ```
 
 This is the common shape. More complex plugins may also define a custom JAX
@@ -124,7 +124,7 @@ Important top-level metadata fields:
 | `children` | For examples, child components used by the example. |
 | `testcases` | Generated test inputs, expectations, and structural checks. |
 
-Avoid duplicate `jaxpr_primitive` keys. The registry is a dictionary, so a later
+Avoid duplicate `jaxpr_primitive` keys. The registry is mutable, so a later
 import can overwrite an earlier entry; that is not a supported extension model.
 
 ## Binding Specs
@@ -202,15 +202,31 @@ contract is strict:
 1. all non-literal inputs must already be bound before `lower(...)` runs;
 2. the plugin emits connected `onnx_ir` nodes and values;
 3. every non-drop output var must be bound before the equation completes;
-4. returned `ir.Value` objects may be bound generically, but explicit binding is
-   clearer for non-trivial lowerings.
+4. the canonical method returns `None`; the plugin binds its outputs explicitly.
+
+`PluginRegistry` preserves original plugin objects for metadata and tracing
+activation, while preparing one typed `(ctx, eqn) -> None` call at registration.
+A two-argument `lower` annotated `-> None` declares the canonical contract.
+The equation loop calls that method directly and checks graph ownership; it does
+not inspect signatures or interpret returned values.
+
+Existing extensions with `lower(ctx, eqn, params)`, unannotated or return-style
+`lower` methods, and `get_handler(converter)` use a registration adapter. The
+adapter binds returned values and preserves partial bindings and drop variables.
+Only this legacy boundary resolves old name-only value aliases to the actual
+graph value. Native bindings must point to values owned by the current graph;
+a foreign or detached value with the same name cannot satisfy that contract.
+`PLUGIN_REGISTRY` remains a mutable mapping of original objects, including
+assignment, lookup, iteration, aliases, removal, and dictionary snapshots.
 
 Core context methods used most often:
 
 | API | Use |
 | --- | --- |
-| `ctx.get_value_for_var(var, ...)` | Fetch or allocate the IR value for a JAX var. Literals can become constants. |
-| `ctx.require_value_for_var(var, ...)` | Require an existing binding; useful when allocation would hide a bug. |
+| `ctx.lookup_value_for_var(var)` | Read an existing binding without allocating nodes or initializers. Returns `None` for unbound vars and literals. |
+| `ctx.require_value_for_var(var, ...)` | Require an input binding; materialize literals in the current graph or Function scope. A missing non-literal binding is an error. |
+| `ctx.allocate_value_for_var(var, ...)` | Reuse a bound value or allocate an output placeholder with traced type and shape. |
+| `ctx.get_value_for_var(var, ...)` | Compatibility convenience that combines lookup, literal materialization, and output allocation. Prefer explicit require/allocate operations in new lowerings. |
 | `ctx.bind_value_for_var(var, value)` | Bind an equation output var to a produced `ir.Value`. |
 | `ctx.bind_const_for_var(var, array)` | Bind a JAXPR constvar. Top-level graphs use initializers; Function bodies use `Constant` nodes. |
 | `ctx.fresh_name(base)` | Create deterministic per-context names. |
@@ -221,7 +237,9 @@ Core context methods used most often:
 Lowering guardrails:
 
 - Emit normal nodes through `ctx.builder`.
-- Pass `_outputs=[...]`, never `_outputs="name"`.
+- Prefer typed `builder.op(..., output=value)` or
+  `builder.op_multi_out(..., outputs=[...])` when emitting into allocated values.
+  Existing dynamic shorthand must pass `_outputs=[...]`, never `_outputs="name"`.
 - Stamp or preserve dtype/shape metadata on produced values.
 - Reuse pre-allocated output values when identity matters.
 - Keep converter/plugins IR-only; do not import ONNX protobuf types in lowering
@@ -230,8 +248,9 @@ Lowering guardrails:
   construction.
 
 The core validates both sides of the equation. `assert_eqn_inputs_bound` catches
-unbound inputs before the plugin runs. `finalize_eqn_lowering_outputs` catches
-missing or disconnected outputs after it runs.
+unbound inputs before the plugin runs. `assert_eqn_outputs_bound` catches missing
+or disconnected outputs after it runs. `finalize_eqn_lowering_outputs` remains a
+legacy compatibility helper for callers that supply returned values.
 
 ## Function Plugins and `@onnx_function`
 

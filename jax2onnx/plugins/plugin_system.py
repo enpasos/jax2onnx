@@ -37,6 +37,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patche
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
+    JaxprEqn,
     Primitive,
     ShapedArray,
     Var,
@@ -46,8 +47,8 @@ from jax2onnx._compat.jax import (
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
-    make_converter_facade,
 )
+from jax2onnx.converter.lowering_registry import PluginRegistry
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     PrimitiveLowering,
@@ -78,7 +79,7 @@ def _sanitize_op_type(s: str) -> str:
 
 # Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
 PluginEntry = Union["FunctionPlugin", PrimitiveLowering]
-PLUGIN_REGISTRY: Dict[str, PluginEntry] = {}
+PLUGIN_REGISTRY: PluginRegistry = PluginRegistry()
 PatchCallable = Callable[[Callable[..., Any]], Callable[..., Any]]
 PatchSpec = tuple[PatchCallable, list[Any], str]
 
@@ -784,8 +785,13 @@ class FunctionPlugin(PrimitivePlugin):
                 signature_parts.append(("callable_name", call_ident))
         return tuple(signature_parts)
 
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        """Lower directly in the context and bind every function-call output."""
+        self._lower_in_context(ctx, eqn, eqn.params)
+
     def get_handler(self, converter: Any) -> Callable[[Any, Any, dict[str, Any]], Any]:
-        return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
+        """Retain the converter-facade entry point for legacy callers."""
+        return self._lower_and_call
 
     def _allocate_friendly_name(self, ctx: Any) -> tuple[str, str]:
         """
@@ -824,6 +830,14 @@ class FunctionPlugin(PrimitivePlugin):
         return base, domain
 
     def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]) -> None:
+        ctx = _extract_ir_ctx(converter)
+        if ctx is None:
+            raise RuntimeError("[onnx_function] Cannot locate IRContext")
+        self._lower_in_context(ctx, eqn, params)
+
+    def _lower_in_context(
+        self, ctx: Any, eqn: JaxprEqn, params: dict[str, Any]
+    ) -> None:
         # Resolve callee
         callee = self._orig_fn
         if "instance_key" in params:
@@ -832,11 +846,6 @@ class FunctionPlugin(PrimitivePlugin):
             callee = INSTANCE_MAP2.get(key)
         if callee is None:
             raise RuntimeError("[onnx_function] Cannot resolve callee")
-
-        # Parent ctx
-        ctx = _extract_ir_ctx(converter)
-        if ctx is None:
-            raise RuntimeError("[onnx_function] Cannot locate IRContext")
 
         call_param_names = set(getattr(ctx, "_call_input_param_names", set()))
         # Ensure a function registry exists on the parent (converter sets this)
@@ -1115,15 +1124,12 @@ class FunctionPlugin(PrimitivePlugin):
             for v_var, v_val in zip(jpr_f.invars, in_vals_child):
                 fscope.ctx.bind_value_for_var(v_var, v_val)
 
-            # Create a child converter facade
-            child_conv = make_converter_facade(fscope.ctx)
             # Walk inner equations and dispatch plugins in CHILD ctx
             lower_jaxpr_with_plugins(
                 ctx=fscope.ctx,
                 jaxpr=jpr_f,
                 registry=PLUGIN_REGISTRY,
                 source="onnx_function",
-                converter=child_conv,
                 missing_plugin_detail="in function body",
             )
 

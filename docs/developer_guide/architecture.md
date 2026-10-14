@@ -59,7 +59,8 @@ primitive-specific lowering policy such as how `lax.conv_general_dilated`,
 | `jax2onnx/user_interface.py` | Public `to_onnx`, `onnx_function`, return-mode handling, ONNX protobuf/file serialization. |
 | `jax2onnx/converter/conversion_api.py` | Core conversion pipeline: trace, bind inputs/constants, lower JAXPR, build/finalize `onnx_ir.Model`. |
 | `jax2onnx/converter/lowering_dispatch.py` | Equation-by-equation plugin dispatch, primitive call recording, stacktrace/plugin metadata staging. |
-| `jax2onnx/converter/output_binding.py` | Input/output binding assertions and generic binding of returned lowering values. |
+| `jax2onnx/converter/lowering_registry.py` | Original plugin identities and prepared canonical calls, including legacy registration adapters. |
+| `jax2onnx/converter/output_binding.py` | Native input/output assertions and legacy returned-value binding. |
 | `jax2onnx/converter/ir_context.py` | Plugin-facing context: var-to-value map, constants, graph IO, symbolic dim origins, function registry. |
 | `jax2onnx/converter/ir_builder.py` | Thin wrapper around `onnx_ir` tape builder with project-specific naming, initializer, and metadata behavior. |
 | `jax2onnx/converter/function_scope.py` | Child context used to stage ONNX Function bodies. |
@@ -87,7 +88,7 @@ ClosedJaxpr
     |
     | - bind constvars
     | - bind graph inputs, including optional NCHW bridges
-    | - lower equations through PLUGIN_REGISTRY[primitive_name]
+    | - lower equations through prepared registry calls
     | - assert every output var is bound to a connected ir.Value
     | - bind graph outputs, including optional NCHW bridges
     v
@@ -142,18 +143,22 @@ the converter:
 ### 3. Equation Lowering
 
 `lowering_dispatch.lower_jaxpr_with_plugins(...)` walks `jaxpr.eqns` in order.
+The registry prepares the canonical calls before the equation loop.
 For each equation it:
 
 1. reads `eqn.primitive.name`;
-2. looks up the registered plugin in `PLUGIN_REGISTRY`;
+2. looks up the prepared lowering for that primitive;
 3. verifies all input vars are already bound;
-4. calls the primitive or function lowering;
-5. binds returned `ir.Value` objects when the plugin returns values instead of
-   binding directly;
-6. verifies every non-drop outvar is bound to a graph-connected value.
+4. invokes `lower(ctx, eqn) -> None`;
+5. verifies every non-drop outvar is bound to a value owned by the current graph.
 
 This makes the plugin contract small but strict: a lowering must produce the
 IR values for the equation outputs and connect them to the graph.
+Inputs use `require_value_for_var`, outputs use `allocate_value_for_var`, and
+`lookup_value_for_var` reads existing bindings without allocating. Legacy
+parameter signatures, returned values, and converter handlers are normalized
+at registration; they do not add call-form guessing to the equation loop.
+See the [executable plugin pattern](plugin_system.md#primitive-plugins).
 
 ### 4. Model Finalization
 
@@ -321,7 +326,7 @@ architecture claims.
 | Plugin binding not active during tracing | Missing primitive-specific JAXPR equation or "no plugin registered" error | Ensure the plugin declares the needed binding spec and tracing runs inside plugin activation. |
 | Missing plugin for primitive | `lowering_dispatch.get_registered_lowering_plugin` | Register a plugin or rewrite the source expression to an already supported primitive. |
 | Plugin reads an unbound input | `assert_eqn_inputs_bound` | Bind constants/inputs earlier or fix nested body input mapping. |
-| Plugin does not bind an output | `finalize_eqn_lowering_outputs` | Bind each outvar or return the produced `ir.Value` sequence. |
+| Plugin does not bind an output | `assert_eqn_outputs_bound` | Bind each non-drop outvar explicitly. Legacy returned values are handled by the registration adapter. |
 | Plugin binds a disconnected value | `assert_eqn_outputs_bound` | Reuse the pre-allocated output value or emit a node whose output is the bound value. |
 | Function body captures hidden state | Function key / FunctionScope behavior | Make captures explicit as static signature items or dynamic function inputs. |
 | Optimizer removes too much | Focused optimizer regression tests | Make the pass more conservative and preserve outputs/signatures explicitly. |
