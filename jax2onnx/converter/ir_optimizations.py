@@ -28,13 +28,12 @@ from jax2onnx.ir_utils import (
     tensor_to_numpy,
 )
 from .optimizer_graph_utils import (
-    NodeSeq,
-    _consumer_nodes,
+    consumers_in_graph,
     _has_input_name_or_obj as _optimizer_has_input_name_or_obj,
     _node_inputs,
     _node_output,
     _node_outputs,
-    _producer_node,
+    producer_in_graph,
     _set_node_inputs,
     _v_name,
 )
@@ -192,16 +191,8 @@ def _get_perm_attr(node: ir.Node) -> Optional[List[int]]:
 def _value_dtype_code(val: Optional[ir.Value]) -> Optional[int]:
     if val is None:
         return None
-    # Value may expose dtype directly or via .type
     dtype = val.dtype
-    if isinstance(dtype, ir.DataType):
-        return int(dtype.value)
-    tensor_type = val.type
-    if isinstance(tensor_type, ir.TensorType):
-        elem_dtype = tensor_type.dtype
-        if isinstance(elem_dtype, ir.DataType):
-            return int(elem_dtype.value)
-    return None
+    return int(dtype) if dtype is not None else None
 
 
 def _shape_dims_seq(
@@ -217,18 +208,9 @@ def _shape_dims_seq(
 
 
 def _shape_tuple(v: Optional[ir.Value]) -> Optional[Tuple[int, ...]]:
-    if v is None:
+    if v is None or v.shape is None:
         return None
-    dims = _shape_dims_seq(v.shape)
-    if dims is None:
-        return None
-    tuple_dims: List[int] = []
-    for d in dims:
-        if isinstance(d, int):
-            tuple_dims.append(d)
-        else:
-            tuple_dims.append(-1)
-    return tuple(tuple_dims)
+    return tuple(dim if isinstance(dim, int) else -1 for dim in v.shape)
 
 
 def _shape_dims_key(
@@ -295,14 +277,6 @@ def _attr_to_int(attr: Optional[ir.Attr]) -> Optional[int]:
         if ints:
             return int(ints[0])
 
-    # Fallbacks for non-strict legacy logic (e.g. TENSOR holding int scalar?)
-    # "Prefer strong types" implies we rely on INT/INTS attribute types for integer intent.
-    # However, value() might be used if type is not set?
-    # But ir.Attr must have type.
-
-    # Check value manually if type check failed or for robustness?
-    # Existing code checked .value directly.
-    # I will stick to type-based extraction.
     return None
 
 
@@ -464,7 +438,7 @@ _INTEGER_VALUE_PRESERVING_OPS: frozenset[str] = frozenset(
 
 def _is_standard_onnx_node(node: ir.Node, op_type: str) -> bool:
     """Match an operator only in ONNX's default domain."""
-    return node.op_type == op_type and (getattr(node, "domain", "") or "") == ""
+    return node.op_type == op_type and node.domain == ""
 
 
 def _nested_graph_references_value(nodes: Sequence[ir.Node], value: ir.Value) -> bool:
@@ -503,7 +477,7 @@ def _nested_graph_references_value(nodes: Sequence[ir.Node], value: ir.Value) ->
 
 
 def _known_integer_scalar(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     value: ir.Value,
     *,
     seen: Optional[Set[int]] = None,
@@ -523,21 +497,21 @@ def _known_integer_scalar(
             return int(np_arr.reshape(-1)[0])
         return None
 
-    producer = _producer_node(nodes, value)
+    producer = producer_in_graph(graph, value)
     if (
         producer is None
         or producer.op_type not in _INTEGER_VALUE_PRESERVING_OPS
-        or (getattr(producer, "domain", "") or "") != ""
+        or producer.domain != ""
     ):
         return None
     inputs = _node_inputs(producer)
     if not inputs or inputs[0] is None:
         return None
-    return _known_integer_scalar(nodes, inputs[0], seen=seen)
+    return _known_integer_scalar(graph, inputs[0], seen=seen)
 
 
 def _known_integer_value_bounds(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     value: ir.Value,
     *,
     seen: Optional[Set[int]] = None,
@@ -558,17 +532,14 @@ def _known_integer_value_bounds(
         flat = np_arr.reshape(-1)
         return int(flat.min()), int(flat.max())
 
-    producer = _producer_node(nodes, value)
+    producer = producer_in_graph(graph, value)
     if producer is None:
         return None
     inputs = _node_inputs(producer)
-    if (
-        producer.op_type in _INTEGER_VALUE_PRESERVING_OPS
-        and (getattr(producer, "domain", "") or "") == ""
-    ):
+    if producer.op_type in _INTEGER_VALUE_PRESERVING_OPS and producer.domain == "":
         if not inputs or inputs[0] is None:
             return None
-        return _known_integer_value_bounds(nodes, inputs[0], seen=seen)
+        return _known_integer_value_bounds(graph, inputs[0], seen=seen)
     if not _is_standard_onnx_node(producer, "Range") or len(inputs) < 3:
         return None
 
@@ -576,7 +547,7 @@ def _known_integer_value_bounds(
     for range_input in inputs[:3]:
         if range_input is None:
             return None
-        scalar = _known_integer_scalar(nodes, range_input)
+        scalar = _known_integer_scalar(graph, range_input)
         if scalar is None:
             return None
         range_values.append(scalar)
@@ -613,7 +584,7 @@ def _integer_dtype_bounds(dtype_code: int) -> Optional[Tuple[int, int]]:
 
 
 def _cast_roundtrip_known_values_fit(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     source: ir.Value,
     source_dtype: int,
     intermediate_dtype: int,
@@ -624,7 +595,7 @@ def _cast_roundtrip_known_values_fit(
     intermediate_bounds = _integer_dtype_bounds(intermediate_dtype)
     if intermediate_bounds is None:
         return False
-    value_bounds = _known_integer_value_bounds(nodes, source)
+    value_bounds = _known_integer_value_bounds(graph, source)
     if value_bounds is None:
         return False
     value_min, value_max = value_bounds
@@ -674,7 +645,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
             if src_dtype != target_code:
                 # Try folding consecutive Cast→Cast when net dtype is identity.
                 out_val = outs[0]
-                consumers = _consumer_nodes(nodes, out_val)
+                consumers = consumers_in_graph(graph, out_val)
                 if len(consumers) == 1:
                     next_node = consumers[0]
                     if _is_standard_onnx_node(next_node, "Cast"):
@@ -690,7 +661,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                                         src_dtype, target_code
                                     )
                                     or _cast_roundtrip_known_values_fit(
-                                        nodes,
+                                        graph,
                                         src_input,
                                         src_dtype,
                                         target_code,
@@ -787,11 +758,8 @@ def _elementwise_shape_source(
 def _dim_token(dim: Any) -> Tuple[str, Any]:
     if isinstance(dim, (int, np.integer)):
         return ("int", int(dim))
-    if hasattr(dim, "value"):
-        try:
-            return ("value", getattr(dim, "value"))
-        except Exception:
-            pass
+    if isinstance(dim, ir.SymbolicDim):
+        return ("value", dim.value)
     return ("repr", repr(dim))
 
 
@@ -846,7 +814,7 @@ def _broadcast_shape_dims(
 
 
 def _refresh_elementwise_output_shape(node: ir.Node) -> None:
-    if (getattr(node, "domain", "") or "") != "":
+    if node.domain != "":
         return
     outs = _node_outputs(node)
     if not outs:
@@ -887,7 +855,7 @@ def _refresh_elementwise_output_shape(node: ir.Node) -> None:
 
 
 def _collect_transpose_elementwise_chain(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     start_value: ir.Value,
 ) -> Optional[Tuple[ir.Node, Set[ir.Node]]]:
     """
@@ -906,7 +874,7 @@ def _collect_transpose_elementwise_chain(
         visited_values.add(val)
         if _is_scalar_const_value(val):
             continue
-        producer = _producer_node(nodes, val)
+        producer = producer_in_graph(graph, val)
         if producer is None:
             return None
         if producer.op_type == "Transpose":
@@ -932,7 +900,7 @@ def _collect_transpose_elementwise_chain(
 
 
 def _collect_transpose_elementwise_forest(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     start_value: ir.Value,
 ) -> Optional[Tuple[Set[ir.Node], Set[ir.Node]]]:
     """
@@ -951,7 +919,7 @@ def _collect_transpose_elementwise_forest(
         visited_values.add(val)
         if _is_scalar_const_value(val):
             continue
-        producer = _producer_node(nodes, val)
+        producer = producer_in_graph(graph, val)
         if producer is None:
             return None
         if producer.op_type == "Transpose":
@@ -993,7 +961,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             if node_input is None:
                 continue
 
-            reducer = _producer_node(nodes, node_input)
+            reducer = producer_in_graph(graph, node_input)
             if reducer is None or reducer.op_type != "ReduceMean":
                 continue
 
@@ -1004,7 +972,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             if reducer_input is None:
                 continue
 
-            t1 = _producer_node(nodes, reducer_input)
+            t1 = producer_in_graph(graph, reducer_input)
             if t1 is None or t1.op_type != "Transpose":
                 continue
 
@@ -1076,7 +1044,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             # 0. Safety: Reducer output must NOT be used by anything else
             # (Because we are about to change its semantic output from NHWC to NCHW)
             reducer_out_val = _node_output(reducer)
-            reducer_consumers = _consumer_nodes(nodes, reducer_out_val)
+            reducer_consumers = consumers_in_graph(graph, reducer_out_val)
             # We expect exactly one consumer: 'node' (T2)
             if len(reducer_consumers) != 1:
                 if DEBUG:
@@ -1108,7 +1076,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
                     new_axes_val.const_value = ir.tensor(new_axes_arr)
 
                     # Register as initializer
-                    graph.initializers.add(new_axes_val)
+                    graph.register_initializer(new_axes_val)
 
                     reducer.replace_input_with(axes_input_idx, new_axes_val)
                 else:
@@ -1135,7 +1103,7 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
 
 
 def _collect_add_transpose_forest(
-    nodes: Sequence[ir.Node], start: ir.Node
+    graph: ir.Graph, start: ir.Node
 ) -> Optional[Tuple[List[ir.Node], List[int], List[int], Set[ir.Node], Set[ir.Node]]]:
     """
     Collect a forward Add forest where external inputs are wrapped by one
@@ -1167,7 +1135,7 @@ def _collect_add_transpose_forest(
         add_input_count = 0
         transpose_input_count = 0
         for iv in ins:
-            prod = _producer_node(nodes, iv)
+            prod = producer_in_graph(graph, iv)
             if prod is not None and prod.op_type == "Add":
                 add_input_count += 1
                 if prod not in add_set:
@@ -1196,7 +1164,7 @@ def _collect_add_transpose_forest(
         out = _node_output(node)
         if out is None:
             return None
-        consumers = _consumer_nodes(nodes, out)
+        consumers = consumers_in_graph(graph, out)
         for consumer in consumers:
             if consumer.op_type == "Add":
                 if consumer not in add_set:
@@ -1232,19 +1200,19 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
     Lift Add forests to pre-transpose layout when they are enclosed by inverse
     transpose boundaries.
     """
-    nodes = list(cast(NodeSeq, graph))
+    nodes = list(graph)
     if not nodes:
         return
 
     changed = True
     while changed:
         changed = False
-        nodes = list(cast(NodeSeq, graph))
+        nodes = list(graph)
         for start in nodes:
             if start.op_type != "Add":
                 continue
 
-            match = _collect_add_transpose_forest(nodes, start)
+            match = _collect_add_transpose_forest(graph, start)
             if match is None:
                 continue
             add_nodes, perm_fwd, _perm_inv, input_transposes, output_transposes = match
@@ -1253,7 +1221,7 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
             for add_node in add_nodes:
                 ins = _node_inputs(add_node)
                 for idx, iv in enumerate(ins):
-                    prod = _producer_node(nodes, iv)
+                    prod = producer_in_graph(graph, iv)
                     if prod is None or prod.op_type != "Transpose":
                         continue
                     perm = _transpose_perm(prod)
@@ -1276,14 +1244,13 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
             graph.remove(list(output_transposes))
 
             # Remove now-unused input Transpose(perm_fwd) nodes.
-            live_nodes = list(cast(NodeSeq, graph))
             removable_inputs: List[ir.Node] = []
             for in_transpose in input_transposes:
                 t_out = _node_output(in_transpose)
                 if t_out is None:
                     removable_inputs.append(in_transpose)
                     continue
-                if _consumer_nodes(live_nodes, t_out):
+                if consumers_in_graph(graph, t_out):
                     continue
                 if t_out.is_graph_output():
                     continue
@@ -1346,7 +1313,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     if iv is None:
                         ok = False
                         break
-                    prod = _producer_node(nodes, iv)
+                    prod = producer_in_graph(graph, iv)
                     if prod is not None and prod is prev:
                         has_prev_input = True
                         continue
@@ -1379,7 +1346,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 if out is None:
                     ok = False
                     break
-                consumers = _consumer_nodes(nodes, out)
+                consumers = consumers_in_graph(graph, out)
                 add_consumers = [c for c in consumers if c.op_type == "Add"]
                 other_consumers = [c for c in consumers if c.op_type != "Add"]
                 if len(add_consumers) > 1:
@@ -1421,7 +1388,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             for node in add_chain:
                 ins = _node_inputs(node)
                 for idx, iv in enumerate(ins):
-                    prod = _producer_node(nodes, iv)
+                    prod = producer_in_graph(graph, iv)
                     if prod is None or prod.op_type != "Transpose":
                         continue
                     perm = _transpose_perm(prod)
@@ -1439,7 +1406,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 out = _node_output(node)
                 if out is None:
                     continue
-                for consumer in _consumer_nodes(nodes, out):
+                for consumer in consumers_in_graph(graph, out):
                     if consumer.op_type != "Transpose":
                         continue
                     perm = _transpose_perm(consumer)
@@ -1471,7 +1438,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             perm2 = _transpose_perm(t2_node)
             if perm2 is None:
                 continue
-            forest_match = _collect_transpose_elementwise_forest(nodes, t2_in)
+            forest_match = _collect_transpose_elementwise_forest(graph, t2_in)
             if forest_match is None:
                 continue
             transpose_nodes, elem_nodes = forest_match
@@ -1496,7 +1463,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 out = _node_output(node)
                 if out is None:
                     continue
-                for consumer in _consumer_nodes(nodes, out):
+                for consumer in consumers_in_graph(graph, out):
                     if consumer in elem_nodes:
                         continue
                     if consumer.op_type != "Transpose":
@@ -1545,12 +1512,11 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 graph.remove(list(output_transposes))
 
             # Remove now-unused transpose inputs.
-            live_nodes = list(graph)
             for t_node in transpose_nodes:
                 t_out = _node_output(t_node)
                 if t_out is None:
                     continue
-                if not _consumer_nodes(live_nodes, t_out):
+                if not consumers_in_graph(graph, t_out):
                     graph.remove(t_node)
 
             changed = True
@@ -1567,7 +1533,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             perm2 = _transpose_perm(t2_node)
             if perm2 is None:
                 continue
-            chain_match = _collect_transpose_elementwise_chain(nodes, t2_in)
+            chain_match = _collect_transpose_elementwise_chain(graph, t2_in)
             if chain_match is None:
                 continue
             T1, elem_nodes = chain_match
@@ -1580,7 +1546,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             if t1_out is None:
                 continue
             ok = True
-            for consumer in _consumer_nodes(nodes, t1_out):
+            for consumer in consumers_in_graph(graph, t1_out):
                 if consumer is t2_node:
                     continue
                 if consumer not in elem_nodes:
@@ -1592,7 +1558,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 out = _node_output(node)
                 if out is None:
                     continue
-                for consumer in _consumer_nodes(nodes, out):
+                for consumer in consumers_in_graph(graph, out):
                     if consumer is t2_node:
                         continue
                     if consumer not in elem_nodes:
@@ -1633,7 +1599,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 continue
             T1 = n
             T1_out = _node_output(T1)
-            consumers = _consumer_nodes(nodes, T1_out)
+            consumers = consumers_in_graph(graph, T1_out)
             if len(consumers) == 0:
                 i += 1
                 continue
@@ -1652,7 +1618,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                         chain_nodes.append(m)
                         allowed_nodes.append(m)
                         cur_val = _node_output(m)
-                        next_nodes = _consumer_nodes(nodes, cur_val)
+                        next_nodes = consumers_in_graph(graph, cur_val)
                         if len(next_nodes) != 1:
                             break
                         cur = next_nodes[0]
@@ -1780,13 +1746,10 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
             steps = 0
             while v is not None and steps < 8:
                 steps += 1
-                prod_node = _producer_node(nodes, v)
+                prod_node = producer_in_graph(graph, v)
                 if prod_node is None:
                     break
-                if (
-                    prod_node.op_type in ALLOWED_ELEMWISE
-                    and (getattr(prod_node, "domain", "") or "") == ""
-                ):
+                if prod_node.op_type in ALLOWED_ELEMWISE and prod_node.domain == "":
                     allowed_nodes.append(prod_node)
                     v = _first_input(prod_node)
                     continue
@@ -1815,7 +1778,7 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
 
             t1_out = _node_output(T1)
             if t1_out is not None:
-                for consumer in _consumer_nodes(nodes, t1_out):
+                for consumer in consumers_in_graph(graph, t1_out):
                     if consumer in chain_nodes or consumer is T2:
                         continue
                     safe_chain = False
@@ -1826,7 +1789,7 @@ def remove_redundant_reshape_pairs_ir(graph: ir.Graph) -> None:
                     out = _node_output(node)
                     if out is None:
                         continue
-                    for consumer in _consumer_nodes(nodes, out):
+                    for consumer in consumers_in_graph(graph, out):
                         if consumer in chain_nodes or consumer is T2:
                             continue
                         safe_chain = False
@@ -1881,7 +1844,7 @@ def _shapes_match_exact(
         return False
     for src_dim, tgt_dim in zip(src_dims, target_dims):
         val = src_dim
-        if hasattr(val, "value"):
+        if isinstance(val, ir.SymbolicDim):
             val = val.value
         if not isinstance(val, (int, np.integer)):
             return False
@@ -1980,10 +1943,8 @@ def _copy_shape_dtype(dst: Optional[ir.Value], src: Optional[ir.Value]) -> bool:
         s_key = _shape_dims_key(s_shp)
         d_key = _shape_dims_key(d_shp) if d_shp is not None else None
         if s_key is not None and s_key != d_key:
-            cloned = ir.Shape(s_shp)
-            if cloned is not None:
-                dst.shape = cloned
-                changed = True
+            dst.shape = ir.Shape(s_shp)
+            changed = True
 
     s_ty = src.type
     d_ty = dst.type
@@ -2006,7 +1967,7 @@ def propagate_unary_shapes_ir(graph: ir.Graph) -> None:
         return
     for n in nodes:
         op = n.op_type
-        if op not in UNARY_DATAFLOW_OPS or (getattr(n, "domain", "") or "") != "":
+        if op not in UNARY_DATAFLOW_OPS or n.domain != "":
             continue
         ins = _node_inputs(n)
         outs = _node_outputs(n)
@@ -2025,10 +1986,7 @@ def propagate_elementwise_shapes_ir(graph: ir.Graph) -> None:
     if not nodes:
         return
     for node in nodes:
-        if (
-            node.op_type in ELEMENTWISE_BINARY_OPS
-            and (getattr(node, "domain", "") or "") == ""
-        ):
+        if node.op_type in ELEMENTWISE_BINARY_OPS and node.domain == "":
             _refresh_elementwise_output_shape(node)
 
 
@@ -2143,25 +2101,11 @@ def _to_numpy_from_any(x: object) -> Optional[ArrayND]:
         except Exception:
             return None
 
-    # Fallback for unexpected types?
-    # Original code had a catch-all try/except block for _as_ndarray(x).
-    # If we want strict typing, we should arguably RETURN NONE if it's not a known type.
-    # But for robustness in converter, maybe keep fallback?
-    # User said "prefer strong typing".
-    # Strong typing means: if it's not one of the expected types, we don't know how to handle it.
-    # Returning None is safer than crashing or guessing.
-
-    # Check for legacy object-array-with-scalar case?
-    # This was specific workaround.
     return None
 
 
 def _graph_default_opset(graph: ir.Graph) -> int:
-    opset_imports = getattr(graph, "opset_imports", None) or {}
-    try:
-        return int(opset_imports.get("", 0) or 0)
-    except Exception:
-        return 0
+    return graph.opset_imports.get("", 0)
 
 
 def _same_value(left: ir.Value | None, right: ir.Value | None) -> bool:
@@ -2174,12 +2118,12 @@ def _same_value(left: ir.Value | None, right: ir.Value | None) -> bool:
 
 
 def _match_mul_sigmoid_silu_inputs(
-    nodes: Sequence[ir.Node],
+    graph: ir.Graph,
     lhs: ir.Value | None,
     rhs: ir.Value | None,
 ) -> tuple[ir.Value, ir.Node] | None:
     for sigmoid_output, passthrough in ((lhs, rhs), (rhs, lhs)):
-        sigmoid_node = _producer_node(nodes, sigmoid_output)
+        sigmoid_node = producer_in_graph(graph, sigmoid_output)
         if sigmoid_node is None or sigmoid_node.op_type != "Sigmoid":
             continue
         sigmoid_inputs = _node_inputs(sigmoid_node)
@@ -2220,7 +2164,7 @@ def rewrite_mul_sigmoid_as_swish_ir(graph: ir.Graph) -> None:
             inputs = _node_inputs(node)
             if len(inputs) != 2:
                 continue
-            match = _match_mul_sigmoid_silu_inputs(nodes, inputs[0], inputs[1])
+            match = _match_mul_sigmoid_silu_inputs(graph, inputs[0], inputs[1])
             if match is None:
                 continue
             x_val, sigmoid_node = match
@@ -2231,9 +2175,9 @@ def rewrite_mul_sigmoid_as_swish_ir(graph: ir.Graph) -> None:
 
             new_out = ir.Value(
                 name=out_val.name,
-                shape=getattr(out_val, "shape", None),
-                type=getattr(out_val, "type", None),
-                metadata_props=dict(getattr(out_val, "metadata_props", {}) or {}),
+                shape=out_val.shape,
+                type=out_val.type,
+                metadata_props=dict(out_val.metadata_props),
             )
             swish_node = ir.Node(
                 "",
@@ -2241,17 +2185,16 @@ def rewrite_mul_sigmoid_as_swish_ir(graph: ir.Graph) -> None:
                 inputs=[x_val],
                 outputs=[new_out],
                 name=f"{node.name}_swish" if node.name else None,
-                metadata_props=dict(getattr(node, "metadata_props", {}) or {}),
+                metadata_props=dict(node.metadata_props),
             )
             graph.insert_before(node, swish_node)
             ir.convenience.replace_all_uses_with(
                 out_val, new_out, replace_graph_outputs=True
             )
             graph.remove(node)
-            remaining_nodes = list(graph)
-            if not _value_is_graph_output(graph, sigmoid_out) and not _consumer_nodes(
-                remaining_nodes, sigmoid_out
-            ):
+            if not _value_is_graph_output(
+                graph, sigmoid_out
+            ) and not consumers_in_graph(graph, sigmoid_out):
                 graph.remove(sigmoid_node)
             changed = True
             break
@@ -2295,7 +2238,7 @@ def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
             for inv_pos in (0, 1):
                 inv_val = mul_inputs[inv_pos]
                 other_val = mul_inputs[1 - inv_pos]
-                div_node = _producer_node(nodes, inv_val)
+                div_node = producer_in_graph(graph, inv_val)
                 if div_node is None:
                     if DEBUG:
                         _dbg("rewrite_mul_rsqrt skip: no producer", _v_name(inv_val))
@@ -2306,7 +2249,7 @@ def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
                             "rewrite_mul_rsqrt skip: producer not Div", div_node.op_type
                         )
                     continue
-                consumers = _consumer_nodes(nodes, inv_val)
+                consumers = consumers_in_graph(graph, inv_val)
                 if consumers and any(consumer is not node for consumer in consumers):
                     if DEBUG:
                         _dbg("rewrite_mul_rsqrt skip: shared consumers", consumers)
@@ -2321,7 +2264,7 @@ def rewrite_mul_rsqrt_as_div_ir(graph: ir.Graph) -> None:
                     if DEBUG:
                         _dbg("rewrite_mul_rsqrt skip: numerator not one")
                     continue
-                denom_producer = _producer_node(nodes, denominator)
+                denom_producer = producer_in_graph(graph, denominator)
                 if denom_producer is None:
                     if DEBUG:
                         _dbg("rewrite_mul_rsqrt skip: denominator producer missing")
@@ -2361,19 +2304,18 @@ def _as_scalar_bool(payload: object) -> Optional[bool]:
 
 
 def _read_scalar_bool_from_value_or_constant(
-    nodes: List["ir.Node"], v_or_name: Optional[Union[ir.Value, str]]
+    graph: ir.Graph, value: ir.Value | None
 ) -> Optional[bool]:
     """Resolve a scalar boolean carried by a value or Constant producer."""
-    if v_or_name is None:
+    if value is None:
         return None
 
-    if isinstance(v_or_name, ir.Value):
-        val = _as_scalar_bool(v_or_name)
-        if val is not None:
-            _dbg_tm("read Value const tensor:", type(v_or_name).__name__, "→", val)
-            return val
+    val = _as_scalar_bool(value)
+    if val is not None:
+        _dbg_tm("read Value const tensor:", type(value).__name__, "→", val)
+        return val
 
-    producer = _producer_node(nodes, v_or_name)
+    producer = producer_in_graph(graph, value)
     if producer is None:
         return None
     node = producer
@@ -2428,22 +2370,16 @@ def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
             type(tm).__name__,
         )
         # Prefer handling the Not(True) pattern so we can drop the Not producer.
-        producer = _producer_node(nodes, tm)
+        producer = producer_in_graph(graph, tm)
         if producer is not None:
-            # Find index for deletion tracking
-            try:
-                pidx = nodes.index(producer)
-            except ValueError:
-                pidx = -1
-
-            if pidx != -1 and producer.op_type == "Not":
+            if producer.op_type == "Not":
                 _dbg_tm("tm producer is Not")
                 not_in = _first_input(producer)
                 if isinstance(not_in, ir.Value) and not_in.is_graph_input():
                     _dbg_tm("Not input is dynamic graph input; skipping")
                     _dbg_tm("Not input could not be proven True; nv=", None)
                     continue
-                nv = _read_scalar_bool_from_value_or_constant(nodes, not_in)
+                nv = _read_scalar_bool_from_value_or_constant(graph, not_in)
                 if nv is not None and bool(nv) is True:
                     rep_val = _constant_false_value()
                     ins_new = list(ins)
@@ -2531,7 +2467,7 @@ def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
     consumer links are stale.
     """
     while True:
-        nodes = list(cast(NodeSeq, graph))
+        nodes = list(graph)
         graph_output_names: Set[str] = {
             name for out in graph.outputs if (name := _v_name(out)) is not None
         }

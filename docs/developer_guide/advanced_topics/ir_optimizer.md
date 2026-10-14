@@ -58,6 +58,41 @@ Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 
+## Graph Scope and Value Ownership
+
+Passes receive an `ir.Graph` and traverse real `ir.Value` objects. Use the
+shared functions in `converter/optimizer_graph_utils.py` for discovery:
+
+```python
+producer = producer_in_graph(graph, value)
+consumers = consumers_in_graph(graph, value)
+belongs_here = node_in_graph(graph, node)
+```
+
+These functions use `Value.producer()`, `Value.consumers()`, and `Node.graph`.
+They match object identity within the supplied graph. A captured outer value
+can have consumers in a child graph while its producer belongs to the parent.
+Consumer discovery therefore checks each consumer's ownership rather than
+assuming that `value.graph` equals the consumer graph.
+
+Keep `list(graph)` snapshots when a pass removes or inserts nodes during
+iteration. Pass the live graph to discovery functions: a snapshot records an
+iteration order, not current membership. Removed nodes may remain referenced
+by their output values, so a producer reference alone does not prove that the
+node is still in the graph.
+
+The explicit `legacy_producer_node`, `legacy_consumer_nodes`, and
+`legacy_node_in_sequence` adapters accept detached node sequences. The first
+two retain historical name matching for raw names and disconnected value
+wrappers; sequence membership always tests exact identity. Existing private
+imports remain aliases for these adapters. New passes use the graph-scoped
+functions so equal names in different scopes cannot create false edges.
+
+Read shape and dtype metadata directly from `ir.Value.shape` and
+`ir.Value.dtype`. Missing metadata and symbolic dimensions still require
+semantic checks; alternate object layouts do not. Register new initializers
+with `graph.register_initializer(value)`.
+
 ## Pass Summary
 
 | Pass | Scope | Purpose |
@@ -133,7 +168,7 @@ Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, o
 
 ### Matching heuristics
 
-- Follow the true consumer chain by **name or object identity** (some `onnx_ir` builds wrap/rename `Value` objects).
+- Follow the consumer chain by value identity within the current `ir.Graph`.
 - Skip helper nodes on side branches (`Const`, `Shape`, etc.) that do not consume the current tensor.
 - Require **single consumer** at each hop (no branching rewires).
 - Read permutations from the `perm` attribute when available.
@@ -141,10 +176,12 @@ Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, o
 
 ### Rewiring and deletion
 
-- `onnx_ir.Node.inputs` may be immutable; use `Node.replace_input_with(index: int, value: Value)` when provided by the backend.
-- Rewire **all** consumers of the second transpose’s output (by name or object) to the kept tensor.
+- Use `Node.replace_input_with(index, value)` to update individual inputs.
+- Rewire all uses of the second transpose's output with
+  `ir.convenience.replace_all_uses_with(..., replace_graph_outputs=True)`.
 - Update graph/model outputs and the var→value map so no reference points at removed nodes.
-- Delete nodes in reverse order (second transpose first), maintaining any live list mirrors (`graph.nodes`, `graph._nodes`, etc.).
+- Remove replaced nodes through `graph.remove(...)`; IR maintains ownership
+  and its internal node containers.
 
 This pass is intentionally conservative, portable across `onnx_ir` variants, and oblivious to specific operator semantics.
 
