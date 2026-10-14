@@ -79,21 +79,33 @@ def _has_input_name_or_obj(
     return False
 
 
+def _node_in_sequence(node: ir.Node, nodes: Sequence[ir.Node]) -> bool:
+    """Check whether ``node`` belongs to ``nodes``, using graph identity for ``ir.Graph``."""
+    if not nodes:
+        return False
+    if node.graph is nodes:
+        return True
+    return any(existing is node for existing in nodes)
+
+
 def _consumer_nodes(
     nodes: Sequence[ir.Node], value_or_name: Union[ir.Value, str, None]
 ) -> List[ir.Node]:
     """
     Return consumer nodes for a value, preferring IR APIs with name-based fallback.
     """
-    if value_or_name is None:
+    if value_or_name is None or not nodes:
         return []
-    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         consumers = value_or_name.consumers()
         if consumers:
             try:
                 if all(isinstance(c, ir.Node) for c in consumers):
-                    filtered = [c for c in consumers if id(c) in current_node_ids]
+                    if value_or_name.graph is nodes or len(consumers) <= 4:
+                        filtered = [c for c in consumers if _node_in_sequence(c, nodes)]
+                    else:
+                        current_node_ids: Set[int] = {id(node) for node in nodes}
+                        filtered = [c for c in consumers if id(c) in current_node_ids]
                     if filtered:
                         return list(filtered)
             except Exception:
@@ -122,13 +134,17 @@ def _producer_node(
     """
     Return the producer node for a value/name, preferring IR APIs with fallback scans.
     """
-    if value_or_name is None:
+    if value_or_name is None or not nodes:
         return None
-    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
         prod = value_or_name.producer()
-        if isinstance(prod, ir.Node) and id(prod) in current_node_ids:
-            return prod
+        if isinstance(prod, ir.Node):
+            if _node_in_sequence(prod, nodes):
+                return prod
+        elif value_or_name.graph is nodes and (
+            value_or_name.is_graph_input() or value_or_name.is_initializer()
+        ):
+            return None
 
     ref_value, ref_name = _value_identity(value_or_name)
     target_name = ref_name

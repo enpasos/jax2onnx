@@ -10,7 +10,7 @@ The repository keeps `onnx_ir` imports typed in `pyproject.toml`:
 
 ```toml
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = ["jax2onnx"]
 follow_imports = "skip"
 disallow_untyped_defs = true

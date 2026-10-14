@@ -61,18 +61,14 @@ Most primitive support is implemented as a subclass of `PrimitiveLeafPlugin`
 registered with `@register_primitive(...)`.
 
 ```python
-from typing import Any
-
 import jax
 import onnx_ir as ir
-from jax import core
 
+from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
 
 
 @register_primitive(

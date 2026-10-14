@@ -102,13 +102,15 @@ def _maybe_promote_float_array(
 
 def _to_ir_dtype_from_np(np_dtype: np.dtype) -> "ir.DataType":
     np_dtype = np.dtype(np_dtype)
+    if np_dtype.name == "bfloat16":
+        return ir.DataType.BFLOAT16
     if np.issubdtype(np_dtype, np.floating):
         return ir.DataType.DOUBLE if np_dtype == np.float64 else ir.DataType.FLOAT
     if np.issubdtype(np_dtype, np.integer):
         return numpy_dtype_to_ir(np_dtype, default=ir.DataType.INT64)
     if np_dtype == np.dtype(np.bool_):
         return numpy_dtype_to_ir(np_dtype)
-    return ir.DataType.FLOAT
+    return numpy_dtype_to_ir(np_dtype, default=ir.DataType.FLOAT)
 
 
 def _to_ir_shape(shape_tuple: Sequence[ShapeDimSpec]) -> "ir.Shape":
@@ -498,21 +500,18 @@ def _activate_plugin_worlds() -> Iterator[None]:
 @contextmanager
 def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
     read_config = jax.config.read if hasattr(jax.config, "read") else None
+    previous: Optional[bool]
     if callable(read_config):
         previous = bool(read_config("jax_enable_x64"))
+    elif hasattr(jax.config, "jax_enable_x64"):
+        previous = bool(jax.config.jax_enable_x64)
     else:
-        previous = (
-            bool(jax.config.jax_enable_x64)
-            if hasattr(jax.config, "jax_enable_x64")
-            else False
-        )
-    target = bool(enable_double_precision)
-    if previous != target:
-        jax.config.update("jax_enable_x64", target)
+        previous = None
+    jax.config.update("jax_enable_x64", bool(enable_double_precision))
     try:
         yield
     finally:
-        if previous != target:
+        if previous is not None:
             jax.config.update("jax_enable_x64", previous)
 
 
@@ -570,10 +569,11 @@ def _bind_closed_jaxpr_constants(
             not enable_double_precision
             and desired_dtype is not None
             and np.issubdtype(desired_dtype, np.floating)
-            and desired_dtype != np.float32
+            and desired_dtype not in (np.dtype(np.float16), np.dtype(np.float32))
+            and desired_dtype.name != "bfloat16"
             and np_c.dtype != np.float64
         ):
-            desired_dtype = np.float32
+            desired_dtype = np.dtype(np.float32)
 
         if desired_dtype is not None and np_c.dtype != desired_dtype:
             np_c = np_c.astype(desired_dtype, copy=False)
@@ -606,7 +606,9 @@ class _LayoutAdapter:
         nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
         nchw_input_val = ir.Value(
             name=f"in_{index}_nchw",
-            type=ir.TensorType(_to_ir_dtype_from_np(np.dtype(var.aval.dtype))),
+            type=ir.TensorType(
+                _dtype_to_ir(np.dtype(var.aval.dtype), self.enable_double_precision)
+            ),
             shape=_to_ir_shape(nchw_shape),
         )
         self.ctx.add_graph_input_value(nchw_input_val)

@@ -2,6 +2,13 @@
 
 ## Planned
 
+* Consolidate the lowering, value-binding, and graph-access contracts into a
+  readable typed core. Follow the
+  [staged refactoring plan](../developer_guide/maintainer/typed_lowering_refactoring_plan.md).
+* Preserve FP16/BF16 types across NCHW export bridges and use the correct module
+  instance for decorated function evaluation, shape inference, and batching.
+  Keep graph ownership checks, import retries, and precision restoration intact.
+
 * Extend target-oriented validation guidance beyond the documented ONNX Runtime
   CPU and Web/WASM flows, especially for mobile deployments where practical.
 * Broaden capability-matrix coverage across dtype and shape variants, including

@@ -68,6 +68,16 @@ def _value_matches_reference(existing: object, reference: ir.Value) -> bool:
 
 
 def _value_is_graph_connected(ctx: Any, value: ir.Value) -> bool:
+    builder = ctx.builder
+    builder_graph = getattr(builder, "graph", None)
+    if builder_graph is not None and builder.nodes is builder_graph:
+        producer = value.producer()
+        if producer is not None and producer.graph is builder_graph:
+            return True
+        if value.graph is builder_graph and (
+            value.is_graph_input() or value.is_initializer()
+        ):
+            return True
     if any(
         _value_matches_reference(existing, value) for existing in ctx.builder.inputs
     ):

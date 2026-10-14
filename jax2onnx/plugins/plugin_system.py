@@ -89,11 +89,13 @@ ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
 INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
 
 # Track @onnx_function hits (optional)
-_ONNX_FN_HITS: ContextVar[set[str]] = ContextVar("_ONNX_FN_HITS", default=set())
+_ONNX_FN_HITS: ContextVar[frozenset[str]] = ContextVar(
+    "_ONNX_FN_HITS", default=frozenset()
+)
 
 # During function body build, prevent that function from rebinding itself
-_IN_FUNCTION_BUILD: ContextVar[set[str]] = ContextVar(
-    "_IN_FUNCTION_BUILD", default=set()
+_IN_FUNCTION_BUILD: ContextVar[frozenset[str]] = ContextVar(
+    "_IN_FUNCTION_BUILD", default=frozenset()
 )
 
 # Optional examples registry (used by docs/test generation tooling)
@@ -489,6 +491,20 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive.def_impl(self._primitive_impl)
         batching.primitive_batchers[self.primitive] = self._batching_rule
         self._orig_fn: Callable[..., Any] | None = None  # set by patch wrapper
+        self._unbound_orig_fn: Callable[..., Any] | None = None
+
+    def _resolve_orig_fn(
+        self, instance_key: object | None = None
+    ) -> Callable[..., Any] | None:
+        if isinstance(instance_key, int):
+            instance = INSTANCE_MAP2.get(instance_key)
+            unbound = self._unbound_orig_fn
+            if instance is not None and unbound is not None:
+                return cast(
+                    Callable[..., Any],
+                    unbound.__get__(instance, type(instance)),
+                )
+        return self._orig_fn
 
     # Implement abstract method (used by monkey-patch activator)
     def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
@@ -528,7 +544,9 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _abstract_eval_with_kwargs(self, *args: Any, **kwargs: Any) -> Any:
-        if self._orig_fn is None:
+        instance_key = kwargs.get("instance_key")
+        orig_fn = self._resolve_orig_fn(instance_key)
+        if orig_fn is None:
             raise ValueError(f"Original function not set for '{self.name}'")
 
         def _coerce_kwarg(value: Any) -> Any:
@@ -551,7 +569,7 @@ class FunctionPlugin(PrimitivePlugin):
             )
             for arg in args
         ]
-        out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
+        out_aval = jax.eval_shape(orig_fn, *specs, **kwargs)
         if isinstance(out_aval, jax.ShapeDtypeStruct):
             out_aval = self._aval_to_shaped_array(out_aval)
         elif isinstance(out_aval, tuple):
@@ -561,14 +579,16 @@ class FunctionPlugin(PrimitivePlugin):
         return out_aval
 
     def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
-        if self._orig_fn is None:
+        instance_key = kwargs.pop("instance_key", None)
+        orig_fn = self._resolve_orig_fn(instance_key)
+        if orig_fn is None:
             raise ValueError("Original function not set for primitive!")
-        return self._orig_fn(*args, **kwargs)
+        return orig_fn(*args, **kwargs)
 
     def _batching_rule(
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[Any, Any]:
-        params.pop("instance_key", None)
+        instance_key = params.pop("instance_key", None)
         call_kwargs = {}
         for key, value in params.items():
             if isinstance(value, _DynamicParamWrapper):
@@ -576,7 +596,7 @@ class FunctionPlugin(PrimitivePlugin):
             else:
                 call_kwargs[key] = value
 
-        original_fn = self._orig_fn
+        original_fn = self._resolve_orig_fn(instance_key)
 
         if original_fn is None:
             raise NotImplementedError(
@@ -614,6 +634,7 @@ class FunctionPlugin(PrimitivePlugin):
         def patch(original_call: Callable[..., Any]) -> Callable[..., Any]:
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
+            self._unbound_orig_fn = original_call
 
             @functools.wraps(original_call)
             def wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -623,15 +644,19 @@ class FunctionPlugin(PrimitivePlugin):
                     instance_key = id(instance)
                     INSTANCE_MAP2[instance_key] = instance
                     bound_orig = original_call.__get__(instance, type(instance))
+                    prev_orig_fn = self._orig_fn
                     self._orig_fn = bound_orig
                     # If we are currently constructing this function's body, do NOT emit
                     # the function primitive again—call through so inner patches take effect.
                     if self.name in _IN_FUNCTION_BUILD.get():
-                        return bound_orig(*args[1:], **kwargs)
+                        try:
+                            return bound_orig(*args[1:], **kwargs)
+                        finally:
+                            self._orig_fn = prev_orig_fn
                     # Record a hit (for optional test bookkeeping) and bind the primitive.
-                    hits = set(_ONNX_FN_HITS.get())
-                    hits.add(self.name.split("::", 1)[1])
-                    _ONNX_FN_HITS.set(hits)
+                    _ONNX_FN_HITS.set(
+                        _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
+                    )
                     bound_kwargs = {}
                     for key, value in kwargs.items():
                         if key == "instance_key":
@@ -648,9 +673,9 @@ class FunctionPlugin(PrimitivePlugin):
                     self._orig_fn = original_call
                     if self.name in _IN_FUNCTION_BUILD.get():
                         return original_call(*args, **kwargs)
-                    hits = set(_ONNX_FN_HITS.get())
-                    hits.add(self.name.split("::", 1)[1])
-                    _ONNX_FN_HITS.set(hits)
+                    _ONNX_FN_HITS.set(
+                        _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
+                    )
                     bound_kwargs = {}
                     for key, value in kwargs.items():
                         if hasattr(value, "aval"):
@@ -1072,8 +1097,8 @@ class FunctionPlugin(PrimitivePlugin):
                     kw[entry["name"]] = dyn_val
                 return callee(*core_args, **kw)
 
-            active = set(_IN_FUNCTION_BUILD.get())
-            _IN_FUNCTION_BUILD.set(active | {self.name})
+            active = _IN_FUNCTION_BUILD.get()
+            token = _IN_FUNCTION_BUILD.set(frozenset(active) | {self.name})
             try:
                 with _activate_full_plugin_worlds_for_body():
                     closed = jax.make_jaxpr(_wrapped)(
@@ -1081,7 +1106,7 @@ class FunctionPlugin(PrimitivePlugin):
                     )
                 jpr_f = closed.jaxpr
             finally:
-                _IN_FUNCTION_BUILD.set(active)
+                _IN_FUNCTION_BUILD.reset(token)
 
             # Bind consts into CHILD ctx
             for cv, cval in zip(jpr_f.constvars, closed.consts):
@@ -1300,7 +1325,7 @@ def onnx_function(
 
 def _consume_onnx_function_hits() -> set[str]:
     hits = set(_ONNX_FN_HITS.get())
-    _ONNX_FN_HITS.set(set())
+    _ONNX_FN_HITS.set(frozenset())
     return hits
 
 
@@ -1421,8 +1446,10 @@ def _import_tree(root_dir: Path, pkg_prefix: str) -> None:
     if not root_dir.exists():
         return
 
+    seen_modules: set[str] = set()
+
     # 1) File-system scan (works even without intermediate __init__.py files)
-    for py in root_dir.rglob("*.py"):
+    for py in sorted(root_dir.rglob("*.py")):
         if py.name in {"plugin_system.py", "__init__.py"}:
             continue
         rel = py.relative_to(root_dir).with_suffix("")
@@ -1430,18 +1457,22 @@ def _import_tree(root_dir: Path, pkg_prefix: str) -> None:
         modname = ".".join(parts)
         try:
             importlib.import_module(modname)
+            seen_modules.add(modname)
         except Exception as e:
             # Surface import problems loudly so you can spot why a tree didn't load
             logger.warning(
                 "Skipping import of %s due to error: %s", modname, e, exc_info=True
             )
 
-    # 2) pkgutil walk (dup-safe)
+    # 2) pkgutil walk (dup-safe; skips modules already imported in step 1)
     for _, module_name, _ in pkgutil.walk_packages(
         [str(root_dir)], prefix=f"{pkg_prefix}."
     ):
+        if module_name in seen_modules or module_name == f"{pkg_prefix}.plugin_system":
+            continue
         try:
             importlib.import_module(module_name)
+            seen_modules.add(module_name)
         except Exception as e:
             logger.warning(
                 "Skipping pkgutil import of %s due to error: %s",

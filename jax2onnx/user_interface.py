@@ -50,14 +50,12 @@ import os
 import re
 import subprocess
 import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     Dict,
-    Iterator,
     List,
     Literal,
     Mapping,
@@ -82,11 +80,14 @@ from jax2onnx.converter.conversion_api import (
     InputSpec,
     ShapeDimSpec,
     ShapeTupleSpec,
+    _force_jax_x64,
     _to_ir_dtype_from_np,
     to_onnx as to_onnx_impl,
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.plugins.plugin_system import onnx_function as onnx_function_impl
+
+_LOGGER = logging.getLogger(__name__)
 
 ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
@@ -100,17 +101,7 @@ PathLikeStr = Union[str, os.PathLike[str]]
 OnnxFunctionTarget = Union[Callable[..., Any], type[Any]]
 OnnxFunctionDecorator = Callable[[OnnxFunctionTarget], OnnxFunctionTarget]
 
-
-@contextmanager
-def _temporary_x64(enabled: bool) -> Iterator[None]:
-    prev = jax.config.jax_enable_x64
-    try:
-        if enabled != prev:
-            jax.config.update("jax_enable_x64", enabled)
-        yield
-    finally:
-        if jax.config.jax_enable_x64 != prev:
-            jax.config.update("jax_enable_x64", prev)
+_temporary_x64 = _force_jax_x64
 
 
 def _normalize_return_mode(value: str) -> ReturnMode:
@@ -595,7 +586,7 @@ def to_onnx(
         ```
     """
 
-    logging.info(
+    _LOGGER.info(
         f"Converting JAX function to ONNX model with parameters: "
         f"model_name={model_name}, opset={opset}, input_shapes={inputs}, "
         f"input_params={input_params}, "
@@ -891,7 +882,7 @@ def allclose(
         ```
     """
 
-    logging.info(
+    _LOGGER.info(
         "Comparing JAX and ONNX outputs (path=%s, rtol=%s, atol=%s)",
         onnx_model_path,
         rtol,
@@ -1249,15 +1240,21 @@ def _run_allclose(
             if got_arr.ndim == 4:
                 got_arr = np.transpose(got_arr, nchw_to_nhwc)
 
-        if np.issubdtype(expected_arr.dtype, np.complexfloating) and np.issubdtype(
-            got_arr.dtype, np.floating
+        if np.issubdtype(expected_arr.dtype, np.complexfloating) and (
+            np.issubdtype(got_arr.dtype, np.floating)
+            or got_arr.dtype.name == "bfloat16"
         ):
             if (
                 got_arr.ndim == expected_arr.ndim + 1
                 and got_arr.shape[:-1] == expected_arr.shape
                 and got_arr.shape[-1] == 2
             ):
-                got_arr = got_arr[..., 0] + 1j * got_arr[..., 1]
+                got_unpacked = (
+                    got_arr.astype(np.float32)
+                    if got_arr.dtype.name == "bfloat16"
+                    else got_arr
+                )
+                got_arr = got_unpacked[..., 0] + 1j * got_unpacked[..., 1]
                 got_arr = got_arr.astype(expected_arr.dtype, copy=False)
 
         if expected_arr.shape != got_arr.shape:
@@ -1269,14 +1266,28 @@ def _run_allclose(
             )
 
         if _is_floating_dtype(expected_arr) or _is_floating_dtype(got_arr):
+            expected_cmp = (
+                expected_arr.astype(np.float32)
+                if expected_arr.dtype.name == "bfloat16"
+                else expected_arr
+            )
+            got_cmp = (
+                got_arr.astype(np.float32)
+                if got_arr.dtype.name == "bfloat16"
+                else got_arr
+            )
+            if not np.issubdtype(got_cmp.dtype, np.complexfloating) or np.issubdtype(
+                expected_cmp.dtype, np.complexfloating
+            ):
+                got_cmp = got_cmp.astype(expected_cmp.dtype, copy=False)
             if not np.allclose(
-                expected_arr,
-                got_arr.astype(expected_arr.dtype, copy=False),
+                expected_cmp,
+                got_cmp,
                 rtol=rtol,
                 atol=atol,
                 equal_nan=True,
             ):
-                diff = np.abs(expected_arr - got_arr)
+                diff = np.abs(expected_cmp - got_cmp)
                 max_diff = float(diff.max()) if diff.size else 0.0
                 return (
                     False,
@@ -1328,22 +1339,28 @@ def _to_numpy_input(value: Any, input_meta: Any) -> np.ndarray:
 
     if isinstance(expected_dtype, str) and expected_dtype.startswith("tensor("):
         dtype_name = expected_dtype[len("tensor(") : -1]
+        bfloat16_type = jnp.dtype("bfloat16").type
         dtype_map = {
             "float": np.float32,
             "double": np.float64,
             "float16": np.float16,
-            "bf16": np.float16,
+            "bf16": bfloat16_type,
+            "bfloat16": bfloat16_type,
             "int64": np.int64,
             "int32": np.int32,
             "int16": np.int16,
             "int8": np.int8,
+            "uint64": np.uint64,
+            "uint32": np.uint32,
+            "uint16": np.uint16,
             "uint8": np.uint8,
             "bool": np.bool_,
         }
         target_dtype = dtype_map.get(dtype_name)
         if target_dtype is not None:
-            if np.issubdtype(arr.dtype, np.complexfloating) and np.issubdtype(
-                target_dtype, np.floating
+            if np.issubdtype(arr.dtype, np.complexfloating) and (
+                np.issubdtype(target_dtype, np.floating)
+                or np.dtype(target_dtype).name == "bfloat16"
             ):
                 expected_shape = getattr(input_meta, "shape", None)
                 if expected_shape is not None and len(expected_shape) == arr.ndim + 1:
@@ -1389,6 +1406,8 @@ def _to_numpy_output(value: Any) -> np.ndarray:
 
 
 def _is_floating_dtype(arr: np.ndarray) -> bool:
-    return np.issubdtype(arr.dtype, np.floating) or np.issubdtype(
-        arr.dtype, np.complexfloating
+    return (
+        arr.dtype.name == "bfloat16"
+        or np.issubdtype(arr.dtype, np.floating)
+        or np.issubdtype(arr.dtype, np.complexfloating)
     )

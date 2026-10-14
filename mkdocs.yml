@@ -94,6 +94,7 @@ nav:
           - Subgraph Input Handling: developer_guide/advanced_topics/subgraph_input_handling.md
           - Typing Guardrails: developer_guide/advanced_topics/typing_improvements.md
       - Maintainer Notes:
+          - Typed Lowering Refactoring Plan: developer_guide/maintainer/typed_lowering_refactoring_plan.md
           - Coverage Generation: developer_guide/maintainer/coverage_generation.md
           - Artifact Publishing: developer_guide/maintainer/artifact_publishing.md
           - SotA Example Maintenance: developer_guide/maintainer/sota_example_maintenance.md

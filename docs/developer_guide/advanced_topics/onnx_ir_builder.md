@@ -41,7 +41,6 @@ Everything below expands on the why and how behind those rules.
 
 ## Prerequisites and Imports
 - The ONNX IR package ships with ONNX Script and is available as `onnx_ir`; install `onnx-script` or `onnx-ir` and ensure runtime dependencies (notably `numpy`) are available.
-- When working from a source checkout, set `PYTHONPATH=src` before importing.
 - Import the public tape API for low-level graph construction, or the project
   wrapper for converter/plugin work:
 
@@ -200,7 +199,7 @@ time:
 ## Common Pitfalls and How to Avoid Them
 - **Node metadata via kwargs**: `builder.Add(..., name="foo")` creates an attribute named `name`; it does *not* rename the node. Use `summed.producer().name = "foo"` after creation instead.
 - **Doc strings & metadata props**: assign them on the node object (`node = summed.producer(); node.doc_string = "..."`).
-- **Debug provenance metadata**: setting `JAX2ONNX_ENABLE_STACKTRACE_METADATA=1` (or `stacktrace_metadata=True`) records a concise call-site (`pkg.jax2onnx.callsite`, formatted as `function:line`) plus the plugin invocation site (`pkg.jax2onnx.plugin`, formatted as `Plugin.lower:line` pointing at the builder call) on each node. This is the default reduced payload surfaced in tools like Netron. Set `JAX2ONNX_STACKTRACE_DETAIL=full` when you also need the full Python (`pkg.jax2onnx.stacktrace`) and JAX (`pkg.jax2onnx.jax_traceback`) traces.
+- **Debug provenance metadata**: setting `JAX2ONNX_ENABLE_STACKTRACE_METADATA=1` (or `IRBuilder(..., enable_stacktrace_metadata=True)`) records a concise call-site (`pkg.jax2onnx.callsite`, formatted as `function:line`) plus the plugin invocation site (`pkg.jax2onnx.plugin`, formatted as `Plugin.lower:line` pointing at the builder call) on each node. This is the default reduced payload surfaced in tools like Netron. Set `JAX2ONNX_STACKTRACE_DETAIL=full` when you also need the full Python (`pkg.jax2onnx.stacktrace`) and JAX (`pkg.jax2onnx.jax_traceback`) traces.
 
   Example (line numbers annotated to mirror the metadata):
   ```python

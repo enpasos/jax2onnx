@@ -682,6 +682,7 @@ class IRContext:
             not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.dtype(np.float16)
+            and aval_dtype.name != "bfloat16"
             and aval_dtype != np.dtype(self._default_float_dtype)
         ):
             aval_dtype = np.dtype(self._default_float_dtype)
