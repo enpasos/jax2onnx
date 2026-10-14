@@ -111,6 +111,9 @@ outputs, and node metadata parameters checkable at each call site.
 See the [typed emission pattern](onnx_ir_builder.md#typed-emission-pattern)
 for the complete lowering contract, with `NegPlugin` and `TopKPlugin` as
 executable single-/multi-output examples.
+For graph transformations, the
+[graph rewrite reference](ir_optimizer.md#graph-rewrite-reference) uses the same
+public IR value types and checks ownership after replacement.
 
 ## What to Avoid
 

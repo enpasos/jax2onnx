@@ -93,6 +93,67 @@ Read shape and dtype metadata directly from `ir.Value.shape` and
 semantic checks; alternate object layouts do not. Register new initializers
 with `graph.register_initializer(value)`.
 
+## Graph Rewrite Reference
+
+`rewrite_mul_sigmoid_as_swish_ir` in `converter/ir_optimizations.py` is a
+complete executable reference. It matches `x * Sigmoid(x)` within the live
+graph, requires opset 24+, and replaces the pair with `Swish`. This example
+builds typed values, runs that production pass, and checks the output contract:
+
+```python
+import onnx_ir as ir
+from onnx_ir.tape import Tape
+
+from jax2onnx.converter.ir_optimizations import rewrite_mul_sigmoid_as_swish_ir
+from jax2onnx.converter.optimizer_graph_utils import producer_in_graph
+
+
+def graph_rewrite_reference() -> ir.Graph:
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[3])
+    output = ir.val("y", dtype=ir.DataType.FLOAT, shape=[3])
+    output.metadata_props["example"] = "output metadata"
+    graph = ir.Graph([x], [output], nodes=[], opset_imports={"": 24})
+    tape = Tape(graph)
+    sigmoid = tape.op(
+        "Sigmoid",
+        [x],
+        output=ir.val("sigmoid", dtype=ir.DataType.FLOAT, shape=[3]),
+    )
+    tape.op(
+        "Mul",
+        [x, sigmoid],
+        output=output,
+        metadata_props={"example": "node metadata"},
+    )
+
+    rewrite_mul_sigmoid_as_swish_ir(graph)
+
+    rewritten = graph.outputs[0]
+    producer = producer_in_graph(graph, rewritten)
+    assert producer is not None and producer.op_type == "Swish"
+    assert producer.graph is graph and producer.inputs[0] is x
+    assert rewritten.name == "y"
+    assert rewritten.dtype == ir.DataType.FLOAT
+    assert rewritten.shape == ir.Shape([3])
+    assert rewritten.metadata_props["example"] == "output metadata"
+    assert producer.metadata_props["example"] == "node metadata"
+    assert producer_in_graph(graph, output) is None
+    assert [node.op_type for node in graph] == ["Swish"]
+    return graph
+
+
+graph = graph_rewrite_reference()
+```
+
+The pass creates a replacement output with the original name, type, shape,
+and value metadata, and copies node metadata to the replacement node. It uses
+`graph.insert_before`, `ir.convenience.replace_all_uses_with` with
+`replace_graph_outputs=True`, and `graph.remove` to keep use-def links and
+outputs connected. A shared or observable Sigmoid output retains its node.
+Discovery receives the live graph even while mutation iterates over a snapshot.
+An IR rewrite operates on graph values directly; the JAX-var binding pattern
+belongs to the [canonical plugin example](../plugin_system.md#primitive-plugins).
+
 ## Pass Summary
 
 | Pass | Scope | Purpose |

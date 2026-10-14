@@ -251,6 +251,9 @@ The core validates both sides of the equation. `assert_eqn_inputs_bound` catches
 unbound inputs before the plugin runs. `assert_eqn_outputs_bound` catches missing
 or disconnected outputs after it runs. `finalize_eqn_lowering_outputs` remains a
 legacy compatibility helper for callers that supply returned values.
+For optimizer work, use the
+[graph rewrite reference](advanced_topics/ir_optimizer.md#graph-rewrite-reference)
+to preserve graph outputs, metadata, and ownership through public IR mutation APIs.
 
 ## Function Plugins and `@onnx_function`
 

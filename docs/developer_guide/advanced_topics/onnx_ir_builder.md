@@ -126,6 +126,8 @@ Both typed methods retain stacktrace/plugin metadata and Tape opset tracking.
 The dynamic `builder.Neg(...)` shorthand remains supported for existing code.
 Keep constants in the named initializer helpers so graph and function scopes
 retain their established constant representation.
+The [graph rewrite reference](ir_optimizer.md#graph-rewrite-reference) shows
+the corresponding value/metadata contract when transforming an existing graph.
 
 ## End-to-End Workflow
 ```python

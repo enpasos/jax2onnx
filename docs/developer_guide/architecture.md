@@ -273,6 +273,8 @@ runtime dimension from the correct tensor instead of guessing from labels alone.
 
 The optimizer runs after raw IR lowering and before late attribute overrides.
 Its pass order is documented in the [IR Optimizer Guide](advanced_topics/ir_optimizer.md).
+The [graph rewrite reference](advanced_topics/ir_optimizer.md#graph-rewrite-reference)
+demonstrates typed outputs, metadata preservation, and native ownership.
 
 Optimizer passes may inspect ONNX op types, but they must remain structural and
 IR-only. They may fold redundant casts, transposes, reshapes, constants, or dead
