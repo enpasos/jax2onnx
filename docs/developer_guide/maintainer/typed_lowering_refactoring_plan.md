@@ -154,8 +154,22 @@ alone do not prove that runtime guessing was removed.
 
 | Stage | Status | Completion evidence |
 | --- | --- | --- |
-| 0: Baseline stabilization and PR | In progress | Record baseline SHA, local checks, successful CI run, and PR URL. |
-| 1: Canonical lowerings | Pending | Record canonical dispatch/protocol changes and compatibility regressions. |
-| 2: Value operations | Pending | Record explicit call sites and literal/function/control-flow tests. |
-| 3: Graph-native helpers | Pending | Record ownership/compatibility boundaries and structural regressions. |
-| 4: Reference patterns and builder pilot | Pending | Record pilot, documentation, full checks, and final-head CI run. |
+| 0: Baseline stabilization and PR | Complete | Baseline `4eb96a1f`: 4,307 local tests, all hooks/typing/docs checks, and 35 focused tests with ONNX-IR 0.2.1 passed. All eight jobs in [CI run 38636341586](https://github.com/enpasos/jax2onnx/actions/runs/38636341586) passed before [PR #274](https://github.com/enpasos/jax2onnx/pull/274) was opened. |
+| 1: Canonical lowerings | Implemented | `lowering_registry.py` prepares calls at registration; all 605 first-party entries use direct native methods. The equation loop uses typed, initialized context state. Registry mutation/identity, legacy signatures/results, explicit converters, nested logs, and metadata restoration are covered in `test_lowering_registry.py` and `test_lowering_dispatch.py`. |
+| 2: Value operations | Implemented | Pure lookup, required inputs, and output allocation are explicit in `IRContext`. Native output guards check graph ownership; legacy aliases are normalized at their boundary. Context/output tests cover missing bindings, literal scope/dtype, partial and dropped results, removed producers, and foreign same-name values. |
+| 3: Graph-native helpers | Implemented | Optimizer queries receive the live graph and use native producer/consumer ownership. Explicit detached-list/name helpers preserve compatibility. Graph regression tests cover captures, shadowing, stale snapshots, removal, and cross-graph rewrites. 126 focused optimizer tests passed on current and minimum ONNX-IR. |
+| 4: Reference patterns and builder pilot | Implemented; final gates below | Typed `op` / `op_multi_out` forward public Tape APIs. Neg and TopK are executable references, documented in the plugin, builder, typing, and architecture guides. 30 builder/pilot tests passed on current and minimum ONNX-IR, with generated numerical/structural coverage. |
+
+### Final Acceptance
+
+The complete implementation is checked as one PR head. Local verification
+passed 4,345 generated/full tests on Python 3.12.9, JAX 0.11.2, and ONNX-IR 1.0.0,
+all repository hooks, typing/RNG and builder-policy checks, and a strict
+documentation build. Isolated ONNX-IR 0.2.1 verification
+passed 244 converter/control-flow tests with strict optimizer failure handling;
+the intentional nonfatal-policy test passed separately with its normal setting.
+
+Remote acceptance is the successful terminal result of every CI job for the
+current head of [PR #274](https://github.com/enpasos/jax2onnx/pull/274/checks).
+The baseline run above is a separate checkpoint and cannot substitute for this
+final gate. The PR remains unmerged.
