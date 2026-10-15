@@ -13,7 +13,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.digamma import _digamma_positive
 from jax2onnx.plugins.jax.lax.lgamma import _lanczos_lgamma_positive
 from jax2onnx.plugins.jax.lax.zeta import _zeta_positive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _as_value(value: Any) -> ir.Value:
@@ -27,7 +30,7 @@ def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
         value.shape = ref.shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.polygamma_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.polygamma.html",
     onnx=[

@@ -17,7 +17,10 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._utils import cast_param_like
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 EQX_PRELU_PRIM: Final[Primitive] = Primitive("eqx.nn.prelu")
@@ -29,7 +32,7 @@ _EQX_PRELU_CHANNELWISE: Final[eqx.nn.PReLU] = eqx.nn.PReLU(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=EQX_PRELU_PRIM.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/activations/#equinox.nn.PReLU",
     onnx=[

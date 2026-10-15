@@ -8,10 +8,13 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="sharding_constraint",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sharding_constraint.html",
     onnx=[

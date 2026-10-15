@@ -10,14 +10,17 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.top_k_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.top_k.html",
     onnx=[
@@ -67,7 +70,8 @@ class TopKPlugin(PrimitiveLeafPlugin):
 
         k_val = _const_i64(ctx, np.asarray([k], dtype=np.int64), "topk_k")
         values_spec.name = ctx.fresh_name("TopK_Values")
-        values, indices = ctx.builder.op_multi_out(
+        builder: IRBuilderAPI = ctx.builder
+        values, indices = builder.op_multi_out(
             "TopK",
             [arr_val, k_val],
             {"axis": axis, "largest": 1, "sorted": 1},
@@ -92,7 +96,7 @@ class TopKPlugin(PrimitiveLeafPlugin):
         idx_dtype_enum = numpy_dtype_to_ir(target_idx_dtype)
         result_indices = indices
         if idx_dtype_enum != ir.DataType.INT64:
-            result_indices = ctx.builder.op(
+            result_indices = builder.op(
                 "Cast",
                 [indices],
                 {"to": int(idx_dtype_enum.value)},

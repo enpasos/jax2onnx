@@ -39,7 +39,7 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 from jax2onnx.utils.shape_poly import is_dim_expr
 
@@ -61,7 +61,7 @@ def _tile_with_symbolic_repeats(a: jax.Array) -> jax.Array:
     return jnp.tile(a, (b, 1, 1))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TILE_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.tile.html",
     onnx=[

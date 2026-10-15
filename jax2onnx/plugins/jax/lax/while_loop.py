@@ -25,7 +25,10 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> tuple[Any, tuple[Any, ...]]:
@@ -488,7 +491,7 @@ def _build_loop_body_graph(
     return typed_graph
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.while_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.while_loop.html",
     onnx=[

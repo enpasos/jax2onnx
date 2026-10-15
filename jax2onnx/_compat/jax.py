@@ -16,7 +16,6 @@ from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.interpreters import ad, batching
 
-
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
 Tracer = jax_core.Tracer
@@ -41,6 +40,30 @@ def fresh_var_like(var: Any) -> Any:
         if hasattr(var, name)
     }
     return Var(var.aval, **metadata)
+
+
+def resolve_tracer_binding(value: object) -> object | None:
+    """Resolve a dynamic-jaxpr tracer to its variable or captured constant.
+
+    JAX has no public tracer-to-variable API. Keep access to its tracing-frame
+    maps here so function capture handling does not depend on frame internals.
+    Non-tracers and tracing modes without those maps have no binding.
+    """
+    frame = getattr(getattr(value, "_trace", None), "frame", None)
+    # JAX 0.11 stores the atom directly; older versions keep a frame map.
+    var = getattr(value, "val", None)
+    if isinstance(var, Literal):
+        result: object = var.val
+        return result
+    if not isinstance(var, Var):
+        tracer_map = getattr(frame, "tracer_to_var", None)
+        var = tracer_map.get(id(value)) if tracer_map is not None else None
+    if var is None:
+        return None
+    const_map = getattr(frame, "constvar_to_val", None)
+    const_value = const_map.get(var) if const_map is not None else None
+    binding: object = const_value if const_value is not None else var
+    return binding
 
 
 def _resolve_literal_type() -> type[Any]:
@@ -201,5 +224,6 @@ __all__ = [
     "jax_core",
     "jax_core_ext",
     "new_jaxpr_eqn",
+    "resolve_tracer_binding",
     "scan_arity",
 ]

@@ -289,7 +289,7 @@ def _recommend_for_official_row(
     if has_meta and not has_lowering:
         return f"Add real lowering usage (`builder.{op}`) or remove stale metadata mapping."
     if has_lowering and not has_meta:
-        return f"Add `onnx__{op}.html` metadata to owning `@register_primitive` entry."
+        return f"Add `onnx__{op}.html` metadata to owning `@register_native_primitive` entry."
     return _recommend_for_uncovered(op)
 
 

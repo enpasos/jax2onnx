@@ -11,7 +11,10 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.lgamma import _lanczos_lgamma_positive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _as_value(value: Any) -> ir.Value:
@@ -208,7 +211,7 @@ def _valid_domain_mask(
     )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.igamma_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.igamma.html",
     onnx=[
@@ -279,7 +282,7 @@ class IGammaPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.igammac_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.igammac.html",
     onnx=[
@@ -369,7 +372,7 @@ class IGammaCPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.igamma_grad_a_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.igamma_grad_a.html",
     onnx=[

@@ -19,7 +19,7 @@ from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -142,7 +142,7 @@ def _const_from_array(
     return value
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=RMS_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.RMSNorm",
     onnx=RMS_NORM_ONNX_COMPONENTS,

@@ -28,7 +28,10 @@ from jax2onnx.plugins.jax.numpy._common import (
 )
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _broadcast_shape(
@@ -91,7 +94,7 @@ class _BaseJnpPow(PrimitiveLeafPlugin):
 _POWER_PRIM: Final = make_jnp_primitive("jax.numpy.power")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_POWER_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.power.html",
     onnx=[{"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"}],
@@ -156,7 +159,7 @@ register_jvp_via_jax_jvp(JnpPowerPlugin._PRIM, _power_impl)
 _POW_PRIM: Final = make_jnp_primitive("jax.numpy.pow")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_POW_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.power.html",
     onnx=[{"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"}],

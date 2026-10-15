@@ -17,7 +17,7 @@ from .output_binding import (
 )
 from .typing_support import (
     FunctionLowering,
-    IRBuilderProtocol,
+    IRBuilderAPI,
     LoweringContextProtocol,
     PrimitiveLowering,
 )
@@ -183,7 +183,7 @@ def _eqn_jax_traceback(eqn: JaxprEqn) -> str | None:
 
 @contextmanager
 def staged_lowering_metadata(
-    builder: IRBuilderProtocol,
+    builder: IRBuilderAPI,
     *,
     eqn: JaxprEqn,
     plugin_ref: object,

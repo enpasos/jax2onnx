@@ -17,7 +17,10 @@ from jax2onnx.plugins.jax.lax.householder_product import (
     _scatter_mat_elem,
     _stamp_like,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ORMQR_PRIMITIVE: Primitive | None = getattr(jax.lax.linalg, "ormqr_p", None)
@@ -68,7 +71,7 @@ def _transpose_vector(
     return v_t
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ORMQR_PRIMITIVE_NAME,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.linalg.ormqr.html",
     onnx=[

@@ -22,7 +22,10 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _lower_i64_vector,
     _scalar_i64,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SUPPORTED_IOTA_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
@@ -58,7 +61,7 @@ def _const_scalar_of_dtype(
     return ctx.bind_const_for_var(object(), np.asarray(value, dtype=dtype))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.iota_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.iota.html",
     onnx=[

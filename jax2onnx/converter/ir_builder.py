@@ -328,6 +328,7 @@ class IRBuilder:
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
+        self._name_prefix: str = ""
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, SymbolicDimOrigin] = {}
         self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
@@ -423,6 +424,8 @@ class IRBuilder:
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
+        if self._name_prefix:
+            base = f"{self._name_prefix}/{base}"
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
         return f"{base}_{i}"

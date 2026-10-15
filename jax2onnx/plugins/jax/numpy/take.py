@@ -31,7 +31,7 @@ from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -93,7 +93,7 @@ def _as_int64(
     return cast_val
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TAKE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.take.html",
     onnx=[

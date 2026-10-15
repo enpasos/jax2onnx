@@ -31,7 +31,10 @@ from jax2onnx.plugins.jax.numpy.linalg_inv import (
     _unsqueeze,
 )
 from jax2onnx.plugins.jax.numpy.linalg_solve import _cast_to_output_dtype
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _POLYFIT_PRIM: Final = make_jnp_primitive("jax.numpy.polyfit")
@@ -122,7 +125,7 @@ def _reduce_sum_1d(
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_POLYFIT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polyfit.html",
     onnx=[

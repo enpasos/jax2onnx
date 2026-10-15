@@ -17,7 +17,7 @@ from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -131,7 +131,7 @@ EXPECT_T_BN_T: Final = EG(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.batch_norm",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.BatchNorm",
     onnx=[

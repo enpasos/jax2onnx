@@ -27,13 +27,16 @@ from jax2onnx.plugins.jax.numpy._unary_utils import (
     cast_input_to_output_dtype,
     register_unary_elementwise_batch_rule,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _EXP2_PRIM: Final = make_jnp_primitive("jax.numpy.exp2")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EXP2_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.exp2.html",
     onnx=[{"component": "Pow", "doc": "https://onnx.ai/onnx/operators/onnx__Pow.html"}],

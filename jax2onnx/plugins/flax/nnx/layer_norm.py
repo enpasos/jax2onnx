@@ -12,7 +12,7 @@ from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -134,7 +134,7 @@ LAYER_NORM_PRIM: Final[Primitive] = Primitive("nnx.layer_norm")
 LAYER_NORM_PRIM.multiple_results = False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=LAYER_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
     onnx=LAYER_NORM_ONNX_COMPONENTS,

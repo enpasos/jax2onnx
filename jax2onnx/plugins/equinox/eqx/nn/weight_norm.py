@@ -11,7 +11,10 @@ from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _EQX_WEIGHT_NORM_LINEAR: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
     eqx.nn.Linear(8, 4, key=jax.random.PRNGKey(0))
@@ -21,7 +24,7 @@ _EQX_WEIGHT_NORM_CONV2D: Final[eqx.nn.WeightNorm] = eqx.nn.WeightNorm(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.weight_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.WeightNorm",
     onnx=[

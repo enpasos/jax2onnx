@@ -86,3 +86,62 @@ def test_bind_jaxpr_outputs_rejects_nchw_for_non_4d_output() -> None:
             outputs_as_nchw=(0,),
             enable_double_precision=False,
         )
+
+
+@pytest.mark.parametrize("outputs_as_nchw", [(), (0,)])
+def test_bind_jaxpr_outputs_rejects_missing_production_without_allocating(
+    outputs_as_nchw: tuple[int, ...],
+) -> None:
+    trace = _trace_to_jaxpr(
+        fn=lambda x: x + x,
+        inputs=[jax.ShapeDtypeStruct((1, 2, 3, 4), jnp.float32)],
+        input_params=None,
+        enable_double_precision=False,
+        inputs_as_nchw=None,
+        outputs_as_nchw=None,
+        input_names=["x"],
+        output_names=["y"],
+    )
+    ctx = _create_ir_context(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=trace.sds_list,
+        frozen_params=trace.frozen_params,
+        record_primitive_calls_file=None,
+    )
+    _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=())
+    before = dict(ctx.builder._var2val)
+
+    with pytest.raises(KeyError, match="No IR value is bound"):
+        _bind_jaxpr_outputs(
+            ctx,
+            trace.jaxpr,
+            outputs_as_nchw=outputs_as_nchw,
+            enable_double_precision=False,
+        )
+
+    assert ctx.builder._var2val == before
+    assert not ctx.builder.graph
+    assert not ctx.builder.outputs
+
+
+def test_bind_jaxpr_outputs_materializes_literal_outputs() -> None:
+    trace = jax.make_jaxpr(lambda x: jnp.float32(2.0))(
+        jax.ShapeDtypeStruct((2,), jnp.float32)
+    )
+    ctx = _create_ir_context(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=[],
+        frozen_params={},
+        record_primitive_calls_file=None,
+    )
+
+    ctx.add_outputs_from_vars(trace.jaxpr.outvars)
+
+    (output,) = ctx.builder.outputs
+    assert output.is_initializer()
+    assert output.dtype == ir.DataType.FLOAT
+    assert output.shape == ir.Shape([])
+    assert output.const_value is not None
+    assert output.const_value.numpy().item() == 2.0

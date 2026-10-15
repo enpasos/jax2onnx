@@ -12,7 +12,7 @@ from jax2onnx.plugins.flax.nnx import dropout as nnx_dropout
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -28,7 +28,7 @@ class _DropoutWithDefault(nn.Module):
         return nn.Dropout(rate=self.rate)(x, deterministic=det)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.dropout",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.Dropout",
     onnx=[

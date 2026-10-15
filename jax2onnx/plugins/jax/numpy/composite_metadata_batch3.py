@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite3"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataBatch3Plugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanargmax",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanargmax.html",
     onnx=[
@@ -66,7 +69,7 @@ class JnpNanArgMaxMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanargmin",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanargmin.html",
     onnx=[
@@ -99,7 +102,7 @@ class JnpNanArgMinMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nancumsum",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nancumsum.html",
     onnx=[
@@ -132,7 +135,7 @@ class JnpNanCumSumMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.trapezoid",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.trapezoid.html",
     onnx=[
@@ -162,7 +165,7 @@ class JnpTrapezoidMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.ravel_multi_index",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.ravel_multi_index.html",
     onnx=[
@@ -189,7 +192,7 @@ class JnpRavelMultiIndexMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.choose",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.choose.html",
     onnx=[
@@ -222,7 +225,7 @@ class JnpChooseMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_trace",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.trace.html",
     onnx=[
@@ -251,7 +254,7 @@ class JnpLinalgTraceMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_vecdot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.vecdot.html",
     onnx=[
@@ -280,7 +283,7 @@ class JnpLinalgVecDotMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_vector_norm",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.vector_norm.html",
     onnx=[
@@ -307,7 +310,7 @@ class JnpLinalgVectorNormMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_matrix_norm",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.matrix_norm.html",
     onnx=[
@@ -334,7 +337,7 @@ class JnpLinalgMatrixNormMetadata(_JnpCompositeMetadataBatch3Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_tensordot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.tensordot.html",
     onnx=[

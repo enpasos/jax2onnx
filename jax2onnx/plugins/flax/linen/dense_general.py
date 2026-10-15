@@ -15,7 +15,7 @@ from jax2onnx.plugins.flax.nnx import linear_general as nnx_linear_general
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -31,7 +31,7 @@ def _is_trailing_axes(axis: Sequence[int], ndim: int) -> bool:
     return tuple(axis) == tuple(range(ndim - len(axis), ndim))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.dense_general",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.DenseGeneral",
     onnx=[

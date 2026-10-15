@@ -13,7 +13,7 @@ from jax2onnx.plugins.jax.core.jit import JitPlugin
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -55,7 +55,7 @@ def _slice_vars(seq: Iterable[Any], start: int, length: int) -> list[Any]:
     return items[start : start + length]
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="custom_linear_solve",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.custom_linear_solve.html",
     onnx=[],

@@ -15,7 +15,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -56,7 +56,7 @@ def _pjit_inline_tuple(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.nda
         return cast(tuple[np.ndarray, np.ndarray], inner(a, b))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="pjit",
     jax_doc="https://jax.readthedocs.io/en/latest/jax.experimental.pjit.html",
     onnx=[],
@@ -107,11 +107,11 @@ class PJITPlugin(PrimitiveLeafPlugin):
 
         # Map outer inputs to inner invars
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
-            ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
+            ctx.bind_value_for_var(inner_var, ctx.require_value_for_var(outer_var))
 
         # Lower the inner equations using existing plugins
         lower_jaxpr_eqns(ctx, inner_jaxpr, source="pjit")
 
         # Map inner outputs back to the outer graph
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
-            ctx.bind_value_for_var(outer_var, ctx.get_value_for_var(inner_var))
+            ctx.bind_value_for_var(outer_var, ctx.require_value_for_var(inner_var))

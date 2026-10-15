@@ -20,7 +20,10 @@ from jax2onnx._compat.jax import (
     Primitive,
     ShapedArray,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
@@ -28,7 +31,7 @@ _CATEGORICAL_PRIM: Final[Primitive] = Primitive("jax.random.categorical")
 _CATEGORICAL_PRIM.multiple_results = False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_CATEGORICAL_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.random.categorical.html",
     onnx=[

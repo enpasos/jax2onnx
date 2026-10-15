@@ -32,7 +32,10 @@ from jax2onnx.plugins.jax.numpy.histogram2d import (
     _interval_membership,
     _validate_edges_shape,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _HISTOGRAMDD_PRIM: Final = make_jnp_primitive("jax.numpy.histogramdd")
@@ -153,7 +156,7 @@ def _gather_sample_column(
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_HISTOGRAMDD_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.histogramdd.html",
     onnx=[

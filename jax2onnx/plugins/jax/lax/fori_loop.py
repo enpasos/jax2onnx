@@ -33,7 +33,10 @@ from jax2onnx.plugins.jax.lax.scan import (
     _static_scatter_extent,
 )
 from jax2onnx._compat.jax import Primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _canon_int(value: int | np.integer) -> np.integer:
@@ -208,7 +211,7 @@ def _build_body_graph(
     return typed_graph
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="lax.fori_loop",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.fori_loop.html",
     onnx=[

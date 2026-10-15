@@ -104,7 +104,11 @@ def legacy_consumer_nodes(
 def legacy_producer_node(
     nodes: Sequence[ir.Node], value_or_name: ir.Value | str | None
 ) -> ir.Node | None:
-    """Resolve a producer in a detached sequence, retaining historical name fallback."""
+    """Resolve a producer in a live graph or snapshot, with legacy name fallback.
+
+    A live graph's own inputs/initializers have no producer in that graph.
+    Foreign and detached values retain the historical matching-name behavior.
+    """
     if value_or_name is None:
         return None
     if isinstance(value_or_name, ir.Value):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import onnx_ir as ir
+import pytest
 
 from jax2onnx.converter.ir_optimizations import remove_redundant_transpose_pairs_ir
 from jax2onnx.converter.optimizer_graph_utils import (
@@ -125,6 +126,27 @@ def test_native_discovery_handles_missing_inputs_and_initializers() -> None:
     assert producer_in_graph(graph, None) is None
     assert consumers_in_graph(graph, weight) == [node]
     assert consumers_in_graph(graph, None) == []
+
+
+@pytest.mark.parametrize("initializer", [False, True])
+def test_legacy_live_graph_preserves_foreign_input_name_fallback(
+    initializer: bool,
+) -> None:
+    source = ir.Value(name="source")
+    produced = ir.Value(name="shared")
+    producer = ir.Node("", "Identity", [source], outputs=[produced])
+    graph = ir.Graph([source], [produced], nodes=[producer])
+    foreign = ir.Value(name="shared")
+    other = ir.Graph([] if initializer else [foreign], [], nodes=[])
+    if initializer:
+        foreign.const_value = ir.tensor([1.0])
+        other.register_initializer(foreign)
+
+    assert foreign.graph is other
+    assert producer_in_graph(graph, foreign) is None
+    assert legacy_producer_node(graph, foreign) is producer
+    assert legacy_producer_node(list(graph), foreign) is producer
+    assert legacy_producer_node(other, foreign) is None
 
 
 def test_transpose_folding_does_not_cross_a_captured_graph_boundary() -> None:

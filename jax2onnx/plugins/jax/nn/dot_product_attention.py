@@ -35,7 +35,10 @@ from jax2onnx.plugins._attention_utils import expand_grouped_kv_heads
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape, _to_ir_dim_for_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.lax.scatter_utils import (
     _ensure_value_metadata as _ensure_value_metadata,
     _gather_int_scalar,
@@ -308,7 +311,7 @@ def _symbolic_or_dim(symbol: str, dim: DimLike) -> DimLike:
     return symbol
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_DPA_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.dot_product_attention.html",
     onnx=[

@@ -23,7 +23,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _DYNAMIC_DIM_LABEL: Final[str] = "JAX2ONNX_DYNAMIC_DIM_SENTINEL"
@@ -282,7 +285,7 @@ def _with_ir_shape_dims(shape: Sequence[object]) -> tuple[object, ...]:
     )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ARANGE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.arange.html",
     onnx=[

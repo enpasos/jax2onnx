@@ -12,7 +12,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -146,7 +149,7 @@ def _cast_int_vector_to_out_dtype(
     return out
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.linalg.lu_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.linalg.lu.html",
     onnx=[

@@ -11,7 +11,10 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _stamp_like(value: Any, ref: Any) -> None:
@@ -34,7 +37,7 @@ def _float_layout(np_dtype: np.dtype[Any]) -> tuple[int, int, int] | None:
     return None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.nextafter_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.nextafter.html",
     onnx=[

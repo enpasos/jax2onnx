@@ -2,31 +2,25 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
 import onnx_ir as ir
 
-from .ir_context import IRContext
-from .typing_support import SymbolicDimOrigin
+from .typing_support import LoweringContextProtocol
 
 
 @dataclass(frozen=True)
 class FunctionKey:
     qualified_name: str  # e.g. "pkg.module.SuperBlock"
-    input_sig: Tuple[
-        Tuple[Any, ...], ...
-    ]  # shapes/dtypes signature (symbolic tokens allowed)
-    capture_sig: Tuple[Any, ...]  # instance/config hash or tuple of static fields
+    input_sig: tuple[tuple[tuple[object, ...], str], ...]
+    capture_sig: tuple[object, ...]  # instance/config hash or tuple of static fields
 
 
 @dataclass
 class FunctionDef:
     name: str
     domain: str
-    inputs: List[ir.Value]
-    outputs: List[ir.Value]
-    nodes: List[ir.Node]
+    inputs: list[ir.Value]
+    outputs: list[ir.Value]
+    nodes: list[ir.Node]
     # late attribute overrides captured from the child IRContext
     attr_overrides: dict[str, dict[str, object]] | None = None
 
@@ -36,13 +30,13 @@ class FunctionRegistry:
         # key -> FunctionDef
         self._defs: dict[FunctionKey, FunctionDef] = {}
 
-    def get(self, key: FunctionKey) -> Optional[FunctionDef]:
+    def get(self, key: FunctionKey) -> FunctionDef | None:
         return self._defs.get(key)
 
     def put(self, key: FunctionKey, fdef: FunctionDef) -> None:
         self._defs[key] = fdef
 
-    def all(self) -> List[FunctionDef]:
+    def all(self) -> list[FunctionDef]:
         return list(self._defs.values())
 
 
@@ -58,39 +52,22 @@ class FunctionScope:
     pointing at the produced function while reusing the parent graph values.
     """
 
-    def __init__(self, parent: IRContext, name: str, domain: str = "") -> None:
+    def __init__(
+        self, parent: LoweringContextProtocol, name: str, domain: str = ""
+    ) -> None:
         self.parent = parent
         self.name = name
         self.domain = domain
 
-        # Mirror parent converter settings so the function body behaves identically.
-        parent_opset = parent.opset
-        parent_x64 = parent.enable_double_precision
-
-        # child context buffers
-        self.ctx = IRContext(
-            opset=parent_opset,
-            enable_double_precision=parent_x64,
-            normalization_mode=parent.normalization_mode,
-            input_specs=[],  # set on begin()
-            stacktrace_metadata=getattr(parent, "_stacktrace_metadata_enabled", None),
-        )
-        self.ctx.record_primitive_calls_file = parent.record_primitive_calls_file
-        self.ctx._lowering_record_owner = parent._lowering_record_owner
-        self.ctx._primitive_call_records = (
-            self.ctx._lowering_record_owner._primitive_call_records
-        )
-        self.ctx._function_mode = True  # tell constant binder to emit Constant nodes
-        self.ctx.builder._function_mode = True
-        self._inputs: List[ir.Value] = []
-        self._outputs: List[ir.Value] = []
+        self.ctx = parent.create_child_context(scope="function")
+        self._outputs: list[ir.Value] = []
         self._sealed = False
-        self._attr_overrides: Dict[str, Dict[str, object]] = {}
+        self._attr_overrides: dict[str, dict[str, object]] = {}
         self._prev_inside: bool = False
 
-        self.fn_def: Optional[FunctionDef] = None
+        self.fn_def: FunctionDef | None = None
 
-    def begin(self, inputs: List[ir.Value]) -> List[ir.Value]:
+    def begin(self, inputs: list[ir.Value]) -> list[ir.Value]:
         # Mark we are inside a function while building its body
         self._prev_inside = self.ctx._inside_function_scope
         self.ctx._inside_function_scope = True
@@ -120,24 +97,10 @@ class FunctionScope:
             for axis, dim in enumerate(dims):
                 origin = parent_origin(dim)
                 if origin is not None:
-                    sym_key = str(dim)
-                    self.ctx.builder.record_symbol_origin(sym_key, fin, axis)
-                    try:
-                        if not isinstance(dim, (int, np.integer)):
-                            self.ctx._sym_origin[dim] = SymbolicDimOrigin(
-                                value=fin, axis=axis
-                            )
-                    except Exception:
-                        pass
-                    try:
-                        self.ctx._sym_origin_str[str(dim)] = SymbolicDimOrigin(
-                            value=fin, axis=axis
-                        )
-                    except Exception:
-                        pass
+                    self.ctx.record_symbolic_dim_origin(dim, fin, axis)
         return fn_def.inputs
 
-    def end(self, outputs: List[ir.Value]) -> FunctionDef:
+    def end(self, outputs: list[ir.Value]) -> FunctionDef:
         if self._sealed:
             raise RuntimeError("FunctionScope already sealed.")
         if self.fn_def is None:
@@ -180,7 +143,7 @@ class FunctionScope:
             opset_imports.setdefault(fn_domain, body_opset)
         nodes_iter = list(body_graph.all_nodes())
         for node in nodes_iter:
-            dom = getattr(node, "domain", "") or ""
+            dom = node.domain
             if dom:
                 opset_imports.setdefault(dom, body_opset)
         opset_imports.setdefault("", body_opset)

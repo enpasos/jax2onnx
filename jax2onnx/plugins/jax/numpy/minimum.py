@@ -23,13 +23,16 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _MINIMUM_PRIM: Final = make_jnp_primitive("jax.numpy.minimum")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_MINIMUM_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.minimum.html",
     onnx=[{"component": "Min", "doc": "https://onnx.ai/onnx/operators/onnx__Min.html"}],

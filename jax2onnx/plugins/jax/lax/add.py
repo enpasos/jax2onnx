@@ -25,7 +25,10 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _lower_complex_add(
@@ -149,7 +152,7 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
     ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.add_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html",
     onnx=[

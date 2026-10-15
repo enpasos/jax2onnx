@@ -20,7 +20,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -44,7 +44,7 @@ EXPECT_EMBED_GATHER: Final = EG(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=EMBED_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Embed",
     onnx=[

@@ -23,7 +23,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SCALED_MATMUL_PRIM: Final[Primitive] = Primitive("jax.nn.scaled_matmul")
@@ -94,7 +97,7 @@ def _shape3(arr: ArrayLike) -> tuple[int, int, int] | None:
     return (int(shape[0]), int(shape[1]), int(shape[2]))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SCALED_MATMUL_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.scaled_matmul.html",
     onnx=[

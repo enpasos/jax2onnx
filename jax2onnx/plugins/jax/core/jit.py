@@ -16,11 +16,11 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="jit",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.jit.html",
     onnx=[],
@@ -119,9 +119,9 @@ class JitPlugin(PrimitiveLeafPlugin):
             ctx.bind_const_for_var(const_var, np.asarray(const_val))
 
         for outer_var, inner_var in zip(eqn.invars, inner_jaxpr.invars):
-            ctx.bind_value_for_var(inner_var, ctx.get_value_for_var(outer_var))
+            ctx.bind_value_for_var(inner_var, ctx.require_value_for_var(outer_var))
 
         lower_jaxpr_eqns(ctx, inner_jaxpr, source="jit")
 
         for outer_var, inner_var in zip(eqn.outvars, inner_jaxpr.outvars):
-            ctx.bind_value_for_var(outer_var, ctx.get_value_for_var(inner_var))
+            ctx.bind_value_for_var(outer_var, ctx.require_value_for_var(inner_var))

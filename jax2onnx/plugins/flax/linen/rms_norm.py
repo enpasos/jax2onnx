@@ -14,7 +14,7 @@ from jax2onnx.plugins.flax.nnx import rms_norm as nnx_rms_norm
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -35,7 +35,7 @@ def _canonicalize_axes(ndim: int, axes: Sequence[int] | int) -> tuple[int, ...]:
     return tuple(out)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.rms_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.RMSNorm",
     onnx=nnx_rms_norm.RMS_NORM_ONNX_COMPONENTS,

@@ -18,7 +18,10 @@ from numpy.typing import ArrayLike
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 
@@ -48,7 +51,7 @@ def _axis_attr_equals(model: Any, expected: int) -> bool:
     return int(expected) == -1
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_LOG_SOFTMAX_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.log_softmax.html",
     onnx=[

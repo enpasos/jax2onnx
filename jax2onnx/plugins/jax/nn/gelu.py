@@ -25,7 +25,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 
@@ -107,7 +110,7 @@ def lower_gelu(
     ctx.bind_value_for_var(y_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_GELU_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.gelu.html",
     onnx=[

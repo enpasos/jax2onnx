@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import gc
 from inspect import Signature
 from typing import Any
+import weakref
 
 import jax
 import jax.numpy as jnp
@@ -45,6 +47,13 @@ class _CanonicalPlugin:
         ctx.bind_value_for_var(eqn.outvars[0], ctx.builder.inputs[0])
 
 
+class _SlotsCanonicalPlugin:
+    __slots__ = ()
+
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        ctx.bind_value_for_var(eqn.outvars[0], ctx.builder.inputs[0])
+
+
 class _ReturnOnlyLeaf(PrimitiveLeafPlugin):
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> ir.Value:
         return ctx.builder.inputs[0]
@@ -52,6 +61,12 @@ class _ReturnOnlyLeaf(PrimitiveLeafPlugin):
 
 class _UnannotatedReturnLeaf(PrimitiveLeafPlugin):
     def lower(self, ctx, eqn):
+        return ctx.builder.inputs[0]
+
+
+class _AnnotatedReturnLeaf(PrimitiveLeafPlugin):
+    # An unchecked extension annotation must not select the native contract.
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         return ctx.builder.inputs[0]
 
 
@@ -92,7 +107,8 @@ class _MetadataOnlyPlugin(PrimitivePlugin):
 def test_registry_keeps_plugin_identity_through_all_mapping_operations() -> None:
     first = _CanonicalPlugin()
     second = _CanonicalPlugin()
-    registry = PluginRegistry({"add": first})
+    registry = PluginRegistry()
+    registry.register_canonical("add", first)
 
     assert registry["add"] is first
     assert list(registry.values()) == [first]
@@ -102,6 +118,7 @@ def test_registry_keeps_plugin_identity_through_all_mapping_operations() -> None
     assert registry.setdefault("alias", first) is first
     assert registry.prepared_lowerings()["alias"].lower == first.lower
 
+    registry.register_canonical("add", second)
     registry.update({"add": second})
     assert registry["add"] is second
     assert registry.prepared_lowerings()["add"].lower == second.lower
@@ -117,8 +134,97 @@ def test_registry_keeps_plugin_identity_through_all_mapping_operations() -> None
     assert not registry.prepared_lowerings()
 
 
+def test_canonical_registration_and_restoration_never_inspect_signatures(
+    monkeypatch,
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> Any:
+        raise AssertionError(
+            "Explicit native registration must not inspect annotations"
+        )
+
+    monkeypatch.setattr(lowering_registry, "_inspect_signature", forbidden)
+    monkeypatch.setattr(lowering_registry, "bind_returned_lowering_values", forbidden)
+    plugin = _CanonicalPlugin()
+    registry = PluginRegistry()
+    registry.register_canonical("add", plugin)
+    registry.setdefault("alias", plugin)
+    original = registry.pop("add")
+    registry["add"] = original
+    registry.clear()
+    registry["add"] = original
+    jaxpr, ctx = _jaxpr_and_context()
+
+    lower_jaxpr_with_plugins(ctx=ctx, jaxpr=jaxpr, registry=registry, source="test")
+
+    assert registry["add"] is plugin
+    assert registry.prepared_lowerings()["add"].lower == plugin.lower
+
+
+def test_native_identity_catalog_does_not_retain_removed_plugins() -> None:
+    registry = PluginRegistry()
+    plugin = _CanonicalPlugin()
+    plugin_ref = weakref.ref(plugin)
+    registry.register_canonical("add", plugin)
+    registry.pop("add")
+    del plugin
+    gc.collect()
+
+    assert plugin_ref() is None
+
+
+def test_slots_only_native_plugin_requires_no_weak_reference_or_inspection(
+    monkeypatch,
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> Any:
+        raise AssertionError("Explicit native registration must not inspect plugins")
+
+    monkeypatch.setattr(lowering_registry, "_inspect_signature", forbidden)
+    monkeypatch.setattr(lowering_registry, "bind_returned_lowering_values", forbidden)
+    plugin = _SlotsCanonicalPlugin()
+    registry = PluginRegistry()
+    registry.register_canonical("add", plugin)
+    jaxpr, ctx = _jaxpr_and_context()
+
+    lower_jaxpr_with_plugins(ctx=ctx, jaxpr=jaxpr, registry=registry, source="test")
+
+    assert registry["add"] is plugin
+    assert ctx.require_value_for_var(jaxpr.outvars[0]) is ctx.builder.inputs[0]
+
+
+def test_native_primitive_decorator_registers_a_typed_method_without_inspection(
+    monkeypatch,
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> Any:
+        raise AssertionError("Native decorators must not infer the lowering contract")
+
+    monkeypatch.setattr(lowering_registry, "_inspect_signature", forbidden)
+    monkeypatch.setattr(lowering_registry, "bind_returned_lowering_values", forbidden)
+    key = "test_native_extension"
+
+    @plugin_system.register_native_primitive(jaxpr_primitive=key, component="typed")
+    class NativeLeaf(PrimitiveLeafPlugin):
+        def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+            ctx.bind_value_for_var(eqn.outvars[0], ctx.builder.inputs[0])
+
+    try:
+        jaxpr, ctx = _jaxpr_and_context()
+        plugin = plugin_system.PLUGIN_REGISTRY[key]
+        entry = plugin_system.PLUGIN_REGISTRY.prepared_lowerings()[key]
+        entry.lower(ctx, jaxpr.eqns[0])
+
+        assert type(plugin) is NativeLeaf
+        assert plugin.metadata == {"jaxpr_primitive": key, "component": "typed"}
+        assert entry.lower == plugin.lower
+        assert (
+            ctx.require_value_for_var(jaxpr.eqns[0].outvars[0]) is ctx.builder.inputs[0]
+        )
+    finally:
+        plugin_system.PLUGIN_REGISTRY.pop(key, None)
+
+
 @pytest.mark.parametrize(
-    "plugin_cls", [_ReturnOnlyLeaf, _UnannotatedReturnLeaf, _ParamsLeaf]
+    "plugin_cls",
+    [_ReturnOnlyLeaf, _UnannotatedReturnLeaf, _AnnotatedReturnLeaf, _ParamsLeaf],
 )
 def test_external_leaf_subclasses_keep_legacy_call_conventions(plugin_cls) -> None:
     jaxpr, ctx = _jaxpr_and_context()
@@ -133,6 +239,28 @@ def test_external_leaf_subclasses_keep_legacy_call_conventions(plugin_cls) -> No
     assert registry["add"] is plugin
     if isinstance(plugin, _ParamsLeaf):
         assert plugin.params == [eqn.params for eqn in jaxpr.eqns]
+
+
+@pytest.mark.parametrize(
+    "plugin_cls",
+    [_ReturnOnlyLeaf, _UnannotatedReturnLeaf, _AnnotatedReturnLeaf, _ParamsLeaf],
+)
+def test_public_legacy_decorator_keeps_extension_call_conventions(plugin_cls) -> None:
+    jaxpr, ctx = _jaxpr_and_context()
+    key = "test_legacy_extension"
+    decorated = plugin_system.register_primitive(jaxpr_primitive=key)(plugin_cls)
+    try:
+        plugin_system.PLUGIN_REGISTRY.prepared_lowerings()[key].lower(
+            ctx, jaxpr.eqns[0]
+        )
+
+        assert decorated is plugin_cls
+        assert (
+            ctx.require_value_for_var(jaxpr.eqns[0].outvars[0]) is ctx.builder.inputs[0]
+        )
+        assert type(plugin_system.PLUGIN_REGISTRY[key]) is plugin_cls
+    finally:
+        plugin_system.PLUGIN_REGISTRY.pop(key, None)
 
 
 def test_ordinary_mapping_is_prepared_once_for_the_whole_jaxpr(monkeypatch) -> None:
@@ -181,7 +309,8 @@ def test_explicit_converter_is_bound_once_without_leaking_to_default_calls(
 
 
 def test_native_entries_are_identical_in_an_explicit_converter_view() -> None:
-    registry = PluginRegistry({"add": _CanonicalPlugin()})
+    registry = PluginRegistry()
+    registry.register_canonical("add", _CanonicalPlugin())
     entry = registry.prepared_lowerings()["add"]
 
     assert registry.prepared_lowerings(object())["add"] is entry
@@ -202,8 +331,6 @@ def test_native_exports_need_neither_signature_inspection_nor_return_binding(
 ) -> None:
     plugin_system.import_all_plugins()
 
-    plugin_system.onnx_function(_typed_registry_double)
-
     def forbidden(*args: object, **kwargs: object) -> Any:
         raise AssertionError(
             "Native lowerings must use their prepared binding contract"
@@ -212,6 +339,7 @@ def test_native_exports_need_neither_signature_inspection_nor_return_binding(
     monkeypatch.setattr(lowering_registry, "_inspect_signature", forbidden)
     monkeypatch.setattr(lowering_registry, "bind_returned_lowering_values", forbidden)
     monkeypatch.setattr(plugin_system, "_extract_ir_ctx", forbidden)
+    plugin_system.onnx_function(_typed_registry_double)
     qualified = f"{_typed_registry_double.__module__}.{_typed_registry_double.__name__}"
     try:
         model = to_onnx(

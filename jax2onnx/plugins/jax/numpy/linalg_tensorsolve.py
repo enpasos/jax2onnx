@@ -36,7 +36,10 @@ from jax2onnx.plugins.jax.numpy.linalg_solve import (
     _stack_solution_rows,
     _unsqueeze_to_shape,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _TENSORSOLVE_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.tensorsolve")
@@ -132,7 +135,7 @@ def _normalise_shapes(
     return a_shape, b_shape, rows, output_shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TENSORSOLVE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.tensorsolve.html",
     onnx=[

@@ -13,7 +13,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -42,7 +42,7 @@ def _shard_map_inline_add(x: np.ndarray) -> np.ndarray:
         return cast(np.ndarray, inner(x))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="shard_map",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.shard_map.html",
     onnx=[],

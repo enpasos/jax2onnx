@@ -18,7 +18,10 @@ from jax2onnx.plugins._loop_extent_meta import (
     propagate_axis0_override,
     set_axis0_override,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
     _cast_to_i64,
@@ -26,7 +29,7 @@ from jax2onnx.plugins.jax.lax._index_utils import (
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.dynamic_slice_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dynamic_slice.html",
     onnx=[

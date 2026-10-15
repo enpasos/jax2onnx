@@ -28,13 +28,16 @@ from jax2onnx.plugins.jax.numpy._common import (
     make_jnp_primitive,
 )
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ADD_PRIM: Final = make_jnp_primitive("jax.numpy.add")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ADD_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.add.html",
     onnx=[{"component": "Add", "doc": "https://onnx.ai/onnx/operators/onnx__Add.html"}],

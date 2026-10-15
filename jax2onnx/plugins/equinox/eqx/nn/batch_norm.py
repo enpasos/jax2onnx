@@ -8,7 +8,10 @@ import equinox as eqx
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _EQX_BATCH_NORM: Final[eqx.nn.BatchNorm] = eqx.nn.BatchNorm(
     input_size=3,
@@ -19,7 +22,7 @@ _EQX_BATCH_NORM: Final[eqx.nn.BatchNorm] = eqx.nn.BatchNorm(
 _EQX_BATCH_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_BATCH_NORM)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.batch_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.BatchNorm",
     onnx=[

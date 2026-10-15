@@ -14,6 +14,7 @@ from typing import (
     Callable,
     cast,
     Final,
+    Literal,
 )
 from typing import overload
 from collections.abc import MutableSequence
@@ -36,7 +37,7 @@ from jax.extend import core as jcore_ext
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from .conversion_api import FunctionRegistry
+    from .function_scope import FunctionRegistry
 
 
 class _InitializerProxy(MutableSequence[ir.Value]):
@@ -219,6 +220,7 @@ class IRContext:
         # Name counters for fresh_name(); keep a typed attribute so mypy is happy.
         # Using dict[str, int] since we only ever index by the base string.
         self._name_counters: dict[str, int] = {}
+        self._name_prefix: str = ""
         self._function_mode: bool = False
         self._function_registry: Optional["FunctionRegistry"] = None
         self._ir_functions: list[ir.Function] = []
@@ -228,10 +230,11 @@ class IRContext:
         self._inside_function_scope: bool = False
         self._keep_function_float32: bool = False
         # Function plugin bookkeeping mirrors (always initialised for typed access)
-        self._func_name_counters: dict[str, int] = {}
+        self._func_name_counters: dict[tuple[str, str, str], int] = {}
         self._call_input_param_names: set[str] = set()
-        self._call_input_param_literals: dict[str, Any] = {}
+        self._call_input_param_literals: dict[str, object] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
+        self._implicit_capture_parent: IRContext | None = None
         self._const_folder = ConstantFolder()
         self._current_eqn: JaxprEqn | None = None
         self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
@@ -282,6 +285,56 @@ class IRContext:
     def set_function_registry(self, registry: "FunctionRegistry") -> None:
         self._function_registry = registry
 
+    def create_child_context(
+        self,
+        *,
+        scope: Literal["function", "control_flow"],
+        prefix: str | None = None,
+        implicit_captures: bool = False,
+    ) -> IRContext:
+        """Create an independent body graph with the parent's conversion settings.
+
+        Function definitions share their registry and name counters across scopes.
+        Parameter declarations are copied, while their IR values remain local to
+        each graph. Control-flow bodies may capture parent values and therefore
+        inherit symbolic origins; functions remap origins onto formal inputs.
+        Only If branches enable ``implicit_captures``; Loop state stays explicit.
+        """
+        child = IRContext(
+            opset=self.opset,
+            enable_double_precision=self.enable_double_precision,
+            normalization_mode=self.normalization_mode,
+            input_specs=[],
+            stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
+        )
+        child.record_primitive_calls_file = self.record_primitive_calls_file
+        child._lowering_record_owner = self._lowering_record_owner
+        child._primitive_call_records = (
+            self._lowering_record_owner._primitive_call_records
+        )
+        child._function_mode = True
+        child.builder._function_mode = True
+        child._function_registry = self._function_registry
+        child._func_name_counters = self._func_name_counters
+        child._call_input_param_names = set(self._call_input_param_names)
+        child._call_input_param_literals = dict(self._call_input_param_literals)
+
+        if scope == "control_flow":
+            # Local function definitions still belong to the enclosing model.
+            child._ir_functions = self._ir_functions
+            child._inside_function_scope = True
+            child._keep_function_float32 = self._keep_function_float32
+            child._sym_origin = dict(self._sym_origin)
+            child._sym_origin_str = dict(self._sym_origin_str)
+            if implicit_captures:
+                child._implicit_capture_parent = self
+
+        if prefix is not None:
+            prefix_base = self.fresh_name(prefix)
+            child._name_prefix = prefix_base
+            child.builder._name_prefix = prefix_base
+        return child
+
     # ------------------------------- IR functions bucket ------------------------
 
     @property
@@ -304,6 +357,8 @@ class IRContext:
         return arr
 
     def fresh_name(self, base: str) -> str:
+        if self._name_prefix:
+            base = f"{self._name_prefix}/{base}"
         # Counter dict is initialized in __init__; no lazy setup needed.
         i = self._name_counters.get(base, 0)
         self._name_counters[base] = i + 1
@@ -340,23 +395,33 @@ class IRContext:
         return self._attr_overrides.get(node.name or "", {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
-    def ensure_external_flag(self, name: str, var: Any) -> ir.Value:
-        """Top-level: return/create a BOOL[] graph input `name`.
-        Function body: return the Value for `var` (function input or literal)."""
+    def ensure_external_flag(self, name: str, var: object | None) -> ir.Value:
+        """Resolve a BOOL[] input, a function formal, or an If-branch capture.
+
+        Function and Loop bodies require explicit local bindings. If branches
+        may capture an enclosing flag through a local Identity on first use.
+        """
         if self._inside_function_scope:
             if var is None:
-                lookup = self.__dict__.get("_call_param_value_by_name")
-                if isinstance(lookup, dict) and name in lookup:
-                    value_obj = lookup[name]
-                    if isinstance(value_obj, ir.Value):
-                        return value_obj
-                    raise TypeError(
-                        f"Dynamic call parameter '{name}' is not an ir.Value"
+                value = self._call_param_value_by_name.get(name)
+                if value is not None:
+                    return value
+                if self._implicit_capture_parent is not None:
+                    parent_value = self._implicit_capture_parent.ensure_external_flag(
+                        name, None
                     )
+                    captured = ir.Value(
+                        name=self.fresh_name(name),
+                        type=parent_value.type,
+                        shape=parent_value.shape,
+                    )
+                    self.builder.op("Identity", [parent_value], output=captured)
+                    self._call_param_value_by_name[name] = captured
+                    return captured
                 raise RuntimeError(
                     f"Call parameter '{name}' does not have a dynamic value in function scope"
                 )
-            return self.get_value_for_var(var, name_hint=name)
+            return self.require_value_for_var(var)
         # top-level graph input (reuse if already present)
         for vi in self.builder.inputs:
             if (vi.name or "") == name:
@@ -736,8 +801,8 @@ class IRContext:
         )
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
-        for i, var in enumerate(outvars):
-            v = self.get_value_for_var(var, name_hint=f"out_{i}")
+        for var in outvars:
+            v = self.require_value_for_var(var)
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)

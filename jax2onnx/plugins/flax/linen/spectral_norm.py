@@ -14,7 +14,7 @@ from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -182,7 +182,7 @@ class _SpectralNormDense(nn.Module):
         )(x, update_stats=update_stats)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.spectral_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.SpectralNorm",
     onnx=[

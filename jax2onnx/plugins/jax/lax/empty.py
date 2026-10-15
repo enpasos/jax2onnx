@@ -10,7 +10,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 # JAX 0.11 lowers ``jnp.empty`` through a dedicated ``empty`` primitive instead
@@ -21,7 +24,7 @@ _EMPTY_PRIM_NAME: Final[str] = getattr(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EMPTY_PRIM_NAME,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.empty.html",
     onnx=[

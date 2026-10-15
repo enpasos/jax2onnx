@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite5"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataBatch5Plugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.corrcoef",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.corrcoef.html",
     onnx=[
@@ -63,7 +66,7 @@ class JnpCorrcoefMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_lstsq",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.lstsq.html",
     onnx=[
@@ -92,7 +95,7 @@ class JnpLinalgLstsqMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_pinv",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.pinv.html",
     onnx=[
@@ -118,7 +121,7 @@ class JnpLinalgPinvMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_svd",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.svd.html",
     onnx=[{"component": "SVD", "doc": "https://onnx.ai/onnx/operators/onnx__SVD.html"}],
@@ -138,7 +141,7 @@ class JnpLinalgSvdMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_eig",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.eig.html",
     onnx=[{"component": "Eig", "doc": "https://onnx.ai/onnx/operators/onnx__Eig.html"}],
@@ -158,7 +161,7 @@ class JnpLinalgEigMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_eigh",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.eigh.html",
     onnx=[
@@ -180,7 +183,7 @@ class JnpLinalgEighMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_eigvals",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.eigvals.html",
     onnx=[{"component": "Eig", "doc": "https://onnx.ai/onnx/operators/onnx__Eig.html"}],
@@ -200,7 +203,7 @@ class JnpLinalgEigvalsMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_eigvalsh",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.eigvalsh.html",
     onnx=[
@@ -222,7 +225,7 @@ class JnpLinalgEigvalshMetadata(_JnpCompositeMetadataBatch5Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_multi_dot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.multi_dot.html",
     onnx=[

@@ -3,23 +3,28 @@
 """Prepare plugin call conventions once, at the registry boundary.
 
 Registry reads expose the original plugins. Equation lowering uses the prepared
-``(ctx, eqn) -> None`` callable; only legacy adapters interpret returned values.
-An explicit ``-> None`` annotation declares that a two-argument lowering binds
-its own outputs. Unannotated and return-style extensions remain supported.
+``(ctx, eqn) -> None`` callable. First-party registration supplies that typed
+contract explicitly; only legacy assignments inspect call conventions and
+interpret returned values.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, replace
-from inspect import Parameter, signature as _inspect_signature
+from inspect import signature as _inspect_signature
 from types import SimpleNamespace
 from typing import TypeAlias, cast
+from weakref import WeakValueDictionary
 
 from jax2onnx._compat.jax import JaxprEqn
 
 from .output_binding import bind_returned_lowering_values
-from .typing_support import CanonicalLowering, LoweringContextProtocol
+from .typing_support import (
+    CanonicalLowering,
+    LoweringContextProtocol,
+    PrimitiveLowering,
+)
 
 LegacyCall: TypeAlias = Callable[
     [LoweringContextProtocol, JaxprEqn, object | None], object
@@ -44,24 +49,14 @@ class RegisteredLowering:
         return replace(self, lower=self.bind_converter(converter))
 
 
-def _primitive_call(lower: object) -> tuple[LegacyCall, bool]:
-    """Inspect a legacy entry once, recognizing its declared canonical contract."""
+def _primitive_call(lower: object) -> LegacyCall:
+    """Inspect only the legacy params convention, once at assignment."""
     lower_fn = cast(Callable[..., object], lower)
     try:
         signature = _inspect_signature(lower_fn)
     except (TypeError, ValueError):
         signature = None
     accepts_params = signature is not None and "params" in signature.parameters
-    canonical = (
-        signature is not None
-        and len(signature.parameters) == 2
-        and all(
-            parameter.kind
-            in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
-            for parameter in signature.parameters.values()
-        )
-        and signature.return_annotation in (None, type(None), "None")
-    )
     if accepts_params:
 
         def call(
@@ -76,7 +71,7 @@ def _primitive_call(lower: object) -> tuple[LegacyCall, bool]:
         ) -> object:
             return lower_fn(ctx, eqn)
 
-    return call, canonical
+    return call
 
 
 def _function_call(get_handler: object) -> LegacyCall:
@@ -109,7 +104,7 @@ def prepare_legacy_call(
     """Prepare a raw compatibility call without altering its returned result."""
     lower = getattr(plugin, "lower", None)
     if callable(lower):
-        return _primitive_call(lower)[0]
+        return _primitive_call(lower)
     get_handler = getattr(plugin, "get_handler", None)
     if callable(get_handler):
         return _function_call(get_handler)
@@ -129,16 +124,14 @@ def _bind_legacy_call(
 def prepare_lowering(
     plugin: object, *, primitive_name: str, source: str = "plugin_registry"
 ) -> RegisteredLowering:
-    """Normalize a plugin without changing its registry identity.
+    """Adapt a raw legacy plugin without inferring a canonical contract.
 
     Unsupported entries remain insertable for metadata/collision inspection.
     Their prepared callable reports the error when lowering actually uses it.
     """
     lower = getattr(plugin, "lower", None)
     if callable(lower):
-        call, canonical = _primitive_call(lower)
-        if canonical:
-            return RegisteredLowering(plugin, cast(CanonicalLowering, lower))
+        call = _primitive_call(lower)
         return RegisteredLowering(plugin, _bind_legacy_call(call, primitive_name))
     get_handler = getattr(plugin, "get_handler", None)
     if callable(get_handler):
@@ -161,6 +154,11 @@ class PluginRegistry(MutableMapping[str, object]):
 
     def __init__(self, plugins: Mapping[str, object] | None = None) -> None:
         self._entries: dict[str, RegisteredLowering] = {}
+        # Remember explicit registration across aliases and temporary replacement.
+        # Weak values avoid retaining removed function targets and their captures.
+        self._canonical_plugins: WeakValueDictionary[int, PrimitiveLowering] = (
+            WeakValueDictionary()
+        )
         if plugins is not None:
             self.update(plugins)
 
@@ -168,8 +166,21 @@ class PluginRegistry(MutableMapping[str, object]):
         return self._entries[name].plugin
 
     def __setitem__(self, name: str, plugin: object) -> None:
-        entry = prepare_lowering(plugin, primitive_name=name)
-        self._entries[name] = entry
+        canonical = self._canonical_plugins.get(id(plugin))
+        if canonical is not None and canonical is plugin:
+            self._entries[name] = RegisteredLowering(canonical, canonical.lower)
+        else:
+            self._entries[name] = prepare_lowering(plugin, primitive_name=name)
+
+    def register_canonical(self, name: str, plugin: PrimitiveLowering) -> None:
+        """Register the typed binding contract directly, without reflection."""
+        try:
+            self._canonical_plugins[id(plugin)] = plugin
+        except TypeError:
+            # Weak references are optional; the explicit contract is not.
+            # A later raw assignment can still use the legacy boundary.
+            pass
+        self._entries[name] = RegisteredLowering(plugin, plugin.lower)
 
     def __delitem__(self, name: str) -> None:
         del self._entries[name]

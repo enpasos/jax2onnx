@@ -28,7 +28,10 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _LINSPACE_PRIM: Final = make_jnp_primitive("jax.numpy.linspace")
@@ -140,7 +143,7 @@ def _maybe_cast(
     return cast_val
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_LINSPACE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linspace.html",
     onnx=[

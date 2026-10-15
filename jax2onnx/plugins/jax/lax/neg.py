@@ -4,13 +4,16 @@
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.neg_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.neg.html",
     onnx=[{"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"}],
@@ -39,5 +42,6 @@ class NegPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("neg_out")
         )
 
-        result = ctx.builder.op("Neg", [x_val], output=out_spec)
+        builder: IRBuilderAPI = ctx.builder
+        result = builder.op("Neg", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)

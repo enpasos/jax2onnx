@@ -27,7 +27,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SELECT_PRIM: Final = make_jnp_primitive("jax.numpy.select")
@@ -41,7 +44,7 @@ def _promote_dtype(*dtypes: np.dtype[Any] | type) -> np.dtype[Any]:
     return cast(np.dtype[Any], np.dtype(jnp.result_type(*dtypes)))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SELECT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.select.html",
     onnx=[

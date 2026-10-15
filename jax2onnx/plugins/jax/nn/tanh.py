@@ -22,7 +22,10 @@ from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _TANH_PRIM: Final[Primitive] = Primitive("jax.nn.tanh")
@@ -30,7 +33,7 @@ _TANH_PRIM.multiple_results = False
 _JAX_TANH_ORIG: Final = jax.nn.tanh
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TANH_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.tanh.html",
     onnx=[

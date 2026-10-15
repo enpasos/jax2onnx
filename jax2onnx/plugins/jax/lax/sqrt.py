@@ -10,10 +10,13 @@ from jax2onnx.plugins.jax.lax._opset_utils import (
     builder_reduce_with_axes,
     reduction_axes_from_node,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.sqrt_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sqrt.html",
     onnx=[

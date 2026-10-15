@@ -9,6 +9,7 @@ from typing import (
     Callable,
     Collection,
     Iterable,
+    Literal,
     Mapping,
     MutableSequence,
     Protocol,
@@ -24,6 +25,8 @@ from jax2onnx._compat.jax import JaxprEqn
 
 if TYPE_CHECKING:
     from jax2onnx.utils.debug import RecordedPrimitiveCallLog
+    from .function_scope import FunctionRegistry
+    from .ir_context import IRContext
     from .ir_constants import ConstantFolder
 
 ResolverFn = Callable[[object], object | None]
@@ -81,7 +84,9 @@ class SymbolicDimTracker(Protocol):
 
 
 @runtime_checkable
-class IRBuilderProtocol(Protocol):
+class IRBuilderAPI(Protocol):
+    """Closed emission contract for native lowerings, backed by ONNX IR Tape."""
+
     @property
     def opset(self) -> int: ...
 
@@ -192,6 +197,11 @@ class IRBuilderProtocol(Protocol):
         protective_clone: bool = True,
     ) -> ir.Model: ...
 
+
+@runtime_checkable
+class IRBuilderProtocol(IRBuilderAPI, Protocol):
+    """Builder compatibility surface for existing dynamic operator shorthand."""
+
     def __getattr__(self, name: str) -> Any: ...
 
 
@@ -202,6 +212,9 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
     _primitive_call_records: list[RecordedPrimitiveCallLog]
     _lowering_record_depth: int
     _lowering_record_owner: LoweringContextProtocol
+    _func_name_counters: dict[tuple[str, str, str], int]
+    _call_input_param_literals: dict[str, object]
+    _call_param_value_by_name: dict[str, ir.Value]
 
     @property
     def _const_folder(self) -> ConstantFolder: ...
@@ -235,6 +248,21 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     @property
     def _call_input_param_names(self) -> set[str]: ...
+
+    @property
+    def ir_functions(self) -> list[ir.Function]: ...
+
+    def get_function_registry(self) -> FunctionRegistry | None: ...
+
+    def set_function_registry(self, registry: FunctionRegistry) -> None: ...
+
+    def create_child_context(
+        self,
+        *,
+        scope: Literal["function", "control_flow"],
+        prefix: str | None = None,
+        implicit_captures: bool = False,
+    ) -> IRContext: ...
 
     def fresh_name(self, base: str) -> str: ...
 
@@ -280,7 +308,7 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     def try_evaluate_const(self, var: Any) -> np.ndarray[Any, np.dtype[Any]] | None: ...
 
-    def ensure_external_flag(self, name: str, var: Any) -> ir.Value: ...
+    def ensure_external_flag(self, name: str, var: object | None) -> ir.Value: ...
 
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
 

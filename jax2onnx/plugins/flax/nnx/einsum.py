@@ -22,7 +22,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -71,7 +71,7 @@ EXPECT_EINSUM_WITH_BIAS: Final = EG(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EINSUM_MODULE_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Einsum",
     onnx=[

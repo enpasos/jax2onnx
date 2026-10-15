@@ -49,7 +49,7 @@ from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from . import lowering_dispatch as _lowering_dispatch
-from .typing_support import LoweringContextProtocol
+from .typing_support import IRBuilderAPI, LoweringContextProtocol
 
 from jax.extend import core as jcore_ext
 
@@ -632,7 +632,7 @@ class _LayoutAdapter:
                 self.ctx.add_input_for_invar(var, index)
 
     def bind_output(self, out_var: Any, index: int) -> None:
-        val = self.ctx.get_value_for_var(out_var)
+        val = self.ctx.require_value_for_var(out_var)
         aval_shape = tuple(out_var.aval.shape)
         self._require_4d(aval_shape, kind="output", index=index)
 
@@ -643,19 +643,21 @@ class _LayoutAdapter:
                 ir_dtype = _dtype_to_ir(aval_dtype, self.enable_double_precision)
                 output_type = ir.TensorType(ir_dtype)
 
-        transposed_out = self.ctx.builder.Transpose(
-            val,
-            perm=list(_NHWC_TO_NCHW_PERM),
-            _outputs=[f"out_{index}_nchw_converted"],
+        output_shape = (
+            ir.Shape(tuple(val.shape[p] for p in _NHWC_TO_NCHW_PERM))
+            if val.shape is not None
+            else None
         )
-        if output_type is not None:
-            transposed_out.type = output_type
-
-        if isinstance(val.shape, ir.Shape):
-            src_dims = val.shape.dims
-            transposed_out.shape = ir.Shape(
-                tuple(src_dims[p] for p in _NHWC_TO_NCHW_PERM)
-            )
+        output = ir.Value(
+            name=f"out_{index}_nchw_converted", type=output_type, shape=output_shape
+        )
+        builder: IRBuilderAPI = self.ctx.builder
+        transposed_out = builder.op(
+            "Transpose",
+            [val],
+            {"perm": ir.AttrInt64s("perm", _NHWC_TO_NCHW_PERM)},
+            output=output,
+        )
 
         self.ctx.add_graph_output_value(transposed_out)
 

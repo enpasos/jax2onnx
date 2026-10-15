@@ -27,13 +27,16 @@ from jax2onnx.plugins.jax.numpy._common import (
     make_jnp_primitive,
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _PROD_PRIM: Final = make_jnp_primitive("jax.numpy.prod")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_PROD_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.prod.html",
     onnx=[

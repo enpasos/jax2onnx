@@ -20,7 +20,10 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     builder_identity,
 )
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _lower_unvmap_reduction(
@@ -75,7 +78,7 @@ def _lower_unvmap_reduction(
     ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=unvmap_any_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/internal/",
     onnx=[
@@ -102,7 +105,7 @@ class UnvmapAnyPlugin(PrimitiveLeafPlugin):
         _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMax", boolean=True)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=unvmap_all_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/internal/",
     onnx=[
@@ -129,7 +132,7 @@ class UnvmapAllPlugin(PrimitiveLeafPlugin):
         _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMin", boolean=True)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=unvmap_max_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/internal/",
     onnx=[
@@ -156,7 +159,7 @@ class UnvmapMaxPlugin(PrimitiveLeafPlugin):
         _lower_unvmap_reduction(ctx, eqn, op_type="ReduceMax", boolean=False)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=select_if_vmap_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/internal/",
     onnx=[
@@ -198,7 +201,7 @@ class SelectIfVmapPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=nonbatchable_p.name,
     jax_doc="https://docs.kidger.site/equinox/api/internal/",
     onnx=[
