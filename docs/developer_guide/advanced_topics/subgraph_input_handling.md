@@ -10,6 +10,14 @@ Our IR-only pipeline still emits ONNX control-flow nodes, so plugin authors and 
 ## `If`: implicit capture only
 The ONNX `If` node accepts a single boolean input. Both `then_branch` and `else_branch` Graph attributes must list zero inputs, so any tensor needed inside the branch is referenced directly by name and resolved from the enclosing graph. Exporters that try to add branch parameters fail schema validation (`input size of if-op should be 1`). Our lowering honours that contract—branch builders leave the input list empty and rely on `IRContext` to resolve captured values.
 
+Child contexts use `create_child_context(scope="control_flow", ...)`. Only
+`If` opts into `implicit_captures=True`. An external BOOL call parameter needed
+by a nested ONNX Function is resolved lazily in the enclosing context and
+mirrored by an `Identity` into a branch-local value. That value becomes the
+Function call argument and maps to a fresh Function formal input. No parent
+parameter-to-IR-value mapping is copied into a child. Loop/scan contexts keep
+implicit captures disabled and require explicit carried inputs.
+
 ## `Loop`: explicit interface
 `Loop` nodes receive an optional trip-count `M`, an optional initial condition, and N loop-carried initial values. Consequently, the body graph declares `iteration_num`, `condition`, and those N carried values as explicit inputs. Each iteration returns a continuation flag, the updated carried values, and optional scan outputs that map back to the parent node. When the body needs an outer tensor that is not constant, add it to the carried tuple (passing it through unchanged if necessary). This keeps dependencies explicit and aligns with ONNX Runtime’s validation. Our `fori_loop` and `scan` plugins rely on this ordering when constructing body graphs.
 
@@ -23,7 +31,9 @@ the parent graph stacks or reshapes as required. Tests under
 `tests/extra_tests/scan/` assert these invariants so regressions surface quickly.
 
 ## Practical tips
-- `IRContext.get_value_for_var` is responsible for materialising captured tensors. Keep its literal handling consistent with these rules.
+- Bind carried/captured operands in the child explicitly. Read them with
+  `require_value_for_var`, which also materializes literals in the current
+  scope. `get_value_for_var` remains a compatibility convenience.
 - When authoring tests, assert Loop node/body arity directly for control-flow
   body contracts; use `expect_graph` for top-level structural paths and imported
   ONNX Function bodies.

@@ -1,5 +1,12 @@
 # Past Versions
 
+- **Unreleased**: Added explicit typed native plugin registration through
+  `register_native_primitive`, retaining `register_primitive` and raw-registry
+  legacy extensions; unified Function/control-flow child settings and typed
+  Function capture phases; fixed dynamic tensor and scalar constant keyword captures on JAX 0.11
+  and retained ONNX Function definitions created inside control-flow bodies;
+  enabled lazy external BOOL parameter capture for Functions in `If` branches
+  while keeping Loop/scan inputs explicit.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit
   `window_strides` and complex transposed convolutions, and rejected

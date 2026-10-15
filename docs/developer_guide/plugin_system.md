@@ -58,7 +58,7 @@ bodies see the same primitive bindings as the top-level trace.
 ## Primitive Plugins
 
 Most primitive support is implemented as a subclass of `PrimitiveLeafPlugin`
-registered with `@register_primitive(...)`. The complete example below matches `NegPlugin` in
+registered with `@register_native_primitive(...)`. The complete example below matches `NegPlugin` in
 `jax2onnx/plugins/jax/lax/neg.py`: require the input, allocate an output with
 the traced dtype and shape, emit into that value, and bind it explicitly.
 
@@ -66,12 +66,12 @@ the traced dtype and shape, emit into that value, and bind it explicitly.
 import jax
 
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_native_primitive
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.neg_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.neg.html",
     onnx=[{"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"}],
@@ -97,7 +97,8 @@ class NegPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("neg_out")
         )
 
-        result = ctx.builder.op("Neg", [x_val], output=out_spec)
+        builder: IRBuilderAPI = ctx.builder
+        result = builder.op("Neg", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 ```
 
@@ -107,8 +108,23 @@ binding specs.
 
 ## Registering Metadata
 
-`@register_primitive(...)` stores every keyword argument as plugin metadata and
+`@register_native_primitive(...)` stores every keyword argument as plugin metadata and
 registers the plugin instance under `jaxpr_primitive`.
+
+This decorator declares `lower(ctx, eqn) -> None`: the lowering binds its own
+outputs. Registration stores the bound method directly, without inspecting its
+signature, annotation, or return value. All first-party primitive plugins use
+this contract. `FunctionPlugin` uses the same explicit registry entry point.
+
+`@register_primitive(...)` remains available for legacy extensions, including
+`lower(ctx, eqn, params)` and returned-value lowerings. Raw assignments to
+`PLUGIN_REGISTRY[name]` also pass through the legacy adapter, unless the same
+object was explicitly registered as native and its identity is still known.
+Registry reads and snapshots return the original plugin objects. The weak
+identity catalog preserves native aliases/restoration without retaining removed
+plugins; objects without weak-reference support still register natively, while
+later raw assignments use the legacy adapter. Native code should use the
+explicit decorator or `PLUGIN_REGISTRY.register_canonical(name, plugin)`.
 
 Important top-level metadata fields:
 
@@ -206,8 +222,9 @@ contract is strict:
 
 `PluginRegistry` preserves original plugin objects for metadata and tracing
 activation, while preparing one typed `(ctx, eqn) -> None` call at registration.
-A two-argument `lower` annotated `-> None` declares the canonical contract.
-The equation loop calls that method directly and checks graph ownership; it does
+`register_native_primitive` or `register_canonical` explicitly declares the
+canonical contract; annotations alone do not select it. The equation loop calls
+that method directly and checks graph ownership; it does
 not inspect signatures or interpret returned values.
 
 Existing extensions with `lower(ctx, eqn, params)`, unannotated or return-style
@@ -274,6 +291,24 @@ During tracing, the function plugin patches the target callable or class
    initializers;
 8. attaches the resulting `onnx_ir.Function` to the parent model;
 9. emits a call-site node in the parent graph.
+
+The native entry point `_lower_in_context` reads as preparation, registry lookup,
+optional body construction, and call emission. `DynamicCapture` stores each
+parameter's name, tracing spec, and bound parent `ir.Value`; `FunctionCaptures`
+keeps these records in signature order beside static kwargs and fingerprints.
+No partially populated dictionaries are passed between phases. Private JAX
+tracer access is confined to `_compat.jax.resolve_tracer_binding`, including
+the direct atom used by JAX 0.11.
+
+`IRContext.create_child_context(scope="function" | "control_flow")` owns the
+common settings and recording/registry inheritance. Function scopes mirror
+inputs into fresh formal values and remap symbolic origins; control-flow scopes
+retain lexical origins and publish local function definitions to the enclosing
+model. The child never receives the parent's parameter-to-IR-value dictionary.
+Function tracing uses `try/finally` to restore activation state even on failure.
+Only `If` permits lazy lexical capture of external BOOL call parameters; Loop
+and scan keep their explicit carried-input contracts. See
+[control-flow body inputs](advanced_topics/subgraph_input_handling.md).
 
 `unique=True` changes the capture signature from object identity to a stable
 fingerprint of the callable/function state, so equivalent blocks can share one

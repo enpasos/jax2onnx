@@ -188,7 +188,7 @@ file.
 ## Plugin Contract
 
 Most primitive plugins subclass `PrimitiveLeafPlugin` and are registered with
-`@register_primitive(...)`. A plugin normally provides:
+`@register_native_primitive(...)`. A plugin normally provides:
 
 - **Metadata:** JAX primitive name, user-facing component name, ONNX operator
   references, generated testcase metadata, and structural checks.
@@ -200,17 +200,22 @@ Most primitive plugins subclass `PrimitiveLeafPlugin` and are registered with
 
 Lowerings should follow these rules:
 
-- Fetch inputs with `ctx.get_value_for_var(...)` or
-  `ctx.require_value_for_var(...)`.
-- Pre-allocate or fetch output values with `ctx.get_value_for_var(eqn.outvars[i])`
-  when the output identity matters.
+- Require inputs with `ctx.require_value_for_var(...)`; missing non-literal
+  bindings are errors. Literals materialize in their current scope.
+- Allocate or reuse output placeholders with `ctx.allocate_value_for_var(...)`.
 - Emit nodes through `ctx.builder` unless a specific `onnx_ir` feature requires
   manual `ir.Node` construction.
-- Keep `_outputs` explicit and sequence-valued for builder calls.
+- Prefer typed `op(..., output=...)` / `op_multi_out(..., outputs=...)`;
+  keep `_outputs` sequence-valued in existing dynamic shorthand.
 - Stamp dtype/shape metadata on produced values when the builder cannot infer it.
-- Bind outputs with `ctx.bind_value_for_var(...)` or return the produced values
-  so the generic output binder can bind them.
+- Bind outputs with `ctx.bind_value_for_var(...)`. Returned-value conventions
+  remain at the legacy registration boundary.
 - Never import ONNX protobuf classes from converter or plugin lowering code.
+
+Native registration stores `lower(ctx, eqn) -> None` directly; only legacy
+extensions need call-convention discovery or result adaptation. Native emission
+helpers use the closed `IRBuilderAPI` protocol. `IRBuilderProtocol` extends it
+with the dynamic operator shorthand for existing leaf implementations.
 
 ## ONNX Function Boundaries
 
@@ -242,8 +247,9 @@ Control-flow primitives are plugins too:
 - `lax.while_loop` lowers to ONNX `Loop`.
 - `lax.scan` currently lowers through ONNX `Loop`, not the ONNX `Scan` operator.
 
-Control-flow body graphs use explicit inputs for carried state, sequence values,
-and captured values. Constants inside those bodies are materialized as `Constant`
+Loop bodies use explicit inputs for carried state, sequence values, and captured
+tensors. If branches have no formal inputs and capture outer values by name.
+Constants inside those bodies are materialized as `Constant`
 nodes. Body shape handling is deliberately conservative, and export
 post-processing loosens nested body shapes where runtime shape inference needs
 more flexibility.

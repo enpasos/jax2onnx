@@ -15,16 +15,26 @@ and keep tests green now that the converter is IR-first.
 - Emit ops through `ctx.builder` rather than constructing `ir.Node` manually.
   Prefer typed `op` / `op_multi_out` calls for new or touched lowerings. Their
   explicit signatures forward the public `Tape` API and retain project metadata.
-- After every builder call, stamp dtype and shape with `_stamp_type_and_shape(...)` and run `_ensure_value_metadata(...)` so the `ir.Value` carries normalized shape/type metadata (no separate `value_info` bucket).
-- Register constants via `builder.initializer(...)` / `ctx.bind_const_for_var(...)`; never smuggle tensors through ad-hoc `ir.Value(const_value=...)` without keeping the initializer list in sync.
+- Preserve dtype and shape on explicit output values. Attach missing metadata to
+  intermediates with `_stamp_type_and_shape(...)` and normalize it with
+  `_ensure_value_metadata(...)` where needed; there is no `value_info` bucket.
+- Register constants via named `builder.add_initializer_from_*` helpers or
+  `ctx.bind_const_for_var(...)` so Function mode emits `Constant` nodes.
+  Do not bypass their scope policy with raw initializer insertion.
 - When defining plugin metadata, use `construct_and_call(...)` with placeholder
   arguments such as `with_requested_dtype()` and `with_rng_seed(...)` to honour
   the single-use RNG policy and keep tests deterministic across f32/f64 runs.
-- Run the validation hooks listed below (Ruff, builder usage checker, pytest) before landing a change; the pre-commit stack invokes them automatically.
+- Run Ruff, typing, builder-policy checks, and appropriate pytest coverage before
+  landing a change. Pre-commit runs the static hooks; pytest runs separately.
 
 ## Plugin Metadata Requirements
-- Construct callable metadata with `construct_and_call(...)` so the test harness can rebuild modules for each dtype. Pair it with `with_requested_dtype()` and `with_rng_seed(...)`/`with_prng_key(...)` helpers instead of inlining lambdas or seeding at import time.
-- Avoid `callable_factory`. The test generator now raises if metadata still relies on factories—`callable` entries must be concrete `construct_and_call(...)` results.
+- Construct module metadata with `construct_and_call(...)` so the test harness
+  can rebuild state for each dtype. Pair it with `with_requested_dtype()` and
+  `with_rng_seed(...)`/`with_prng_key(...)`; do not create seeded module state in
+  import-time lambdas.
+- Avoid `callable_factory`. Module/state/RNG construction uses concrete
+  `construct_and_call(...)` results; stateless pure callables can be supplied
+  directly in testcase metadata.
 - When you need constants inside plugin lowers, prefer shared helpers (for example, `_const_i64`) that delegate to `ctx.builder` so they participate in initializer bookkeeping.
 - Respect the single-use RNG rule: split keys per consumer and never cache
   module instances inside traced calls. `construct_and_call(...)` plus
@@ -68,6 +78,10 @@ methods expose custom outputs, metadata, overload selection, and pre-existing
 `ir.Value` objects directly. Use a standalone `Tape` when extending an existing
 `ir.Graph` or `ir.Function`.
 
+Type new emission helpers with the closed `IRBuilderAPI` from
+`converter.typing_support`. Existing `IRBuilderProtocol` adds dynamic shorthand
+for compatibility; native helpers do not need that unrestricted attribute API.
+
 ## Typed Emission Pattern
 
 The canonical lowering reads required inputs, allocates explicit outputs, and
@@ -75,16 +89,21 @@ binds the emitted values. `NegPlugin` is the single-output reference:
 
 ```python
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
 
 
 def lower(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
     x = ctx.require_value_for_var(eqn.invars[0])
     outvar = eqn.outvars[0]
     output = ctx.allocate_value_for_var(outvar, name_hint=ctx.fresh_name("neg_out"))
-    result = ctx.builder.op("Neg", [x], output=output)
+    builder: IRBuilderAPI = ctx.builder
+    result = builder.op("Neg", [x], output=output)
     ctx.bind_value_for_var(outvar, result)
 ```
+
+The shared NumPy unary helper, Function call emission, and layout output binding
+use the same required-input/explicit-output contract. This avoids duplicating
+dynamic result inspection across individual operators.
 
 `op` returns `ir.Value`. Passing `output=` keeps the placeholder's name, dtype,
 shape, and identity; the node becomes its producer. It does not infer missing
@@ -94,19 +113,31 @@ needed. An explicit output must not already have a producer.
 
 `op_multi_out` returns `Sequence[ir.Value]`. Specify either `outputs=` with
 existing values or `num_outputs=`; specifying both fails before graph mutation.
-Optional ONNX input slots use `None`:
+For example, split a tensor evenly with the explicit output-count attribute:
 
 ```python
 first = ir.val("first", dtype=ir.DataType.FLOAT, shape=[2])
 second = ir.val("second", dtype=ir.DataType.FLOAT, shape=[2])
 values = builder.op_multi_out(
     "Split",
-    [x, None],
+    [x],
     {"axis": 0, "num_outputs": 2},
     outputs=[first, second],
     version=18,
 )
 assert values[0] is first
+```
+
+Optional ONNX input slots use `None`. Clip with no lower bound keeps its missing
+middle input explicit:
+
+```python
+maximum = builder.add_initializer_from_scalar(name="clip_max", value=1.0)
+clipped = builder.op(
+    "Clip",
+    [x, None, maximum],
+    output=ir.val("clipped", dtype=x.dtype, shape=x.shape),
+)
 ```
 
 `TopKPlugin` is the multi-output lowering reference. It emits a typed `TopK`
@@ -231,7 +262,12 @@ values, indices = builder.TopK(
 
 ## Graph Ownership & Cloning
 - `IRBuilder` now keeps its `inputs`, `outputs`, and nodes in sync with the underlying `onnx_ir.Graph` via proxy setters. Reassigning `builder.inputs = [...]` (or `.outputs`/`.nodes`) clears and repopulates the graph-side containers, while `builder.initializers` remains a list-like shim that delegates to `graph.initializers`. Prefer mutating these sequences in place, but reassignment is safe when you need to reset them.
-- When exporting a staged graph—either to an `ir.Model` or into ONNX graph-typed attributes—clone it first using `jax2onnx.converter.ir_clone.clone_graph`. The helper copies values, initializers, metadata, and nested graphs so the detached graph can be owned by another model/function without triggering “Value … is already owned by a different graph” errors. Function scopes and control-flow plugins (`cond`, `fori_loop`, `scan`, `while_loop`) already adopt this pattern; follow suit for any new subgraph emission.
+- When attaching a staged graph to another model/function or graph attribute,
+  use the public `graph.clone(allow_outer_scope_values=True)` API. It copies
+  graph-owned values, nodes, initializers, metadata, and nested graphs while
+  retaining lexical references to outer values. Use it only when those outer
+  references are valid for the target scope. Function scopes and control-flow
+  plugins already use this pattern; no project-specific clone helper is needed.
 
 ## Integrating with Existing Graphs or Functions
 ```python
@@ -279,8 +315,8 @@ time:
 - **Attribute values of `None`**: build an `ir.Attr` with an explicit `AttributeType`; automatic conversion rejects bare `None`.
 - **Graph ownership**: do not reuse a builder-generated node or value inside
   another graph directly. Clone staged graphs with
-  `jax2onnx.converter.ir_clone.clone_graph` before moving them into a model,
-  control-flow body, or graph-typed attribute.
+  the public `graph.clone(allow_outer_scope_values=True)` API before attaching
+  them elsewhere, retaining only valid lexical outer references.
 
 ## Initializer Deduplication
 - Prefer `ctx.builder.add_initializer_from_scalar/array(...)` or `ctx.builder.const_i64(...)` to create constants. Avoid writing directly to `graph.initializers[...]`.

@@ -87,6 +87,10 @@ two retain historical name matching for raw names and disconnected value
 wrappers; sequence membership always tests exact identity. Existing private
 imports remain aliases for these adapters. New passes use the graph-scoped
 functions so equal names in different scopes cannot create false edges.
+An `ir.Graph` also implements the node-sequence interface, so legacy helpers can
+receive the live graph as well as a detached list. Their historical name fallback
+applies in both cases; a sequence snapshot cannot supply current graph ownership.
+This compatibility rule does not change the stricter native graph helpers.
 
 Read shape and dtype metadata directly from `ir.Value.shape` and
 `ir.Value.dtype`. Missing metadata and symbolic dimensions still require

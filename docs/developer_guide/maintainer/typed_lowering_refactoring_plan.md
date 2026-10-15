@@ -160,16 +160,138 @@ alone do not prove that runtime guessing was removed.
 | 3: Graph-native helpers | Implemented | Optimizer queries receive the live graph and use native producer/consumer ownership. Explicit detached-list/name helpers preserve compatibility. Graph regression tests cover captures, shadowing, stale snapshots, removal, and cross-graph rewrites. 126 focused optimizer tests passed on current and minimum ONNX-IR. |
 | 4: Reference patterns and builder pilot | Implemented; final gates below | Typed `op` / `op_multi_out` forward public Tape APIs. Neg and TopK are executable references. The optimizer guide includes an executable graph rewrite preserving names, metadata, outputs, and ownership; the plugin, builder, typing, and architecture guides link the patterns. 30 builder/pilot tests and the graph reference passed on current and minimum ONNX-IR, with generated numerical/structural coverage. |
 
-### Final Acceptance
+### First Checkpoint Acceptance (`2f73468b`)
 
-The complete implementation is checked as one PR head. Local verification
+The first implementation checkpoint was checked as one PR head. Local verification
 passed 4,345 generated/full tests on Python 3.12.9, JAX 0.11.2, and ONNX-IR 1.0.0,
 all repository hooks, typing/RNG and builder-policy checks, and a strict
 documentation build. Isolated ONNX-IR 0.2.1 verification
 passed 244 converter/control-flow tests with strict optimizer failure handling;
 the intentional nonfatal-policy test passed separately with its normal setting.
 
-Remote acceptance is the successful terminal result of every CI job for the
-current head of [PR #274](https://github.com/enpasos/jax2onnx/pull/274/checks).
+All eight jobs passed in [CI run 38644853117](https://github.com/enpasos/jax2onnx/actions/runs/38644853117)
+for `2f73468b` of [PR #274](https://github.com/enpasos/jax2onnx/pull/274).
 The baseline run above is a separate checkpoint and cannot substitute for this
 final gate. The PR remains unmerged.
+
+## Follow-up: Coherent Native Conversion Path
+
+The first checkpoint establishes a useful core, but does not complete the
+original readability goal. At `2f73468b`, registration still discovers native
+contracts from annotations, Function lowering immediately falls back to an
+`Any` context and mutable capture dictionaries, and child-context construction
+still probes capabilities. The two builder pilots do not demonstrate adoption
+through the surrounding conversion path. These are implementation gaps, even
+with passing CI.
+
+The next stages finish the same PR. Preserve numerical behavior, precision,
+Function signatures, capture ordering, names, graph ownership, and existing
+legacy extension conventions. Changes in behavior require a reproduced problem,
+a concrete benefit, and an appropriate regression test.
+
+| Stage | Work | Inspectable acceptance |
+| --- | --- | --- |
+| 5: Explicit native registration | Register first-party lowerings through a typed native entry point. Keep legacy registration and raw mapping assignment at the compatibility boundary. | Native registration does not inspect signatures or annotations. Original objects, aliases, removal/restoration, and legacy decorators/handlers/results retain their contracts. |
+| 6: Typed Function phases | Separate callee/capture preparation, key and reuse selection, body construction, and call emission. Use concrete ordered capture records. | The full native route and its helpers accept a typed context. No mutable dictionary entries for dynamic captures, context-capability probes, or broad casts replace the previous `Any` path. Arbitrary Python value inspection and JAX-version details have named boundaries. |
+| 7: Consistent child scopes | Share explicit child-context construction for ONNX Functions and control-flow bodies. | No constructor retries, `Any` casts, or method monkeypatches are needed to create a native child. Settings, symbolic origins, recording ownership, naming prefixes, and function bookkeeping preserve their specific sharing/copying policies. |
+| 8: Pattern adoption at shared boundaries | Use a closed typed builder interface in native emission. Migrate shared unary/control-flow helpers and surrounding read-existing input/output bindings where they provide a concrete consistency gain. | Native emission is checked without unrestricted dynamic attribute lookup. Inputs and completed outputs require bindings; output allocation is deliberate. Optional inputs, metadata, dtype/shape, initializer representation, and output identity remain correct. |
+| 9: Coherence and final acceptance | Update the linked guides and executable examples around the resulting production path, remove redundant adapters/helpers, and critically review the architecture. | A reader can follow the native chain without understanding legacy adapters. Remaining branches reflect semantic decisions or documented compatibility. Full local checks and all final-head CI jobs pass; source review separately demonstrates the readability and typing improvements. |
+
+Adoption is based on its effect on the conversion path. Registration-only
+declarations may change across first-party plugins to make their contract
+explicit; this does not require rewriting all operator lowerings. Dynamic
+builder shorthand can remain available for existing leaf plugins while native
+emission uses a closed interface.
+
+### Follow-up validation
+
+Use the existing Function suites for reuse/uniqueness, captures, runtime flags,
+namespaces, nested functions, constant representation, symbolic shapes, and
+precision. Add outcome regressions for ordered tensor keyword captures,
+unused dynamic captures, and child-origin/settings inheritance where coverage
+is missing. Run converter and control-flow tests after the shared scope change,
+and numerical/structural unary tests after the shared helper migration.
+
+Prove the native builder interface rejects invalid inputs and unknown methods
+with a negative typing example. Inspect the named production paths as well as
+running tests: lowerings, capture records, child creation, native emission,
+value binding, and graph discovery. A lower global `if`/`try` count alone is
+not an acceptance criterion; dtype choices and `try/finally` restoration remain
+necessary.
+
+Before final shipping, regenerate tests, run the full bounded local suite and
+the checks above, verify the minimum ONNX-IR surface, and wait for terminal
+success of every CI job on the new PR head. Preserve the first checkpoint's
+evidence separately from these new results. Do not merge or post review replies.
+
+| Follow-up stage | Status | Evidence |
+| --- | --- | --- |
+| 5: Explicit registration | Implemented | All 605 discovered first-party entries register direct methods without signature inspection. Native aliases/restoration, weak-reference lifetime, slots-only instances, and legacy decorator/result conventions have regressions. Of 399 registration declarations migrated, 393 files contain only declaration changes; six also adopt the shared native patterns below. |
+| 6: Function phases | Implemented | The former 373-line `_lower_in_context` is a 17-line coordinator over typed capture/key/trace/build/emit phases. Ordered tensor kwargs, unused formals, cached reuse, static-state differences, hoisted constants, and scalar/vector constant kwargs have structural and ORT checks. |
+| 7: Child scopes | Implemented | One factory owns settings, symbolic origins, shared bookkeeping, and naming. Child tests cover Function/If scopes, graph-local values, recording ownership, exact names, nested Function definitions, and independently varied runtime flags. Loop/scan remain explicit. |
+| 8: Shared adoption | Implemented | Neg/TopK, shared unary/cast helpers, shared control-flow helpers, Function calls, and NCHW output emission use the closed `IRBuilderAPI`. Final outputs and JIT/PJIT/custom-VJP inputs require bindings. Positive/negative mypy examples prove invalid inputs and unknown builder methods are rejected. |
+| 9: Final acceptance | Architecture accepted; final validation gate | Read-only architectural review found substantive simplification across the named native chain. Final local suite, static checks, executable documentation, minimum-IR results, and final-head CI must all satisfy the acceptance below. |
+
+### Architectural assessment and behavior benefits
+
+The Function split removes partially populated capture dictionaries and context
+capability discovery. All native phase helpers take concrete contexts, values,
+specs, and records; the coordinator makes the cache/build/call decision visible.
+Child setup now lives once instead of in competing Function/control-flow
+constructors. Shared control-flow helpers also use public `Value` fields and
+typed Tape methods, removing their remaining reflection/cast/exception shims.
+The helper cleanup was required by the architectural review, despite passing
+tests before it.
+
+Remaining branches represent dtype choices, optional metadata, reuse/uniqueness,
+scope capture rules, or restoration with `try/finally`. Arbitrary Python
+configuration inspection and JAX-private tracer access have named boundaries.
+Legacy extensions retain their adapter, while existing leaf operators retain
+dynamic shorthand. New native helpers and both reference lowerings use the
+closed builder surface. The weak identity catalog preserves mutable-registry
+compatibility without retaining discarded plugins.
+
+The behavior changes have reproduced benefits:
+
+- JAX 0.11 tensor keyword captures resolve their direct JAX atom instead of
+  failing conversion with `TracerArrayConversionError`.
+- Resolved scalar constants are passed into body tracing as constants; the
+  earlier code retained an outer tracer and failed the same conversion.
+- Functions built inside control-flow bodies retain their model-level
+  definitions and registry, rather than failing or dropping definitions.
+- If branches lazily capture declared external BOOL parameters into local
+  values. Both If → Function and Function → If → Function exports execute
+  correctly while predicate and flag vary independently. Function formals and
+  Loop/scan carried-input arities retain their scope contracts.
+
+The legacy producer helper still accepts live Graph sequences and retains its
+historical foreign/disconnected-name fallback. Regression tests document that
+contract; the stricter native graph helpers are unchanged.
+
+### Follow-up verification and remote acceptance
+
+The final local implementation passed **4,377 generated/full tests**, with zero
+skips, errors, or failures, on Python 3.12.9 / JAX 0.11.2 / ONNX-IR 1.0.0.
+All repository hooks, Ruff, typing/RNG, builder policies, and the strict
+documentation build passed. The newly staged child test also passed all nine
+cases after its initializer call was adjusted to the keyword-naming policy.
+
+An isolated, verified ONNX-IR **0.2.1** installation passed **281** converter,
+control-flow, graph, and builder tests with strict optimizer failures. The
+intentional nonfatal-policy test passed separately under its normal setting.
+Shared control-flow helper checks passed 65 focused and 92 generated cases on
+each IR version. Exact Markdown examples for native Neg registration, typed
+Transpose, Split, and optional-middle-input Clip passed graph/type assertions,
+the ONNX checker, and ORT execution on both versions. Positive/negative mypy
+examples accepted valid emission and rejected incorrect inputs and unknown
+builder methods. A fresh plugin import with signature inspection forbidden
+confirmed all 605 registrations use direct native methods.
+
+The architectural review accepts the named native path against the original
+readability, typing, and shared-pattern goals. Final remote acceptance additionally
+requires terminal success of **all eight CI jobs at the new PR head**, including
+both JAX stacks, minimum dependencies, normalization, web smoke, and optional
+MaxText/MaxDiffusion coverage. The older checkpoint's run does not satisfy this
+gate. [PR #274 checks](https://github.com/enpasos/jax2onnx/pull/274/checks) and the
+PR description record the final head and run once that gate passes. The PR stays
+unmerged and no review replies are posted.

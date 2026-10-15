@@ -71,7 +71,10 @@ aligned with project policy.
 
 - Annotate lowerings with `LoweringContextProtocol` from
   `jax2onnx.converter.typing_support`.
-- Use `IRBuilderProtocol` for helpers that only need the builder surface.
+- Use the closed `IRBuilderAPI` for helpers that only need the builder surface.
+  Its methods and input/output types are checked statically. The compatibility
+  `IRBuilderProtocol` adds unrestricted dynamic operator shorthand for existing
+  leaf plugins; it cannot reject unknown operator attributes.
 - Prefer its explicitly typed `op` / `op_multi_out` methods. `op` returns
   `ir.Value`; `op_multi_out` returns `Sequence[ir.Value]`. Optional input slots
   are typed `ir.Value | None`, and `output=` / `outputs=` accept existing IR
@@ -88,10 +91,10 @@ aligned with project policy.
 ```python
 import onnx_ir as ir
 
-from jax2onnx.converter.typing_support import IRBuilderProtocol
+from jax2onnx.converter.typing_support import IRBuilderAPI
 
 
-def transpose(builder: IRBuilderProtocol, value: ir.Value) -> ir.Value:
+def transpose(builder: IRBuilderAPI, value: ir.Value) -> ir.Value:
     output = ir.val("transposed", dtype=value.dtype, shape=[3, 2])
     return builder.op(
         "Transpose",
@@ -111,6 +114,8 @@ outputs, and node metadata parameters checkable at each call site.
 See the [typed emission pattern](onnx_ir_builder.md#typed-emission-pattern)
 for the complete lowering contract, with `NegPlugin` and `TopKPlugin` as
 executable single-/multi-output examples.
+The shared unary helper in `plugins/jax/numpy/_unary_utils.py`, Function call
+emission, and layout output binding apply the same pattern in production paths.
 For graph transformations, the
 [graph rewrite reference](ir_optimizer.md#graph-rewrite-reference) uses the same
 public IR value types and checks ownership after replacement.
