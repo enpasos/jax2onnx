@@ -630,7 +630,7 @@ class _LayoutAdapter:
                 self.ctx.add_input_for_invar(var, index)
 
     def bind_output(self, out_var: Any, index: int) -> None:
-        val = self.ctx.get_value_for_var(out_var)
+        val = self.ctx.allocate_value_for_var(out_var)
         aval_shape = tuple(out_var.aval.shape)
         self._require_4d(aval_shape, kind="output", index=index)
 

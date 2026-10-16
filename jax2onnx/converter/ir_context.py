@@ -225,6 +225,7 @@ class IRContext:
         # Set by FunctionScope while emitting FunctionProto
         self._inside_function_scope: bool = False
         self._keep_function_float32: bool = False
+        self._float32_double_views: dict[ir.Value, ir.Value] = {}
         # Function plugin bookkeeping mirrors (always initialised for typed access)
         self._func_name_counters: dict[str, int] = {}
         self._call_input_param_names: set[str] = set()
@@ -678,6 +679,19 @@ class IRContext:
         aval_dtype = _maybe_dtype(aval)
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
+        shape_tuple = _maybe_shape(aval)
+        if shape_tuple is None:
+            raise TypeError("Aval missing shape")
+        v = ir.Value(
+            name=name_hint or self.fresh_name("v"),
+            type=ir.TensorType(self._ir_dtype_for_aval_dtype(aval_dtype)),
+            shape=_to_ir_shape(shape_tuple),
+        )
+        self.builder._var2val[var] = v
+        return v
+
+    def _ir_dtype_for_aval_dtype(self, aval_dtype: np.dtype[Any]) -> ir.DataType:
+        """IR dtype the export precision policy assigns to values of ``aval_dtype``."""
         if (
             not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
@@ -694,16 +708,36 @@ class IRContext:
             and aval_dtype != np.float64
         ):
             promote_flag = False
-        shape_tuple = _maybe_shape(aval)
-        if shape_tuple is None:
-            raise TypeError("Aval missing shape")
-        v = ir.Value(
-            name=name_hint or self.fresh_name("v"),
-            type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
-            shape=_to_ir_shape(shape_tuple),
-        )
-        self.builder._var2val[var] = v
-        return v
+        return _dtype_to_ir(aval_dtype, promote_flag)
+
+    def _double_view_of_float32(self, var: Any, value: ir.Value) -> ir.Value:
+        """Return a DOUBLE copy of a FLOAT value the precision policy promotes.
+
+        Explicit float32 casts and array constructors bind FLOAT values so they
+        remain float32 graph outputs. Every other float32 value is DOUBLE under
+        ``enable_double_precision``, so consumers need the promoted copy.
+        """
+        if value.dtype != ir.DataType.FLOAT:
+            return value
+        aval_dtype = _maybe_dtype(_maybe_aval(var))
+        if aval_dtype != np.dtype(np.float32):
+            return value
+        if self._ir_dtype_for_aval_dtype(aval_dtype) != ir.DataType.DOUBLE:
+            return value
+        view = self._float32_double_views.get(value)
+        if view is None:
+            view = cast(
+                ir.Value,
+                self.builder.Cast(
+                    value,
+                    to=int(ir.DataType.DOUBLE.value),
+                    _outputs=[self.fresh_name("float32_as_double")],
+                ),
+            )
+            view.type = ir.TensorType(ir.DataType.DOUBLE)
+            view.shape = value.shape
+            self._float32_double_views[value] = view
+        return view
 
     def get_value_for_var(
         self,
@@ -712,15 +746,17 @@ class IRContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        return self.allocate_value_for_var(
+        value = self.allocate_value_for_var(
             var,
             name_hint=name_hint,
             prefer_np_dtype=prefer_np_dtype,
         )
+        return self._double_view_of_float32(var, value)
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for i, var in enumerate(outvars):
-            v = self.get_value_for_var(var, name_hint=f"out_{i}")
+            # Graph outputs keep explicit float32 values as FLOAT.
+            v = self.allocate_value_for_var(var, name_hint=f"out_{i}")
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)

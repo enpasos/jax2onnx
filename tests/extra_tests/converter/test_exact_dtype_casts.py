@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+import onnxruntime as ort
+import pytest
 
 from jax2onnx.user_interface import to_onnx
 
@@ -38,6 +40,40 @@ def _linspace_float32() -> jax.Array:
 
 def _arange_float32() -> jax.Array:
     return jnp.arange(1.0, 2.0, 0.25, dtype=jnp.float32)
+
+
+def _negate_float32_cast(x: jax.Array) -> jax.Array:
+    return -_convert_to_float32(x)
+
+
+def _add_float32_cast_and_ones(x: jax.Array) -> jax.Array:
+    return _convert_to_float32(x) + _ones_float32()
+
+
+@pytest.mark.parametrize(
+    ("fn", "expected"),
+    [
+        (_negate_float32_cast, lambda x32: -x32),
+        (_add_float32_cast_and_ones, lambda x32: x32 + 1.0),
+    ],
+    ids=["negate_cast", "add_cast_and_ones"],
+)
+def test_explicit_float32_values_feed_double_precision_consumers(fn, expected) -> None:
+    model = to_onnx(
+        fn,
+        [jax.ShapeDtypeStruct((2,), jnp.float64)],
+        enable_double_precision=True,
+    )
+    session = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    x = np.array([0.1, -2.5], dtype=np.float64)
+    (actual,) = session.run(None, {session.get_inputs()[0].name: x})
+
+    # The explicit cast rounds to float32; consumers then compute in float64.
+    x32 = x.astype(np.float32).astype(np.float64)
+    assert actual.dtype == np.float64
+    np.testing.assert_array_equal(actual, expected(x32))
 
 
 def test_convert_element_type_preserves_explicit_float32_target_under_x64() -> None:
