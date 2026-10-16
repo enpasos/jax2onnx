@@ -2,13 +2,6 @@
 
 ## Planned
 
-* Consolidate the lowering, value-binding, and graph-access contracts into a
-  readable typed core. See the
-  [converter architecture](../developer_guide/architecture.md).
-* Preserve FP16/BF16 types across NCHW export bridges and use the correct module
-  instance for decorated function evaluation, shape inference, and batching.
-  Keep graph ownership checks, import retries, and precision restoration intact.
-
 * Extend target-oriented validation guidance beyond the documented ONNX Runtime
   CPU and Web/WASM flows, especially for mobile deployments where practical.
 * Broaden capability-matrix coverage across dtype and shape variants, including
@@ -21,6 +14,39 @@
 * Continue targeted coverage work for JAX, Flax NNX/Linen, Equinox, SotA
   examples, and physics/simulation use cases, including classification of newly
   published upstream APIs before claiming them as supported.
+
+
+## Upcoming Version
+
+### **jax2onnx 0.18.0**
+
+* **Introduce a typed lowering core:** Add a closed native plugin context,
+  explicit input/output binding, and graph ownership checks. Prepare
+  legacy extension calls at registration and share child-context construction
+  across Functions and control flow. See the
+  [converter architecture](../developer_guide/architecture.md).
+* **Reuse native ONNX Function definitions:** Finalize and cache `ir.Function`
+  objects directly, preserving names, metadata, and graph ownership without
+  parallel function snapshots or a second finalization step.
+* **Preserve decorated-function arguments:** Keep dynamic keyword dependencies
+  through `jit` and nested control flow, preserve explicit flags and omitted
+  defaults, and select the correct decorated module instance. Document `vmap`
+  inlining and function-reuse rules in the
+  [ONNX Functions guide](../user_guide/onnx_functions.md).
+* **Make static configuration reuse safe:** Snapshot supported mutable
+  configuration and compare exact contents when reusing Function definitions.
+  Keep static strings, booleans, and axis configuration static during shape
+  inference, including under `jit`.
+* **Carry runtime flags through loops:** Forward export flags explicitly through
+  `scan`, `while_loop`, and `fori_loop` bodies, including nested scopes and zero
+  iterations. Represent fori closure values as regular JAX operands so their
+  dependencies survive tracing.
+* **Preserve precision and export integrity:** Keep FP16/BF16 types across NCHW
+  export bridges, protect existing graph values during output allocation, and
+  retain safe import retries and precision restoration after failed exports.
+* **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
+  package metadata, developer guidance, and minimum-version CI coverage on
+  `onnx-ir>=1.0.0`.
 
 
 ## Current Version
