@@ -943,14 +943,7 @@ class FunctionPlugin(PrimitivePlugin):
             resolved = resolve_tracer_binding(value)
             if isinstance(resolved, Var):
                 spec = self._capture_spec(ctx, resolved)
-                # A declared external flag may be owned by an enclosing If scope.
-                if (
-                    name in ctx._call_input_param_names
-                    and ctx.lookup_value_for_var(resolved) is None
-                ):
-                    parent_value = ctx.ensure_external_flag(name, None)
-                else:
-                    parent_value = ctx.require_value_for_var(resolved)
+                parent_value = ctx.require_value_for_var(resolved)
                 dynamic.append(DynamicCapture(name, spec, parent_value))
                 aval = self._aval_to_shaped_array(resolved.aval)
                 signature.append(

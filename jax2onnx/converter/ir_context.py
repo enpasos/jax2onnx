@@ -410,12 +410,7 @@ class IRContext:
                     parent_value = self._implicit_capture_parent.ensure_external_flag(
                         name, None
                     )
-                    captured = ir.Value(
-                        name=self.fresh_name(name),
-                        type=parent_value.type,
-                        shape=parent_value.shape,
-                    )
-                    self.builder.op("Identity", [parent_value], output=captured)
+                    captured = self._capture_parent_value(parent_value, name_hint=name)
                     self._call_param_value_by_name[name] = captured
                     return captured
                 raise RuntimeError(
@@ -431,6 +426,13 @@ class IRContext:
         )
         self.builder.inputs.append(v)
         return v
+
+    def _capture_parent_value(self, value: ir.Value, *, name_hint: str) -> ir.Value:
+        """Mirror a lexically resolved parent value into this If branch."""
+        captured = ir.Value(
+            name=self.fresh_name(name_hint), type=value.type, shape=value.shape
+        )
+        return self.builder.op("Identity", [value], output=captured)
 
     def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value:
         """
@@ -722,7 +724,12 @@ class IRContext:
         *,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        """Return an already-bound input value, binding JAX literals as constants."""
+        """Require a variable binding, resolving lexical captures in If branches.
+
+        Captures retain JAX variable identity and become local IR values. Function
+        and Loop scopes have no implicit parent; their inputs must be explicit.
+        JAX literals are materialized as constants in the current scope.
+        """
         if isinstance(var, _LITERAL_TYPES):
             return self._bind_literal_value_for_var(
                 var,
@@ -731,6 +738,13 @@ class IRContext:
         value = self.lookup_value_for_var(var)
         if value is not None:
             return value
+        if self._implicit_capture_parent is not None:
+            parent_value = self._implicit_capture_parent.require_value_for_var(
+                var, prefer_np_dtype=prefer_np_dtype
+            )
+            captured = self._capture_parent_value(parent_value, name_hint="capture")
+            self.bind_value_for_var(var, captured)
+            return captured
         raise KeyError(f"No IR value is bound for JAX var {var!r}")
 
     def allocate_value_for_var(

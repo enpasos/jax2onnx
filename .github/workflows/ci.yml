@@ -96,6 +96,7 @@ jobs:
           tests/extra_tests/framework/test_jax_compat.py \
           tests/extra_tests/framework/test_minimum_dependency_installer.py \
           tests/extra_tests/framework/test_onnx_ir_surface.py \
+          tests/extra_tests/converter/test_onnx_function_if_captures.py \
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py \
           tests/extra_tests/test_cos_precision.py \

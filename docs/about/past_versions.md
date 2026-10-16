@@ -5,8 +5,9 @@
   legacy extensions; unified Function/control-flow child settings and typed
   Function capture phases; fixed dynamic tensor and scalar constant keyword captures on JAX 0.11
   and retained ONNX Function definitions created inside control-flow bodies;
-  enabled lazy external BOOL parameter capture for Functions in `If` branches
-  while keeping Loop/scan inputs explicit.
+  enabled lexical variable capture for Functions in `If` branches, preserving
+  derived flags and tensor keyword arguments while keeping Loop/scan inputs explicit;
+  raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit
   `window_strides` and complex transposed convolutions, and rejected

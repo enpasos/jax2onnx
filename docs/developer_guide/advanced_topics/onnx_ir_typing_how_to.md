@@ -1,6 +1,6 @@
 # Using `onnx_ir` Types
 
-`jax2onnx` depends on `onnx-ir>=0.2.1`. The package ships inline type
+`jax2onnx` depends on `onnx-ir>=1.0.0`. The package ships inline type
 information and a `py.typed` marker, so mypy can check converter and plugin code
 against the public ONNX IR API.
 
@@ -132,7 +132,7 @@ public IR value types and checks ownership after replacement.
 ## Troubleshooting
 
 - **mypy cannot find `onnx_ir` types:** confirm dependencies are installed in the
-  Poetry environment and that `onnx-ir>=0.2.1` is active.
+  Poetry environment and that `onnx-ir>=1.0.0` is active.
 - **A helper needs both ONNX IR and ONNX `ModelProto`:** keep the typed IR path
   first, then add a narrow duck-typed fallback at the boundary.
 - **A plugin suddenly needs `cast(...)`:** prefer a small typed helper in

@@ -20,6 +20,11 @@ registration, and a small reference plugin/builder pilot. Excluded: wholesale
 dynamic builder migration, optimizer rearchitecture, changed dtype policy or
 pass ordering, and public API redesign. Do not merge the PR as part of this work.
 
+The supported ONNX IR minimum is now **1.0.0**, as requested after the capture
+review. Earlier 0.2.1 verification results below document the preceding
+compatibility baseline; the minimum-dependency CI now selects 1.0.0 from
+`pyproject.toml`.
+
 ## Stage 0: Preserve and Stabilize the Existing Changes
 
 1. Inventory the working diff, preserve the authorized code/docs/tests on a
@@ -259,10 +264,19 @@ The behavior changes have reproduced benefits:
   earlier code retained an outer tracer and failed the same conversion.
 - Functions built inside control-flow bodies retain their model-level
   definitions and registry, rather than failing or dropping definitions.
-- If branches lazily capture declared external BOOL parameters into local
-  values. Both If → Function and Function → If → Function exports execute
-  correctly while predicate and flag vary independently. Function formals and
-  Loop/scan carried-input arities retain their scope contracts.
+- If branches resolve captures by JAX variable identity through enclosing If
+  contexts and bind local IR values. Derived flags retain their computations,
+  including when a nested Function uses a different keyword name. Declared
+  external BOOL parameters remain available by name when no variable is
+  supplied. Function formals and Loop/scan carried-input arities stay explicit.
+
+A subsequent review exposed a wrong-result case in the original name fallback:
+passing an inverted flag into a Function inside an If selected the original flag.
+The correction uses the context's required-value resolver, with no new public
+API. Six export regressions fail on the earlier implementation and pass after
+the correction: same/renamed flags and tensor captures across one/two If scopes,
+with ONNX checking and 48 JAX/ORT comparisons. Three additional context cases
+cover local reuse, missing bindings, and Function/Loop capture boundaries.
 
 The legacy producer helper still accepts live Graph sequences and retains its
 historical foreign/disconnected-name fallback. Regression tests document that
@@ -270,7 +284,7 @@ contract; the stricter native graph helpers are unchanged.
 
 ### Follow-up verification and remote acceptance
 
-The final local implementation passed **4,377 generated/full tests**, with zero
+The final local implementation passed **4,386 generated/full tests**, with zero
 skips, errors, or failures, on Python 3.12.9 / JAX 0.11.2 / ONNX-IR 1.0.0.
 All repository hooks, Ruff, typing/RNG, builder policies, and the strict
 documentation build passed. The newly staged child test also passed all nine

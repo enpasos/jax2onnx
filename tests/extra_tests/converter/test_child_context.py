@@ -184,6 +184,58 @@ def test_function_and_loop_flags_require_explicit_local_inputs() -> None:
         assert not child.builder.inputs
 
 
+def test_if_variable_capture_preserves_identity_metadata_and_local_bindings() -> None:
+    parent = IRContext(opset=21, enable_double_precision=False)
+    var = object()
+    source = ir.Value(
+        name="source", type=ir.TensorType(ir.DataType.FLOAT), shape=ir.Shape(("B", 2))
+    )
+    parent.add_graph_input_value(source)
+    parent.bind_value_for_var(var, source)
+    outer = make_subgraph_context(parent, prefix="outer", implicit_captures=True)
+    inner = make_subgraph_context(outer, prefix="inner", implicit_captures=True)
+
+    assert inner.lookup_value_for_var(var) is None
+    captured = inner.require_value_for_var(var)
+    outer_capture = outer.require_value_for_var(var)
+    assert captured is inner.require_value_for_var(var)
+    inner_node, outer_node = captured.producer(), outer_capture.producer()
+    assert inner_node is not None and inner_node.inputs[0] is outer_capture
+    assert outer_node is not None and outer_node.inputs[0] is source
+    assert captured.graph is inner.builder.graph
+    assert captured.type == source.type and captured.shape == source.shape
+    assert not inner.builder.inputs and not outer.builder.inputs
+    assert parent.require_value_for_var(var) is source
+
+    # A local binding wins over the enclosing value for the same variable.
+    local = inner.builder.op("Neg", [captured])
+    inner.bind_value_for_var(var, local)
+    assert inner.require_value_for_var(var) is local
+
+    # Unknown variables fail without fabricating captures in either branch.
+    before = (len(outer.builder.graph), len(inner.builder.graph))
+    with pytest.raises(KeyError, match="No IR value is bound"):
+        inner.require_value_for_var(object())
+    assert before == (len(outer.builder.graph), len(inner.builder.graph))
+
+
+@pytest.mark.parametrize("scope", ["function", "control_flow"])
+def test_if_variable_capture_stops_at_explicit_scope_boundaries(
+    scope: Literal["function", "control_flow"],
+) -> None:
+    parent = IRContext(opset=21, enable_double_precision=False)
+    var = object()
+    source = parent.add_graph_input_value(ir.Value(name="outer"))
+    parent.bind_value_for_var(var, source)
+    boundary = parent.create_child_context(scope=scope)
+    branch = make_subgraph_context(boundary, prefix="if", implicit_captures=True)
+
+    with pytest.raises(KeyError, match="No IR value is bound"):
+        branch.require_value_for_var(var)
+    assert not tuple(branch.builder.graph)
+    assert not branch.builder.inputs
+
+
 @onnx_function(unique=True)
 def _scale_in_conditional(x: jax.Array, *, factor: jax.Array) -> jax.Array:
     return x * factor

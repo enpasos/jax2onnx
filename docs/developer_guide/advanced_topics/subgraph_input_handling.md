@@ -11,12 +11,20 @@ Our IR-only pipeline still emits ONNX control-flow nodes, so plugin authors and 
 The ONNX `If` node accepts a single boolean input. Both `then_branch` and `else_branch` Graph attributes must list zero inputs, so any tensor needed inside the branch is referenced directly by name and resolved from the enclosing graph. Exporters that try to add branch parameters fail schema validation (`input size of if-op should be 1`). Our lowering honours that contract—branch builders leave the input list empty and rely on `IRContext` to resolve captured values.
 
 Child contexts use `create_child_context(scope="control_flow", ...)`. Only
-`If` opts into `implicit_captures=True`. An external BOOL call parameter needed
-by a nested ONNX Function is resolved lazily in the enclosing context and
-mirrored by an `Identity` into a branch-local value. That value becomes the
-Function call argument and maps to a fresh Function formal input. No parent
-parameter-to-IR-value mapping is copied into a child. Loop/scan contexts keep
-implicit captures disabled and require explicit carried inputs.
+`If` opts into `implicit_captures=True`. `require_value_for_var` first checks
+the local binding, then resolves the same JAX variable in the enclosing context.
+The captured value is mirrored by an `Identity` into a branch-local value and
+cached by variable identity. This preserves computed flags and tensor keyword
+arguments passed to nested ONNX Functions, regardless of the keyword name.
+An argument such as `deterministic=jnp.logical_not(deterministic)` must retain
+the negation; its name cannot substitute for its value.
+
+Declared external BOOL parameters can also be resolved lazily by name when no
+JAX variable is supplied. Each nested Function receives captures through fresh
+formal inputs. No parent parameter-to-IR-value mapping is copied into a child.
+Function and Loop/scan contexts keep implicit captures disabled and require
+explicit inputs; an unknown variable raises an error rather than creating an
+unbound placeholder or selecting a similarly named parameter.
 
 ## `Loop`: explicit interface
 `Loop` nodes receive an optional trip-count `M`, an optional initial condition, and N loop-carried initial values. Consequently, the body graph declares `iteration_num`, `condition`, and those N carried values as explicit inputs. Each iteration returns a continuation flag, the updated carried values, and optional scan outputs that map back to the parent node. When the body needs an outer tensor that is not constant, add it to the carried tuple (passing it through unchanged if necessary). This keeps dependencies explicit and aligns with ONNX Runtime’s validation. Our `fori_loop` and `scan` plugins rely on this ordering when constructing body graphs.
