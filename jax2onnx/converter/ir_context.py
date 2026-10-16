@@ -238,6 +238,7 @@ class IRContext:
         # retracing uses explicit formals, so its Python kwargs remain static.
         self._promote_call_input_params: bool = True
         self._implicit_capture_parent: IRContext | None = None
+        self._external_flag_resolver: Callable[[str], ir.Value] | None = None
         self._const_folder = ConstantFolder()
         self._current_eqn: JaxprEqn | None = None
         self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
@@ -403,6 +404,12 @@ class IRContext:
         return self._attr_overrides.get(node.name or "", {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
+    def set_external_flag_resolver(
+        self, resolver: Callable[[str], ir.Value] | None
+    ) -> None:
+        """Let a Loop body request an explicit carried input on first use."""
+        self._external_flag_resolver = resolver
+
     def ensure_external_flag(self, name: str, var: object | None) -> ir.Value:
         """Resolve a BOOL[] input, a function formal, or an If-branch capture.
 
@@ -421,6 +428,10 @@ class IRContext:
                     captured = self._capture_parent_value(parent_value, name_hint=name)
                     self._call_param_value_by_name[name] = captured
                     return captured
+                if self._external_flag_resolver is not None:
+                    value = self._external_flag_resolver(name)
+                    self._call_param_value_by_name[name] = value
+                    return value
                 raise RuntimeError(
                     f"Call parameter '{name}' does not have a dynamic value in function scope"
                 )
@@ -762,14 +773,30 @@ class IRContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        """Return a bound value, allocating an output placeholder when needed."""
+        """Allocate a writable output, reusing only an unproduced placeholder.
+
+        Replacing an existing result preserves its metadata and leaves the old
+        graph value intact. Inputs and constants are never reused as outputs.
+        """
         if isinstance(var, _LITERAL_TYPES):
             return self._bind_literal_value_for_var(
                 var, prefer_np_dtype=prefer_np_dtype
             )
         value = self.lookup_value_for_var(var)
         if value is not None:
-            return value
+            if (
+                value.producer() is None
+                and not value.is_graph_input()
+                and not value.is_initializer()
+                and value.const_value is None
+            ):
+                return value
+            output_name = name_hint or self.fresh_name("v")
+            if output_name == value.name:
+                output_name = self.fresh_name(output_name)
+            output = ir.Value(name=output_name, type=value.type, shape=value.shape)
+            self.bind_value_for_var(var, output)
+            return output
 
         aval = _maybe_aval(var)
         if aval is None:
@@ -816,6 +843,9 @@ class IRContext:
 
         New lowerings should require inputs and allocate outputs explicitly.
         """
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            return value
         return self.allocate_value_for_var(
             var,
             name_hint=name_hint,

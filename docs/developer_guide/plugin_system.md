@@ -242,7 +242,7 @@ Core context methods used most often:
 | --- | --- |
 | `ctx.lookup_value_for_var(var)` | Read an existing binding without allocating nodes or initializers. Returns `None` for unbound vars and literals. |
 | `ctx.require_value_for_var(var, ...)` | Require an input binding; materialize literals in the current graph or Function scope. A missing non-literal binding is an error. |
-| `ctx.allocate_value_for_var(var, ...)` | Reuse a bound value or allocate an output placeholder with traced type and shape. |
+| `ctx.allocate_value_for_var(var, ...)` | Reuse an unproduced placeholder or allocate a fresh writable output, preserving existing values and their metadata. |
 | `ctx.get_value_for_var(var, ...)` | Compatibility convenience that combines lookup, literal materialization, and output allocation. Prefer explicit require/allocate operations in new lowerings. |
 | `ctx.bind_value_for_var(var, value)` | Bind an equation output var to a produced `ir.Value`. |
 | `ctx.bind_const_for_var(var, array)` | Bind a JAXPR constvar. Top-level graphs use initializers; Function bodies use `Constant` nodes. |
@@ -303,6 +303,16 @@ through control flow, dead-code elimination, and batching. The shared argument
 decoder reconstructs positional arguments and keywords at each boundary;
 Function captures require no private tracer-frame lookup. Static Python
 configuration stays in primitive parameters.
+
+Static configuration uses value-based cache keys for supported scalars, arrays,
+and recursive containers. Mutable built-in containers and NumPy arrays are
+snapshotted when the primitive is bound. Array digests accelerate lookup;
+exact content comparison determines equality. Object-array addresses and
+`repr` strings do not establish equivalence. Opaque configuration values
+conservatively receive separate function definitions and must remain stable
+during conversion. Abstract evaluation decodes parameters inside its tracing
+closure: only regular operands become JAX abstract inputs, while static modes,
+booleans, and shape configuration remain Python values.
 
 The initial export trace may promote declared `input_params` to runtime flags.
 Function-body tracing already receives those flags as explicit operands, so

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 
@@ -93,6 +95,65 @@ def make_subgraph_context(
     return parent_ctx.create_child_context(
         scope="control_flow", prefix=prefix, implicit_captures=implicit_captures
     )
+
+
+class LoopCallParameters:
+    """Thread lazily requested export flags through explicit Loop state.
+
+    Export-time Python flags do not appear among the JAX body's operands. A
+    nested Function may nevertheless request one as a dynamic model parameter.
+    Its first use creates a body formal and an unchanged carried result. The
+    additional state precedes scan outputs and stays outside the JAX arity.
+    """
+
+    def __init__(
+        self, parent: LoweringContextProtocol, body: LoweringContextProtocol
+    ) -> None:
+        self._parent = parent
+        self._body = body
+        self._parent_values: list[ir.Value] = []
+        self._body_values: list[ir.Value] = []
+        body.set_external_flag_resolver(self._resolve)
+
+    def _resolve(self, name: str) -> ir.Value:
+        parent_value = self._parent.ensure_external_flag(name, None)
+        body_value = clone_input_for_subgraph(
+            self._body, parent_value, name_hint=f"loop_{name}_in"
+        )
+        self._parent_values.append(parent_value)
+        self._body_values.append(body_value)
+        return body_value
+
+    @property
+    def _original_state_count(self) -> int:
+        return len(self._body.builder.inputs) - 2 - len(self._body_values)
+
+    def body_outputs(self, outputs: Sequence[ir.Value]) -> list[ir.Value]:
+        """Insert unchanged flags between carried results and scan results."""
+        position = 1 + self._original_state_count
+        passthrough = [
+            builder_identity(self._body, value, name_hint="loop_call_param_out")
+            for value in self._body_values
+        ]
+        return [*outputs[:position], *passthrough, *outputs[position:]]
+
+    def loop_inputs(self, inputs: Sequence[ir.Value]) -> list[ir.Value]:
+        return [*inputs, *self._parent_values]
+
+    def output_names(self, names: Sequence[str]) -> list[str]:
+        position = self._original_state_count
+        extra = [
+            self._parent.fresh_name("loop_call_param_unused") for _ in self._body_values
+        ]
+        return [*names[:position], *extra, *names[position:]]
+
+    def original_results(self, results: Sequence[ir.Value]) -> tuple[ir.Value, ...]:
+        """Remove internal flag state before binding the JAX equation outputs."""
+        position = self._original_state_count
+        return (
+            *results[:position],
+            *results[position + len(self._body_values) :],
+        )
 
 
 def relax_value_to_rank_only(val: ir.Value | None) -> None:

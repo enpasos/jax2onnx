@@ -14,6 +14,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    LoopCallParameters,
     builder_cast,
     builder_identity,
     builder_loop,
@@ -275,8 +276,9 @@ def _build_loop_body_graph(
     state_template: Sequence[ir.Value],
     predicate_template: ir.Value | None = None,
     predicate_shape: tuple[Any, ...] = (),
-) -> ir.Graph:
+) -> tuple[ir.Graph, LoopCallParameters]:
     body_ctx = make_subgraph_context(ctx, prefix="while_body")
+    call_parameters = LoopCallParameters(ctx, body_ctx)
 
     iter_input, cond_input = create_loop_header_inputs(
         body_ctx,
@@ -480,6 +482,7 @@ def _build_loop_body_graph(
     body_ctx.builder.outputs.extend(const_outputs)
     body_ctx.builder.outputs.extend(cond_const_outputs)
     body_ctx.builder.outputs.extend(state_outputs)
+    body_ctx.builder.outputs = call_parameters.body_outputs(body_ctx.builder.outputs)
 
     body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
     body_graph.name = ctx.fresh_name("while_body")
@@ -488,7 +491,7 @@ def _build_loop_body_graph(
     body_graph.opset_imports.clear()
     body_graph.opset_imports.update(opset_imports)
     typed_graph: ir.Graph = body_graph
-    return typed_graph
+    return typed_graph, call_parameters
 
 
 @register_native_primitive(
@@ -975,7 +978,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
         else:
             cond_init_val = predicate_init
 
-        body_graph = _build_loop_body_graph(
+        body_graph, call_parameters = _build_loop_body_graph(
             ctx,
             cond_cj,
             body_cj,
@@ -1009,13 +1012,14 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
 
         loop_outputs = builder_loop(
             ctx,
-            *loop_inputs,
+            *call_parameters.loop_inputs(loop_inputs),
             body=body_graph,
-            output_names=output_names,
+            output_names=call_parameters.output_names(output_names),
         )
 
         if not isinstance(loop_outputs, tuple):
             loop_outputs = (loop_outputs,)
+        loop_outputs = call_parameters.original_results(loop_outputs)
 
         output_offset = int(batched_condition)
         const_outputs = loop_outputs[

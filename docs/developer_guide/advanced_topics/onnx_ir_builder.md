@@ -111,6 +111,14 @@ metadata. Set dtype/shape on new intermediate values, using
 `_stamp_type_and_shape` and `_ensure_value_metadata` when shape normalization is
 needed. An explicit output must not already have a producer.
 
+`allocate_value_for_var` returns a writable output placeholder. It reuses a
+preallocated, unproduced value; an existing produced value, graph input, or
+constant is replaced by a fresh value with the same type and shape. Earlier
+producers and consumers remain intact when a lowering is called again. This
+rule is shared by native Function calls, Neg/TopK, and NumPy unary lowerings.
+The compatibility `get_value_for_var` still reuses existing input/result
+bindings without replacing them.
+
 `op_multi_out` returns `Sequence[ir.Value]`. Specify either `outputs=` with
 existing values or `num_outputs=`; specifying both fails before graph mutation.
 For example, split a tensor evenly with the explicit output-count attribute:

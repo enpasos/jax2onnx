@@ -40,6 +40,18 @@ unbound placeholder or selecting a similarly named parameter.
 ## `Loop`: explicit interface
 `Loop` nodes receive an optional trip-count `M`, an optional initial condition, and N loop-carried initial values. Consequently, the body graph declares `iteration_num`, `condition`, and those N carried values as explicit inputs. Each iteration returns a continuation flag, the updated carried values, and optional scan outputs that map back to the parent node. When the body needs an outer tensor that is not constant, add it to the carried tuple (passing it through unchanged if necessary). This keeps dependencies explicit and aligns with ONNX Runtime’s validation. Our `fori_loop` and `scan` plugins rely on this ordering when constructing body graphs.
 
+`LoopCallParameters` handles declared export flags that were Python values
+during tracing and therefore have no JAX operand. The first actual request
+adds a parent flag input, a fresh Loop-body formal, and an unchanged carried
+output. These internal outputs precede scan outputs and are removed before
+binding the JAX results. Nested Ifs and Loops can request the same flag through
+their enclosing context; unused parameters add no model inputs or Loop state.
+This mechanism never enables general implicit captures for Loop bodies.
+
+`fori_loop` also carries closed-over JAX values as regular primitive operands
+and unchanged Loop state. Traced arrays are not stored as static primitive
+parameters or converted to NumPy during body construction.
+
 ## `jax.lax.scan`: Loop lowering with explicit sequence state
 `jax.lax.scan` lowers to ONNX `Loop`. When `xs=None`, the loop body receives the
 standard Loop header plus explicit constant/carry state. When scan inputs are

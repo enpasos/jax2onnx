@@ -3,8 +3,8 @@
 ## Planned
 
 * Consolidate the lowering, value-binding, and graph-access contracts into a
-  readable typed core. Follow the
-  [staged refactoring plan](../developer_guide/maintainer/typed_lowering_refactoring_plan.md).
+  readable typed core. See the
+  [converter architecture](../developer_guide/architecture.md).
 * Preserve FP16/BF16 types across NCHW export bridges and use the correct module
   instance for decorated function evaluation, shape inference, and batching.
   Keep graph ownership checks, import retries, and precision restoration intact.

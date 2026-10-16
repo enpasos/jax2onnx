@@ -68,17 +68,7 @@ def lower_unary_elementwise_with_optional_cast(
     elif cast_input_to_output_dtype and in_dtype != out_dtype:
         op_input = _cast_value(ctx, x_val, out_dtype, output_hint=output_hint)
 
-    desired_name = out_spec.name or ctx.fresh_name(output_hint)
-    if out_spec.producer() is not None:
-        output = ir.Value(
-            name=ctx.fresh_name(output_hint),
-            type=out_spec.type,
-            shape=out_spec.shape,
-        )
-    else:
-        output = out_spec
-        output.name = desired_name
-    result = builder.op(op_name, [op_input], output=output)
+    result = builder.op(op_name, [op_input], output=out_spec)
     ctx.bind_value_for_var(y_var, result)
 
 

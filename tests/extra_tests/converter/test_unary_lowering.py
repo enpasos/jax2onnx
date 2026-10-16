@@ -80,6 +80,6 @@ def test_shared_unary_lowering_can_replace_an_existing_produced_binding() -> Non
     assert replacement.producer() is not original_producer
     assert original.producer() is original_producer
     assert original.name == "jnp_tanh_out_0"
-    assert replacement.name == "jnp_tanh_out_2"
+    assert replacement.name == "jnp_tanh_out_1"
     assert replacement.type == original.type
     assert replacement.shape == original.shape

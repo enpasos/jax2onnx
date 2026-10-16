@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
 import pytest
+from onnx.reference import ReferenceEvaluator
 
 from jax2onnx.converter.ir_builder import (
     IRBuilder,
@@ -160,3 +161,63 @@ def test_top_k_pilot_keeps_two_outputs_and_index_cast() -> None:
     k = ctx.builder.graph.initializers["topk_k_0"].const_value
     assert k is not None
     np.testing.assert_array_equal(k.numpy(), [2])
+
+
+@pytest.mark.parametrize("operator", ["neg", "top_k"])
+def test_pilot_relowering_preserves_existing_results(operator: str) -> None:
+    operation = (lambda x: -x) if operator == "neg" else lambda x: jax.lax.top_k(x, 2)
+    plugin = NegPlugin() if operator == "neg" else TopKPlugin()
+    (eqn,) = jax.make_jaxpr(operation)(jnp.ones((3,), dtype=jnp.float32)).jaxpr.eqns
+    ctx = IRContext(opset=21, enable_double_precision=False)
+    x = ctx.add_input_for_invar(eqn.invars[0], 0)
+    plugin.lower(ctx, eqn)
+    original = [ctx.require_value_for_var(var) for var in eqn.outvars]
+    names = [value.name for value in original]
+    producers = [value.producer() for value in original]
+
+    plugin.lower(ctx, eqn)
+
+    replacements = [ctx.require_value_for_var(var) for var in eqn.outvars]
+    for old, new, name, producer in zip(original, replacements, names, producers):
+        assert new is not old
+        assert old.name == name
+        assert old.producer() is producer
+        assert new.producer() is not producer
+        assert new.type == old.type
+        assert new.shape == old.shape
+    ctx.builder.outputs.extend([*original, *replacements])
+    model = ir.to_proto(
+        ctx.builder.to_ir_model(name="repeated_lowering", ir_version=10)
+    )
+    data = np.asarray([1.0, 4.0, 2.0], dtype=np.float32)
+    actual = ReferenceEvaluator(model).run(None, {x.name: data})
+    expected = (
+        [-data]
+        if operator == "neg"
+        else [np.asarray([4.0, 2.0], np.float32), np.asarray([1, 2], np.int32)]
+    )
+    for result, reference in zip(actual, [*expected, *expected]):
+        np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize("binding", ["input", "initializer"])
+def test_output_allocation_preserves_input_and_initializer_bindings(
+    binding: str,
+) -> None:
+    (eqn,) = jax.make_jaxpr(lambda x: -x)(jnp.ones((3,), dtype=jnp.float32)).jaxpr.eqns
+    ctx = IRContext(opset=21, enable_double_precision=False)
+    if binding == "input":
+        source = ctx.add_input_for_invar(eqn.invars[0], 0)
+    else:
+        source = ctx.bind_const_for_var(eqn.invars[0], np.ones((3,), np.float32))
+    ctx.bind_value_for_var(eqn.outvars[0], source)
+    assert ctx.get_value_for_var(eqn.outvars[0]) is source
+
+    NegPlugin().lower(ctx, eqn)
+
+    result = ctx.require_value_for_var(eqn.outvars[0])
+    assert result is not source
+    assert source.producer() is None
+    assert source.is_graph_input() if binding == "input" else source.is_initializer()
+    assert result.producer().inputs[0] is source
+    assert ctx.get_value_for_var(eqn.invars[0]) is source

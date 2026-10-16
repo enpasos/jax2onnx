@@ -313,6 +313,10 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     def ensure_external_flag(self, name: str, var: object | None) -> ir.Value: ...
 
+    def set_external_flag_resolver(
+        self, resolver: Callable[[str], ir.Value] | None
+    ) -> None: ...
+
     def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
 
     def cast_like(

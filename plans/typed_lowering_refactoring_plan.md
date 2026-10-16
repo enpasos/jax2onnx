@@ -80,7 +80,7 @@ Give `IRContext` and `LoweringContextProtocol` three deliberate operations:
 | --- | --- |
 | `lookup_value_for_var` | Return an existing `ir.Value` or `None`; no allocation or literal materialization. |
 | `require_value_for_var` | Return an input binding, materializing a JAX literal when needed; report a missing binding. |
-| `allocate_value_for_var` | Reuse an existing value or explicitly create an output placeholder. |
+| `allocate_value_for_var` | Reuse an unproduced placeholder or create a fresh writable output while preserving existing graph values. |
 
 Replace the expected `KeyError`/catch allocation path with lookup. Use these
 operations in binding assertions and representative lowerings. Keep
@@ -231,7 +231,7 @@ evidence separately from these new results. Do not merge or post review replies.
 
 | Follow-up stage | Status | Evidence |
 | --- | --- | --- |
-| 5: Explicit registration | Implemented | All 605 discovered first-party entries register direct methods without signature inspection. Native aliases/restoration, weak-reference lifetime, slots-only instances, and legacy decorator/result conventions have regressions. Of 399 registration declarations migrated, 393 files contain only declaration changes; six also adopt the shared native patterns below. |
+| 5: Explicit registration | Implemented | All 605 discovered first-party entries register direct methods without signature inspection. Native aliases/restoration, weak-reference lifetime, slots-only instances, and legacy decorator/result conventions have regressions. Relative to the PR base, 386 of 399 migrated plugin files contain only declaration changes; 13 also contain stabilization fixes or shared native-pattern adoption. |
 | 6: Function phases | Implemented | The former 373-line `_lower_in_context` is a small coordinator over typed capture/key/trace/build/emit phases. Ordered tensor kwargs, unused formals, cached reuse, static-state differences, hoisted constants, and scalar/vector constant kwargs have structural and ORT checks. |
 | 7: Child scopes | Implemented | One factory owns settings, symbolic origins, shared bookkeeping, and naming. Child tests cover Function/If scopes, graph-local values, recording ownership, exact names, nested Function definitions, and independently varied runtime flags. Loop/scan remain explicit. |
 | 8: Shared adoption | Implemented | Neg/TopK, shared unary/cast helpers, shared control-flow helpers, Function calls, and NCHW output emission use the closed `IRBuilderAPI`. Final outputs and JIT/PJIT/custom-VJP inputs require bindings. Positive/negative mypy examples prove invalid inputs and unknown builder methods are rejected. |
@@ -301,7 +301,7 @@ contract; the stricter native graph helpers are unchanged.
 
 ### Follow-up verification and remote acceptance
 
-The final local implementation passed **4,400 generated/full tests**, with zero
+The preceding checkpoint (`6a74d7f5`) passed **4,400 generated/full tests**, with zero
 skips, errors, or failures, on Python 3.12.9 / JAX 0.11.2 / ONNX-IR 1.0.0.
 All repository hooks, Ruff, typing/RNG, builder policies, and the strict
 documentation build passed. The newly staged child test also passed all nine
@@ -332,3 +332,36 @@ MaxText/MaxDiffusion coverage. The older checkpoint's run does not satisfy this
 gate. [PR #274 checks](https://github.com/enpasos/jax2onnx/pull/274/checks) and the
 PR description record the final head and run once that gate passes. The PR stays
 unmerged and no review replies are posted.
+
+## Review Follow-up
+
+The external review identified an inherited static-capture cache collision and
+an inherited root-to-Loop runtime-flag gap. Both need outcome fixes rather than
+being described as newly introduced regressions. Native Neg/TopK also need the
+same safe repeated-output allocation as shared unary lowerings.
+
+- Static keys preserve supported values and container order; mutable built-in
+  configuration is snapshotted at binding. Array hashes are guarded by exact
+  equality, and opaque values cannot share specialized definitions.
+  Abstract evaluation decodes parameters within its tracing closure so static
+  strings, booleans, and axes do not become dynamic abstract arguments.
+- A common lazy resolver threads named flags through explicit, unchanged Loop
+  state, including nested If/Loop scopes and zero iterations. Unused flags add
+  no inputs. Fori closure arrays are genuine JAX primitive operands.
+- Native output allocation preserves unproduced placeholders and replaces
+  produced values, inputs, and constants without changing their existing uses.
+  The legacy lookup contract remains unchanged.
+- The public guide documents vmap inlining. This working plan lives outside
+  the published documentation; durable contracts remain in the developer guides.
+
+This follow-up passed **4,437 full/generated tests** on JAX 0.11.2 and
+**362 tests** from the expanded minimum-dependency selection in the isolated
+JAX 0.8.1 / Flax 0.12.1 environment, with ONNX-IR 1.0.0. Both runs had zero
+failures, errors, or skips. Ruff, Black, all repository hooks, mypy (536 source
+files), RNG checks, and strict documentation build passed. Independent review
+also checked zero-length scans, condition-only Function calls in While, nested
+Fori loops, and independent runtime flags with full ONNX checking and ORT.
+
+Remote acceptance requires all eight CI jobs at the new PR head. The preceding
+head's green run does not satisfy that gate; the final PR description records
+the new head and its run after completion.

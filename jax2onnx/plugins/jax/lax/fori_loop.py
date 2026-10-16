@@ -18,6 +18,7 @@ from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    LoopCallParameters,
     builder_cast,
     builder_identity,
     builder_loop,
@@ -32,7 +33,7 @@ from jax2onnx.plugins.jax.lax.scan import (
     _jaxpr_contains_scatter,
     _static_scatter_extent,
 )
-from jax2onnx._compat.jax import Primitive
+from jax2onnx._compat.jax import Jaxpr, Primitive
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -58,12 +59,14 @@ def model_fn(x: Any) -> Any:
 
 def _build_body_graph(
     parent_ctx: LoweringContextProtocol,
-    closed_jaxpr: Any,
+    jaxpr: Jaxpr,
     state_prototypes: "Sequence[ir.Value]",
     *,
     lower: int,
-) -> ir.Graph:
+    num_consts: int,
+) -> tuple[ir.Graph, LoopCallParameters]:
     body_ctx = make_subgraph_context(parent_ctx, prefix="fori_body")
+    call_params = LoopCallParameters(parent_ctx, body_ctx)
     builder = getattr(body_ctx, "builder", None)
     if builder is None:
         raise AttributeError("Subgraph context missing builder for fori_loop body")
@@ -73,15 +76,8 @@ def _build_body_graph(
         prefix="fori_loop",
     )
 
-    jaxpr = closed_jaxpr.jaxpr
     has_scatter = _jaxpr_contains_scatter(jaxpr)
     scatter_extent = _static_scatter_extent(jaxpr) if has_scatter else None
-
-    # Bind constants inside the loop body context.
-    for const_var, const_value in zip(
-        jaxpr.constvars, getattr(closed_jaxpr, "consts", ())
-    ):
-        body_ctx.bind_const_for_var(const_var, np.asarray(const_value))
 
     # Bind the iteration index, casting to the requested dtype when needed.
     iter_var = jaxpr.invars[0]
@@ -111,6 +107,7 @@ def _build_body_graph(
     body_ctx.bind_value_for_var(iter_var, iter_value)
 
     # Bind loop-carried state inputs (skip the iteration index).
+    state_inputs: list[ir.Value] = []
     for inner_var, prototype in zip(jaxpr.invars[1:], state_prototypes):
         aval = getattr(inner_var, "aval", None)
         dtype_enum = _dtype_to_ir(
@@ -124,6 +121,7 @@ def _build_body_graph(
             name_hint="loop_state_in",
         )
         body_ctx.builder.inputs.append(state_input)
+        state_inputs.append(state_input)
         body_ctx.bind_value_for_var(inner_var, state_input)
         for axis, dim in enumerate(shape_tuple):
             if isinstance(dim, (int, np.integer)):
@@ -168,7 +166,12 @@ def _build_body_graph(
     lower_jaxpr_eqns(body_ctx, jaxpr, source="fori_loop")
 
     # Collect loop-carried outputs from the body jaxpr.
-    loop_outputs: list[ir.Value] = []
+    # Captured values are explicit, unchanged Loop state. Only the original
+    # user state is returned by the JAX primitive.
+    loop_outputs: list[ir.Value] = [
+        builder_identity(body_ctx, value, name_hint="loop_const_out")
+        for value in state_inputs[:num_consts]
+    ]
     for out_var in jaxpr.outvars:
         out_val = body_ctx.get_value_for_var(
             out_var, name_hint=body_ctx.fresh_name("loop_state_out")
@@ -198,7 +201,7 @@ def _build_body_graph(
     _stamp_type_and_shape(cond_out, ())
     _ensure_value_metadata(body_ctx, cond_out)
 
-    body_ctx.builder.outputs = [cond_out, *loop_outputs]
+    body_ctx.builder.outputs = call_params.body_outputs([cond_out, *loop_outputs])
 
     body_graph = body_ctx.builder.graph.clone(allow_outer_scope_values=True)
     body_graph.name = parent_ctx.fresh_name("fori_body")
@@ -208,7 +211,7 @@ def _build_body_graph(
     body_graph.opset_imports.clear()
     body_graph.opset_imports.update(opset_imports)
     typed_graph: ir.Graph = body_graph
-    return typed_graph
+    return typed_graph, call_params
 
 
 @register_native_primitive(
@@ -303,15 +306,18 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
         ]
 
     @staticmethod
-    def abstract_eval(*in_avals: Any, **__: Any) -> tuple[Any, ...]:
-        return tuple(in_avals)
+    def abstract_eval(
+        *in_avals: Any, num_consts: int = 0, **__: Any
+    ) -> tuple[Any, ...]:
+        return tuple(in_avals[num_consts:])
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         params = getattr(eqn, "params", {})
-        closed = params.get("body_jaxpr")
+        body_jaxpr = params.get("body_jaxpr")
+        num_consts = int(params.get("num_consts", 0))
         trip_count = int(params.get("trip_count", 0))
         lower = int(params.get("lower", 0) or 0)
-        if closed is None:
+        if body_jaxpr is None:
             raise ValueError("fori_loop lowering requires 'body_jaxpr' parameter")
         if lower != 0 and trip_count < 0:
             raise ValueError("fori_loop trip_count must be non-negative")
@@ -321,7 +327,9 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             for var in eqn.invars
         ]
 
-        body_graph = _build_body_graph(ctx, closed, state_vals, lower=lower)
+        body_graph, call_params = _build_body_graph(
+            ctx, body_jaxpr, state_vals, lower=lower, num_consts=num_consts
+        )
 
         trip_val = ctx.builder.add_initializer_from_scalar(
             name=ctx.fresh_name("fori_trip_count"),
@@ -332,20 +340,22 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             value=np.asarray(True, dtype=np.bool_),
         )
 
-        loop_inputs = [trip_val, cond_val, *state_vals]
+        loop_inputs = call_params.loop_inputs([trip_val, cond_val, *state_vals])
 
-        output_names = [ctx.fresh_name("fori_out") for _ in eqn.outvars]
+        output_names = [ctx.fresh_name("fori_const_out") for _ in range(num_consts)]
+        output_names.extend(ctx.fresh_name("fori_out") for _ in eqn.outvars)
         loop_outputs = builder_loop(
             ctx,
             *loop_inputs,
             body=body_graph,
-            output_names=output_names,
+            output_names=call_params.output_names(output_names),
         )
 
         if not isinstance(loop_outputs, tuple):
             loop_outputs = (loop_outputs,)
+        loop_outputs = call_params.original_results(loop_outputs)
 
-        for var, val in zip(eqn.outvars, loop_outputs):
+        for var, val in zip(eqn.outvars, loop_outputs[num_consts:]):
             aval = getattr(var, "aval", None)
             if aval is None:
                 continue
@@ -378,13 +388,27 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
             return cast(list[Any], new_leaves)
 
         body_closed = jax.make_jaxpr(body_flat)(0, *leaves)
+        body_jaxpr = body_closed.jaxpr
+        body_consts = body_closed.consts
+        # Closure values can be tracers. Make them primitive operands so JAX
+        # tracks their producers and transforms them alongside normal inputs.
+        body_jaxpr = body_jaxpr.replace(
+            constvars=(),
+            invars=[
+                body_jaxpr.invars[0],
+                *body_jaxpr.constvars,
+                *body_jaxpr.invars[1:],
+            ],
+        )
         trip_count = int(np.asarray(upper).item()) - int(np.asarray(lower).item())
         if trip_count < 0:
             trip_count = 0
 
         flat_result = cls._PRIM.bind(
+            *body_consts,
             *leaves,
-            body_jaxpr=body_closed,
+            body_jaxpr=body_jaxpr,
+            num_consts=len(body_consts),
             trip_count=trip_count,
             lower=int(lower),
         )

@@ -10,6 +10,9 @@
   made dynamic Function keywords regular JAX operands so their dependencies
   survive tracing and dead-code elimination across supported JAX versions;
   preserved explicit flags and omitted keyword defaults inside Function bodies;
+  fixed static configuration cache collisions and explicitly carried runtime
+  flags through scan/while/fori bodies; made fori closure values regular JAX
+  operands and unified safe output allocation for native lowerings;
   raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit

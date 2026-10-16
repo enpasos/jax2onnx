@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import re
 import importlib
 import inspect
@@ -14,7 +13,7 @@ import weakref
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Any,
@@ -38,6 +37,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
+from jax2onnx.plugins._function_keys import snapshot_static_value, static_value_key
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
@@ -268,13 +268,21 @@ class _DynamicParamRef:
     index: int
 
 
+@dataclass(frozen=True)
+class _StaticParam:
+    """Hashable static configuration for JAX's primitive-parameter caches."""
+
+    value: object = field(compare=False, hash=False, repr=False)
+    signature: tuple[object, ...]
+
+
 _Operand = TypeVar("_Operand")
 
 
 def _pack_function_arguments(
     args: tuple[object, ...], kwargs: Mapping[str, object]
 ) -> tuple[tuple[object, ...], dict[str, object]]:
-    """Make dynamic keyword dependencies visible to JAX tracing and transforms."""
+    """Encode dynamic dependencies and hashable static configuration for JAX."""
     operands = list(args)
     params: dict[str, object] = {}
     for name, value in kwargs.items():
@@ -282,7 +290,8 @@ def _pack_function_arguments(
             params[name] = _DynamicParamRef(len(operands))
             operands.append(value)
         else:
-            params[name] = value
+            frozen_value = snapshot_static_value(value)
+            params[name] = _StaticParam(frozen_value, static_value_key(frozen_value))
     return tuple(operands), params
 
 
@@ -294,10 +303,14 @@ def _unpack_function_arguments(
         isinstance(value, _DynamicParamRef) for value in params.values()
     )
     positional_count = len(operands) - keyword_count
-    kwargs = {
-        name: operands[value.index] if isinstance(value, _DynamicParamRef) else value
-        for name, value in params.items()
-    }
+    kwargs: dict[str, object] = {}
+    for name, value in params.items():
+        if isinstance(value, _DynamicParamRef):
+            kwargs[name] = operands[value.index]
+        elif isinstance(value, _StaticParam):
+            kwargs[name] = value.value
+        else:
+            kwargs[name] = value
     return tuple(operands[:positional_count]), kwargs
 
 
@@ -625,9 +638,15 @@ class FunctionPlugin(PrimitivePlugin):
             )
             for arg in args
         ]
-        positional_specs, call_kwargs = _unpack_function_arguments(specs, kwargs)
-        call_kwargs.pop("instance_key", None)
-        out_aval = jax.eval_shape(orig_fn, *positional_specs, **call_kwargs)
+
+        def _call_with_static_kwargs(*operand_args: Any) -> Any:
+            positional_args, call_kwargs = _unpack_function_arguments(
+                operand_args, kwargs
+            )
+            call_kwargs.pop("instance_key", None)
+            return orig_fn(*positional_args, **call_kwargs)
+
+        out_aval = jax.eval_shape(_call_with_static_kwargs, *specs)
         if isinstance(out_aval, jax.ShapeDtypeStruct):
             out_aval = self._aval_to_shaped_array(out_aval)
         elif isinstance(out_aval, tuple):
@@ -754,27 +773,8 @@ class FunctionPlugin(PrimitivePlugin):
         return "Function"
 
     @staticmethod
-    def _value_fingerprint(value: Any) -> tuple[Any, ...]:
-        if value is None:
-            return ("none",)
-        if isinstance(value, (bool, int, float, complex, str, bytes)):
-            literal = value if isinstance(value, (str, bytes)) else repr(value)
-            return ("literal", type(value).__name__, literal)
-        try:
-            arr = np.array(value)
-        except Exception:
-            arr = None
-        if arr is not None and getattr(arr, "dtype", None) is not None:
-            dtype = str(arr.dtype)
-            if arr.dtype != object:
-                shape = tuple(getattr(arr, "shape", ()))
-                try:
-                    data_bytes = arr.tobytes()
-                except Exception:
-                    data_bytes = repr(arr).encode("utf-8", "ignore")
-                digest = hashlib.sha1(data_bytes).hexdigest()
-                return ("array", shape, dtype, digest)
-        return ("object", type(value).__name__, repr(value))
+    def _value_fingerprint(value: object) -> tuple[object, ...]:
+        return static_value_key(value)
 
     def _fingerprint_instance_state(self, instance: Any) -> tuple[Any, ...]:
         if instance is None:
@@ -786,7 +786,7 @@ class FunctionPlugin(PrimitivePlugin):
             leaves = None
             treedef = None
         else:
-            components.append(("treedef", repr(treedef)))
+            components.append(("treedef", treedef))
         if leaves:
             for idx, leaf in enumerate(leaves):
                 components.append(("leaf", idx, self._value_fingerprint(leaf)))
@@ -798,7 +798,7 @@ class FunctionPlugin(PrimitivePlugin):
                         ("attr", key, self._value_fingerprint(state[key]))
                     )
             else:
-                components.append(("repr", repr(instance)))
+                components.append(("opaque", self._value_fingerprint(instance)))
         return tuple(components)
 
     def _build_unique_signature(
@@ -941,17 +941,7 @@ class FunctionPlugin(PrimitivePlugin):
 
     @staticmethod
     def _static_capture_signature(value: object) -> tuple[object, ...]:
-        # Arbitrary Python configuration need not be array-convertible.
-        try:
-            array = np.asarray(value)
-            return (
-                "const",
-                tuple(array.shape),
-                str(array.dtype),
-                hash(array.tobytes()),
-            )
-        except Exception:
-            return ("static", type(value).__name__)
+        return static_value_key(value)
 
     def _capture_arguments(
         self,
