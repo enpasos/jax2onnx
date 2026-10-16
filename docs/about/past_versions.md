@@ -3,10 +3,13 @@
 - **Unreleased**: Added explicit typed native plugin registration through
   `register_native_primitive`, retaining `register_primitive` and raw-registry
   legacy extensions; unified Function/control-flow child settings and typed
-  Function capture phases; fixed dynamic tensor and scalar constant keyword captures on JAX 0.11
+  Function capture phases; fixed dynamic tensor and scalar constant keyword captures
   and retained ONNX Function definitions created inside control-flow bodies;
   enabled lexical variable capture for Functions in `If` branches, preserving
   derived flags and tensor keyword arguments while keeping Loop/scan inputs explicit;
+  made dynamic Function keywords regular JAX operands so their dependencies
+  survive tracing and dead-code elimination across supported JAX versions;
+  preserved explicit flags and omitted keyword defaults inside Function bodies;
   raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit

@@ -19,9 +19,20 @@ arguments passed to nested ONNX Functions, regardless of the keyword name.
 An argument such as `deterministic=jnp.logical_not(deterministic)` must retain
 the negation; its name cannot substitute for its value.
 
+At the JAX tracing boundary, dynamic Function keywords are regular primitive
+operands. Their dependencies participate in branch inputs and dead-code
+elimination before ONNX lowering. Storing a tracer only in primitive parameters
+would let JAX discard its producer, leaving no variable binding to capture.
+
 Declared external BOOL parameters can also be resolved lazily by name when no
 JAX variable is supplied. Each nested Function receives captures through fresh
 formal inputs. No parent parameter-to-IR-value mapping is copied into a child.
+The initial trace retains named `input_params` promotion; Function-body tracing
+disables promotion of explicit Python values because forwarded flags already
+have operands. Control-flow contexts inherit that policy. Explicit `True` and
+`False` inside a Function therefore remain constants across nested If scopes.
+Omitted keywords in a Function body use the callee's default values instead of
+implicitly capturing a same-named export parameter.
 Function and Loop/scan contexts keep implicit captures disabled and require
 explicit inputs; an unknown variable raises an error rather than creating an
 unbound placeholder or selecting a similarly named parameter.

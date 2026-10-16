@@ -232,7 +232,7 @@ evidence separately from these new results. Do not merge or post review replies.
 | Follow-up stage | Status | Evidence |
 | --- | --- | --- |
 | 5: Explicit registration | Implemented | All 605 discovered first-party entries register direct methods without signature inspection. Native aliases/restoration, weak-reference lifetime, slots-only instances, and legacy decorator/result conventions have regressions. Of 399 registration declarations migrated, 393 files contain only declaration changes; six also adopt the shared native patterns below. |
-| 6: Function phases | Implemented | The former 373-line `_lower_in_context` is a 17-line coordinator over typed capture/key/trace/build/emit phases. Ordered tensor kwargs, unused formals, cached reuse, static-state differences, hoisted constants, and scalar/vector constant kwargs have structural and ORT checks. |
+| 6: Function phases | Implemented | The former 373-line `_lower_in_context` is a small coordinator over typed capture/key/trace/build/emit phases. Ordered tensor kwargs, unused formals, cached reuse, static-state differences, hoisted constants, and scalar/vector constant kwargs have structural and ORT checks. |
 | 7: Child scopes | Implemented | One factory owns settings, symbolic origins, shared bookkeeping, and naming. Child tests cover Function/If scopes, graph-local values, recording ownership, exact names, nested Function definitions, and independently varied runtime flags. Loop/scan remain explicit. |
 | 8: Shared adoption | Implemented | Neg/TopK, shared unary/cast helpers, shared control-flow helpers, Function calls, and NCHW output emission use the closed `IRBuilderAPI`. Final outputs and JIT/PJIT/custom-VJP inputs require bindings. Positive/negative mypy examples prove invalid inputs and unknown builder methods are rejected. |
 | 9: Final acceptance | Architecture accepted; final validation gate | Read-only architectural review found substantive simplification across the named native chain. Final local suite, static checks, executable documentation, minimum-IR results, and final-head CI must all satisfy the acceptance below. |
@@ -250,7 +250,8 @@ tests before it.
 
 Remaining branches represent dtype choices, optional metadata, reuse/uniqueness,
 scope capture rules, or restoration with `try/finally`. Arbitrary Python
-configuration inspection and JAX-private tracer access have named boundaries.
+configuration inspection has a named boundary; Function captures no longer
+inspect private JAX tracing frames.
 Legacy extensions retain their adapter, while existing leaf operators retain
 dynamic shorthand. New native helpers and both reference lowerings use the
 closed builder surface. The weak identity catalog preserves mutable-registry
@@ -258,10 +259,11 @@ compatibility without retaining discarded plugins.
 
 The behavior changes have reproduced benefits:
 
-- JAX 0.11 tensor keyword captures resolve their direct JAX atom instead of
-  failing conversion with `TracerArrayConversionError`.
-- Resolved scalar constants are passed into body tracing as constants; the
-  earlier code retained an outer tracer and failed the same conversion.
+- Dynamic keyword captures travel as ordinary JAX operands with hashable
+  keyword references. This avoids `TracerArrayConversionError` on JAX 0.11
+  and preserves their producers through JAX 0.8.1 dead-code elimination.
+- Scalar and tensor constant keyword operands are bound in the enclosing
+  scope and passed through explicit Function formals.
 - Functions built inside control-flow bodies retain their model-level
   definitions and registry, rather than failing or dropping definitions.
 - If branches resolve captures by JAX variable identity through enclosing If
@@ -278,17 +280,38 @@ the correction: same/renamed flags and tensor captures across one/two If scopes,
 with ONNX checking and 48 JAX/ORT comparisons. Three additional context cases
 cover local reuse, missing bindings, and Function/Loop capture boundaries.
 
+The minimum-dependency CI then exposed an earlier tracing issue: JAX 0.8.1
+replaced computed keyword values with `DropVar` because the original primitive
+stored their tracers only in static parameters. Regular keyword operands make
+these dependencies visible to JAX itself. A common argument decoder serves
+evaluation, abstract evaluation, batching, and lowering, replacing the private
+tracer-frame compatibility helper.
+
+Explicit Python flags in a Function body also remain constant instead of being
+replaced by same-named `input_params`. A context policy retains promotion during
+the initial trace, disables it for Function-body retracing, and is inherited by
+control-flow children. Forwarded flags already have real operands at that point.
+Omitted keywords retain their callee's Python defaults. Fourteen additional
+export cases cover JIT/vmap, scalar literals, explicit Python/JAX flags,
+omitted defaults, and root runtime-flag promotion on both JAX 0.8.1 and 0.11.2.
+
 The legacy producer helper still accepts live Graph sequences and retains its
 historical foreign/disconnected-name fallback. Regression tests document that
 contract; the stricter native graph helpers are unchanged.
 
 ### Follow-up verification and remote acceptance
 
-The final local implementation passed **4,386 generated/full tests**, with zero
+The final local implementation passed **4,400 generated/full tests**, with zero
 skips, errors, or failures, on Python 3.12.9 / JAX 0.11.2 / ONNX-IR 1.0.0.
 All repository hooks, Ruff, typing/RNG, builder policies, and the strict
 documentation build passed. The newly staged child test also passed all nine
 cases after its initializer call was adjusted to the keyword-naming policy.
+
+The extended minimum-dependency CI selection passed **317 tests** in an isolated
+JAX 0.8.1 / Flax 0.12.1 environment with ONNX-IR 1.0.0. This includes the new
+If, JIT/vmap, literal/default, and root-promotion regressions. Other dependencies
+in that local environment retained their installed versions; the remote
+minimum-dependency job additionally verifies the complete declared floor stack.
 
 An isolated, verified ONNX-IR **0.2.1** installation passed **281** converter,
 control-flow, graph, and builder tests with strict optimizer failures. The

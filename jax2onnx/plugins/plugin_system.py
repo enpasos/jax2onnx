@@ -25,7 +25,9 @@ from typing import (
     Iterator,
     Mapping,
     Optional,
+    Sequence,
     Set,
+    TypeVar,
     Union,
     cast,
 )
@@ -41,13 +43,13 @@ from jax2onnx._compat.jax import (
     NOT_MAPPED,
     ClosedJaxpr,
     JaxprEqn,
+    Literal,
     Primitive,
     ShapedArray,
     Tracer,
     Var,
     batching,
     ensure_batching_not_mapped_attr,
-    resolve_tracer_binding,
 )
 from jax2onnx.converter.function_scope import FunctionDef, FunctionScope, FunctionKey
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
@@ -245,7 +247,7 @@ def with_prng_key(seed: int | Callable[[Any], int]) -> _FactoryValue:
 
 
 class _DynamicParamWrapper:
-    """Hashable wrapper for traced kwargs passed to ONNX function primitives."""
+    """Legacy hashable value wrapper retained for primitive-specific plugins."""
 
     __slots__ = ("value",)
 
@@ -257,6 +259,46 @@ class _DynamicParamWrapper:
 
     def __eq__(self, other: object) -> bool:  # pragma: no cover - trivial
         return isinstance(other, _DynamicParamWrapper) and other.value is self.value
+
+
+@dataclass(frozen=True)
+class _DynamicParamRef:
+    """Hashable reference to a keyword value carried as a primitive operand."""
+
+    index: int
+
+
+_Operand = TypeVar("_Operand")
+
+
+def _pack_function_arguments(
+    args: tuple[object, ...], kwargs: Mapping[str, object]
+) -> tuple[tuple[object, ...], dict[str, object]]:
+    """Make dynamic keyword dependencies visible to JAX tracing and transforms."""
+    operands = list(args)
+    params: dict[str, object] = {}
+    for name, value in kwargs.items():
+        if isinstance(value, (Tracer, jax.Array)):
+            params[name] = _DynamicParamRef(len(operands))
+            operands.append(value)
+        else:
+            params[name] = value
+    return tuple(operands), params
+
+
+def _unpack_function_arguments(
+    operands: Sequence[_Operand], params: Mapping[str, object]
+) -> tuple[tuple[_Operand, ...], dict[str, object]]:
+    """Restore positional arguments and kwargs from the shared primitive format."""
+    keyword_count = sum(
+        isinstance(value, _DynamicParamRef) for value in params.values()
+    )
+    positional_count = len(operands) - keyword_count
+    kwargs = {
+        name: operands[value.index] if isinstance(value, _DynamicParamRef) else value
+        for name, value in params.items()
+    }
+    return tuple(operands[:positional_count]), kwargs
 
 
 class _ConstructAndCall:
@@ -575,18 +617,6 @@ class FunctionPlugin(PrimitivePlugin):
         if orig_fn is None:
             raise ValueError(f"Original function not set for '{self.name}'")
 
-        def _coerce_kwarg(value: Any) -> Any:
-            if isinstance(value, _DynamicParamWrapper):
-                tracer = value.value
-                aval = getattr(tracer, "aval", None)
-                if aval is not None:
-                    return jax.ShapeDtypeStruct(
-                        tuple(getattr(aval, "shape", ())), getattr(aval, "dtype", None)
-                    )
-                return tracer
-            return value
-
-        kwargs = {k: _coerce_kwarg(v) for k, v in kwargs.items() if k != "instance_key"}
         specs = [
             (
                 jax.ShapeDtypeStruct(arg.shape, arg.dtype)
@@ -595,7 +625,9 @@ class FunctionPlugin(PrimitivePlugin):
             )
             for arg in args
         ]
-        out_aval = jax.eval_shape(orig_fn, *specs, **kwargs)
+        positional_specs, call_kwargs = _unpack_function_arguments(specs, kwargs)
+        call_kwargs.pop("instance_key", None)
+        out_aval = jax.eval_shape(orig_fn, *positional_specs, **call_kwargs)
         if isinstance(out_aval, jax.ShapeDtypeStruct):
             out_aval = self._aval_to_shaped_array(out_aval)
         elif isinstance(out_aval, tuple):
@@ -609,25 +641,25 @@ class FunctionPlugin(PrimitivePlugin):
         orig_fn = self._resolve_orig_fn(instance_key)
         if orig_fn is None:
             raise ValueError("Original function not set for primitive!")
-        return orig_fn(*args, **kwargs)
+        positional_args, call_kwargs = _unpack_function_arguments(args, kwargs)
+        return orig_fn(*positional_args, **call_kwargs)
 
     def _batching_rule(
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[Any, Any]:
         instance_key = params.pop("instance_key", None)
-        call_kwargs = {}
-        for key, value in params.items():
-            if isinstance(value, _DynamicParamWrapper):
-                call_kwargs[key] = value.value
-            else:
-                call_kwargs[key] = value
-
         original_fn = self._resolve_orig_fn(instance_key)
 
         if original_fn is None:
             raise NotImplementedError(
                 f"Batching rule for '{self.name}' missing original callable."
             )
+
+        def _call_single(*single_args: Any) -> Any:
+            positional_args, call_kwargs = _unpack_function_arguments(
+                single_args, params
+            )
+            return original_fn(*positional_args, **call_kwargs)
 
         axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
@@ -640,7 +672,7 @@ class FunctionPlugin(PrimitivePlugin):
             break
 
         if axis_size is None:
-            result = original_fn(*args, **call_kwargs)
+            result = _call_single(*args)
             out_dims = jtu.tree_map(lambda _: NOT_MAPPED, result)
             return result, out_dims
 
@@ -648,9 +680,6 @@ class FunctionPlugin(PrimitivePlugin):
             batching.bdim_at_front(arg, bdim, axis_size)
             for arg, bdim in zip(args, dims)
         ]
-
-        def _call_single(*single_args: Any) -> Any:
-            return original_fn(*single_args, **call_kwargs)
 
         batched_result = jax.vmap(_call_single)(*prepared_args)
         out_dims = jtu.tree_map(lambda _: 0, batched_result)
@@ -683,16 +712,16 @@ class FunctionPlugin(PrimitivePlugin):
                     _ONNX_FN_HITS.set(
                         _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
                     )
-                    bound_kwargs = {}
-                    for key, value in kwargs.items():
-                        if key == "instance_key":
-                            continue
-                        if hasattr(value, "aval"):
-                            bound_kwargs[key] = _DynamicParamWrapper(value)
-                        else:
-                            bound_kwargs[key] = value
+                    operands, bound_kwargs = _pack_function_arguments(
+                        args[1:],
+                        {
+                            key: value
+                            for key, value in kwargs.items()
+                            if key != "instance_key"
+                        },
+                    )
                     return primitive.bind(
-                        *args[1:],
+                        *operands,
                         **{**bound_kwargs, "instance_key": instance_key},
                     )
                 else:
@@ -702,13 +731,8 @@ class FunctionPlugin(PrimitivePlugin):
                     _ONNX_FN_HITS.set(
                         _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
                     )
-                    bound_kwargs = {}
-                    for key, value in kwargs.items():
-                        if hasattr(value, "aval"):
-                            bound_kwargs[key] = _DynamicParamWrapper(value)
-                        else:
-                            bound_kwargs[key] = value
-                    return primitive.bind(*args, **bound_kwargs)
+                    operands, bound_kwargs = _pack_function_arguments(args, kwargs)
+                    return primitive.bind(*operands, **bound_kwargs)
 
             return wrapped
 
@@ -856,6 +880,8 @@ class FunctionPlugin(PrimitivePlugin):
         eqn: JaxprEqn,
         params: dict[str, object],
     ) -> None:
+        invars, params = _unpack_function_arguments(eqn.invars, params)
+        eqn = eqn.replace(invars=list(invars), params=params)
         callee = self._resolve_lowering_callee(params)
         captures = self._capture_arguments(ctx, callee, params)
         registry = ctx.get_function_registry()
@@ -882,7 +908,7 @@ class FunctionPlugin(PrimitivePlugin):
         return callee
 
     def _capture_spec(
-        self, ctx: LoweringContextProtocol, var: Var
+        self, ctx: LoweringContextProtocol, var: Var | Literal
     ) -> jax.ShapeDtypeStruct:
         aval = self._aval_to_shaped_array(var.aval)
         shape: list[object] = []
@@ -936,20 +962,16 @@ class FunctionPlugin(PrimitivePlugin):
         dynamic: list[DynamicCapture] = []
         static: dict[str, object] = {}
         signature: list[tuple[str, tuple[object, ...]]] = []
-        for name, wrapped in params.items():
-            value = (
-                wrapped.value if isinstance(wrapped, _DynamicParamWrapper) else wrapped
-            )
-            resolved = resolve_tracer_binding(value)
-            if isinstance(resolved, Var):
-                spec = self._capture_spec(ctx, resolved)
-                parent_value = ctx.require_value_for_var(resolved)
+        for name, value in params.items():
+            if isinstance(value, (Var, Literal)):
+                spec = self._capture_spec(ctx, value)
+                parent_value = ctx.require_value_for_var(value)
                 dynamic.append(DynamicCapture(name, spec, parent_value))
-                aval = self._aval_to_shaped_array(resolved.aval)
+                aval = self._aval_to_shaped_array(value.aval)
                 signature.append(
                     (name, ("dynamic", tuple(aval.shape), str(aval.dtype)))
                 )
-            elif name in ctx._call_input_param_names:
+            elif ctx._promote_call_input_params and name in ctx._call_input_param_names:
                 spec = self._parameter_spec(value)
                 dynamic.append(
                     DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
@@ -958,14 +980,15 @@ class FunctionPlugin(PrimitivePlugin):
                     (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
                 )
             else:
-                fingerprint_value = resolved if resolved is not None else value
-                signature.append(
-                    (name, self._static_capture_signature(fingerprint_value))
-                )
-                static[name] = fingerprint_value
+                signature.append((name, self._static_capture_signature(value)))
+                static[name] = value
 
         handled = set(static) | {capture.name for capture in dynamic}
-        implicit_names = ctx._call_input_param_names - handled
+        implicit_names = (
+            ctx._call_input_param_names - handled
+            if ctx._promote_call_input_params
+            else set()
+        )
         if implicit_names:
             # Signature inspection is a Python-callable boundary, not an IR capability check.
             accepted_names: Mapping[str, inspect.Parameter]

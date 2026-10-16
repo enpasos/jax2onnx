@@ -296,9 +296,21 @@ The native entry point `_lower_in_context` reads as preparation, registry lookup
 optional body construction, and call emission. `DynamicCapture` stores each
 parameter's name, tracing spec, and bound parent `ir.Value`; `FunctionCaptures`
 keeps these records in signature order beside static kwargs and fingerprints.
-No partially populated dictionaries are passed between phases. Private JAX
-tracer access is confined to `_compat.jax.resolve_tracer_binding`, including
-the direct atom used by JAX 0.11.
+No partially populated dictionaries are passed between phases. Dynamic keyword
+values travel as regular JAX primitive operands, with hashable index references
+preserving their keyword names. JAX can therefore track their dependencies
+through control flow, dead-code elimination, and batching. The shared argument
+decoder reconstructs positional arguments and keywords at each boundary;
+Function captures require no private tracer-frame lookup. Static Python
+configuration stays in primitive parameters.
+
+The initial export trace may promote declared `input_params` to runtime flags.
+Function-body tracing already receives those flags as explicit operands, so
+explicit Python constants in that body remain constants. Control-flow children
+inherit this policy from their enclosing context. This prevents an inner call
+such as `deterministic=False` from selecting a same-named outer flag.
+Omitted keywords in Function bodies retain the callee's Python defaults;
+forward a flag explicitly when the callee should receive it.
 
 `IRContext.create_child_context(scope="function" | "control_flow")` owns the
 common settings and recording/registry inheritance. Function scopes mirror
@@ -306,8 +318,8 @@ inputs into fresh formal values and remap symbolic origins; control-flow scopes
 retain lexical origins and publish local function definitions to the enclosing
 model. The child never receives the parent's parameter-to-IR-value dictionary.
 Function tracing uses `try/finally` to restore activation state even on failure.
-Only `If` permits lazy lexical capture of external BOOL call parameters; Loop
-and scan keep their explicit carried-input contracts. See
+Only `If` permits lazy lexical capture of variables and external BOOL call
+parameters; Loop and scan keep their explicit carried-input contracts. See
 [control-flow body inputs](advanced_topics/subgraph_input_handling.md).
 
 `unique=True` changes the capture signature from object identity to a stable

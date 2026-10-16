@@ -234,6 +234,9 @@ class IRContext:
         self._call_input_param_names: set[str] = set()
         self._call_input_param_literals: dict[str, object] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
+        # Root tracing receives declared input_params as Python values. Function
+        # retracing uses explicit formals, so its Python kwargs remain static.
+        self._promote_call_input_params: bool = True
         self._implicit_capture_parent: IRContext | None = None
         self._const_folder = ConstantFolder()
         self._current_eqn: JaxprEqn | None = None
@@ -299,6 +302,8 @@ class IRContext:
         each graph. Control-flow bodies may capture parent values and therefore
         inherit symbolic origins; functions remap origins onto formal inputs.
         Only If branches enable ``implicit_captures``; Loop state stays explicit.
+        Named Python-parameter promotion is inherited by control flow and stops
+        at a function boundary, where dynamic kwargs are already real operands.
         """
         child = IRContext(
             opset=self.opset,
@@ -318,6 +323,9 @@ class IRContext:
         child._func_name_counters = self._func_name_counters
         child._call_input_param_names = set(self._call_input_param_names)
         child._call_input_param_literals = dict(self._call_input_param_literals)
+        child._promote_call_input_params = (
+            scope == "control_flow" and self._promote_call_input_params
+        )
 
         if scope == "control_flow":
             # Local function definitions still belong to the enclosing model.
