@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite2"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataBatch2Plugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.logspace",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.logspace.html",
     onnx=[
@@ -59,7 +62,7 @@ class JnpLogspaceMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.matvec",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.matvec.html",
     onnx=[
@@ -87,7 +90,7 @@ class JnpMatVecMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.median",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.median.html",
     onnx=[
@@ -113,7 +116,7 @@ class JnpMedianMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanmax",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanmax.html",
     onnx=[
@@ -146,7 +149,7 @@ class JnpNanMaxMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanmean",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanmean.html",
     onnx=[
@@ -179,7 +182,7 @@ class JnpNanMeanMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanmin",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanmin.html",
     onnx=[
@@ -212,7 +215,7 @@ class JnpNanMinMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nansum",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nansum.html",
     onnx=[
@@ -245,7 +248,7 @@ class JnpNanSumMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanprod",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanprod.html",
     onnx=[
@@ -278,7 +281,7 @@ class JnpNanProdMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanstd",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanstd.html",
     onnx=[
@@ -304,7 +307,7 @@ class JnpNanStdMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanvar",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanvar.html",
     onnx=[
@@ -330,7 +333,7 @@ class JnpNanVarMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanmedian",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanmedian.html",
     onnx=[
@@ -356,7 +359,7 @@ class JnpNanMedianMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanpercentile",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanpercentile.html",
     onnx=[
@@ -382,7 +385,7 @@ class JnpNanPercentileMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.nanquantile",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.nanquantile.html",
     onnx=[
@@ -408,7 +411,7 @@ class JnpNanQuantileMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.partition",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.partition.html",
     onnx=[
@@ -434,7 +437,7 @@ class JnpPartitionMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.percentile",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.percentile.html",
     onnx=[
@@ -460,7 +463,7 @@ class JnpPercentileMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.quantile",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.quantile.html",
     onnx=[
@@ -486,7 +489,7 @@ class JnpQuantileMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.roll",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.roll.html",
     onnx=[
@@ -515,7 +518,7 @@ class JnpRollMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.rot90",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.rot90.html",
     onnx=[
@@ -548,7 +551,7 @@ class JnpRot90Metadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.sinc",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.sinc.html",
     onnx=[
@@ -571,7 +574,7 @@ class JnpSincMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.std",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.std.html",
     onnx=[
@@ -597,7 +600,7 @@ class JnpStdMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.var",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.var.html",
     onnx=[
@@ -623,7 +626,7 @@ class JnpVarMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.tensordot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.tensordot.html",
     onnx=[
@@ -655,7 +658,7 @@ class JnpTensorDotMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.trace",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.trace.html",
     onnx=[
@@ -684,7 +687,7 @@ class JnpTraceMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.vdot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.vdot.html",
     onnx=[
@@ -713,7 +716,7 @@ class JnpVDotMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.vecdot",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.vecdot.html",
     onnx=[
@@ -742,7 +745,7 @@ class JnpVecDotMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.vecmat",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.vecmat.html",
     onnx=[
@@ -770,7 +773,7 @@ class JnpVecMatMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.tri",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.tri.html",
     onnx=[
@@ -799,7 +802,7 @@ class JnpTriMetadata(_JnpCompositeMetadataBatch2Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.unravel_index",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.unravel_index.html",
     onnx=[

@@ -11,7 +11,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.fft import FFTPlugin as _LaxFFTPlugin
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 
@@ -33,7 +36,7 @@ class _JnpFFTMetadata(PrimitiveLeafPlugin):
         _LAX_FFT_PLUGIN.lower(ctx, eqn)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.fft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
@@ -83,7 +86,7 @@ class JnpFFTMetadata(_JnpFFTMetadata):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.ifft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.ifft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
@@ -115,7 +118,7 @@ class JnpIFFTMetadata(_JnpFFTMetadata):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.rfft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.rfft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],
@@ -142,7 +145,7 @@ class JnpRFFTMetadata(_JnpFFTMetadata):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.irfft",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.fft.irfft.html",
     onnx=[{"component": "DFT", "doc": "https://onnx.ai/onnx/operators/onnx__DFT.html"}],

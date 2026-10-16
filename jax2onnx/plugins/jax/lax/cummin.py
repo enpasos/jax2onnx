@@ -5,12 +5,18 @@ from __future__ import annotations
 import jax
 import numpy as np
 
+from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.converter.typing_support import LoweringContextProtocol
+
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._cum_extrema import lower_cum_extrema
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.cummin_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cummin.html",
     onnx=[
@@ -59,5 +65,5 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primiti
 class CumMinPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.cummin`` via sign-flip + ``MaxPool``."""
 
-    def lower(self, ctx, eqn):  # type: ignore[no-untyped-def]
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         lower_cum_extrema(ctx, eqn, mode="min")

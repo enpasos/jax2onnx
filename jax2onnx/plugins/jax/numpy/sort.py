@@ -26,7 +26,10 @@ from jax2onnx.plugins.jax.lax._sort_utils import (
     gather_original_by_sort_indices,
     make_nan_last_sort_key,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SORT_PRIM: Final = make_jnp_primitive("jax.numpy.sort")
@@ -39,7 +42,7 @@ def _sort_eval(x: AbstractValue, axis: int = -1) -> jax.ShapeDtypeStruct:
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SORT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.sort.html",
     onnx=[

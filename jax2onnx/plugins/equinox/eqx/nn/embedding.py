@@ -21,7 +21,10 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _EQX_EMBED_TABLE: Final = jnp.asarray(
     np.arange(20, dtype=np.float32).reshape(5, 4), dtype=jnp.float32
@@ -29,7 +32,7 @@ _EQX_EMBED_TABLE: Final = jnp.asarray(
 _EQX_EMBED: Final[eqx.nn.Embedding] = eqx.nn.Embedding(weight=_EQX_EMBED_TABLE)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.embedding",
     jax_doc="https://docs.kidger.site/equinox/api/nn/embedding/#equinox.nn.Embedding",
     onnx=[

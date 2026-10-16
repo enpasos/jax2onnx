@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Set, Tuple, TypeAlias, Union
+from typing import Callable, List, Optional, Sequence, TypeAlias
 
 import onnx_ir as ir
 
@@ -14,25 +14,32 @@ InputValue: TypeAlias = ir.Value | None
 InputValueList: TypeAlias = List[InputValue]
 
 
-def _v_name(v: Union[ir.Value, str, None]) -> Optional[str]:
+def _v_name(v: ir.Value | str | None) -> str | None:
     if v is None:
         return None
     if isinstance(v, str):
         return v or None
-    if isinstance(v, ir.Value):
-        name = v.name
-        return name or None
+    return v.name or None
 
 
-def _value_identity(
-    value_or_name: Union[ir.Value, str, None],
-) -> Tuple[Optional[ir.Value], Optional[str]]:
-    if value_or_name is None:
-        return None, None
-    if isinstance(value_or_name, ir.Value):
-        return value_or_name, _v_name(value_or_name)
-    if isinstance(value_or_name, str):
-        return None, value_or_name or None
+def node_in_graph(graph: ir.Graph, node: ir.Node) -> bool:
+    """Check current ownership, independently of iteration snapshots or names."""
+    return node.graph is graph
+
+
+def producer_in_graph(graph: ir.Graph, value: ir.Value | None) -> ir.Node | None:
+    """Return a value's producer only when it belongs to this graph scope."""
+    if value is None:
+        return None
+    producer = value.producer()
+    return producer if producer is not None and producer.graph is graph else None
+
+
+def consumers_in_graph(graph: ir.Graph, value: ir.Value | None) -> list[ir.Node]:
+    """Return current consumers in this scope, including captured outer values."""
+    if value is None:
+        return []
+    return [consumer for consumer in value.consumers() if consumer.graph is graph]
 
 
 def _node_outputs(n: ir.Node) -> ValueList:
@@ -56,89 +63,81 @@ def _set_node_inputs(n: ir.Node, new_ins: Sequence[InputValue]) -> None:
 def _has_input_name_or_obj(
     node: ir.Node, name: Optional[str], obj: Optional[ir.Value]
 ) -> bool:
-    """
-    Return True if 'node' has an input that matches either the given name
-    (by .name on Value or string equality) or the given object identity.
-    """
-    ins = _node_inputs(node)
-    if obj is not None:
-        for iv in ins:
-            if iv is obj:
-                return True
-
-    ref_value, ref_name = _value_identity(obj)
-    target_name = name or ref_name
-
-    for iv in ins:
-        if ref_value is not None and iv is ref_value:
-            return True
-        if target_name:
-            ivn = _v_name(iv)
-            if ivn == target_name:
-                return True
-    return False
+    """Legacy match for detached snapshots that may resolve values by name."""
+    target_name = name or _v_name(obj)
+    return any(
+        (obj is not None and value is obj)
+        or (target_name is not None and _v_name(value) == target_name)
+        for value in node.inputs
+    )
 
 
-def _consumer_nodes(
-    nodes: Sequence[ir.Node], value_or_name: Union[ir.Value, str, None]
-) -> List[ir.Node]:
-    """
-    Return consumer nodes for a value, preferring IR APIs with name-based fallback.
-    """
+def legacy_node_in_sequence(node: ir.Node, nodes: Sequence[ir.Node]) -> bool:
+    """Check identity membership in a detached sequence, including stale snapshots."""
+    return any(existing is node for existing in nodes)
+
+
+def legacy_consumer_nodes(
+    nodes: Sequence[ir.Node], value_or_name: ir.Value | str | None
+) -> list[ir.Node]:
+    """Resolve consumers in a detached sequence, retaining historical name fallback."""
     if value_or_name is None:
         return []
-    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
-        consumers = value_or_name.consumers()
-        if consumers:
-            try:
-                if all(isinstance(c, ir.Node) for c in consumers):
-                    filtered = [c for c in consumers if id(c) in current_node_ids]
-                    if filtered:
-                        return list(filtered)
-            except Exception:
-                # Fall back to name-based scan below.
-                pass
-
-    ref_value, ref_name = _value_identity(value_or_name)
-    target_name = ref_name
-    if target_name is None and isinstance(value_or_name, ir.Value):
-        target_name = _v_name(value_or_name)
-
-    obj_arg = ref_value
-    if obj_arg is None and isinstance(value_or_name, ir.Value):
-        obj_arg = value_or_name
-
-    found: List[ir.Node] = []
-    for node in nodes:
-        if _has_input_name_or_obj(node, target_name, obj_arg):
-            found.append(node)
-    return found
+        node_ids = {id(node) for node in nodes}
+        linked = [
+            consumer
+            for consumer in value_or_name.consumers()
+            if id(consumer) in node_ids
+        ]
+        if linked:
+            return linked
+    target_name = _v_name(value_or_name)
+    target_value = value_or_name if isinstance(value_or_name, ir.Value) else None
+    return [
+        node
+        for node in nodes
+        if _has_input_name_or_obj(node, target_name, target_value)
+    ]
 
 
-def _producer_node(
-    nodes: Sequence[ir.Node], value_or_name: Union[ir.Value, str, None]
-) -> Optional[ir.Node]:
-    """
-    Return the producer node for a value/name, preferring IR APIs with fallback scans.
+def legacy_producer_node(
+    nodes: Sequence[ir.Node], value_or_name: ir.Value | str | None
+) -> ir.Node | None:
+    """Resolve a producer in a live graph or snapshot, with legacy name fallback.
+
+    A live graph's own inputs/initializers have no producer in that graph.
+    Foreign and detached values retain the historical matching-name behavior.
     """
     if value_or_name is None:
         return None
-    current_node_ids: Set[int] = {id(node) for node in nodes}
     if isinstance(value_or_name, ir.Value):
-        prod = value_or_name.producer()
-        if isinstance(prod, ir.Node) and id(prod) in current_node_ids:
-            return prod
-
-    ref_value, ref_name = _value_identity(value_or_name)
-    target_name = ref_name
-    if target_name is None and isinstance(value_or_name, ir.Value):
-        target_name = _v_name(value_or_name)
-
+        producer = value_or_name.producer()
+        if producer is not None:
+            if legacy_node_in_sequence(producer, nodes):
+                return producer
+        elif value_or_name.graph is nodes and (
+            value_or_name.is_graph_input() or value_or_name.is_initializer()
+        ):
+            return None
+    target_name = _v_name(value_or_name)
     for node in nodes:
-        for ov in _node_outputs(node):
-            if ref_value is not None and ov is ref_value:
-                return node
-            if target_name and _v_name(ov) == target_name:
+        for output in node.outputs:
+            if output is value_or_name or (
+                target_name is not None and _v_name(output) == target_name
+            ):
                 return node
     return None
+
+
+# Compatibility imports for callers that still supply lists or raw value names.
+# New optimizer passes use the graph-native functions above.
+_node_in_sequence: Callable[[ir.Node, Sequence[ir.Node]], bool] = (
+    legacy_node_in_sequence
+)
+_consumer_nodes: Callable[[Sequence[ir.Node], ir.Value | str | None], list[ir.Node]] = (
+    legacy_consumer_nodes
+)
+_producer_node: Callable[[Sequence[ir.Node], ir.Value | str | None], ir.Node | None] = (
+    legacy_producer_node
+)

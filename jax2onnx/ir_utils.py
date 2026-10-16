@@ -87,7 +87,7 @@ def numpy_dtype_to_ir_with_float_policy(
     Map a numpy dtype to an IR dtype using the converter's float precision policy.
 
     Float32 and unknown floating dtypes follow ``enable_double_precision``;
-    float16 and float64 keep their exact ONNX IR dtype.
+    float16, bfloat16, and float64 keep their exact ONNX IR dtype.
     """
     if dtype is None:
         return ir.DataType.DOUBLE if enable_double_precision else ir.DataType.FLOAT
@@ -95,6 +95,8 @@ def numpy_dtype_to_ir_with_float_policy(
         key = np.dtype(dtype)
     except Exception as exc:
         raise TypeError(f"Unsupported dtype: {dtype}") from exc
+    if key.name == "bfloat16":
+        return ir.DataType.BFLOAT16
     if np.issubdtype(key, np.floating):
         if key == np.float16:
             return ir.DataType.FLOAT16

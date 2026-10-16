@@ -26,7 +26,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins._utils import cast_param_like
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 
 
@@ -193,7 +196,7 @@ def _flatten_leading_dim_label(
     return None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.linear",
     jax_doc="https://docs.kidger.site/equinox/api/eqx/nn/linear/",
     onnx=[

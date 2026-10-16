@@ -26,7 +26,10 @@ from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _WHERE_PRIM: Final = make_jnp_primitive("jax.numpy.where")
@@ -57,7 +60,7 @@ def _create_problematic_where_sequence(
     return data_input * where_output
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_WHERE_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.where.html",
     onnx=[

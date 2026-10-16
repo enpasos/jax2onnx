@@ -139,6 +139,16 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
     _bind_jaxpr_inputs(ctx, trace.jaxpr, inputs_as_nchw=())
     outvar = trace.jaxpr.outvars[0]
 
+    input_value = ctx.lookup_value_for_var(trace.jaxpr.invars[0])
+    assert input_value is ctx.builder.inputs[0]
+    bindings_before = dict(ctx.builder._var2val)
+    nodes_before = tuple(ctx.builder.graph)
+    constants_before = tuple(ctx.builder.initializers)
+    assert ctx.lookup_value_for_var(outvar) is None
+    assert ctx.builder._var2val == bindings_before
+    assert tuple(ctx.builder.graph) == nodes_before
+    assert tuple(ctx.builder.initializers) == constants_before
+
     with pytest.raises(KeyError):
         ctx.require_value_for_var(outvar)
 
@@ -146,6 +156,39 @@ def test_require_value_for_var_does_not_allocate_unbound_outputs() -> None:
 
     assert allocated.name == "allocated_output"
     assert ctx.require_value_for_var(outvar) is allocated
+    assert ctx.lookup_value_for_var(outvar) is allocated
+    assert ctx.allocate_value_for_var(outvar, name_hint="unused_name") is allocated
+
+
+@pytest.mark.parametrize("function_mode", [False, True])
+def test_literal_lookup_is_pure_and_materialization_preserves_scope(
+    function_mode: bool,
+) -> None:
+    closed = jax.make_jaxpr(lambda x: x + 1.0)(jax.ShapeDtypeStruct((2,), jnp.float32))
+    literal = closed.jaxpr.eqns[-1].invars[1]
+    ctx = _create_ir_context(
+        opset=21,
+        enable_double_precision=False,
+        input_specs=[],
+        frozen_params={},
+        record_primitive_calls_file=None,
+    )
+    ctx._function_mode = function_mode
+    ctx.builder._function_mode = function_mode
+
+    assert ctx.lookup_value_for_var(literal) is None
+    assert not ctx.builder.initializers
+    assert not tuple(ctx.builder.graph)
+
+    value = ctx.require_value_for_var(literal)
+    assert value.dtype == ir.DataType.FLOAT
+    if function_mode:
+        assert not ctx.builder.initializers
+        assert value.producer() is not None
+        assert value.producer().op_type == "Constant"
+    else:
+        assert value in ctx.builder.initializers
+        assert value.producer() is None
 
 
 @pytest.mark.parametrize("enable_double_precision", [False, True])

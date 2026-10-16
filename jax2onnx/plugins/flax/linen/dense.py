@@ -11,7 +11,7 @@ import onnx_ir as ir
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
     construct_and_call,
     with_requested_dtype,
     with_rng_seed,
@@ -144,7 +144,7 @@ def _linear_output_dims(
     return tuple(dims)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.dense",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.Dense",
     onnx=[

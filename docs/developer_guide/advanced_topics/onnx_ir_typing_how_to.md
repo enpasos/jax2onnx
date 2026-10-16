@@ -1,6 +1,6 @@
 # Using `onnx_ir` Types
 
-`jax2onnx` depends on `onnx-ir>=0.2.1`. The package ships inline type
+`jax2onnx` depends on `onnx-ir>=1.0.0`. The package ships inline type
 information and a `py.typed` marker, so mypy can check converter and plugin code
 against the public ONNX IR API.
 
@@ -10,7 +10,7 @@ The repository keeps `onnx_ir` imports typed in `pyproject.toml`:
 
 ```toml
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = ["jax2onnx"]
 follow_imports = "skip"
 disallow_untyped_defs = true
@@ -69,15 +69,61 @@ aligned with project policy.
 
 ## Typing Patterns
 
-- Annotate lowerings with `LoweringContextProtocol` from
-  `jax2onnx.converter.typing_support`.
-- Use `IRBuilderProtocol` for helpers that only need the builder surface.
+- Annotate new native lowerings with `NativeLoweringContext` from
+  `jax2onnx.converter.typing_support`. Its `builder` is already the closed
+  `IRBuilderAPI`, so direct calls are checked without a local type annotation.
+- Use `ConverterContext` for internal equation dispatch and Function/scope
+  management. It includes the converter's bookkeeping and compatible builder
+  surface. `LoweringContextProtocol` remains a legacy alias for that contract;
+  existing plugin annotations continue to work.
+- Use the closed `IRBuilderAPI` for helpers that only need the builder surface.
+  Its methods and input/output types are checked statically. The compatibility
+  `IRBuilderProtocol` adds unrestricted dynamic operator shorthand for existing
+  leaf plugins; it cannot reject unknown operator attributes.
+- Prefer its explicitly typed `op` / `op_multi_out` methods. `op` returns
+  `ir.Value`; `op_multi_out` returns `Sequence[ir.Value]`. Optional input slots
+  are typed `ir.Value | None`, and `output=` / `outputs=` accept existing IR
+  values without casts or result-shape guessing.
 - Use `SymbolicDimOrigin` when passing symbolic-dimension provenance between the
   converter, `dim_as_value`, and shape helpers.
 - Use `AxisOverrideInfo` / `AxisOverrideMap` only for loop/scan extent metadata
   where axis-0 overrides must survive nested graph rewrites.
 - Use `PrimitiveLowering` and `FunctionLowering` protocols when dispatch code
   needs to accept plugin instances without depending on concrete base classes.
+
+### A Typed Builder Call
+
+```python
+import onnx_ir as ir
+
+from jax2onnx.converter.typing_support import IRBuilderAPI
+
+
+def transpose(builder: IRBuilderAPI, value: ir.Value) -> ir.Value:
+    output = ir.val("transposed", dtype=value.dtype, shape=[3, 2])
+    return builder.op(
+        "Transpose",
+        [value],
+        {"perm": ir.AttrInt64s("perm", [1, 0])},
+        output=output,
+    )
+```
+
+Use public `ir.Attr` constructors for sequence/tensor/graph attributes and
+scalar Python values for simple attributes. The public ONNX IR module does
+not expose Tape's complete attribute union; do not import that alias from a
+private module or create local stubs. The dynamic operator shorthand retains
+its existing compatibility contract, while the typed methods make inputs,
+outputs, and node metadata parameters checkable at each call site.
+
+See the [typed emission pattern](onnx_ir_builder.md#typed-emission-pattern)
+for the complete lowering contract, with `NegPlugin` and `TopKPlugin` as
+executable single-/multi-output examples.
+The shared unary helper in `plugins/jax/numpy/_unary_utils.py`, Function call
+emission, and layout output binding apply the same pattern in production paths.
+For graph transformations, the
+[graph rewrite reference](ir_optimizer.md#graph-rewrite-reference) uses the same
+public IR value types and checks ownership after replacement.
 
 ## What to Avoid
 
@@ -91,7 +137,7 @@ aligned with project policy.
 ## Troubleshooting
 
 - **mypy cannot find `onnx_ir` types:** confirm dependencies are installed in the
-  Poetry environment and that `onnx-ir>=0.2.1` is active.
+  Poetry environment and that `onnx-ir>=1.0.0` is active.
 - **A helper needs both ONNX IR and ONNX `ModelProto`:** keep the typed IR path
   first, then add a narrow duck-typed fallback at the boundary.
 - **A plugin suddenly needs `cast(...)`:** prefer a small typed helper in

@@ -20,13 +20,16 @@ from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _LINALG_DET_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.det")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_LINALG_DET_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.det.html",
     onnx=[

@@ -14,7 +14,10 @@ from flax import nnx
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.nn.gelu import lower_gelu
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -34,7 +37,7 @@ def _make_gelu_checker(
     return _run
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.gelu",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.gelu",
     onnx=[

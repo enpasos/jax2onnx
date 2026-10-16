@@ -17,7 +17,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _LAMBDA_IMPLS: Final[dict[str, Callable[[jax.Array], jax.Array]]] = {
     "relu": jax.nn.relu,
@@ -32,7 +35,7 @@ _LAMBDA_ONNX_OPS: Final[dict[str, str]] = {
 }
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.lambda",
     jax_doc="https://docs.kidger.site/equinox/api/nn/sequential/#equinox.nn.Lambda",
     onnx=[

@@ -11,7 +11,10 @@ import onnx_ir as ir
 
 import jax
 
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx._compat.jax import JaxprEqn
@@ -38,7 +41,7 @@ def _scalar_constant(ctx: LoweringContextProtocol, value: float) -> ir.Value:
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="random_bits",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.bits.html",
     onnx=[

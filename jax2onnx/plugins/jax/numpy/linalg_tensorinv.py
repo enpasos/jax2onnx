@@ -34,7 +34,10 @@ from jax2onnx.plugins.jax.numpy.linalg_inv import (
     _unsqueeze,
 )
 from jax2onnx.plugins.jax.numpy.linalg_solve import _cast_to_output_dtype
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _TENSORINV_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.tensorinv")
@@ -323,7 +326,7 @@ def _invert_2x2(
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TENSORINV_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.tensorinv.html",
     onnx=[

@@ -9,10 +9,13 @@ import numpy as np
 from flax import nnx
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.combine_masks",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.combine_masks",
     onnx=[

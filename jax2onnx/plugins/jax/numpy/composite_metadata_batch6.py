@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite6"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataBatch6Plugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.gcd",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.gcd.html",
     onnx=[
@@ -61,7 +64,7 @@ class JnpGcdMetadata(_JnpCompositeMetadataBatch6Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.lcm",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.lcm.html",
     onnx=[
@@ -87,7 +90,7 @@ class JnpLcmMetadata(_JnpCompositeMetadataBatch6Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.put",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.put.html",
     onnx=[
@@ -117,7 +120,7 @@ class JnpPutMetadata(_JnpCompositeMetadataBatch6Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.put_along_axis",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.put_along_axis.html",
     onnx=[
@@ -150,7 +153,7 @@ class JnpPutAlongAxisMetadata(_JnpCompositeMetadataBatch6Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.ndarray_at",
     jax_doc="https://docs.jax.dev/en/latest/jax.numpy.ndarray.at",
     onnx=[
@@ -175,7 +178,7 @@ class JnpNdarrayAtMetadata(_JnpCompositeMetadataBatch6Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.vectorize",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.vectorize.html",
     onnx=[

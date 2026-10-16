@@ -23,7 +23,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
 )
 
@@ -32,7 +32,7 @@ PRELU_PRIM: Final[Primitive] = Primitive("nnx.prelu")
 PRELU_PRIM.multiple_results = False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=PRELU_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/activations.html#flax.nnx.PReLU",
     onnx=[

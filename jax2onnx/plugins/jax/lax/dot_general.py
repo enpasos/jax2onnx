@@ -22,7 +22,10 @@ from jax2onnx.plugins._complex_utils import (
     split_packed_real_imag,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.ir_utils import numpy_dtype_to_ir
@@ -35,7 +38,7 @@ def _value_ir_dtype(value: ir.Value) -> ir.DataType | None:
     )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.dot_general_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dot_general.html",
     onnx=[

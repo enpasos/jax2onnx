@@ -25,7 +25,10 @@ from jax2onnx.plugins.jax.lax._index_utils import (
     _scalar_i64,
     _shape_of,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 from .gather_helpers import get_gir_output_shape
 from .gather_compile import compile_to_gir
@@ -148,7 +151,7 @@ def _fill_value_array(fill_value: Any, dtype: ir.DataType) -> np.ndarray[Any, An
     return cast(np.ndarray[Any, Any], np.asarray(fill_value, dtype=np_dtype))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.gather_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.gather.html",
     onnx=[

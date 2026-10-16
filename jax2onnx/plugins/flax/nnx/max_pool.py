@@ -11,7 +11,10 @@ from flax import nnx
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
@@ -65,7 +68,7 @@ def _static_dim_as_int(dim: object) -> int:
     return int(dim)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=MAX_POOL_PRIM.name,
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.max_pool",
     onnx=[

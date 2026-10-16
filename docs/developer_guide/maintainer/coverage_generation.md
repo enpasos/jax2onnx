@@ -13,8 +13,8 @@ in maintainer docs, issues, or pull-request descriptions.
 
 | Public page | Generator | Notes |
 | --- | --- | --- |
-| `docs/user_guide/supported_components.md` | `poetry run python scripts/generate_readme.py` | Runs `scripts/generate_tests.py`, collects a pytest JSON report, then refreshes the generated component table. |
-| `docs/user_guide/examples.md` | `poetry run python scripts/generate_readme.py` | Uses the same metadata/test-result pass as `supported_components.md`; Netron links come from testcase context and name. |
+| `docs/user_guide/supported_components.md` | `./scripts/generate_readme.sh` (wraps `scripts/generate_readme.py`) | Prepares optional MaxText/MaxDiffusion checkouts, runs `scripts/generate_tests.py`, collects a pytest JSON report, then refreshes the generated component table. |
+| `docs/user_guide/examples.md` | `./scripts/generate_readme.sh` (wraps `scripts/generate_readme.py`) | Uses the same metadata/test-result pass as `supported_components.md`; Netron links come from testcase context and name. |
 | `docs/user_guide/onnx_operator_coverage.md` | `poetry run python scripts/generate_onnx_operator_coverage.py` | Supports `--check`. Starts from the ONNX operator index and plugin `onnx` metadata. |
 | `docs/user_guide/jax_lax_coverage.md` | `poetry run python scripts/generate_lax_operator_coverage.py` | Supports `--check`; also writes a local `work_notes_coverage3.md` review file. |
 | `docs/user_guide/jax_numpy_coverage.md` | `poetry run python scripts/generate_jnp_operator_coverage.py` | Supports `--check`; also writes a local `work_notes_coverage_jnp.md` review file. |
@@ -51,8 +51,10 @@ poetry run python scripts/generate_flax_api_coverage.py --check
 poetry run python scripts/generate_eqx_nn_coverage.py --check
 ```
 
-`scripts/generate_readme.py` does not expose a `--check` mode. Review its diff
-after it refreshes `supported_components.md` and `examples.md`.
+`scripts/generate_readme.py` does not expose a `--check` mode, and refuses to
+drop rows if optional SotA checkouts are missing (unless `--allow-removals` is
+passed for intentional deletions). Use `./scripts/generate_readme.sh` and review
+its diff after it refreshes `supported_components.md` and `examples.md`.
 
 ## Stacktrace Fixtures
 
@@ -84,7 +86,7 @@ poetry run pytest -q \
 
 Regenerate generated tests with `poetry run python scripts/generate_tests.py`.
 If the public component/example tables need updated status or links, follow with
-`poetry run python scripts/generate_readme.py`.
+`./scripts/generate_readme.sh`.
 
 Keep `post_check_onnx_graph` expectations focused on meaningful structural
 checks. For imported function bodies, use `search_functions=True` and graph

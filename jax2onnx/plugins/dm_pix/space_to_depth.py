@@ -28,7 +28,10 @@ from jax2onnx._compat.jax import (
     batching,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 try:
     import dm_pix as _dm_pix
@@ -119,7 +122,7 @@ _TESTCASES: list[dict[str, Any]] = (
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SPACE_TO_DEPTH_PRIM.name,
     jax_doc="https://dm-pix.readthedocs.io/en/latest/api.html#space-to-depth",
     onnx=[

@@ -19,10 +19,10 @@ from jax2onnx.plugins._loop_extent_meta import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax.add import AddPlugin, lower_add
-from jax2onnx.plugins.plugin_system import register_primitive
+from jax2onnx.plugins.plugin_system import register_native_primitive
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="add_any",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.add.html",
     onnx=[

@@ -10,7 +10,10 @@ import onnx_ir as ir
 from jax2onnx._compat.jax import JaxprEqn
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _DTYPE_INFO: dict[
@@ -62,7 +65,7 @@ _DTYPE_INFO: dict[
 }
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.clz_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.clz.html",
     onnx=[

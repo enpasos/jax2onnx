@@ -328,6 +328,7 @@ class IRBuilder:
         self._function_mode: bool = False
         self._var2val: dict[Any, ir.Value] = {}
         self._counters: dict[str, int] = {}
+        self._name_prefix: str = ""
         # optional: symbolic dim origins used by some plugins
         self._sym_origin: dict[str, SymbolicDimOrigin] = {}
         self._stacktrace_metadata_enabled: bool = enable_stacktrace_metadata
@@ -423,6 +424,8 @@ class IRBuilder:
 
     # ---------- naming ----------
     def fresh_name(self, base: str) -> str:
+        if self._name_prefix:
+            base = f"{self._name_prefix}/{base}"
         i = self._counters.get(base, 0)
         self._counters[base] = i + 1
         return f"{base}_{i}"
@@ -558,25 +561,14 @@ class IRBuilder:
             self.outputs.append(v)
 
     # ---------- stacktrace helpers ----------
-    def _iter_stacktrace_values(self, obj: Any) -> Iterable[ir.Value]:
-        if isinstance(obj, ir.Value):
-            yield obj
-            return
-        if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
-            for item in obj:
-                yield from self._iter_stacktrace_values(item)
-
-    def _collect_nodes_from_result(self, result: Any) -> list[ir.Node]:
+    def _collect_nodes_from_result(
+        self, result: ir.Value | Sequence[ir.Value]
+    ) -> list[ir.Node]:
         nodes: list[ir.Node] = []
         seen: set[int] = set()
-        for value in self._iter_stacktrace_values(result):
-            producer = getattr(value, "producer", None)
-            if not callable(producer):
-                continue
-            try:
-                node = producer()
-            except Exception:
-                node = None
+        values = (result,) if isinstance(result, ir.Value) else result
+        for value in values:
+            node = value.producer()
             if node is None:
                 continue
             node_id = id(node)
@@ -715,32 +707,92 @@ class IRBuilder:
         if not any([stack_str, jax_trace, callsite, plugin_display]):
             return
         for node in nodes_list:
-            try:
-                metadata = getattr(node, "metadata_props")
-            except Exception:
-                metadata = None
-            if metadata is None:
-                continue
-            try:
-                if callsite and metadata.get(JAX_CALLSITE_METADATA_KEY) is None:
-                    metadata[JAX_CALLSITE_METADATA_KEY] = callsite
-                if plugin_display and metadata.get(PLUGIN_METADATA_KEY) is None:
-                    metadata[PLUGIN_METADATA_KEY] = plugin_display
-                if detail == "full":
-                    if stack_str and STACKTRACE_METADATA_KEY not in metadata:
-                        metadata[STACKTRACE_METADATA_KEY] = stack_str
-                    if jax_trace and JAX_TRACE_METADATA_KEY not in metadata:
-                        metadata[JAX_TRACE_METADATA_KEY] = jax_trace
-            except Exception:
-                continue
+            metadata = node.metadata_props
+            if callsite and metadata.get(JAX_CALLSITE_METADATA_KEY) is None:
+                metadata[JAX_CALLSITE_METADATA_KEY] = callsite
+            if plugin_display and metadata.get(PLUGIN_METADATA_KEY) is None:
+                metadata[PLUGIN_METADATA_KEY] = plugin_display
+            if detail == "full":
+                if stack_str and STACKTRACE_METADATA_KEY not in metadata:
+                    metadata[STACKTRACE_METADATA_KEY] = stack_str
+                if jax_trace and JAX_TRACE_METADATA_KEY not in metadata:
+                    metadata[JAX_TRACE_METADATA_KEY] = jax_trace
 
-    def _maybe_attach_stacktrace_from_result(self, result: Any) -> None:
+    def _maybe_attach_stacktrace_from_result(
+        self, result: ir.Value | Sequence[ir.Value]
+    ) -> None:
         if not self._stacktrace_metadata_enabled:
             return
         nodes = self._collect_nodes_from_result(result)
         self._maybe_attach_stacktrace_to_nodes(nodes)
 
     # ---------- nodes ----------
+    def op(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value | None],
+        attributes: Mapping[str, ir.Attr | str | int | float] | None = None,
+        *,
+        domain: str = "",
+        overload: str = "",
+        version: int | None = None,
+        graph: ir.Graph | None = None,
+        name: str | None = None,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+        output: ir.Value | None = None,
+    ) -> ir.Value:
+        """Emit one typed output using the public Tape contract."""
+        result = self._tape_builder.op(
+            op_type,
+            inputs,
+            attributes,
+            domain=domain,
+            overload=overload,
+            version=version,
+            graph=graph,
+            name=name,
+            doc_string=doc_string,
+            metadata_props=metadata_props,
+            output=output,
+        )
+        self._maybe_attach_stacktrace_from_result(result)
+        return result
+
+    def op_multi_out(
+        self,
+        op_type: str,
+        inputs: Sequence[ir.Value | None],
+        attributes: Mapping[str, ir.Attr | str | int | float] | None = None,
+        *,
+        num_outputs: int | None = None,
+        outputs: Sequence[ir.Value] | None = None,
+        domain: str = "",
+        overload: str = "",
+        version: int | None = None,
+        graph: ir.Graph | None = None,
+        name: str | None = None,
+        doc_string: str | None = None,
+        metadata_props: dict[str, str] | None = None,
+    ) -> Sequence[ir.Value]:
+        """Emit typed outputs, specifying either their values or their count."""
+        result = self._tape_builder.op_multi_out(
+            op_type,
+            inputs,
+            attributes,
+            num_outputs=num_outputs,
+            outputs=outputs,
+            domain=domain,
+            overload=overload,
+            version=version,
+            graph=graph,
+            name=name,
+            doc_string=doc_string,
+            metadata_props=metadata_props,
+        )
+        self._maybe_attach_stacktrace_from_result(result)
+        return result
+
     def add_node_obj(self, node: ir.Node) -> None:
         self.nodes.append(node)
         self._maybe_attach_stacktrace_to_nodes([node])

@@ -27,13 +27,16 @@ from jax2onnx.plugins.jax.numpy.right_shift import (
     abstract_eval_via_orig_binary,
     lower_right_shift_core,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _BITWISE_RIGHT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.bitwise_right_shift")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_BITWISE_RIGHT_SHIFT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.bitwise_right_shift.html",
     onnx=[

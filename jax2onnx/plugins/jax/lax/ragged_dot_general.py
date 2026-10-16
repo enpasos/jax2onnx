@@ -15,7 +15,10 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax.dot_general import DotGeneralPlugin
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _adjust_axes(
@@ -62,7 +65,7 @@ def _gather_group_zero(
     return out, shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="ragged_dot_general",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.ragged_dot_general.html",
     onnx=[{"component": "Einsum/MatMul", "doc": "https://onnx.ai/onnx/operators/"}],

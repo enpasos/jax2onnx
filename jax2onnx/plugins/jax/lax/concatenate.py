@@ -17,7 +17,10 @@ from jax2onnx.plugins._loop_extent_meta import (
     propagate_axis0_override,
     set_axis0_override,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _normalize_axis(axis: int, rank: int) -> int:
@@ -57,7 +60,7 @@ def _cast_value(
     return cast_val
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.concatenate_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.concatenate.html",
     onnx=[

@@ -11,7 +11,10 @@ from flax import linen as nn
 from jax2onnx._compat.jax import JaxprEqn, Primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ACTIVATION_TARGETS: Final[dict[str, tuple[tuple[object, str], ...]]] = {
@@ -57,7 +60,7 @@ def _make_forwarder(
     return _patch
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.activation",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/activation.html",
     since="0.11.0",

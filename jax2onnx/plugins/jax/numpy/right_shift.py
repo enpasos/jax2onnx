@@ -26,7 +26,10 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _RIGHT_SHIFT_PRIM: Final = make_jnp_primitive("jax.numpy.right_shift")
@@ -326,7 +329,7 @@ def lower_right_shift_core(
     ctx.bind_value_for_var(out_var, result)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_RIGHT_SHIFT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.right_shift.html",
     onnx=[

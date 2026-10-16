@@ -20,7 +20,10 @@ from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _LOGSUMEXP_PRIM: Final[Primitive] = Primitive("jax.nn.logsumexp")
@@ -29,7 +32,7 @@ _JAX_LOGSUMEXP_ORIG: Final = jax.nn.logsumexp
 BatchDim: TypeAlias = int | None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_LOGSUMEXP_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.logsumexp.html",
     onnx=[

@@ -23,7 +23,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _MOVEAXIS_PRIM: Final = make_jnp_primitive("jax.numpy.moveaxis")
@@ -65,7 +68,7 @@ def _moveaxis_permutation(
     return tuple(order)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_MOVEAXIS_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.moveaxis.html",
     onnx=[

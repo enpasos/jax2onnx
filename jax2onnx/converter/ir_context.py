@@ -14,6 +14,7 @@ from typing import (
     Callable,
     cast,
     Final,
+    Literal,
 )
 from typing import overload
 from collections.abc import MutableSequence
@@ -29,12 +30,14 @@ from jax2onnx.ir_utils import (
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
-from .typing_support import SymbolicDimOrigin
+from .typing_support import ConverterContext, SymbolicDimOrigin
+from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from .conversion_api import FunctionRegistry
+    from .function_scope import FunctionRegistry
 
 
 class _InitializerProxy(MutableSequence[ir.Value]):
@@ -217,6 +220,7 @@ class IRContext:
         # Name counters for fresh_name(); keep a typed attribute so mypy is happy.
         # Using dict[str, int] since we only ever index by the base string.
         self._name_counters: dict[str, int] = {}
+        self._name_prefix: str = ""
         self._function_mode: bool = False
         self._function_registry: Optional["FunctionRegistry"] = None
         self._ir_functions: list[ir.Function] = []
@@ -226,15 +230,20 @@ class IRContext:
         self._inside_function_scope: bool = False
         self._keep_function_float32: bool = False
         # Function plugin bookkeeping mirrors (always initialised for typed access)
-        self._func_name_counters: dict[str, int] = {}
+        self._func_name_counters: dict[tuple[str, str, str], int] = {}
         self._call_input_param_names: set[str] = set()
-        self._call_input_param_literals: dict[str, Any] = {}
+        self._call_input_param_literals: dict[str, object] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
+        # Root tracing receives declared input_params as Python values. Function
+        # retracing uses explicit formals, so its Python kwargs remain static.
+        self._promote_call_input_params: bool = True
+        self._implicit_capture_parent: IRContext | None = None
+        self._external_flag_resolver: Callable[[str], ir.Value] | None = None
         self._const_folder = ConstantFolder()
-        self._current_eqn: Any = None
-        self._primitive_call_records: list[Any] = []
+        self._current_eqn: JaxprEqn | None = None
+        self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
         self._lowering_record_depth: int = 0
-        self._lowering_record_owner: Any = self
+        self._lowering_record_owner: ConverterContext = self
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None
@@ -280,6 +289,61 @@ class IRContext:
     def set_function_registry(self, registry: "FunctionRegistry") -> None:
         self._function_registry = registry
 
+    def create_child_context(
+        self,
+        *,
+        scope: Literal["function", "control_flow"],
+        prefix: str | None = None,
+        implicit_captures: bool = False,
+    ) -> IRContext:
+        """Create an independent body graph with the parent's conversion settings.
+
+        Function definitions share their registry and name counters across scopes.
+        Parameter declarations are copied, while their IR values remain local to
+        each graph. Control-flow bodies may capture parent values and therefore
+        inherit symbolic origins; functions remap origins onto formal inputs.
+        Only If branches enable ``implicit_captures``; Loop state stays explicit.
+        Named Python-parameter promotion is inherited by control flow and stops
+        at a function boundary, where dynamic kwargs are already real operands.
+        """
+        child = IRContext(
+            opset=self.opset,
+            enable_double_precision=self.enable_double_precision,
+            normalization_mode=self.normalization_mode,
+            input_specs=[],
+            stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
+        )
+        child.record_primitive_calls_file = self.record_primitive_calls_file
+        child._lowering_record_owner = self._lowering_record_owner
+        child._primitive_call_records = (
+            self._lowering_record_owner._primitive_call_records
+        )
+        child._function_mode = True
+        child._inside_function_scope = True
+        child.builder._function_mode = True
+        child._function_registry = self._function_registry
+        child._func_name_counters = self._func_name_counters
+        child._call_input_param_names = set(self._call_input_param_names)
+        child._call_input_param_literals = dict(self._call_input_param_literals)
+        child._promote_call_input_params = (
+            scope == "control_flow" and self._promote_call_input_params
+        )
+
+        if scope == "control_flow":
+            # Local function definitions still belong to the enclosing model.
+            child._ir_functions = self._ir_functions
+            child._keep_function_float32 = self._keep_function_float32
+            child._sym_origin = dict(self._sym_origin)
+            child._sym_origin_str = dict(self._sym_origin_str)
+            if implicit_captures:
+                child._implicit_capture_parent = self
+
+        if prefix is not None:
+            prefix_base = self.fresh_name(prefix)
+            child._name_prefix = prefix_base
+            child.builder._name_prefix = prefix_base
+        return child
+
     # ------------------------------- IR functions bucket ------------------------
 
     @property
@@ -302,6 +366,8 @@ class IRContext:
         return arr
 
     def fresh_name(self, base: str) -> str:
+        if self._name_prefix:
+            base = f"{self._name_prefix}/{base}"
         # Counter dict is initialized in __init__; no lazy setup needed.
         i = self._name_counters.get(base, 0)
         self._name_counters[base] = i + 1
@@ -338,23 +404,38 @@ class IRContext:
         return self._attr_overrides.get(node.name or "", {})
 
     # ---------- Scope-agnostic external flag as graph input (top) or local value (function)
-    def ensure_external_flag(self, name: str, var: Any) -> ir.Value:
-        """Top-level: return/create a BOOL[] graph input `name`.
-        Function body: return the Value for `var` (function input or literal)."""
+    def set_external_flag_resolver(
+        self, resolver: Callable[[str], ir.Value] | None
+    ) -> None:
+        """Let a Loop body request an explicit carried input on first use."""
+        self._external_flag_resolver = resolver
+
+    def ensure_external_flag(self, name: str, var: object | None) -> ir.Value:
+        """Resolve a BOOL[] input, a function formal, or an If-branch capture.
+
+        Function and Loop bodies require explicit local bindings. If branches
+        may capture an enclosing flag through a local Identity on first use.
+        """
         if self._inside_function_scope:
             if var is None:
-                lookup = self.__dict__.get("_call_param_value_by_name")
-                if isinstance(lookup, dict) and name in lookup:
-                    value_obj = lookup[name]
-                    if isinstance(value_obj, ir.Value):
-                        return value_obj
-                    raise TypeError(
-                        f"Dynamic call parameter '{name}' is not an ir.Value"
+                value = self._call_param_value_by_name.get(name)
+                if value is not None:
+                    return value
+                if self._implicit_capture_parent is not None:
+                    parent_value = self._implicit_capture_parent.ensure_external_flag(
+                        name, None
                     )
+                    captured = self._capture_parent_value(parent_value, name_hint=name)
+                    self._call_param_value_by_name[name] = captured
+                    return captured
+                if self._external_flag_resolver is not None:
+                    value = self._external_flag_resolver(name)
+                    self._call_param_value_by_name[name] = value
+                    return value
                 raise RuntimeError(
                     f"Call parameter '{name}' does not have a dynamic value in function scope"
                 )
-            return self.get_value_for_var(var, name_hint=name)
+            return self.require_value_for_var(var)
         # top-level graph input (reuse if already present)
         for vi in self.builder.inputs:
             if (vi.name or "") == name:
@@ -364,6 +445,13 @@ class IRContext:
         )
         self.builder.inputs.append(v)
         return v
+
+    def _capture_parent_value(self, value: ir.Value, *, name_hint: str) -> ir.Value:
+        """Mirror a lexically resolved parent value into this If branch."""
+        captured = ir.Value(
+            name=self.fresh_name(name_hint), type=value.type, shape=value.shape
+        )
+        return self.builder.op("Identity", [value], output=captured)
 
     def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value:
         """
@@ -643,20 +731,39 @@ class IRContext:
             arr = arr.astype(literal_dtype, copy=False)
         return self.bind_const_for_var(var, arr)
 
+    def lookup_value_for_var(self, var: object) -> ir.Value | None:
+        """Look up a variable binding; literal values are materialized separately."""
+        if isinstance(var, _LITERAL_TYPES):
+            return None
+        return self.builder._var2val.get(var)
+
     def require_value_for_var(
         self,
         var: Any,
         *,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        """Return an already-bound input value, binding JAX literals as constants."""
-        if _LITERAL_TYPES and isinstance(var, _LITERAL_TYPES):
+        """Require a variable binding, resolving lexical captures in If branches.
+
+        Captures retain JAX variable identity and become local IR values. Function
+        and Loop scopes have no implicit parent; their inputs must be explicit.
+        JAX literals are materialized as constants in the current scope.
+        """
+        if isinstance(var, _LITERAL_TYPES):
             return self._bind_literal_value_for_var(
                 var,
                 prefer_np_dtype=prefer_np_dtype,
             )
-        if var in self.builder._var2val:
-            return self.builder._var2val[var]
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            return value
+        if self._implicit_capture_parent is not None:
+            parent_value = self._implicit_capture_parent.require_value_for_var(
+                var, prefer_np_dtype=prefer_np_dtype
+            )
+            captured = self._capture_parent_value(parent_value, name_hint="capture")
+            self.bind_value_for_var(var, captured)
+            return captured
         raise KeyError(f"No IR value is bound for JAX var {var!r}")
 
     def allocate_value_for_var(
@@ -666,11 +773,30 @@ class IRContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
-        """Return a bound value, allocating an output placeholder when needed."""
-        try:
-            return self.require_value_for_var(var, prefer_np_dtype=prefer_np_dtype)
-        except KeyError:
-            pass
+        """Allocate a writable output, reusing only an unproduced placeholder.
+
+        Replacing an existing result preserves its metadata and leaves the old
+        graph value intact. Inputs and constants are never reused as outputs.
+        """
+        if isinstance(var, _LITERAL_TYPES):
+            return self._bind_literal_value_for_var(
+                var, prefer_np_dtype=prefer_np_dtype
+            )
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            if (
+                value.producer() is None
+                and not value.is_graph_input()
+                and not value.is_initializer()
+                and value.const_value is None
+            ):
+                return value
+            output_name = name_hint or self.fresh_name("v")
+            if output_name == value.name:
+                output_name = self.fresh_name(output_name)
+            output = ir.Value(name=output_name, type=value.type, shape=value.shape)
+            self.bind_value_for_var(var, output)
+            return output
 
         aval = _maybe_aval(var)
         if aval is None:
@@ -682,6 +808,7 @@ class IRContext:
             not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.dtype(np.float16)
+            and aval_dtype.name != "bfloat16"
             and aval_dtype != np.dtype(self._default_float_dtype)
         ):
             aval_dtype = np.dtype(self._default_float_dtype)
@@ -712,6 +839,13 @@ class IRContext:
         name_hint: Optional[str] = None,
         prefer_np_dtype: Optional[np.dtype] = None,
     ) -> ir.Value:
+        """Compatibility convenience that reuses or allocates a value.
+
+        New lowerings should require inputs and allocate outputs explicitly.
+        """
+        value = self.lookup_value_for_var(var)
+        if value is not None:
+            return value
         return self.allocate_value_for_var(
             var,
             name_hint=name_hint,
@@ -719,8 +853,8 @@ class IRContext:
         )
 
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
-        for i, var in enumerate(outvars):
-            v = self.get_value_for_var(var, name_hint=f"out_{i}")
+        for var in outvars:
+            v = self.require_value_for_var(var)
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)

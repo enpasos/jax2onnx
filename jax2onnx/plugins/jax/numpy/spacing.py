@@ -29,7 +29,10 @@ from jax2onnx.plugins.jax.numpy._common import (
 from jax2onnx.plugins.jax.numpy._unary_utils import (
     register_unary_elementwise_batch_rule,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SPACING_PRIM: Final = make_jnp_primitive("jax.numpy.spacing")
@@ -99,7 +102,7 @@ def _stamp_like_x(value: ir.Value, x: ir.Value) -> None:
         value.shape = x.shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SPACING_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.spacing.html",
     onnx=[

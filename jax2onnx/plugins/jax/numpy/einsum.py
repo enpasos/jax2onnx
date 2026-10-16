@@ -23,7 +23,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _EINSUM_PRIM: Final = make_jnp_primitive("jax.numpy.einsum")
@@ -151,7 +154,7 @@ def _expand_broadcasted_einsum_inputs(
     return adjusted_inputs, adjusted_shapes
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EINSUM_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.einsum.html",
     onnx=[

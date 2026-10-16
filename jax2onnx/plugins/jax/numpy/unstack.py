@@ -26,7 +26,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -43,7 +43,7 @@ def _normalize_axis(axis: int, rank: int) -> int:
     return ax
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_UNSTACK_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.unstack.html",
     onnx=[

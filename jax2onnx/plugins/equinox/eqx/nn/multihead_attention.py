@@ -36,7 +36,7 @@ from jax2onnx.plugins.equinox.eqx.nn.rotary_positional_embedding import (
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_prng_key,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -420,7 +420,7 @@ def _attention_core(
     return _call
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.multihead_attention",
     jax_doc="https://docs.kidger.site/equinox/api/nn/attention/",
     onnx=[

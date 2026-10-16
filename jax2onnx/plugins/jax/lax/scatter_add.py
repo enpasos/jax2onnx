@@ -14,10 +14,13 @@ from jax2onnx.plugins.jax.lax import cond as _cond_plugin  # noqa: F401
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.scatter_utils import lower_scatter_common
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.scatter_add_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scatter_add.html",
     onnx=[

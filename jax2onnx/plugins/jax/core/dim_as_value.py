@@ -16,7 +16,10 @@ from jax2onnx.plugins._ir_shapes import _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.utils.shape_poly import dim_expr_constant_value, is_dim_expr
 
 
@@ -61,7 +64,7 @@ def _infer_rank(value: ir.Value, axis: int) -> int:
     return rank
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="dim_as_value",
     jax_doc="https://github.com/jax-ml/jax/blob/main/jax/_src/export/shape_poly.py",
     onnx=[

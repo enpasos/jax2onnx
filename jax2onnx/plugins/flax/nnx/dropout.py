@@ -10,7 +10,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_rng_seed,
 )
 import onnx_ir as ir
@@ -233,7 +233,7 @@ def _extract_python_bool(var: Any) -> Optional[bool]:
     return None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.dropout",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/stochastic.html#flax.nnx.Dropout",
     onnx=[

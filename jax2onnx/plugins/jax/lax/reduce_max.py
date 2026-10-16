@@ -9,7 +9,10 @@ import jax
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _check_reduce_max_axes_input(model: Any) -> bool:
@@ -25,7 +28,7 @@ def _check_reduce_max_axes_input(model: Any) -> bool:
     return True
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.reduce_max_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_max.html",
     onnx=[

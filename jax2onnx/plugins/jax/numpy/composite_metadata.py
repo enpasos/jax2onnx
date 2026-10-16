@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.cov",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cov.html",
     onnx=[
@@ -63,7 +66,7 @@ class JnpCovMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.cross",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cross.html",
     onnx=[
@@ -92,7 +95,7 @@ class JnpCrossMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.delete",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.delete.html",
     onnx=[
@@ -120,7 +123,7 @@ class JnpDeleteMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft_fftfreq",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.fft.fftfreq.html",
     onnx=[
@@ -145,7 +148,7 @@ class JnpFFTFreqMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft_rfftfreq",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.fft.rfftfreq.html",
     onnx=[
@@ -170,7 +173,7 @@ class JnpRFFTFreqMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft_fftshift",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.fft.fftshift.html",
     onnx=[
@@ -198,7 +201,7 @@ class JnpFFTShiftMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fft_ifftshift",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.fft.ifftshift.html",
     onnx=[
@@ -226,7 +229,7 @@ class JnpIFFTShiftMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.geomspace",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.geomspace.html",
     onnx=[
@@ -252,7 +255,7 @@ class JnpGeomspaceMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.gradient",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.gradient.html",
     onnx=[
@@ -278,7 +281,7 @@ class JnpGradientMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.i0",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.i0.html",
     onnx=[
@@ -301,7 +304,7 @@ class JnpI0Metadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.fill_diagonal",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.fill_diagonal.html",
     onnx=[
@@ -325,7 +328,7 @@ class JnpFillDiagonalMetadata(_JnpCompositeMetadataPlugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.histogram_bin_edges",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.histogram_bin_edges.html",
     onnx=[

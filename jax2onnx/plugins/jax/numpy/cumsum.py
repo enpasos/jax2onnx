@@ -23,7 +23,10 @@ from jax2onnx._compat.jax import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
@@ -40,7 +43,7 @@ def _typed_jnp_cumsum(
     return cumsum_fn(x, axis=axis, reverse=reverse, dtype=dtype)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_CUMSUM_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cumsum.html",
     onnx=[

@@ -24,7 +24,10 @@ from jax2onnx.plugins.jax.lax.reduce_window_sum import (
     _flatten_padding,
     _normalize_int_tuple,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _canonical_reducer_name(name: str | None) -> str | None:
@@ -85,7 +88,7 @@ def _is_identity_init(
     return False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=lax.reduce_window_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_window.html",
     onnx=[

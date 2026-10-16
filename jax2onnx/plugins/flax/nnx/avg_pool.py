@@ -10,7 +10,10 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import (
@@ -94,7 +97,7 @@ EXPECT_8_TO_1_GLOBAL: Final = _make_global_expect(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.avg_pool",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.avg_pool",
     onnx=[

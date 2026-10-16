@@ -36,7 +36,10 @@ from jax2onnx.plugins.jax.numpy.histogram import (
     _reshape,
     _unsqueeze,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _HISTOGRAM2D_PRIM: Final = make_jnp_primitive("jax.numpy.histogram2d")
@@ -238,7 +241,7 @@ def _interval_membership(
     return in_bin
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_HISTOGRAM2D_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.histogram2d.html",
     onnx=[

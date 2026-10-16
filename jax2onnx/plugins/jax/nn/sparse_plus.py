@@ -20,7 +20,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.nn._builder_utils import register_unary_elementwise_batch_rule
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SPARSE_PLUS_PRIM: Final[Primitive] = Primitive("jax.nn.sparse_plus")
@@ -28,7 +31,7 @@ _SPARSE_PLUS_PRIM.multiple_results = False
 _JAX_SPARSE_PLUS_ORIG: Final = jax.nn.sparse_plus
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SPARSE_PLUS_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.sparse_plus.html",
     onnx=[

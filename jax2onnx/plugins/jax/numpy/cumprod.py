@@ -23,14 +23,17 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _CUMPROD_PRIM: Final = make_jnp_primitive("jax.numpy.cumprod")
 _JAX_CUMPROD_ORIG: Final = jnp.cumprod
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_CUMPROD_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.cumprod.html",
     onnx=[

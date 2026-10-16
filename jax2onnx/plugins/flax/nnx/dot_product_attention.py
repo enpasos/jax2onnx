@@ -21,7 +21,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     _DynamicParamWrapper,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -120,7 +120,7 @@ EXPECT_DPA_GQA_NATIVE: Final = EG(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=DPA_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/attention.html#flax.nnx.dot_product_attention",
     onnx=[

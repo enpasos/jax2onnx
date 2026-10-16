@@ -12,7 +12,10 @@ import numpy as np
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _METADATA_PRIMITIVE_PREFIX: Final[str] = "metadata::jnp.composite4"
@@ -33,7 +36,7 @@ class _JnpCompositeMetadataBatch4Plugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.block",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.block.html",
     onnx=[
@@ -61,7 +64,7 @@ class JnpBlockMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_matrix_rank",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.matrix_rank.html",
     onnx=[
@@ -87,7 +90,7 @@ class JnpLinalgMatrixRankMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_cond",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.cond.html",
     onnx=[
@@ -110,7 +113,7 @@ class JnpLinalgCondMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_qr",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.qr.html",
     onnx=[{"component": "QR", "doc": "https://onnx.ai/onnx/operators/onnx__QR.html"}],
@@ -130,7 +133,7 @@ class JnpLinalgQrMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_svdvals",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.svdvals.html",
     onnx=[{"component": "SVD", "doc": "https://onnx.ai/onnx/operators/onnx__SVD.html"}],
@@ -150,7 +153,7 @@ class JnpLinalgSvdValsMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_cholesky",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.cholesky.html",
     onnx=[
@@ -175,7 +178,7 @@ class JnpLinalgCholeskyMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.linalg_matrix_power",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.matrix_power.html",
     onnx=[
@@ -200,7 +203,7 @@ class JnpLinalgMatrixPowerMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.polyadd",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polyadd.html",
     onnx=[
@@ -229,7 +232,7 @@ class JnpPolyAddMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.polyder",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polyder.html",
     onnx=[
@@ -255,7 +258,7 @@ class JnpPolyDerMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.polydiv",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polydiv.html",
     onnx=[
@@ -281,7 +284,7 @@ class JnpPolyDivMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.polyint",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polyint.html",
     onnx=[
@@ -307,7 +310,7 @@ class JnpPolyIntMetadata(_JnpCompositeMetadataBatch4Plugin):
     pass
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=f"{_METADATA_PRIMITIVE_PREFIX}.polysub",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.polysub.html",
     onnx=[

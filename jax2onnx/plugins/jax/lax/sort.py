@@ -16,10 +16,13 @@ from jax2onnx.plugins.jax.lax._sort_utils import (
     gather_original_by_sort_indices,
     make_nan_last_sort_key,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.sort_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sort.html",
     onnx=[

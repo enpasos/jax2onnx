@@ -17,16 +17,16 @@ To stay portable across runtimes we represent every complex tensor as a real ten
 | Helper | Purpose |
 | --- | --- |
 | `ensure_complex_dtype(ctx, value, target_dtype)` | Cast native complex tensors between `COMPLEX64` and `COMPLEX128` when a lowering needs an exact complex dtype. |
-| `pack_native_complex(ctx, tensor)` | Reinterpret a native `complex64/complex128` value as a packed real tensor (`[..., 2]`). Handles double-precision upgrades automatically when `enable_double_precision=True`.
-| `is_packed_complex_tensor(value)` | Detect whether a value already uses the packed representation.
-| `ensure_packed_real_pair(ctx, value, *, name_hint)` | Return `(packed_tensor, base_dtype)` for both native complex inputs and already-packed tensors. Raises if the value is neither.
-| `cast_real_tensor(ctx, value, target_dtype, *, name_hint)` | Insert a `Cast` when the packed tensor must move between `FLOAT` and `DOUBLE` representations.
-| `resolve_common_real_dtype(lhs, rhs)` | Pick the shared real dtype (`FLOAT` or `DOUBLE`) for binary complex operations.
-| `split_packed_real_imag(ctx, value, base_dtype, *, prefix)` | Gather the trailing real and imaginary channels from a packed tensor, returning two real tensors.
-| `pack_real_imag_pair(ctx, real, imag, base_dtype, *, name_hint)` | Unsqueeze matching real/imag tensors and concatenate them back into the packed `[... , 2]` representation.
-| `conjugate_packed_tensor(ctx, value, base_dtype, *, prefix)` | Flip the sign of the imaginary channel while preserving shape metadata, producing the complex conjugate of a packed tensor.
-| `coerce_dim_values(dims)` | Normalise shape metadata so `onnx_ir` can stamp symbolic dimensions and integers consistently.
-| `unpack_to_native_complex(...)` | Convert a packed tensor back to a native complex value (used rarely, e.g. when handing results back to JAX in test harnesses).
+| `pack_native_complex(ctx, tensor)` | Reinterpret a native `complex64/complex128` value as a packed real tensor (`[..., 2]`). Handles double-precision upgrades automatically when `enable_double_precision=True`. |
+| `is_packed_complex_tensor(value)` | Detect whether a value already uses the packed representation. |
+| `ensure_packed_real_pair(ctx, value, *, name_hint)` | Return `(packed_tensor, base_dtype)` for both native complex inputs and already-packed tensors. Raises if the value is neither. |
+| `cast_real_tensor(ctx, value, target_dtype, *, name_hint)` | Insert a `Cast` when the packed tensor must move between `FLOAT` and `DOUBLE` representations. |
+| `resolve_common_real_dtype(lhs, rhs)` | Pick the shared real dtype (`FLOAT` or `DOUBLE`) for binary complex operations. |
+| `split_packed_real_imag(ctx, value, base_dtype, *, prefix)` | Gather the trailing real and imaginary channels from a packed tensor, returning two real tensors. |
+| `pack_real_imag_pair(ctx, real, imag, base_dtype, *, name_hint)` | Unsqueeze matching real/imag tensors and concatenate them back into the packed `[... , 2]` representation. |
+| `conjugate_packed_tensor(ctx, value, base_dtype, *, prefix)` | Flip the sign of the imaginary channel while preserving shape metadata, producing the complex conjugate of a packed tensor. |
+| `coerce_dim_values(dims)` | Normalise shape metadata so `onnx_ir` can stamp symbolic dimensions and integers consistently. |
+| `unpack_to_native_complex(...)` | Convert a packed tensor back to a native complex value (used rarely, e.g. when handing results back to JAX in test harnesses). |
 
 These helpers take care of dtype metadata, `IRBuilder` stamping, and axis bookkeeping so individual plugins only need to express the real-valued arithmetic. New complex-aware plugins should rely on them instead of ad hoc `Gather` / `Reshape` sequences so every lowering shares the same representation.
 

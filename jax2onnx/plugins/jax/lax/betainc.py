@@ -11,7 +11,10 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.lgamma import _lanczos_lgamma_positive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _as_value(value: Any) -> ir.Value:
@@ -25,7 +28,7 @@ def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
         value.shape = ref.shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="regularized_incomplete_beta",
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.betainc.html",
     onnx=[

@@ -31,7 +31,7 @@ from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
     construct_and_call,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -217,7 +217,7 @@ def lower_rotary_application(
     return cast(ir.Value, output)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.rotary_positional_embedding",
     jax_doc="https://docs.kidger.site/equinox/api/nn/embedding/#rotary-positional-embedding",
     onnx=[

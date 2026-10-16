@@ -13,7 +13,7 @@ from jax.interpreters import batching
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import group_norm as nnx_group_norm
-from jax2onnx.plugins.plugin_system import register_primitive
+from jax2onnx.plugins.plugin_system import register_native_primitive
 
 
 _GROUP_NORM_STATE_SENTINEL: Final = (
@@ -35,7 +35,7 @@ _EQX_GROUP_NORM_NO_AFFINE: Final[eqx.nn.GroupNorm] = eqx.nn.GroupNorm(
 EXPECT_GROUP_NORM_FALLBACK: Final = nnx_group_norm.EXPECT_GROUP_NORM_EXPLICIT_SLOW
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.group_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.GroupNorm",
     onnx=nnx_group_norm.GROUP_NORM_EXPLICIT_COMPONENTS,

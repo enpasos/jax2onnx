@@ -13,10 +13,13 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
 )
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="name",
     jax_doc="https://github.com/jax-ml/jax/blob/main/jax/_src/ad_checkpoint.py",
     onnx=[

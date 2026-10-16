@@ -27,7 +27,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.utils.shape_poly import (
     dim_expr_constant_value,
     symbolic_dim_eq,
@@ -120,7 +123,7 @@ def _depth_to_space_issue_144(inputs: jax.Array, block_size: int) -> jax.Array:
     return jnp.reshape(outputs, [height * block_size, width * block_size, new_depth])
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_RESHAPE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.reshape.html",
     onnx=[
