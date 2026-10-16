@@ -22,17 +22,15 @@ from jax2onnx._compat.jax import JaxprEqn
 from .output_binding import bind_returned_lowering_values
 from .typing_support import (
     CanonicalLowering,
-    LoweringContextProtocol,
+    ConverterContext,
     PrimitiveLowering,
 )
 
-LegacyCall: TypeAlias = Callable[
-    [LoweringContextProtocol, JaxprEqn, object | None], object
-]
+LegacyCall: TypeAlias = Callable[[ConverterContext, JaxprEqn, object | None], object]
 ConverterBinder: TypeAlias = Callable[[object], CanonicalLowering]
 
 
-def make_converter_facade(ctx: LoweringContextProtocol) -> SimpleNamespace:
+def make_converter_facade(ctx: ConverterContext) -> SimpleNamespace:
     """Expose the context and builder to legacy function handlers."""
     return SimpleNamespace(builder=ctx.builder, ctx=ctx)
 
@@ -60,14 +58,14 @@ def _primitive_call(lower: object) -> LegacyCall:
     if accepts_params:
 
         def call(
-            ctx: LoweringContextProtocol, eqn: JaxprEqn, converter: object | None
+            ctx: ConverterContext, eqn: JaxprEqn, converter: object | None
         ) -> object:
             return lower_fn(ctx, eqn, getattr(eqn, "params", None))
 
     else:
 
         def call(
-            ctx: LoweringContextProtocol, eqn: JaxprEqn, converter: object | None
+            ctx: ConverterContext, eqn: JaxprEqn, converter: object | None
         ) -> object:
             return lower_fn(ctx, eqn)
 
@@ -77,9 +75,7 @@ def _primitive_call(lower: object) -> LegacyCall:
 def _function_call(get_handler: object) -> LegacyCall:
     handler_factory = cast(Callable[[object], Callable[..., object]], get_handler)
 
-    def call(
-        ctx: LoweringContextProtocol, eqn: JaxprEqn, converter: object | None
-    ) -> object:
+    def call(ctx: ConverterContext, eqn: JaxprEqn, converter: object | None) -> object:
         facade = converter or make_converter_facade(ctx)
         handler = handler_factory(facade)
         return handler(facade, eqn, getattr(eqn, "params", {}) or {})
@@ -88,9 +84,7 @@ def _function_call(get_handler: object) -> LegacyCall:
 
 
 def _unsupported_call(primitive_name: str, source: str) -> LegacyCall:
-    def call(
-        ctx: LoweringContextProtocol, eqn: JaxprEqn, converter: object | None
-    ) -> object:
+    def call(ctx: ConverterContext, eqn: JaxprEqn, converter: object | None) -> object:
         raise NotImplementedError(
             f"[{source}] Unsupported plugin type for primitive '{primitive_name}'"
         )
@@ -114,7 +108,7 @@ def prepare_legacy_call(
 def _bind_legacy_call(
     call: LegacyCall, primitive_name: str, converter: object | None = None
 ) -> CanonicalLowering:
-    def lower(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(ctx: ConverterContext, eqn: JaxprEqn) -> None:
         result = call(ctx, eqn, converter)
         bind_returned_lowering_values(ctx, eqn, result, primitive_name=primitive_name)
 

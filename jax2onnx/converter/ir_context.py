@@ -30,7 +30,7 @@ from jax2onnx.ir_utils import (
 from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
-from .typing_support import LoweringContextProtocol, SymbolicDimOrigin
+from .typing_support import ConverterContext, SymbolicDimOrigin
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -243,7 +243,7 @@ class IRContext:
         self._current_eqn: JaxprEqn | None = None
         self._primitive_call_records: list[RecordedPrimitiveCallLog] = []
         self._lowering_record_depth: int = 0
-        self._lowering_record_owner: LoweringContextProtocol = self
+        self._lowering_record_owner: ConverterContext = self
 
     def register_constant_evaluator(
         self, primitive: Any, handler: Callable[..., Any] | None = None
@@ -319,6 +319,7 @@ class IRContext:
             self._lowering_record_owner._primitive_call_records
         )
         child._function_mode = True
+        child._inside_function_scope = True
         child.builder._function_mode = True
         child._function_registry = self._function_registry
         child._func_name_counters = self._func_name_counters
@@ -331,7 +332,6 @@ class IRContext:
         if scope == "control_flow":
             # Local function definitions still belong to the enclosing model.
             child._ir_functions = self._ir_functions
-            child._inside_function_scope = True
             child._keep_function_float32 = self._keep_function_float32
             child._sym_origin = dict(self._sym_origin)
             child._sym_origin_str = dict(self._sym_origin_str)

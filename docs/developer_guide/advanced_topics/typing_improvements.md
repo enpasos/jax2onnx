@@ -30,7 +30,9 @@ Use the shared protocols and dataclasses in
 
 | Type | Use |
 | --- | --- |
-| `LoweringContextProtocol` | Plugin `lower(...)` methods and helpers that need the converter context. |
+| `NativeLoweringContext` | Public native plugin operations, with a closed `IRBuilderAPI` builder. |
+| `ConverterContext` | Internal dispatch, Function management, and converter bookkeeping. |
+| `LoweringContextProtocol` | Compatibility alias for existing plugins using the full converter surface. |
 | `IRBuilderAPI` | Closed interface for typed emission, constants, graph containers, and names. |
 | `IRBuilderProtocol` | Compatibility extension with dynamic operator shorthand for existing plugins. |
 | `SymbolicDimOrigin` | Provenance for symbolic dimensions materialized by `dim_as_value`. |
@@ -40,8 +42,11 @@ Use the shared protocols and dataclasses in
 
 ## Authoring Rules
 
-- Annotate new plugin `lower(...)` methods with `LoweringContextProtocol` and the
+- Annotate new plugin `lower(...)` methods with `NativeLoweringContext` and the
   concrete JAX equation type when it is available.
+- Call its typed `ctx.builder.op` / `op_multi_out` methods directly. Unknown
+  builder methods and incompatible input values are type errors without an
+  additional builder annotation.
 - Keep helper signatures narrow. If a helper only needs `ctx.builder`, accept
   `IRBuilderAPI` or pass the builder directly.
 - Prefer `ir.Value`, `ir.Node`, `ir.Graph`, `ir.Attr`, and `ir.DataType`
@@ -50,6 +55,12 @@ Use the shared protocols and dataclasses in
   `jax2onnx.ir_utils`, and `converter/typing_support.py`.
 - Add a shared protocol/helper when the same `cast(...)` or duck-typed fallback
   appears in more than one module.
+
+The dispatcher supplies a `ConverterContext`, which implements the public
+native contract and the historical dynamic builder surface. A native lowering
+accepts its narrower set of required operations; callable parameter
+contravariance keeps it compatible with the same dispatch registry as existing
+plugins.
 
 ## Boundary Exceptions
 

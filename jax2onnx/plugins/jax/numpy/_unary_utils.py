@@ -18,7 +18,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl
 
@@ -40,7 +40,7 @@ def abstract_eval_via_orig_unary(
 
 
 def lower_unary_elementwise_with_optional_cast(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     *,
     op_name: str,
@@ -56,7 +56,6 @@ def lower_unary_elementwise_with_optional_cast(
     ctx.fresh_name(input_hint)
     x_val = ctx.require_value_for_var(x_var)
     out_spec = ctx.allocate_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
-    builder: IRBuilderAPI = ctx.builder
     in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
     out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
 
@@ -68,7 +67,7 @@ def lower_unary_elementwise_with_optional_cast(
     elif cast_input_to_output_dtype and in_dtype != out_dtype:
         op_input = _cast_value(ctx, x_val, out_dtype, output_hint=output_hint)
 
-    result = builder.op(op_name, [op_input], output=out_spec)
+    result = ctx.builder.op(op_name, [op_input], output=out_spec)
     ctx.bind_value_for_var(y_var, result)
 
 
@@ -78,20 +77,19 @@ def _var_dtype(var: Var | Literal, default: np.dtype[Any]) -> np.dtype[Any]:
 
 
 def _cast_value(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     value: ir.Value,
     dtype: np.dtype[Any],
     *,
     output_hint: str,
 ) -> ir.Value:
-    builder: IRBuilderAPI = ctx.builder
-    cast_dtype = _dtype_to_ir(dtype, builder.enable_double_precision)
+    cast_dtype = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
     output = ir.Value(
         name=ctx.fresh_name(f"{output_hint}_cast"),
         type=ir.TensorType(cast_dtype),
         shape=value.shape,
     )
-    cast_value = builder.op(
+    cast_value = ctx.builder.op(
         "Cast", [value], {"to": int(cast_dtype.value)}, output=output
     )
     _ensure_value_metadata(ctx, cast_value)
@@ -99,7 +97,7 @@ def _cast_value(
 
 
 def cast_input_to_output_dtype(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     x_var: Var | Literal,
     y_var: Var | Literal,
     x_val: ir.Value,

@@ -18,7 +18,7 @@ from .output_binding import (
 from .typing_support import (
     FunctionLowering,
     IRBuilderAPI,
-    LoweringContextProtocol,
+    ConverterContext,
     PrimitiveLowering,
 )
 from .lowering_registry import (
@@ -88,7 +88,7 @@ def _var_log_name(var: object) -> str:
         return repr(var)
 
 
-def _bound_value_name(ctx: LoweringContextProtocol, var: object) -> str:
+def _bound_value_name(ctx: ConverterContext, var: object) -> str:
     value = ctx.lookup_value_for_var(var)
     if value is None:
         return ""
@@ -115,7 +115,7 @@ def _plugin_file_hint(plugin_ref: object, prim_name: str) -> str:
 
 
 def _primitive_call_record(
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     eqn: JaxprEqn,
     *,
     eqn_index: int,
@@ -141,7 +141,7 @@ def _primitive_call_record(
 
 
 def _append_primitive_call_record(
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     eqn: JaxprEqn,
     *,
     eqn_index: int,
@@ -162,7 +162,7 @@ def _append_primitive_call_record(
 
 
 @contextmanager
-def primitive_recording_scope(ctx: LoweringContextProtocol) -> Iterator[None]:
+def primitive_recording_scope(ctx: ConverterContext) -> Iterator[None]:
     owner = ctx._lowering_record_owner
     previous_depth = owner._lowering_record_depth
     owner._lowering_record_depth = previous_depth + 1
@@ -213,7 +213,7 @@ def staged_lowering_metadata(
 
 
 @contextmanager
-def current_eqn_scope(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> Iterator[None]:
+def current_eqn_scope(ctx: ConverterContext, eqn: JaxprEqn) -> Iterator[None]:
     previous_eqn = ctx._current_eqn
     ctx._current_eqn = eqn
     try:
@@ -225,7 +225,7 @@ def current_eqn_scope(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> Iterator[N
 def dispatch_plugin_lowering(
     plugin: object,
     *,
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     eqn: JaxprEqn,
     primitive_name: str,
     source: str,
@@ -239,7 +239,7 @@ def dispatch_plugin_lowering(
 def lower_equation_with_plugin(
     plugin: object,
     *,
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     eqn: JaxprEqn,
     primitive_name: str,
     eqn_index: int,
@@ -262,7 +262,7 @@ def lower_equation_with_plugin(
 def _lower_registered_equation(
     entry: RegisteredLowering,
     *,
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     eqn: JaxprEqn,
     primitive_name: str,
     eqn_index: int,
@@ -301,7 +301,7 @@ def _lower_registered_equation(
 
 def lower_jaxpr_with_plugins(
     *,
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     jaxpr: Jaxpr,
     registry: Mapping[str, object],
     source: str,

@@ -78,9 +78,10 @@ methods expose custom outputs, metadata, overload selection, and pre-existing
 `ir.Value` objects directly. Use a standalone `Tape` when extending an existing
 `ir.Graph` or `ir.Function`.
 
-Type new emission helpers with the closed `IRBuilderAPI` from
-`converter.typing_support`. Existing `IRBuilderProtocol` adds dynamic shorthand
-for compatibility; native helpers do not need that unrestricted attribute API.
+Type builder-only emission helpers with the closed `IRBuilderAPI` from
+`converter.typing_support`. Native plugins use `NativeLoweringContext`, whose
+`builder` already has that type. Existing `IRBuilderProtocol` adds dynamic
+shorthand for compatibility.
 
 ## Typed Emission Pattern
 
@@ -89,15 +90,14 @@ binds the emitted values. `NegPlugin` is the single-output reference:
 
 ```python
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 
 
-def lower(ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+def lower(ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
     x = ctx.require_value_for_var(eqn.invars[0])
     outvar = eqn.outvars[0]
     output = ctx.allocate_value_for_var(outvar, name_hint=ctx.fresh_name("neg_out"))
-    builder: IRBuilderAPI = ctx.builder
-    result = builder.op("Neg", [x], output=output)
+    result = ctx.builder.op("Neg", [x], output=output)
     ctx.bind_value_for_var(outvar, result)
 ```
 

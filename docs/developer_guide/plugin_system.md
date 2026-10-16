@@ -66,7 +66,7 @@ the traced dtype and shape, emit into that value, and bind it explicitly.
 import jax
 
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_native_primitive
 
@@ -88,7 +88,7 @@ from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_native_
     ],
 )
 class NegPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -97,8 +97,7 @@ class NegPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("neg_out")
         )
 
-        builder: IRBuilderAPI = ctx.builder
-        result = builder.op("Neg", [x_val], output=out_spec)
+        result = ctx.builder.op("Neg", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
 ```
 
@@ -212,8 +211,15 @@ Guidelines:
 
 ## Lowering Contract
 
-The lowering receives a `LoweringContextProtocol` and a JAXPR equation. The
-contract is strict:
+New native lowerings receive a `NativeLoweringContext` and a JAXPR equation.
+Its builder exposes the closed `IRBuilderAPI`, so direct `ctx.builder` calls
+are checked without an extra annotation. The context provides public value,
+constant, naming, and symbolic-shape operations; converter bookkeeping belongs
+to the internal `ConverterContext` contract. The existing
+`LoweringContextProtocol` name remains a compatibility alias for older plugins
+that use dynamic builder shorthand or internal context state.
+
+The lowering contract is strict:
 
 1. all non-literal inputs must already be bound before `lower(...)` runs;
 2. the plugin emits connected `onnx_ir` nodes and values;
@@ -283,7 +289,7 @@ During tracing, the function plugin patches the target callable or class
 
 1. resolves the original callable or instance;
 2. builds a `FunctionKey` from target name, input avals, and capture signature;
-3. reuses a cached body when the key matches;
+3. reuses a cached `ir.Function` when the key matches;
 4. otherwise creates a `FunctionScope` child `IRContext`;
 5. maps parent inputs and dynamic call parameters to function inputs;
 6. retraces and lowers the callable body inside the child context;
@@ -291,6 +297,12 @@ During tracing, the function plugin patches the target callable or class
    initializers;
 8. attaches the resulting `onnx_ir.Function` to the parent model;
 9. emits a call-site node in the parent graph.
+
+`FunctionScope.end(outputs)` finalizes the graph once and returns the native
+function stored by the registry and attached to the enclosing context. Its
+graph owns the formal inputs, outputs, and nodes; there is no parallel
+`FunctionDef` snapshot. A native graph clone preserves ownership independently
+of the construction context, including names, metadata, and opset imports.
 
 The native entry point `_lower_in_context` reads as preparation, registry lookup,
 optional body construction, and call emission. `DynamicCapture` stores each

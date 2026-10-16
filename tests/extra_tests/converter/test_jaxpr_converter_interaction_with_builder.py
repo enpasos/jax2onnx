@@ -32,7 +32,9 @@ def test_function_scope_constants_emit_constant_nodes() -> None:
     assert constant_nodes, "Expected Constant node in function scope"
     assert constant_nodes[0].outputs[0] is constant_value
 
-    fn_def = scope.end([constant_value])
+    function = scope.end([constant_value])
 
-    assert fn_def.outputs == [constant_value]
-    assert any(node.op_type == "Constant" for node in fn_def.nodes)
+    assert isinstance(function, ir.Function)
+    assert function.outputs[0] is not constant_value
+    assert function.outputs[0].graph is function.graph
+    assert any(node.op_type == "Constant" for node in function.graph)

@@ -365,3 +365,38 @@ Fori loops, and independent runtime flags with full ONNX checking and ORT.
 Remote acceptance requires all eight CI jobs at the new PR head. The preceding
 head's green run does not satisfy that gate; the final PR description records
 the new head and its run after completion.
+
+## Completion: Native Function and Plugin Contracts
+
+The final architecture review identified two remaining sources of duplicate
+state and optional typing discipline. This block completes them without
+changing export semantics or migrating every existing operator body.
+
+- Store `ir.Function` directly in `FunctionRegistry`. `FunctionScope.end`
+  finalizes and clones its body once; the registry and enclosing context
+  receive the same native function. Remove `FunctionDef`, mirrored body lists,
+  the second conversion step, and scope-flag restoration. Child construction
+  establishes Function mode for the child's full lifetime.
+- Give new native plugins `NativeLoweringContext` with a closed `IRBuilderAPI`.
+  Internal dispatch and Function bookkeeping use `ConverterContext`.
+  `LoweringContextProtocol` remains its compatibility alias for existing
+  dynamic operator bodies. Shared public helpers and the reference plugins
+  use the native contract directly, without local builder type annotations.
+
+Acceptance requires unchanged Function names, signatures, capture order,
+metadata, opsets, nested definitions, and JAX/ORT results. Structural tests
+check native function identity, graph ownership, and single finalization.
+An executable mypy test accepts native and legacy callbacks, verifies an exact
+`ir.Value` return type, and rejects unknown builder methods, invalid inputs,
+and private bookkeeping through the native context. Full local validation,
+minimum-stack checks, and all eight final-head CI jobs remain the shipping
+gate; the PR description records their completed results.
+
+Local implementation checks passed **4,442 full/generated tests** with zero
+failures, errors, or skips on JAX 0.11.2. The Function/child/finalization
+selection passed 123 tests including examples, and 87 converter tests passed
+on JAX 0.8.1. Global mypy passed all 536 source files with both NumPy 2.4.6 and
+2.5.4 stubs. Repository hooks, Ruff, RNG checks, strict documentation build,
+and independent nested-Function ownership/ONNX/ORT review also passed. The
+expanded minimum-dependency CI includes the new context and native Function
+tests; remote acceptance is recorded against the final pushed head in the PR.

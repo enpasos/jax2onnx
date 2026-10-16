@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Literal
 import onnx_ir as ir
 
-from .typing_support import LoweringContextProtocol
+from .typing_support import ConverterContext
 
 
 @dataclass(frozen=True)
@@ -14,29 +15,17 @@ class FunctionKey:
     capture_sig: tuple[object, ...]  # instance/config hash or tuple of static fields
 
 
-@dataclass
-class FunctionDef:
-    name: str
-    domain: str
-    inputs: list[ir.Value]
-    outputs: list[ir.Value]
-    nodes: list[ir.Node]
-    # late attribute overrides captured from the child IRContext
-    attr_overrides: dict[str, dict[str, object]] | None = None
-
-
 class FunctionRegistry:
     def __init__(self) -> None:
-        # key -> FunctionDef
-        self._defs: dict[FunctionKey, FunctionDef] = {}
+        self._defs: dict[FunctionKey, ir.Function] = {}
 
-    def get(self, key: FunctionKey) -> FunctionDef | None:
+    def get(self, key: FunctionKey) -> ir.Function | None:
         return self._defs.get(key)
 
-    def put(self, key: FunctionKey, fdef: FunctionDef) -> None:
-        self._defs[key] = fdef
+    def put(self, key: FunctionKey, function: ir.Function) -> None:
+        self._defs[key] = function
 
-    def all(self) -> list[FunctionDef]:
+    def all(self) -> list[ir.Function]:
         return list(self._defs.values())
 
 
@@ -46,116 +35,64 @@ class FunctionScope:
     The scope borrows the parent converter settings but switches `function_mode`
     so constants are emitted as `Constant` nodes (FunctionProto cannot own
     initializers). Each parent value handed to :meth:`begin` is mirrored with a
-    fresh `ir.Value` that becomes a function input; `end` snapshots the child
-    graph and returns a `FunctionDef` that still references those mirrored
-    values. Call-sites can then emit a single node with `domain`/`op_type`
-    pointing at the produced function while reusing the parent graph values.
+    fresh `ir.Value` that becomes a function input. :meth:`end` finalizes the
+    child graph once and returns an independent native `ir.Function`, shared by
+    the registry and the enclosing model. Inputs, outputs, and nodes live only
+    in the child graph while its body is being built.
     """
 
-    def __init__(
-        self, parent: LoweringContextProtocol, name: str, domain: str = ""
-    ) -> None:
+    def __init__(self, parent: ConverterContext, name: str, domain: str = "") -> None:
         self.parent = parent
         self.name = name
         self.domain = domain
 
         self.ctx = parent.create_child_context(scope="function")
-        self._outputs: list[ir.Value] = []
-        self._sealed = False
-        self._attr_overrides: dict[str, dict[str, object]] = {}
-        self._prev_inside: bool = False
-
-        self.fn_def: FunctionDef | None = None
+        self._state: Literal["new", "building", "sealed"] = "new"
 
     def begin(self, inputs: list[ir.Value]) -> list[ir.Value]:
-        # Mark we are inside a function while building its body
-        self._prev_inside = self.ctx._inside_function_scope
-        self.ctx._inside_function_scope = True
-        if self.fn_def is None:
-            self.fn_def = FunctionDef(
-                name=self.name,
-                domain=self.domain,
-                inputs=[],
-                outputs=[],
-                nodes=[],
-            )
-        fn_def = self.fn_def
-        fn_def.inputs = []
+        if self._state != "new":
+            raise RuntimeError("FunctionScope.begin() may only be called once.")
+        self._state = "building"
+        formals = [
+            ir.Value(name=f"f_in_{i}", type=value.type, shape=value.shape)
+            for i, value in enumerate(inputs)
+        ]
+        self.ctx.builder.inputs.extend(formals)
         parent_origin = self.parent.get_symbolic_dim_origin
-        for i, vin in enumerate(inputs):
-            fin = ir.Value(
-                name=f"f_in_{i}",
-                type=vin.type,
-                shape=vin.shape,
-            )
-            # Register as graph input in child
-            self.ctx._inputs.append(fin)
-            fn_def.inputs.append(fin)
-
+        for vin, fin in zip(inputs, formals):
             vin_shape = vin.shape
             dims = tuple(vin_shape.dims) if vin_shape is not None else ()
             for axis, dim in enumerate(dims):
                 origin = parent_origin(dim)
                 if origin is not None:
                     self.ctx.record_symbolic_dim_origin(dim, fin, axis)
-        return fn_def.inputs
+        return formals
 
-    def end(self, outputs: list[ir.Value]) -> FunctionDef:
-        if self._sealed:
+    def end(self, outputs: list[ir.Value]) -> ir.Function:
+        """Seal the body and return its final, independently owned IR function."""
+        if self._state == "sealed":
             raise RuntimeError("FunctionScope already sealed.")
-        if self.fn_def is None:
+        if self._state != "building":
             raise RuntimeError("FunctionScope.begin() must be called before end().")
-        self._sealed = True
-        # Snapshot child inputs/outputs/nodes/overrides
-        fn_def = self.fn_def
-        inputs = list(fn_def.inputs)
-        self._outputs = list(outputs)
-        nodes = list(self.ctx._nodes)
-        overrides = dict(self.ctx._attr_overrides)
-        self._attr_overrides = overrides
-        # Restore previous scope flag
-        self.ctx._inside_function_scope = self._prev_inside
-        return FunctionDef(
-            name=self.name,
-            domain=self.domain,
-            inputs=inputs,
-            outputs=self._outputs,
-            nodes=nodes,
-            attr_overrides=overrides,
-        )
-
-    def to_ir_function(self) -> ir.Function:
-        # Pick an opset for the body; prefer parent/child builder opset
-        body_opset = int(self.ctx.builder.opset)
-
-        # Ensure the builder graph carries the final outputs before cloning.
-        if self._outputs:
-            graph_outputs = self.ctx.builder.outputs
-            graph_outputs.clear()
-            graph_outputs.extend(self._outputs)
-
+        self.ctx.builder.outputs.clear()
+        self.ctx.builder.outputs.extend(outputs)
         body_graph = self.ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = self.name
-
-        opset_imports = dict(body_graph.opset_imports)
+        body_opset = int(self.ctx.builder.opset)
         fn_domain = (self.domain or "").strip()
         if fn_domain:
-            opset_imports.setdefault(fn_domain, body_opset)
-        nodes_iter = list(body_graph.all_nodes())
-        for node in nodes_iter:
-            dom = node.domain
-            if dom:
-                opset_imports.setdefault(dom, body_opset)
-        opset_imports.setdefault("", body_opset)
-        body_graph.opset_imports.clear()
-        body_graph.opset_imports.update(opset_imports)
+            body_graph.opset_imports.setdefault(fn_domain, body_opset)
+        for node in body_graph.all_nodes():
+            if node.domain:
+                body_graph.opset_imports.setdefault(node.domain, body_opset)
+        body_graph.opset_imports.setdefault("", body_opset)
 
-        # Create the Function (domain/name must match the call-site)
-        fn = ir.Function(
+        function = ir.Function(
             domain=self.domain,
             name=self.name,
             graph=body_graph,
             attributes=[],
         )
-        setattr(fn, "_attr_overrides", dict(self._attr_overrides or {}))
-        return fn
+        setattr(function, "_attr_overrides", dict(self.ctx.attr_overrides))
+        self._state = "sealed"
+        return function

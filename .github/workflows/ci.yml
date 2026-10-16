@@ -101,6 +101,9 @@ jobs:
           tests/extra_tests/converter/test_onnx_function_static_captures.py \
           tests/extra_tests/converter/test_onnx_function_loop_call_params.py \
           tests/extra_tests/converter/test_typed_builder.py \
+          tests/extra_tests/converter/test_context_typing_compat.py \
+          tests/extra_tests/converter/test_native_context_typing.py \
+          tests/extra_tests/converter/test_native_function_scope.py \
           tests/extra_tests/loop/test_fori_loop_captures.py \
           tests/primitives/test_linen.py \
           tests/extra_tests/test_bfloat16_capability_matrix.py \

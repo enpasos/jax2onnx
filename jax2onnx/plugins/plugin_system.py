@@ -51,7 +51,7 @@ from jax2onnx._compat.jax import (
     batching,
     ensure_batching_not_mapped_attr,
 )
-from jax2onnx.converter.function_scope import FunctionDef, FunctionScope, FunctionKey
+from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -59,7 +59,8 @@ from jax2onnx.converter.lowering_dispatch import (
 from jax2onnx.converter.lowering_registry import PluginRegistry
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
-    IRBuilderAPI,
+    ConverterContext,
+    NativeLoweringContext,
     PrimitiveLowering,
     RngTrace,
     SymbolicDimOrigin,
@@ -834,7 +835,7 @@ class FunctionPlugin(PrimitivePlugin):
                 signature_parts.append(("callable_name", call_ident))
         return tuple(signature_parts)
 
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: ConverterContext, eqn: JaxprEqn) -> None:
         """Lower directly in the context and bind every function-call output."""
         self._lower_in_context(ctx, eqn, eqn.params)
 
@@ -842,7 +843,7 @@ class FunctionPlugin(PrimitivePlugin):
         """Retain the converter-facade entry point for legacy callers."""
         return self._lower_and_call
 
-    def _allocate_friendly_name(self, ctx: LoweringContextProtocol) -> tuple[str, str]:
+    def _allocate_friendly_name(self, ctx: ConverterContext) -> tuple[str, str]:
         """
         Produce the human-readable FunctionProto identifiers.
 
@@ -876,7 +877,7 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _lower_in_context(
         self,
-        ctx: LoweringContextProtocol,
+        ctx: ConverterContext,
         eqn: JaxprEqn,
         params: dict[str, object],
     ) -> None:
@@ -908,7 +909,7 @@ class FunctionPlugin(PrimitivePlugin):
         return callee
 
     def _capture_spec(
-        self, ctx: LoweringContextProtocol, var: Var | Literal
+        self, ctx: ConverterContext, var: Var | Literal
     ) -> jax.ShapeDtypeStruct:
         aval = self._aval_to_shaped_array(var.aval)
         shape: list[object] = []
@@ -945,7 +946,7 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _capture_arguments(
         self,
-        ctx: LoweringContextProtocol,
+        ctx: ConverterContext,
         callee: Callable[..., object],
         params: Mapping[str, object],
     ) -> FunctionCaptures:
@@ -1051,12 +1052,12 @@ class FunctionPlugin(PrimitivePlugin):
 
     @staticmethod
     def _keep_unused_captures(
-        ctx: LoweringContextProtocol,
+        ctx: NativeLoweringContext,
         captures: tuple[DynamicCapture, ...],
         child_values: list[ir.Value],
     ) -> None:
         """Keep declared, unused dynamic parameters in the function signature."""
-        builder: IRBuilderAPI = ctx.builder
+        builder = ctx.builder
         for capture, value in zip(captures, child_values):
             if consumers_in_graph(builder.graph, value) or any(
                 output is value for output in builder.outputs
@@ -1071,11 +1072,11 @@ class FunctionPlugin(PrimitivePlugin):
 
     def _build_function(
         self,
-        ctx: LoweringContextProtocol,
+        ctx: ConverterContext,
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
-    ) -> FunctionDef:
+    ) -> ir.Function:
         name, domain = self._allocate_friendly_name(ctx)
         scope = FunctionScope(ctx, name=name, domain=domain)
         parent_values = [ctx.require_value_for_var(var) for var in eqn.invars]
@@ -1103,21 +1104,21 @@ class FunctionPlugin(PrimitivePlugin):
         self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
         outputs = [scope.ctx.require_value_for_var(var) for var in body.outvars]
         definition = scope.end(outputs=outputs)
-        ctx.ir_functions.append(scope.to_ir_function())
+        ctx.ir_functions.append(definition)
         ctx.ir_functions.extend(scope.ctx.ir_functions)
         return definition
 
     @staticmethod
     def _emit_function_call(
-        ctx: LoweringContextProtocol,
+        ctx: NativeLoweringContext,
         eqn: JaxprEqn,
-        definition: FunctionDef,
+        definition: ir.Function,
         captures: FunctionCaptures,
     ) -> None:
         inputs = [ctx.require_value_for_var(var) for var in eqn.invars]
         inputs.extend(capture.value for capture in captures.dynamic)
         outputs = [ctx.allocate_value_for_var(var) for var in eqn.outvars]
-        builder: IRBuilderAPI = ctx.builder
+        builder = ctx.builder
         # Builder names have a numeric suffix starting at zero; calls historically start at one.
         base, _, suffix = builder.fresh_name(definition.name).rpartition("_")
         call_name = f"{base}_{int(suffix) + 1}"

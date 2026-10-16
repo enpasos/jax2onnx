@@ -80,7 +80,7 @@ def test_child_context_shares_conversion_state_and_owns_its_graph(
         assert child._sym_origin_str is not parent._sym_origin_str
     else:
         assert child.ir_functions is not parent.ir_functions
-        assert not child._inside_function_scope
+        assert child._inside_function_scope
         assert not child._keep_function_float32
         assert child.get_symbolic_dim_origin("B") is None
 
@@ -140,7 +140,7 @@ def test_function_scope_remaps_only_origins_of_formal_inputs() -> None:
     assert scope.ctx._inside_function_scope
 
     scope.end([formal])
-    assert not scope.ctx._inside_function_scope
+    assert scope.ctx._inside_function_scope
 
 
 def test_if_flag_capture_is_lazy_local_and_reused_across_nested_branches() -> None:

@@ -6,20 +6,20 @@ import onnx_ir as ir
 
 from jax2onnx._compat.jax import DropVar, JaxprEqn
 
-from .typing_support import LoweringContextProtocol
+from .typing_support import NativeLoweringContext
 
 
 def is_drop_var(var: object) -> bool:
     return isinstance(var, DropVar)
 
 
-def get_bound_value(ctx: LoweringContextProtocol, var: object) -> ir.Value | None:
+def get_bound_value(ctx: NativeLoweringContext, var: object) -> ir.Value | None:
     """Compatibility name for the context's non-allocating lookup."""
     return ctx.lookup_value_for_var(var)
 
 
 def assert_eqn_inputs_bound(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     *,
     primitive_name: str,
@@ -38,7 +38,7 @@ def assert_eqn_inputs_bound(
             ) from exc
 
 
-def _value_is_graph_connected(ctx: LoweringContextProtocol, value: ir.Value) -> bool:
+def _value_is_graph_connected(ctx: NativeLoweringContext, value: ir.Value) -> bool:
     """Check native ownership; a name alone does not connect an IR value."""
     graph = ctx.builder.graph
     producer = value.producer()
@@ -47,9 +47,7 @@ def _value_is_graph_connected(ctx: LoweringContextProtocol, value: ir.Value) -> 
     return value.graph is graph and (value.is_graph_input() or value.is_initializer())
 
 
-def _legacy_graph_value(
-    ctx: LoweringContextProtocol, value: ir.Value
-) -> ir.Value | None:
+def _legacy_graph_value(ctx: NativeLoweringContext, value: ir.Value) -> ir.Value | None:
     """Resolve old name-only bindings at the legacy lowering boundary."""
     if _value_is_graph_connected(ctx, value):
         return value
@@ -69,7 +67,7 @@ def _legacy_graph_value(
     return None
 
 
-def _outvar_needs_binding(ctx: LoweringContextProtocol, var: object) -> bool:
+def _outvar_needs_binding(ctx: NativeLoweringContext, var: object) -> bool:
     value = get_bound_value(ctx, var)
     return value is None or not _value_is_graph_connected(ctx, value)
 
@@ -93,7 +91,7 @@ def _coerce_lowering_result_values(
 
 
 def bind_returned_lowering_values(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     result: object,
     *,
@@ -143,7 +141,7 @@ def bind_returned_lowering_values(
 
 
 def finalize_eqn_lowering_outputs(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     lowering_result: object,
     *,
@@ -166,7 +164,7 @@ def finalize_eqn_lowering_outputs(
 
 
 def assert_eqn_outputs_bound(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     *,
     primitive_name: str,

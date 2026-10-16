@@ -4,7 +4,7 @@
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 
-from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -33,7 +33,7 @@ from jax2onnx.plugins.plugin_system import (
     ],
 )
 class NegPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -42,6 +42,5 @@ class NegPlugin(PrimitiveLeafPlugin):
             out_var, name_hint=ctx.fresh_name("neg_out")
         )
 
-        builder: IRBuilderAPI = ctx.builder
-        result = builder.op("Neg", [x_val], output=out_spec)
+        result = ctx.builder.op("Neg", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)

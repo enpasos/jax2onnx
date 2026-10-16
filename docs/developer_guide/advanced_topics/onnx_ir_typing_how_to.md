@@ -69,8 +69,13 @@ aligned with project policy.
 
 ## Typing Patterns
 
-- Annotate lowerings with `LoweringContextProtocol` from
-  `jax2onnx.converter.typing_support`.
+- Annotate new native lowerings with `NativeLoweringContext` from
+  `jax2onnx.converter.typing_support`. Its `builder` is already the closed
+  `IRBuilderAPI`, so direct calls are checked without a local type annotation.
+- Use `ConverterContext` for internal equation dispatch and Function/scope
+  management. It includes the converter's bookkeeping and compatible builder
+  surface. `LoweringContextProtocol` remains a legacy alias for that contract;
+  existing plugin annotations continue to work.
 - Use the closed `IRBuilderAPI` for helpers that only need the builder surface.
   Its methods and input/output types are checked statically. The compatibility
   `IRBuilderProtocol` adds unrestricted dynamic operator shorthand for existing

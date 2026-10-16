@@ -13,6 +13,8 @@
   fixed static configuration cache collisions and explicitly carried runtime
   flags through scan/while/fori bodies; made fori closure values regular JAX
   operands and unified safe output allocation for native lowerings;
+  cached finalized native `ir.Function` objects directly and introduced a
+  closed native plugin context alongside the existing compatibility contract;
   raised the supported ONNX IR minimum to `onnx-ir>=1.0.0`.
 - **0.17.0**: Added geometry-preserving input-dilated `ConvTranspose` export,
   with explicit errors for input dilation combined with non-unit

@@ -213,9 +213,11 @@ Lowerings should follow these rules:
 - Never import ONNX protobuf classes from converter or plugin lowering code.
 
 Native registration stores `lower(ctx, eqn) -> None` directly; only legacy
-extensions need call-convention discovery or result adaptation. Native emission
-helpers use the closed `IRBuilderAPI` protocol. `IRBuilderProtocol` extends it
-with the dynamic operator shorthand for existing leaf implementations.
+extensions need call-convention discovery or result adaptation. New native
+plugins use `NativeLoweringContext`, whose builder exposes the closed
+`IRBuilderAPI` protocol. Internal dispatch and scope management use
+`ConverterContext`. The legacy `LoweringContextProtocol` alias and dynamic
+`IRBuilderProtocol` retain existing plugin conventions.
 
 ## ONNX Function Boundaries
 
@@ -238,6 +240,13 @@ lowering, the plugin:
 Identical calls share a function body when the function key matches. Shape,
 dtype, instance, namespace, or capture changes can produce a separate function
 definition.
+
+`FunctionScope.end(outputs)` finalizes the child graph once and returns an
+`ir.Function`. The registry caches that same object, which model assembly also
+receives. Inputs, outputs, and nodes belong to its native graph rather than a
+second project-specific function representation. Finalization clones the body
+graph to keep its values independent of the construction context and preserves
+opsets, names, and late attribute overrides.
 
 ## Control Flow
 

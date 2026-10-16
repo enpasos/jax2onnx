@@ -10,18 +10,17 @@ from onnx_ir import Shape as IRShape
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
 )
-from jax2onnx.converter.typing_support import IRBuilderAPI, LoweringContextProtocol
+from jax2onnx.converter.typing_support import ConverterContext, NativeLoweringContext
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx._compat.jax import Jaxpr
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY
 
 
 def builder_identity(
-    ctx: LoweringContextProtocol, value: ir.Value, *, name_hint: str
+    ctx: NativeLoweringContext, value: ir.Value, *, name_hint: str
 ) -> ir.Value:
-    builder: IRBuilderAPI = ctx.builder
     output_name = ctx.fresh_name(name_hint)
-    out = builder.op("Identity", [value])
+    out = ctx.builder.op("Identity", [value])
     out.name = output_name
     out.type = value.type
     out.shape = value.shape
@@ -33,15 +32,14 @@ def builder_identity(
 
 
 def builder_cast(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     value: ir.Value,
     target_enum: ir.DataType,
     *,
     name_hint: str,
 ) -> ir.Value:
-    builder: IRBuilderAPI = ctx.builder
     output_name = ctx.fresh_name(name_hint)
-    casted = builder.op("Cast", [value], {"to": int(target_enum.value)})
+    casted = ctx.builder.op("Cast", [value], {"to": int(target_enum.value)})
     casted.name = output_name
     casted.type = ir.TensorType(target_enum)
     casted.shape = value.shape
@@ -53,13 +51,12 @@ def builder_cast(
 
 
 def builder_loop(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     *inputs: ir.Value,
     body: ir.Graph,
     output_names: list[str],
 ) -> tuple[ir.Value, ...] | ir.Value:
-    builder: IRBuilderAPI = ctx.builder
-    results = builder.op_multi_out(
+    results = ctx.builder.op_multi_out(
         "Loop",
         inputs,
         {"body": ir.AttrGraph("body", body)},
@@ -71,7 +68,7 @@ def builder_loop(
 
 
 def lower_jaxpr_eqns(
-    ctx: LoweringContextProtocol,
+    ctx: ConverterContext,
     jaxpr: Jaxpr,
     *,
     source: str = "control_flow",
@@ -86,11 +83,11 @@ def lower_jaxpr_eqns(
 
 
 def make_subgraph_context(
-    parent_ctx: LoweringContextProtocol,
+    parent_ctx: ConverterContext,
     *,
     prefix: str,
     implicit_captures: bool = False,
-) -> LoweringContextProtocol:
+) -> ConverterContext:
     """Create a body context; If branches opt into implicit outer captures."""
     return parent_ctx.create_child_context(
         scope="control_flow", prefix=prefix, implicit_captures=implicit_captures
@@ -106,9 +103,7 @@ class LoopCallParameters:
     additional state precedes scan outputs and stays outside the JAX arity.
     """
 
-    def __init__(
-        self, parent: LoweringContextProtocol, body: LoweringContextProtocol
-    ) -> None:
+    def __init__(self, parent: ConverterContext, body: ConverterContext) -> None:
         self._parent = parent
         self._body = body
         self._parent_values: list[ir.Value] = []
@@ -173,13 +168,12 @@ def _extract_shape_dims(
 
 
 def create_loop_header_inputs(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     *,
     prefix: str,
 ) -> tuple[ir.Value, ir.Value]:
     """Create ``Loop`` iteration/condition inputs for a subgraph context."""
 
-    builder: IRBuilderAPI = ctx.builder
     iter_input = ir.Value(
         name=ctx.fresh_name(f"{prefix}_iter"),
         type=ir.TensorType(ir.DataType.INT64),
@@ -190,7 +184,7 @@ def create_loop_header_inputs(
         type=ir.TensorType(ir.DataType.BOOL),
         shape=IRShape(()),
     )
-    builder.inputs.extend([iter_input, cond_input])
+    ctx.builder.inputs.extend([iter_input, cond_input])
     _stamp_type_and_shape(iter_input, ())
     _stamp_type_and_shape(cond_input, ())
     _ensure_value_metadata(ctx, iter_input)
@@ -199,7 +193,7 @@ def create_loop_header_inputs(
 
 
 def clone_value_for_subgraph(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     template: ir.Value,
     *,
     name_hint: str,
@@ -228,7 +222,7 @@ def clone_value_for_subgraph(
 
 
 def clone_input_for_subgraph(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     template: ir.Value,
     *,
     name_hint: str,
@@ -236,13 +230,12 @@ def clone_input_for_subgraph(
     """Clone ``template`` and append it to the subgraph builder inputs."""
 
     cloned = clone_value_for_subgraph(ctx, template, name_hint=name_hint)
-    builder: IRBuilderAPI = ctx.builder
-    builder.inputs.append(cloned)
+    ctx.builder.inputs.append(cloned)
     return cloned
 
 
 def ensure_bool_value(
-    ctx: LoweringContextProtocol, value: ir.Value, *, name_hint: str
+    ctx: NativeLoweringContext, value: ir.Value, *, name_hint: str
 ) -> ir.Value:
     """Cast ``value`` to BOOL when needed while preserving its shape."""
 

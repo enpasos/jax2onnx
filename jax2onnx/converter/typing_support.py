@@ -206,21 +206,11 @@ class IRBuilderProtocol(IRBuilderAPI, Protocol):
 
 
 @runtime_checkable
-class LoweringContextProtocol(SymbolicDimTracker, Protocol):
-    record_primitive_calls_file: str | None
-    _current_eqn: JaxprEqn | None
-    _primitive_call_records: list[RecordedPrimitiveCallLog]
-    _lowering_record_depth: int
-    _lowering_record_owner: LoweringContextProtocol
-    _func_name_counters: dict[tuple[str, str, str], int]
-    _call_input_param_literals: dict[str, object]
-    _call_param_value_by_name: dict[str, ir.Value]
+class NativeLoweringContext(SymbolicDimTracker, Protocol):
+    """Public operations for native plugins, with a closed typed IR builder."""
 
     @property
-    def _const_folder(self) -> ConstantFolder: ...
-
-    @property
-    def builder(self) -> IRBuilderProtocol: ...
+    def builder(self) -> IRBuilderAPI: ...
 
     @property
     def opset(self) -> int: ...
@@ -230,6 +220,72 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
 
     @property
     def normalization_mode(self) -> str: ...
+
+    def fresh_name(self, base: str) -> str: ...
+
+    def add_node(
+        self,
+        node: ir.Node,
+        inputs: Sequence[ir.Value] | None = None,
+        outputs: Sequence[ir.Value] | None = None,
+    ) -> ir.Node: ...
+
+    def require_value_for_var(
+        self,
+        var: object,
+        *,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
+    def lookup_value_for_var(self, var: object) -> ir.Value | None: ...
+
+    def allocate_value_for_var(
+        self,
+        var: object,
+        *,
+        name_hint: str | None = None,
+        prefer_np_dtype: np.dtype[Any] | None = None,
+    ) -> ir.Value: ...
+
+    def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
+
+    def bind_const_for_var(
+        self,
+        var: object,
+        np_array: np.ndarray[Any, np.dtype[Any]],
+    ) -> ir.Value: ...
+
+    def try_evaluate_const(
+        self, var: object
+    ) -> np.ndarray[Any, np.dtype[Any]] | None: ...
+
+    def cast_like(
+        self,
+        tensor: ir.Value,
+        exemplar: ir.Value,
+        *,
+        name_hint: str | None = None,
+    ) -> ir.Value: ...
+
+
+@runtime_checkable
+class ConverterContext(NativeLoweringContext, Protocol):
+    """Converter bookkeeping and the historical dynamic plugin surface."""
+
+    record_primitive_calls_file: str | None
+    _current_eqn: JaxprEqn | None
+    _primitive_call_records: list[RecordedPrimitiveCallLog]
+    _lowering_record_depth: int
+    _lowering_record_owner: ConverterContext
+    _func_name_counters: dict[tuple[str, str, str], int]
+    _call_input_param_literals: dict[str, object]
+    _call_param_value_by_name: dict[str, ir.Value]
+
+    @property
+    def builder(self) -> IRBuilderProtocol: ...
+
+    @property
+    def _const_folder(self) -> ConstantFolder: ...
 
     @property
     def _var2val(self) -> dict[Any, ir.Value]: ...
@@ -267,49 +323,13 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
         implicit_captures: bool = False,
     ) -> IRContext: ...
 
-    def fresh_name(self, base: str) -> str: ...
-
-    def add_node(
-        self,
-        node: ir.Node,
-        inputs: Sequence[ir.Value] | None = None,
-        outputs: Sequence[ir.Value] | None = None,
-    ) -> ir.Node: ...
-
     def get_value_for_var(
         self,
-        var: Any,
+        var: object,
         *,
         name_hint: str | None = None,
         prefer_np_dtype: np.dtype[Any] | None = None,
     ) -> ir.Value: ...
-
-    def require_value_for_var(
-        self,
-        var: Any,
-        *,
-        prefer_np_dtype: np.dtype[Any] | None = None,
-    ) -> ir.Value: ...
-
-    def lookup_value_for_var(self, var: object) -> ir.Value | None: ...
-
-    def allocate_value_for_var(
-        self,
-        var: Any,
-        *,
-        name_hint: str | None = None,
-        prefer_np_dtype: np.dtype[Any] | None = None,
-    ) -> ir.Value: ...
-
-    def bind_value_for_var(self, var: object, value: ir.Value) -> None: ...
-
-    def bind_const_for_var(
-        self,
-        var: Any,
-        np_array: np.ndarray[Any, np.dtype[Any]],
-    ) -> ir.Value: ...
-
-    def try_evaluate_const(self, var: Any) -> np.ndarray[Any, np.dtype[Any]] | None: ...
 
     def ensure_external_flag(self, name: str, var: object | None) -> ir.Value: ...
 
@@ -317,15 +337,11 @@ class LoweringContextProtocol(SymbolicDimTracker, Protocol):
         self, resolver: Callable[[str], ir.Value] | None
     ) -> None: ...
 
-    def add_input_for_invar(self, var: Any, index: int) -> ir.Value: ...
+    def add_input_for_invar(self, var: object, index: int) -> ir.Value: ...
 
-    def cast_like(
-        self,
-        tensor: ir.Value,
-        exemplar: ir.Value,
-        *,
-        name_hint: str | None = None,
-    ) -> ir.Value: ...
+
+# Existing plugins retain their dynamic builder and converter conveniences.
+LoweringContextProtocol: TypeAlias = ConverterContext
 
 
 @dataclass(frozen=True)
@@ -366,12 +382,14 @@ class RngTrace:
 class PrimitiveLowering(Protocol):
     def lower(
         self,
-        ctx: LoweringContextProtocol,
+        ctx: ConverterContext,
         eqn: JaxprEqn,
     ) -> None: ...
 
 
-CanonicalLowering: TypeAlias = Callable[[LoweringContextProtocol, JaxprEqn], None]
+# The dispatcher supplies the full context. Native plugins accept its smaller
+# public supertype; parameter contravariance also preserves existing plugins.
+CanonicalLowering: TypeAlias = Callable[[ConverterContext, JaxprEqn], None]
 
 
 @runtime_checkable
