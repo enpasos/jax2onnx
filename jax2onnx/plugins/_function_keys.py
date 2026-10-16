@@ -55,7 +55,10 @@ def _immutable_numpy_array(value: np.ndarray) -> np.ndarray:
         backing = backing.base
     if isinstance(backing, bytes) and value.flags.c_contiguous:
         return value
-    return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
+    snapshot: np.ndarray = np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(
+        value.shape
+    )
+    return snapshot
 
 
 def _dtype_key(dtype: np.dtype) -> object:
