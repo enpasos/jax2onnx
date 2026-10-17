@@ -13,13 +13,13 @@ from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.multi_head_attention",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.MultiHeadAttention",
     onnx=[

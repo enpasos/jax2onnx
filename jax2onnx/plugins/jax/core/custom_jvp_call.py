@@ -13,7 +13,7 @@ from jax2onnx._compat.jax import JaxprEqn, Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -28,7 +28,7 @@ def _square_jvp(primals: tuple[Any, ...], tangents: tuple[Any, ...]) -> tuple[An
     return _square(x), 2 * x * t
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="custom_jvp_call",
     jax_doc="Generic passthrough for custom JVP calls",
     onnx=[],

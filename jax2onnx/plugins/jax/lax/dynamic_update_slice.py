@@ -17,7 +17,10 @@ from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64, _scalar_i64, _cast_to_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _binary_scalar(
@@ -49,7 +52,7 @@ def _const_scalar_i64(value: ir.Value) -> int | None:
         return None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.dynamic_update_slice_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.dynamic_update_slice.html",
     onnx=[

@@ -20,7 +20,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax.reduce_window_sum import reduce_window_sum
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _EQX_AVG_POOL_2D: Final[eqx.nn.AvgPool2d] = eqx.nn.AvgPool2d(
     kernel_size=(2, 2), stride=(2, 2), padding=0
@@ -105,7 +108,7 @@ def _avg_pool_forward(
     return out
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.avg_pool",
     jax_doc="https://docs.kidger.site/equinox/api/nn/pooling/#equinox.nn.AvgPool2d",
     onnx=[

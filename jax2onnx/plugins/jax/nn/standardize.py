@@ -22,7 +22,10 @@ from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.nn._builder_utils import register_unary_elementwise_batch_rule
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _STANDARDIZE_PRIM: Final[Primitive] = Primitive("jax.nn.standardize")
@@ -47,7 +50,7 @@ def _normalize_axes(axis: int | Sequence[int] | None, rank: int) -> tuple[int, .
     return tuple(out)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_STANDARDIZE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.standardize.html",
     onnx=[

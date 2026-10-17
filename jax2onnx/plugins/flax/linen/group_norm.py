@@ -13,7 +13,7 @@ from jax2onnx.plugins.flax.nnx import group_norm as nnx_group_norm
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
 from jax2onnx.plugins.plugin_system import (
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -166,7 +166,7 @@ def _can_use_original_linen_slow_path(
     return all(jnp.asarray(param).dtype in supported_dtypes for param in active_params)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.group_norm",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.GroupNorm",
     onnx=LINEN_NORM_ONNX_COMPONENTS,

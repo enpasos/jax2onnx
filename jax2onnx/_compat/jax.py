@@ -16,7 +16,6 @@ from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.interpreters import ad, batching
 
-
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
 Tracer = jax_core.Tracer

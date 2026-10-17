@@ -12,10 +12,10 @@ import onnx_ir as ir
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.plugins.jax.lax._index_utils import _scalar_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
-
 
 _REDUCESUM_INT64_WORK_DTYPES: Final[frozenset[np.dtype[Any]]] = frozenset(
     {
@@ -47,11 +47,15 @@ def _maybe_cast_input(
     tensor: ir.Value,
     aval_shape: Sequence[Any],
     dtype: Optional[np.dtype],
+    *,
+    target_dtype: ir.DataType | None = None,
 ) -> ir.Value:
     if dtype is None:
         return tensor
 
-    dtype_enum = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
+    dtype_enum = target_dtype or _dtype_to_ir(
+        dtype, ctx.builder.enable_double_precision
+    )
     cast_val = cast(
         ir.Value,
         ctx.builder.Cast(
@@ -102,6 +106,7 @@ def lower_reduction(
     out_val = ctx.get_value_for_var(
         out_var, name_hint=ctx.fresh_name(f"{op_type.lower()}_out")
     )
+    out_dtype_enum = out_val.dtype
 
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     axes_attr = _normalize_axes(axes, len(operand_shape))
@@ -118,6 +123,13 @@ def lower_reduction(
         operand_val,
         operand_shape,
         work_dtype,
+        target_dtype=None if needs_result_cast else out_dtype_enum,
+    )
+    reduced_input = promote_float32_operand(
+        ctx,
+        reduced_input,
+        target_dtype=out_dtype_enum,
+        name_hint=f"{op_type.lower()}_input_double",
     )
     if axes_attr == ():
         desired_name = getattr(out_val, "name", None) or ctx.fresh_name(op_type)
@@ -132,12 +144,8 @@ def lower_reduction(
             ),
         )
         out_shape = tuple(getattr(out_var.aval, "shape", ()))
-        aval_dtype = getattr(out_var.aval, "dtype", None)
-        if aval_dtype is not None:
-            identity_dtype_enum = _dtype_to_ir(
-                np.dtype(aval_dtype), ctx.builder.enable_double_precision
-            )
-            result.type = ir.TensorType(identity_dtype_enum)
+        if out_dtype_enum is not None:
+            result.type = ir.TensorType(out_dtype_enum)
         _stamp_type_and_shape(result, out_shape)
         _ensure_value_metadata(ctx, result)
         ctx.bind_value_for_var(out_var, result)
@@ -174,13 +182,6 @@ def lower_reduction(
         raise ValueError(f"Unsupported reduction op: {op_type}")
 
     out_shape = tuple(getattr(out_var.aval, "shape", ()))
-    aval_dtype = getattr(out_var.aval, "dtype", None)
-    out_dtype_enum: ir.DataType | None = None
-    if aval_dtype is not None:
-        out_dtype_enum = _dtype_to_ir(
-            np.dtype(aval_dtype), ctx.builder.enable_double_precision
-        )
-
     if needs_result_cast:
         result.type = ir.TensorType(ir.DataType.INT64)
         _stamp_type_and_shape(result, out_shape)

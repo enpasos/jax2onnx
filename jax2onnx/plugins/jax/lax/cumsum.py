@@ -13,14 +13,17 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _cumsum_last_axis_reverse(x: Any) -> Any:
     return jax.lax.cumsum(x, axis=x.ndim - 1, reverse=True)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.cumsum_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cumsum.html",
     onnx=[

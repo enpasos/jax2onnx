@@ -7,12 +7,14 @@ tools such as Netron and lets you give important model blocks stable names.
 ## Goals and Defaults
 
 - `@onnx_function` marks a callable as an ONNX function boundary. Each invocation
-  emits a `FunctionProto` in the exported model.
-- By default, every call-site receives its own function instance; the node’s
-  `op_type` mirrors the callable name, and the domain uses the `"custom"` namespace.
-- Optional flags allow you to reuse function bodies (`unique=True`) and control the
-  domain prefix (`namespace=...`), without sacrificing readability in tools like
-  Netron.
+  emits a function call in the exported model, subject to the transformation
+  behavior described below.
+- By default, function definitions are cached per callable or module instance,
+  input shapes/dtypes, and capture signature. Matching repeated calls reuse the
+  definition. The node's `op_type` mirrors the callable name, and the domain uses
+  the `"custom"` namespace.
+- `unique=True` also permits compatible module instances with equivalent state
+  to share a definition. `namespace=...` controls the domain prefix.
 
 ## Minimal Example
 
@@ -42,6 +44,17 @@ to_onnx(
 
 Open the exported model in Netron to inspect the function boundary.
 
+## JAX Transformations
+
+The current `vmap` batching rule inlines the mapped callable's body. Its
+computations and dynamic keyword values are exported, but the mapped call does
+not retain a separate ONNX Function boundary. A model containing only such
+mapped calls can therefore have an empty `model.functions` collection.
+
+Function-boundary inspection and numerical validation answer different
+questions: check `model.functions` when a named boundary is required, and
+compare runtime outputs when validating transformed computations.
+
 ## Flags
 
 ```python
@@ -50,7 +63,8 @@ def my_fn(...):
     ...
 ```
 
-- `unique=True` de-duplicates call-sites that share the same capture signature.
+- `unique=True` uses callable/module state rather than instance identity when
+  deciding whether matching calls can share a function definition.
 - `namespace` overrides the domain prefix. When omitted, it defaults to `"custom"`.
 - `type` (preferred) or `name` (alias) overrides the human-readable base
   name/op_type used for the function. When omitted, the callable’s Python name
@@ -88,8 +102,16 @@ Produces `domain="my.model.square.unique"` for all reused call-sites.
   - Input shapes/dtypes from the parent equation.
   - Captured parameters. For classes, we fingerprint the module state via
     `jax.tree_util.tree_flatten`.
-- When `unique=True`, call-sites with identical captures share the same
-  `FunctionProto`; otherwise each cooperative invocation gets its own domain suffix.
+- With `unique=False`, reuse requires the same callable or module instance.
+- With `unique=True`, compatible instances with equivalent state can also reuse
+  the same `FunctionProto`. Different keys receive separate domain suffixes.
+
+Static Python keywords specialize the function body. Built-in containers and
+NumPy arrays are snapshotted when each call is traced, so changing a dictionary
+between calls does not alter an earlier call. Configuration such as string
+modes, Python booleans, and transpose-axis tuples remains static during abstract
+evaluation as well. Opaque Python objects are passed through, must remain stable
+during conversion, and conservatively receive separate definitions.
 
 ## Examples
 

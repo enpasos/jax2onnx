@@ -26,7 +26,10 @@ from jax2onnx.plugins.jax.numpy.diag import (
     lower_extract_diagonal_2d,
     normalize_k_scalar,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _DIAGONAL_PRIM: Final = make_jnp_primitive("jax.numpy.diagonal")
@@ -61,7 +64,7 @@ def _abstract_eval_via_orig(
     return ShapedArray(out_shape, out_dtype)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_DIAGONAL_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.diagonal.html",
     onnx=[

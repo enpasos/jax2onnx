@@ -19,7 +19,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import (
     lower_unary_elementwise,
     register_unary_elementwise_batch_rule,
@@ -31,7 +34,7 @@ _SOFTPLUS_PRIM.multiple_results = False
 _JAX_SOFTPLUS_ORIG: Final = jax.nn.softplus
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SOFTPLUS_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softplus.html",
     onnx=[

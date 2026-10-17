@@ -20,14 +20,17 @@ from jax2onnx._compat.jax import (
     Primitive,
     ShapedArray,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _BERNOULLI_PRIM: Final[Primitive] = Primitive("jax.random.bernoulli")
 _BERNOULLI_PRIM.multiple_results = False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_BERNOULLI_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.random.bernoulli.html",
     onnx=[

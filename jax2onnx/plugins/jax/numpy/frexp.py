@@ -23,7 +23,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax.nextafter import _float_layout
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _FREXP_PRIM: Final = make_jnp_primitive("jax.numpy.frexp")
@@ -101,7 +104,7 @@ def _stamp_like_x(value: ir.Value, x: ir.Value) -> None:
         value.shape = x.shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_FREXP_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.frexp.html",
     onnx=[

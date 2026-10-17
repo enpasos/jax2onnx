@@ -31,7 +31,7 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -497,7 +497,7 @@ def _conv(
     return result
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.conv",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.Conv",
     onnx=[
@@ -1693,7 +1693,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         return ShapedArray(y_shape, y_flat.dtype)
 
     # ---------- lowering (IR) ----------
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> ir.Value:
+    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         x_var, k_var, b_var = eqn.invars[:3]
         y_var = eqn.outvars[0]
 
@@ -2032,7 +2032,6 @@ class ConvPlugin(PrimitiveLeafPlugin):
             _annotate_value(ctx, final_value, x_dtype_np, y_shape)
 
         ctx.bind_value_for_var(y_var, final_value)
-        return final_value
 
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:

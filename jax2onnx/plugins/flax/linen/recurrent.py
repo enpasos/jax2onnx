@@ -16,7 +16,7 @@ from jax2onnx.plugins.flax.test_utils import (
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -34,7 +34,7 @@ _RECURRENT_ONNX: list[dict[str, str]] = [
 ]
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.simple_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.SimpleCell",
     onnx=_RECURRENT_ONNX,
@@ -79,7 +79,7 @@ class SimpleCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.gru_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.GRUCell",
     onnx=_RECURRENT_ONNX,
@@ -124,7 +124,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.mgu_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.MGUCell",
     onnx=_RECURRENT_ONNX,
@@ -170,7 +170,7 @@ class MGUCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.LSTMCell",
     onnx=_RECURRENT_ONNX,
@@ -215,7 +215,7 @@ class LSTMCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.optimized_lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.OptimizedLSTMCell",
     onnx=_RECURRENT_ONNX,
@@ -260,7 +260,7 @@ class OptimizedLSTMCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.conv_lstm_cell",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.ConvLSTMCell",
     onnx=_RECURRENT_ONNX
@@ -313,7 +313,7 @@ class ConvLSTMCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.rnn",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.RNN",
     onnx=[
@@ -363,7 +363,7 @@ class RNNPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.bidirectional",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.Bidirectional",
     onnx=[

@@ -12,10 +12,13 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.rng_bit_generator_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.rng_bit_generator.html",
     onnx=[

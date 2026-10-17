@@ -13,7 +13,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
 from jax2onnx.plugins.jax.lax._reduce_utils import lower_reduction
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _const_scalar(value: Any) -> float | int | None:
@@ -34,7 +37,7 @@ def _all_axes(x: Any) -> tuple[int, ...]:
     return tuple(range(x.ndim))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.reduce_sum_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce_sum.html",
     onnx=[

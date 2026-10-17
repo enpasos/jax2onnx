@@ -10,7 +10,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -22,7 +22,7 @@ _LORA_ONNX: Final[list[dict[str, str]]] = [
 ]
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.lora",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/lora.html#flax.nnx.LoRA",
     onnx=_LORA_ONNX,
@@ -69,7 +69,7 @@ class LoRAPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.lora_linear",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/lora.html#flax.nnx.LoRALinear",
     onnx=_LORA_ONNX,

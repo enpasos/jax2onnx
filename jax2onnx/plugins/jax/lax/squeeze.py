@@ -22,7 +22,10 @@ from jax2onnx.plugins._loop_extent_meta import (
     set_axis0_override,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.utils.shape_poly import dim_expr_constant_value
 
 
@@ -46,7 +49,7 @@ def _dim_const_value(dim: object) -> int | None:
     return int(maybe_const)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=lax.squeeze_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.squeeze.html",
     onnx=[

@@ -19,7 +19,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import (
     register_unary_elementwise_batch_rule,
 )
@@ -30,7 +33,7 @@ _SELU_PRIM.multiple_results = False
 _JAX_SELU_ORIG: Final = jax.nn.selu
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SELU_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.selu.html",
     onnx=[

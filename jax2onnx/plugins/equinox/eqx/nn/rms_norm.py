@@ -27,7 +27,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import cast_param_like
 from jax2onnx.plugins.flax.nnx.rms_norm import RMS_NORM_ONNX_COMPONENTS
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _axes_for_tail(x_rank: int, tail_rank: int) -> tuple[int, ...]:
@@ -40,7 +43,7 @@ def _aval_shape(value: object) -> tuple[DimInput, ...]:
     return tuple(cast(DimInput, dim) for dim in getattr(aval, "shape", ()))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.rms_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.RMSNorm",
     onnx=RMS_NORM_ONNX_COMPONENTS,

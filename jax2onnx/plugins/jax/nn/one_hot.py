@@ -20,7 +20,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import ir_dtype_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ONE_HOT_PRIM: Final[Primitive] = Primitive("jax.nn.one_hot")
@@ -28,7 +31,7 @@ _ONE_HOT_PRIM.multiple_results = False
 _JAX_ONE_HOT_ORIG: Final = jax.nn.one_hot
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ONE_HOT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.nn.one_hot.html",
     onnx=[

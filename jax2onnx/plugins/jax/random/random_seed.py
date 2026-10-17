@@ -15,7 +15,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import DimInput
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _shape_dims(shape: ir.Shape | tuple[int, ...] | None) -> tuple[DimInput, ...]:
@@ -62,7 +65,7 @@ def _unsqueeze(ctx: LoweringContextProtocol, value: ir.Value, axis: int) -> ir.V
     return squeezed
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="random_seed",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.PRNGKey.html",
     onnx=[
@@ -139,7 +142,7 @@ class RandomSeedPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, key_value)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="random_unwrap",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.key.html",
     onnx=[
@@ -163,7 +166,7 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, key_value)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="random_wrap",
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.random.wrap_key.html",
     onnx=[

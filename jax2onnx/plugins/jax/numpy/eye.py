@@ -20,7 +20,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _EYE_PRIM: Final = make_jnp_primitive("jax.numpy.eye")
@@ -34,7 +37,7 @@ def _normalize_dims(n: Any, m: Any | None) -> tuple[int, int]:
     return n_i, m_i
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EYE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.eye.html",
     onnx=[

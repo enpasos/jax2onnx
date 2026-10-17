@@ -60,8 +60,10 @@ single self-contained `.onnx` file instead of spilling large initializers into a
   [Known Limitations](known_limitations.md) for the selection rules and tested
   accuracy limits.
 - `enable_double_precision`: Temporarily enables x64 export and emits `tensor(double)` where appropriate.
-  Explicit float32 casts and array constructors stay `tensor(float)` when they
-  are graph outputs; operations that consume them compute in `tensor(double)`.
+  Explicit FP32 casts and array constructors retain their rounding and direct
+  FP32 outputs. Supported arithmetic lowerings explicitly widen their FP32 data
+  operands when the legacy export policy requires DOUBLE computation. Bitcasts
+  keep their original operand representation.
 - `inputs_as_nchw` / `outputs_as_nchw`: Adapt the external ONNX interface to NCHW while keeping the traced JAX computation in its original layout.
 - `input_names` / `output_names`: Apply stable user-facing names after conversion.
 

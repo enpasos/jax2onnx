@@ -13,7 +13,7 @@ from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -41,7 +41,7 @@ def _masked_softmax(weights: Any, mask_bool: Any | None) -> Any:
     return jnp.where(denom_nonzero, normalized, nan_value)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.dot_product_attention_weights",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.dot_product_attention_weights",
     onnx=[
@@ -192,7 +192,7 @@ class DotProductAttentionWeightsPlugin(PrimitiveLeafPlugin):
         return patched
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.dot_product_attention",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.dot_product_attention",
     onnx=[
@@ -318,7 +318,7 @@ class DotProductAttentionPlugin(PrimitiveLeafPlugin):
         return patched
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.make_attention_mask",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.make_attention_mask",
     onnx=[
@@ -421,7 +421,7 @@ class MakeAttentionMaskPlugin(PrimitiveLeafPlugin):
         return patched
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="linen.make_causal_mask",
     jax_doc="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.linen/layers.html#flax.linen.make_causal_mask",
     onnx=[

@@ -8,16 +8,19 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins._loop_extent_meta import (
     get_axis0_override,
     propagate_axis0_override,
     set_axis0_override,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _normalize_axis(axis: int, rank: int) -> int:
@@ -57,7 +60,7 @@ def _cast_value(
     return cast_val
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.concatenate_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.concatenate.html",
     onnx=[
@@ -146,20 +149,26 @@ class ConcatenatePlugin(PrimitiveLeafPlugin):
 
         rank = len(shapes[0]) if shapes else 0
         norm_axis = _normalize_axis(axis, rank)
-        target_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("concat_out")
+        )
+        target_enum = out_spec.dtype
         if target_enum is None:
             raise TypeError(f"Unsupported concatenate output dtype '{target_dtype}'")
 
         inputs: list[ir.Value] = []
         for var, shape, dtype in zip(in_vars, shapes, dtypes):
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("concat_in"))
+            val = promote_float32_operand(
+                ctx,
+                val,
+                target_dtype=target_enum,
+                name_hint="concat_operand_double",
+            )
             if np.dtype(dtype) != target_dtype:
                 val = _cast_value(ctx, val, target_enum, shape)
             inputs.append(val)
 
-        out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("concat_out")
-        )
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:

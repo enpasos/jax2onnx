@@ -25,7 +25,10 @@ from jax2onnx.plugins.jax.numpy._common import (
     jnp_binding_specs,
     make_jnp_primitive,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ATAN2_PRIM: Final = make_jnp_primitive("jax.numpy.atan2")
@@ -50,7 +53,7 @@ def _abstract_eval_via_orig_binary(
     return ShapedArray(out_shape, out_dtype)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ATAN2_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.atan2.html",
     onnx=[

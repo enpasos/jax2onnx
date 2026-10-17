@@ -27,8 +27,12 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _lower_complex_sub(
@@ -69,7 +73,7 @@ def _lower_complex_sub(
     return result, target_dtype
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.sub_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.sub.html",
     onnx=[{"component": "Sub", "doc": "https://onnx.ai/onnx/operators/onnx__Sub.html"}],
@@ -132,11 +136,11 @@ class SubPlugin(PrimitiveLeafPlugin):
         prefer_dt: Optional[np.dtype] = np.dtype(
             getattr(x_var.aval, "dtype", np.float32)
         )
-        a_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sub_lhs"))
-        b_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("sub_rhs"), prefer_np_dtype=prefer_dt
+        a_val = ctx.require_value_for_var(x_var)
+        b_val = ctx.require_value_for_var(y_var, prefer_np_dtype=prefer_dt)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("sub_out")
         )
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sub_out"))
         a_val, b_val, override = maybe_expand_binary_axis0(
             ctx, a_val, b_val, out_spec, out_var
         )
@@ -197,6 +201,12 @@ class SubPlugin(PrimitiveLeafPlugin):
                     break
             return
 
+        a_val = promote_float32_operand(
+            ctx, a_val, target_dtype=out_spec.dtype, name_hint="sub_lhs_double"
+        )
+        b_val = promote_float32_operand(
+            ctx, b_val, target_dtype=out_spec.dtype, name_hint="sub_rhs_double"
+        )
         result = cast(
             ir.Value,
             ctx.builder.Sub(a_val, b_val, _outputs=[output_name]),

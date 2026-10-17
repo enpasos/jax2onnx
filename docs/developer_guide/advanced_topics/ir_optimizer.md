@@ -58,6 +58,106 @@ Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 
+## Graph Scope and Value Ownership
+
+Passes receive an `ir.Graph` and traverse real `ir.Value` objects. Use the
+shared functions in `converter/optimizer_graph_utils.py` for discovery:
+
+```python
+producer = producer_in_graph(graph, value)
+consumers = consumers_in_graph(graph, value)
+belongs_here = node_in_graph(graph, node)
+```
+
+These functions use `Value.producer()`, `Value.consumers()`, and `Node.graph`.
+They match object identity within the supplied graph. A captured outer value
+can have consumers in a child graph while its producer belongs to the parent.
+Consumer discovery therefore checks each consumer's ownership rather than
+assuming that `value.graph` equals the consumer graph.
+
+Keep `list(graph)` snapshots when a pass removes or inserts nodes during
+iteration. Pass the live graph to discovery functions: a snapshot records an
+iteration order, not current membership. Removed nodes may remain referenced
+by their output values, so a producer reference alone does not prove that the
+node is still in the graph.
+
+The explicit `legacy_producer_node`, `legacy_consumer_nodes`, and
+`legacy_node_in_sequence` adapters accept detached node sequences. The first
+two retain historical name matching for raw names and disconnected value
+wrappers; sequence membership always tests exact identity. Existing private
+imports remain aliases for these adapters. New passes use the graph-scoped
+functions so equal names in different scopes cannot create false edges.
+An `ir.Graph` also implements the node-sequence interface, so legacy helpers can
+receive the live graph as well as a detached list. Their historical name fallback
+applies in both cases; a sequence snapshot cannot supply current graph ownership.
+This compatibility rule does not change the stricter native graph helpers.
+
+Read shape and dtype metadata directly from `ir.Value.shape` and
+`ir.Value.dtype`. Missing metadata and symbolic dimensions still require
+semantic checks; alternate object layouts do not. Register new initializers
+with `graph.register_initializer(value)`.
+
+## Graph Rewrite Reference
+
+`rewrite_mul_sigmoid_as_swish_ir` in `converter/ir_optimizations.py` is a
+complete executable reference. It matches `x * Sigmoid(x)` within the live
+graph, requires opset 24+, and replaces the pair with `Swish`. This example
+builds typed values, runs that production pass, and checks the output contract:
+
+```python
+import onnx_ir as ir
+from onnx_ir.tape import Tape
+
+from jax2onnx.converter.ir_optimizations import rewrite_mul_sigmoid_as_swish_ir
+from jax2onnx.converter.optimizer_graph_utils import producer_in_graph
+
+
+def graph_rewrite_reference() -> ir.Graph:
+    x = ir.val("x", dtype=ir.DataType.FLOAT, shape=[3])
+    output = ir.val("y", dtype=ir.DataType.FLOAT, shape=[3])
+    output.metadata_props["example"] = "output metadata"
+    graph = ir.Graph([x], [output], nodes=[], opset_imports={"": 24})
+    tape = Tape(graph)
+    sigmoid = tape.op(
+        "Sigmoid",
+        [x],
+        output=ir.val("sigmoid", dtype=ir.DataType.FLOAT, shape=[3]),
+    )
+    tape.op(
+        "Mul",
+        [x, sigmoid],
+        output=output,
+        metadata_props={"example": "node metadata"},
+    )
+
+    rewrite_mul_sigmoid_as_swish_ir(graph)
+
+    rewritten = graph.outputs[0]
+    producer = producer_in_graph(graph, rewritten)
+    assert producer is not None and producer.op_type == "Swish"
+    assert producer.graph is graph and producer.inputs[0] is x
+    assert rewritten.name == "y"
+    assert rewritten.dtype == ir.DataType.FLOAT
+    assert rewritten.shape == ir.Shape([3])
+    assert rewritten.metadata_props["example"] == "output metadata"
+    assert producer.metadata_props["example"] == "node metadata"
+    assert producer_in_graph(graph, output) is None
+    assert [node.op_type for node in graph] == ["Swish"]
+    return graph
+
+
+graph = graph_rewrite_reference()
+```
+
+The pass creates a replacement output with the original name, type, shape,
+and value metadata, and copies node metadata to the replacement node. It uses
+`graph.insert_before`, `ir.convenience.replace_all_uses_with` with
+`replace_graph_outputs=True`, and `graph.remove` to keep use-def links and
+outputs connected. A shared or observable Sigmoid output retains its node.
+Discovery receives the live graph even while mutation iterates over a snapshot.
+An IR rewrite operates on graph values directly; the JAX-var binding pattern
+belongs to the [canonical plugin example](../plugin_system.md#primitive-plugins).
+
 ## Pass Summary
 
 | Pass | Scope | Purpose |
@@ -133,7 +233,7 @@ Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, o
 
 ### Matching heuristics
 
-- Follow the true consumer chain by **name or object identity** (some `onnx_ir` builds wrap/rename `Value` objects).
+- Follow the consumer chain by value identity within the current `ir.Graph`.
 - Skip helper nodes on side branches (`Const`, `Shape`, etc.) that do not consume the current tensor.
 - Require **single consumer** at each hop (no branching rewires).
 - Read permutations from the `perm` attribute when available.
@@ -141,10 +241,12 @@ Anything that crosses non-elementwise operators such as `AveragePool`, `Conv`, o
 
 ### Rewiring and deletion
 
-- `onnx_ir.Node.inputs` may be immutable; use `Node.replace_input_with(index: int, value: Value)` when provided by the backend.
-- Rewire **all** consumers of the second transpose’s output (by name or object) to the kept tensor.
+- Use `Node.replace_input_with(index, value)` to update individual inputs.
+- Rewire all uses of the second transpose's output with
+  `ir.convenience.replace_all_uses_with(..., replace_graph_outputs=True)`.
 - Update graph/model outputs and the var→value map so no reference points at removed nodes.
-- Delete nodes in reverse order (second transpose first), maintaining any live list mirrors (`graph.nodes`, `graph._nodes`, etc.).
+- Remove replaced nodes through `graph.remove(...)`; IR maintains ownership
+  and its internal node containers.
 
 This pass is intentionally conservative, portable across `onnx_ir` variants, and oblivious to specific operator semantics.
 

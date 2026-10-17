@@ -34,7 +34,7 @@ the mean pooled patch embeddings:
 poetry run python scripts/compare_meta_vs_jax2onnx.py \
   --image /tmp/coco_39769.jpg \
   --variant dinov3_vits16_pretrain_lvd1689m \
-  --weights ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+  --weights ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
   --onnx ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx
 ```
 
@@ -50,7 +50,7 @@ per-block debugging:
 poetry run python scripts/compare_meta_vs_jax2onnx.py \
   --image /tmp/coco_39769.jpg \
   --variant dinov3_vits16_pretrain_lvd1689m \
-  --weights ~/.cache/torch/hub/dinov3/weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
+  --weights ~/.cache/equimo/dinov3/dinov3_vits16_pretrain_lvd1689m-08c60483.pth \
   --onnx ~/.cache/equimo/dinov3/eqx_dinov3_vit_S16.onnx \
   --eqx ~/.cache/equimo/dinov3/eqx_dinov3_vits16_mapped.eqx \
   --block-debug

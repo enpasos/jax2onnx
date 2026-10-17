@@ -25,13 +25,16 @@ from jax2onnx.plugins.jax.numpy._common import (
     make_jnp_primitive,
 )
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _EQUAL_PRIM: Final = make_jnp_primitive("jax.numpy.equal")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_EQUAL_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.equal.html",
     onnx=[

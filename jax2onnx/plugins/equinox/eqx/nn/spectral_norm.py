@@ -9,7 +9,10 @@ import jax
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _EQX_SPECTRAL_NORM: Final[eqx.nn.SpectralNorm] = eqx.nn.SpectralNorm(
     layer=eqx.nn.Linear(8, 4, key=jax.random.PRNGKey(0)),
@@ -20,7 +23,7 @@ _EQX_SPECTRAL_NORM: Final[eqx.nn.SpectralNorm] = eqx.nn.SpectralNorm(
 _EQX_SPECTRAL_NORM_STATE: Final[eqx.nn.State] = eqx.nn.State(_EQX_SPECTRAL_NORM)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.spectral_norm",
     jax_doc="https://docs.kidger.site/equinox/api/nn/normalisation/#equinox.nn.SpectralNorm",
     onnx=[

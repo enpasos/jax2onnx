@@ -33,7 +33,7 @@ model = VisionTransformer(
 
 to_onnx(
     model,
-    input_shapes=[(1, 3, 224, 224)],
+    inputs=[(1, 3, 224, 224)],
     return_mode="file",
     output_path="artifacts/nnx_dino/nnx_dinov3_vit_S14.onnx",
 )
@@ -64,7 +64,7 @@ model = VisionTransformer(
 
 to_onnx(
     model,
-    input_shapes=[("B", 3, 224, 224)],
+    inputs=[("B", 3, 224, 224)],
     return_mode="file",
     output_path="artifacts/nnx_dino/nnx_dinov3_vit_S14_dynamic.onnx",
 )

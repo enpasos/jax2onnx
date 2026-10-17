@@ -29,7 +29,10 @@ from jax2onnx.plugins.jax.numpy.linalg_inv import (
     _gather_matrix_elem,
     _unsqueeze,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _LINALG_SOLVE_PRIM: Final = make_jnp_primitive("jax.numpy.linalg.solve")
@@ -232,7 +235,7 @@ def _stack_solution_rows(
     )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_LINALG_SOLVE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.linalg.solve.html",
     onnx=[

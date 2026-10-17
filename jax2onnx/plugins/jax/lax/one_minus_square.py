@@ -11,7 +11,10 @@ from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _one_minus_square(x: jax.Array) -> jax.Array:
@@ -20,7 +23,7 @@ def _one_minus_square(x: jax.Array) -> jax.Array:
     return (1 + x) * (1 - x)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=getattr(getattr(jax.lax, "one_minus_square_p", None), "name", ""),
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.one_minus_square.html",
     onnx=[

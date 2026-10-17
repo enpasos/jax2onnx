@@ -17,7 +17,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _identity_activation(x: jax.Array) -> jax.Array:
@@ -107,7 +110,7 @@ def _layer_ignores_key(layer: Any) -> bool:
     return False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=SEQUENTIAL_PRIM.name,
     jax_doc="https://docs.kidger.site/equinox/api/nn/sequential/#equinox.nn.Sequential",
     onnx=[

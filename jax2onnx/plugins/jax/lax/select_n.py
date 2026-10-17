@@ -16,11 +16,14 @@ from jax2onnx.plugins._ir_shapes import (
 )
 from jax2onnx.plugins.jax.lax._index_utils import _cast_to_i64, _const_i64
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 import jax.numpy as jnp
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.select_n_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.select_n.html",
     onnx=[

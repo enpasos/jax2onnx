@@ -11,7 +11,10 @@ import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _transpose_last_two_shape(shape: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -27,7 +30,7 @@ def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
         value.shape = ref.shape
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.linalg.symmetric_product_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.linalg.symmetric_product.html",
     onnx=[

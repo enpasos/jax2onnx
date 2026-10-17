@@ -10,7 +10,10 @@ import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _stamp_like(value: ir.Value, ref: ir.Value) -> None:
@@ -145,7 +148,7 @@ def _lanczos_lgamma_positive(
     return out
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.lgamma_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.lgamma.html",
     onnx=[

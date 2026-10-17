@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias, cast
+from typing import Any, TypeAlias
 
 import jax
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
+    Literal,
     Primitive,
     ShapedArray,
+    Var,
     batching,
 )
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl
 
 
@@ -38,7 +40,7 @@ def abstract_eval_via_orig_unary(
 
 
 def lower_unary_elementwise_with_optional_cast(
-    ctx: LoweringContextProtocol,
+    ctx: NativeLoweringContext,
     eqn: JaxprEqn,
     *,
     op_name: str,
@@ -50,97 +52,78 @@ def lower_unary_elementwise_with_optional_cast(
     (x_var,) = eqn.invars
     (y_var,) = eqn.outvars
 
-    x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name(input_hint))
-    out_spec = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
-
-    in_dtype: np.dtype[Any] = np.dtype(
-        getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-    )
-    out_dtype: np.dtype[Any] = np.dtype(
-        getattr(getattr(y_var, "aval", None), "dtype", in_dtype)
-    )
+    # Preserve the established naming sequence although input lookup allocates no name.
+    ctx.fresh_name(input_hint)
+    x_val = ctx.require_value_for_var(x_var)
+    out_spec = ctx.allocate_value_for_var(y_var, name_hint=ctx.fresh_name(output_hint))
+    in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
+    out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
 
     op_input = x_val
     if identity_for_integral_input and (
         np.issubdtype(in_dtype, np.integer) or in_dtype == np.bool_
     ):
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(output_hint)
-        producer = getattr(out_spec, "producer", None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name(output_hint)
+        op_name = "Identity"
+    elif cast_input_to_output_dtype and in_dtype != out_dtype:
+        op_input = _cast_value(ctx, x_val, out_spec.dtype, output_hint=output_hint)
 
-        result = cast(ir.Value, ctx.builder.Identity(op_input, _outputs=[desired_name]))
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
-        ctx.bind_value_for_var(y_var, result)
-        return
-
-    if cast_input_to_output_dtype:
-        if in_dtype != out_dtype:
-            cast_dtype = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-            cast_val = cast(
-                ir.Value,
-                ctx.builder.Cast(
-                    x_val,
-                    _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
-                    to=int(cast_dtype.value),
-                ),
-            )
-            cast_val.type = ir.TensorType(cast_dtype)
-            cast_val.shape = getattr(x_val, "shape", None)
-            _ensure_value_metadata(ctx, cast_val)
-            op_input = cast_val
-
-    desired_name = getattr(out_spec, "name", None) or ctx.fresh_name(output_hint)
-    producer = getattr(out_spec, "producer", None)
-    if callable(producer) and producer() is not None:
-        desired_name = ctx.fresh_name(output_hint)
-
-    builder_op = getattr(ctx.builder, op_name, None)
-    if builder_op is None:
-        raise AttributeError(f"IR builder missing op '{op_name}'")
-
-    result = cast(ir.Value, builder_op(op_input, _outputs=[desired_name]))
-    if getattr(out_spec, "type", None) is not None:
-        result.type = out_spec.type
-    if getattr(out_spec, "shape", None) is not None:
-        result.shape = out_spec.shape
+    op_input = promote_float32_operand(
+        ctx,
+        op_input,
+        target_dtype=out_spec.dtype,
+        name_hint=f"{output_hint}_operand_double",
+    )
+    result = ctx.builder.op(op_name, [op_input], output=out_spec)
     ctx.bind_value_for_var(y_var, result)
 
 
+def _var_dtype(var: Var | Literal, default: np.dtype[Any]) -> np.dtype[Any]:
+    aval = var.aval
+    return np.dtype(aval.dtype) if isinstance(aval, ShapedArray) else default
+
+
+def _cast_value(
+    ctx: NativeLoweringContext,
+    value: ir.Value,
+    dtype: ir.DataType | None,
+    *,
+    output_hint: str,
+) -> ir.Value:
+    if dtype is None:
+        raise TypeError("Unary output is missing its dtype")
+    output = ir.Value(
+        name=ctx.fresh_name(f"{output_hint}_cast"),
+        type=ir.TensorType(dtype),
+        shape=value.shape,
+    )
+    cast_value = ctx.builder.op(
+        "Cast", [value], {"to": int(dtype.value)}, output=output
+    )
+    _ensure_value_metadata(ctx, cast_value)
+    return cast_value
+
+
 def cast_input_to_output_dtype(
-    ctx: LoweringContextProtocol,
-    x_var: AbstractValue,
-    y_var: AbstractValue,
+    ctx: NativeLoweringContext,
+    x_var: Var | Literal,
+    y_var: Var | Literal,
     x_val: ir.Value,
     *,
     output_hint: str,
 ) -> ir.Value:
     """Cast unary input to output dtype when JAX promotion changed the dtype."""
-    in_dtype: np.dtype[Any] = np.dtype(
-        getattr(getattr(x_var, "aval", None), "dtype", np.float32)
-    )
-    out_dtype: np.dtype[Any] = np.dtype(
-        getattr(getattr(y_var, "aval", None), "dtype", in_dtype)
-    )
-    if in_dtype == out_dtype:
-        return x_val
+    in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
+    out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
+    target_dtype = ctx.require_value_for_var(y_var).dtype
+    if in_dtype != out_dtype:
+        x_val = _cast_value(ctx, x_val, target_dtype, output_hint=output_hint)
 
-    cast_dtype = _dtype_to_ir(out_dtype, ctx.builder.enable_double_precision)
-    cast_val = cast(
-        ir.Value,
-        ctx.builder.Cast(
-            x_val,
-            _outputs=[ctx.fresh_name(f"{output_hint}_cast")],
-            to=int(cast_dtype.value),
-        ),
+    return promote_float32_operand(
+        ctx,
+        x_val,
+        target_dtype=target_dtype,
+        name_hint=f"{output_hint}_operand_double",
     )
-    cast_val.type = ir.TensorType(cast_dtype)
-    cast_val.shape = getattr(x_val, "shape", None)
-    _ensure_value_metadata(ctx, cast_val)
-    return cast_val
 
 
 def register_unary_elementwise_batch_rule(prim: Primitive) -> None:

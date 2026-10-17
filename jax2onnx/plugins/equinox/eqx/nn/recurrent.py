@@ -9,7 +9,10 @@ import jax
 from jax.core import ShapedArray
 from jax.extend.core import Primitive
 
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _RECURRENT_ONNX: Final[list[dict[str, str]]] = [
     {"component": "Gemm", "doc": "https://onnx.ai/onnx/operators/onnx__Gemm.html"},
@@ -34,7 +37,7 @@ _EQX_LSTM_CELL: Final[eqx.nn.LSTMCell] = eqx.nn.LSTMCell(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.gru_cell",
     jax_doc="https://docs.kidger.site/equinox/api/nn/rnn/#equinox.nn.GRUCell",
     onnx=_RECURRENT_ONNX,
@@ -69,7 +72,7 @@ class GRUCellPlugin(PrimitiveLeafPlugin):
         )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.lstm_cell",
     jax_doc="https://docs.kidger.site/equinox/api/nn/rnn/#equinox.nn.LSTMCell",
     onnx=_RECURRENT_ONNX,

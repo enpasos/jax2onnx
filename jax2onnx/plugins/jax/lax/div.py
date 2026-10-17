@@ -28,8 +28,12 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.ir_utils import const_value_to_numpy
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _lower_complex_div(
@@ -208,7 +212,7 @@ def _match_lpnormalization_pattern(
     return int(p), int(axes[0])
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.div_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.div.html",
     onnx=[
@@ -397,11 +401,11 @@ class DivPlugin(PrimitiveLeafPlugin):
             getattr(x_var.aval, "dtype", np.float32)
         )
 
-        lhs_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("div_lhs"))
-        rhs_val = ctx.get_value_for_var(
-            y_var, name_hint=ctx.fresh_name("div_rhs"), prefer_np_dtype=prefer_dt
+        lhs_val = ctx.require_value_for_var(x_var)
+        rhs_val = ctx.require_value_for_var(y_var, prefer_np_dtype=prefer_dt)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("div_out")
         )
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("div_out"))
 
         lhs_val, rhs_val, override = maybe_expand_binary_axis0(
             ctx, lhs_val, rhs_val, out_spec, out_var
@@ -463,6 +467,16 @@ class DivPlugin(PrimitiveLeafPlugin):
                     break
             return
 
+        original_lhs, original_rhs = lhs_val, rhs_val
+        lhs_val = promote_float32_operand(
+            ctx, lhs_val, target_dtype=out_spec.dtype, name_hint="div_lhs_double"
+        )
+        rhs_val = promote_float32_operand(
+            ctx, rhs_val, target_dtype=out_spec.dtype, name_hint="div_rhs_double"
+        )
+        # A new consumer Cast must retain the preceding FLOAT rounding boundary.
+        allow_fusion = lhs_val is original_lhs and rhs_val is original_rhs
+
         out_aval_dtype = getattr(getattr(out_var, "aval", None), "dtype", None)
         out_is_f64 = False
         if out_aval_dtype is not None:
@@ -477,7 +491,9 @@ class DivPlugin(PrimitiveLeafPlugin):
             lhs_producer = producer()
         lhs_inputs = tuple(getattr(lhs_producer, "inputs", ()))
         rhs_scalar = _const_scalar_as_float(rhs_val)
-        lpnorm_match = _match_lpnormalization_pattern(lhs_val, rhs_val)
+        lpnorm_match = (
+            _match_lpnormalization_pattern(lhs_val, rhs_val) if allow_fusion else None
+        )
         if lpnorm_match is not None:
             p, axis = lpnorm_match
             result = cast(
@@ -500,7 +516,8 @@ class DivPlugin(PrimitiveLeafPlugin):
             return
 
         if (
-            not out_is_f64
+            allow_fusion
+            and not out_is_f64
             and rhs_scalar is not None
             and np.isclose(rhs_scalar, 2.0)
             and getattr(lhs_producer, "op_type", "") == "Add"

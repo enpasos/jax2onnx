@@ -23,7 +23,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 )
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _TRANSPOSE_PRIM: Final = make_jnp_primitive("jax.numpy.transpose")
@@ -58,7 +61,7 @@ def _normalize_axes(axes: AxesArg, rank: int) -> tuple[int, ...]:
     return tuple(norm)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_TRANSPOSE_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.transpose.html",
     onnx=[

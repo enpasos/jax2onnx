@@ -8,11 +8,11 @@ from flax import nnx
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx._compat.jax import Primitive, ShapedArray
+from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -134,7 +134,7 @@ LAYER_NORM_PRIM: Final[Primitive] = Primitive("nnx.layer_norm")
 LAYER_NORM_PRIM.multiple_results = False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=LAYER_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.LayerNorm",
     onnx=LAYER_NORM_ONNX_COMPONENTS,
@@ -484,8 +484,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
     def lower(
         self,
         ctx: LoweringContextProtocol,
-        eqn: Any,
-        params: dict[str, Any] | None = None,
+        eqn: JaxprEqn,
     ) -> None:
         """
         Emit a single LayerNormalization node (opset >= 17, unless
@@ -497,7 +496,7 @@ class LayerNormPlugin(PrimitiveLeafPlugin):
         scale_v = ctx.get_value_for_var(eqn.invars[1])
         bias_v = ctx.get_value_for_var(eqn.invars[2])
 
-        p = params or getattr(eqn, "params", {}) or {}
+        p = eqn.params
         if not use_native_layer_norm(ctx):
             # Follow Flax's statistics: clamped E[x^2]-E[x]^2 or a two-pass variance.
             fast = bool(p.get("use_fast_variance", True))

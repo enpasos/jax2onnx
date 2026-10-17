@@ -71,7 +71,7 @@ poetry run python scripts/export_flax_gpt_oss_params.py \
 Use `--gpt-oss-path` if the helper repo lives somewhere other than the default
 `tmp/gpt-oss-jax-vs-torch-numerical-comparison`. The script automatically
 detects Orbax vs. SafeTensors checkpoints and writes
-`flax_params.msgpack.config.json` beside the serialized parameters.
+`flax_params.config.json` beside the serialized parameters.
 
 ## 3. Export the Flax/NNX transformer to ONNX
 

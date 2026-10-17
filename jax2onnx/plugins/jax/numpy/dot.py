@@ -24,7 +24,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _DOT_PRIM: Final = make_jnp_primitive("jax.numpy.dot")
@@ -56,7 +59,7 @@ def _dot_shape(
     return result.shape, result.dtype
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_DOT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.dot.html",
     onnx=[

@@ -22,7 +22,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 _SUPPORTED_OPS: Final[dict[str, Callable[..., jax.Array]]] = {
     "avg": jnp.mean,
@@ -103,7 +106,7 @@ def _adaptive_pool_forward(
     )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.adaptive_pool",
     jax_doc="https://docs.kidger.site/equinox/api/nn/pooling/#equinox.nn.AdaptivePool",
     onnx=[

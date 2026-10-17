@@ -22,7 +22,10 @@ from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.nn._builder_utils import lower_unary_elementwise
 
 
@@ -31,7 +34,7 @@ _SOFTMAX_PRIM.multiple_results = False
 _JAX_SOFTMAX_ORIG: Final = jax.nn.softmax
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SOFTMAX_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.nn.softmax.html",
     onnx=[

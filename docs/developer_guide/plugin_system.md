@@ -58,51 +58,47 @@ bodies see the same primitive bindings as the top-level trace.
 ## Primitive Plugins
 
 Most primitive support is implemented as a subclass of `PrimitiveLeafPlugin`
-registered with `@register_primitive(...)`.
+registered with `@register_native_primitive(...)`. The complete example below matches `NegPlugin` in
+`jax2onnx/plugins/jax/lax/neg.py`: require the input, allocate an output with
+the traced dtype and shape, emit into that value, and bind it explicitly.
 
 ```python
-from typing import Any
-
 import jax
-import onnx_ir as ir
-from jax import core
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
-
-JaxprEqn = getattr(core, "JaxprEqn", Any)
+from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_native_primitive
 
 
-@register_primitive(
-    jaxpr_primitive=jax.lax.abs_p.name,
-    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.abs.html",
-    onnx=[{"component": "Abs", "doc": "https://onnx.ai/onnx/operators/onnx__Abs.html"}],
-    since="0.5.0",
+@register_native_primitive(
+    jaxpr_primitive=jax.lax.neg_p.name,
+    jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.neg.html",
+    onnx=[{"component": "Neg", "doc": "https://onnx.ai/onnx/operators/onnx__Neg.html"}],
+    since="0.2.0",
     context="primitives.lax",
-    component="abs",
+    component="neg",
     testcases=[
         {
-            "testcase": "abs",
-            "callable": lambda x: jax.lax.abs(x),
+            "testcase": "neg",
+            "callable": lambda x: -x,
             "input_shapes": [(3,)],
-            "post_check_onnx_graph": EG(["Abs:3"], no_unused_inputs=True),
+            "post_check_onnx_graph": EG(["Neg:3"], no_unused_inputs=True),
         }
     ],
 )
-class AbsPlugin(PrimitiveLeafPlugin):
-    def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
-        x_val = ctx.get_value_for_var(eqn.invars[0])
-        out_val = ctx.get_value_for_var(eqn.outvars[0], name_hint=ctx.fresh_name("abs"))
+class NegPlugin(PrimitiveLeafPlugin):
+    def lower(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        x_var = eqn.invars[0]
+        out_var = eqn.outvars[0]
 
-        result = ctx.builder.Abs(x_val, _outputs=[out_val.name or ctx.fresh_name("abs")])
-        result.type = out_val.type
-        result.shape = out_val.shape
-        _stamp_type_and_shape(result, tuple(getattr(eqn.outvars[0].aval, "shape", ())))
-        _ensure_value_metadata(ctx, result)
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("neg_out")
+        )
 
-        ctx.bind_value_for_var(eqn.outvars[0], result)
+        result = ctx.builder.op("Neg", [x_val], output=out_spec)
+        ctx.bind_value_for_var(out_var, result)
 ```
 
 This is the common shape. More complex plugins may also define a custom JAX
@@ -111,8 +107,23 @@ binding specs.
 
 ## Registering Metadata
 
-`@register_primitive(...)` stores every keyword argument as plugin metadata and
+`@register_native_primitive(...)` stores every keyword argument as plugin metadata and
 registers the plugin instance under `jaxpr_primitive`.
+
+This decorator declares `lower(ctx, eqn) -> None`: the lowering binds its own
+outputs. Registration stores the bound method directly, without inspecting its
+signature, annotation, or return value. All first-party primitive plugins use
+this contract. `FunctionPlugin` uses the same explicit registry entry point.
+
+`@register_primitive(...)` remains available for legacy extensions, including
+`lower(ctx, eqn, params)` and returned-value lowerings. Raw assignments to
+`PLUGIN_REGISTRY[name]` also pass through the legacy adapter, unless the same
+object was explicitly registered as native and its identity is still known.
+Registry reads and snapshots return the original plugin objects. The weak
+identity catalog preserves native aliases/restoration without retaining removed
+plugins; objects without weak-reference support still register natively, while
+later raw assignments use the legacy adapter. Native code should use the
+explicit decorator or `PLUGIN_REGISTRY.register_canonical(name, plugin)`.
 
 Important top-level metadata fields:
 
@@ -128,7 +139,7 @@ Important top-level metadata fields:
 | `children` | For examples, child components used by the example. |
 | `testcases` | Generated test inputs, expectations, and structural checks. |
 
-Avoid duplicate `jaxpr_primitive` keys. The registry is a dictionary, so a later
+Avoid duplicate `jaxpr_primitive` keys. The registry is mutable, so a later
 import can overwrite an earlier entry; that is not a supported extension model.
 
 ## Binding Specs
@@ -200,21 +211,45 @@ Guidelines:
 
 ## Lowering Contract
 
-The lowering receives a `LoweringContextProtocol` and a JAXPR equation. The
-contract is strict:
+New native lowerings receive a `NativeLoweringContext` and a JAXPR equation.
+Its builder exposes the closed `IRBuilderAPI`, so direct `ctx.builder` calls
+are checked without an extra annotation. The context provides public value,
+constant, naming, and symbolic-shape operations; converter bookkeeping belongs
+to the internal `ConverterContext` contract. The existing
+`LoweringContextProtocol` name remains a compatibility alias for older plugins
+that use dynamic builder shorthand or internal context state.
+
+The lowering contract is strict:
 
 1. all non-literal inputs must already be bound before `lower(...)` runs;
 2. the plugin emits connected `onnx_ir` nodes and values;
 3. every non-drop output var must be bound before the equation completes;
-4. returned `ir.Value` objects may be bound generically, but explicit binding is
-   clearer for non-trivial lowerings.
+4. the canonical method returns `None`; the plugin binds its outputs explicitly.
+
+`PluginRegistry` preserves original plugin objects for metadata and tracing
+activation, while preparing one typed `(ctx, eqn) -> None` call at registration.
+`register_native_primitive` or `register_canonical` explicitly declares the
+canonical contract; annotations alone do not select it. The equation loop calls
+that method directly and checks graph ownership; it does
+not inspect signatures or interpret returned values.
+
+Existing extensions with `lower(ctx, eqn, params)`, unannotated or return-style
+`lower` methods, and `get_handler(converter)` use a registration adapter. The
+adapter binds returned values and preserves partial bindings and drop variables.
+Only this legacy boundary resolves old name-only value aliases to the actual
+graph value. Native bindings must point to values owned by the current graph;
+a foreign or detached value with the same name cannot satisfy that contract.
+`PLUGIN_REGISTRY` remains a mutable mapping of original objects, including
+assignment, lookup, iteration, aliases, removal, and dictionary snapshots.
 
 Core context methods used most often:
 
 | API | Use |
 | --- | --- |
-| `ctx.get_value_for_var(var, ...)` | Fetch or allocate the IR value for a JAX var. Literals can become constants. |
-| `ctx.require_value_for_var(var, ...)` | Require an existing binding; useful when allocation would hide a bug. |
+| `ctx.lookup_value_for_var(var)` | Read an existing binding without allocating nodes or initializers. Returns `None` for unbound vars and literals. |
+| `ctx.require_value_for_var(var, ...)` | Require an input binding; materialize literals in the current graph or Function scope. A missing non-literal binding is an error. |
+| `ctx.allocate_value_for_var(var, ...)` | Reuse an unproduced placeholder or allocate a fresh writable output, preserving existing values and their metadata. |
+| `ctx.get_value_for_var(var, ...)` | Compatibility convenience that combines lookup, literal materialization, and output allocation. Prefer explicit require/allocate operations in new lowerings. |
 | `ctx.bind_value_for_var(var, value)` | Bind an equation output var to a produced `ir.Value`. |
 | `ctx.bind_const_for_var(var, array)` | Bind a JAXPR constvar. Top-level graphs use initializers; Function bodies use `Constant` nodes. |
 | `ctx.fresh_name(base)` | Create deterministic per-context names. |
@@ -225,7 +260,9 @@ Core context methods used most often:
 Lowering guardrails:
 
 - Emit normal nodes through `ctx.builder`.
-- Pass `_outputs=[...]`, never `_outputs="name"`.
+- Prefer typed `builder.op(..., output=value)` or
+  `builder.op_multi_out(..., outputs=[...])` when emitting into allocated values.
+  Existing dynamic shorthand must pass `_outputs=[...]`, never `_outputs="name"`.
 - Stamp or preserve dtype/shape metadata on produced values.
 - Reuse pre-allocated output values when identity matters.
 - Keep converter/plugins IR-only; do not import ONNX protobuf types in lowering
@@ -234,8 +271,12 @@ Lowering guardrails:
   construction.
 
 The core validates both sides of the equation. `assert_eqn_inputs_bound` catches
-unbound inputs before the plugin runs. `finalize_eqn_lowering_outputs` catches
-missing or disconnected outputs after it runs.
+unbound inputs before the plugin runs. `assert_eqn_outputs_bound` catches missing
+or disconnected outputs after it runs. `finalize_eqn_lowering_outputs` remains a
+legacy compatibility helper for callers that supply returned values.
+For optimizer work, use the
+[graph rewrite reference](advanced_topics/ir_optimizer.md#graph-rewrite-reference)
+to preserve graph outputs, metadata, and ownership through public IR mutation APIs.
 
 ## Function Plugins and `@onnx_function`
 
@@ -248,7 +289,7 @@ During tracing, the function plugin patches the target callable or class
 
 1. resolves the original callable or instance;
 2. builds a `FunctionKey` from target name, input avals, and capture signature;
-3. reuses a cached body when the key matches;
+3. reuses a cached `ir.Function` when the key matches;
 4. otherwise creates a `FunctionScope` child `IRContext`;
 5. maps parent inputs and dynamic call parameters to function inputs;
 6. retraces and lowers the callable body inside the child context;
@@ -256,6 +297,52 @@ During tracing, the function plugin patches the target callable or class
    initializers;
 8. attaches the resulting `onnx_ir.Function` to the parent model;
 9. emits a call-site node in the parent graph.
+
+`FunctionScope.end(outputs)` finalizes the graph once and returns the native
+function stored by the registry and attached to the enclosing context. Its
+graph owns the formal inputs, outputs, and nodes; there is no parallel
+`FunctionDef` snapshot. A native graph clone preserves ownership independently
+of the construction context, including names, metadata, and opset imports.
+
+The native entry point `_lower_in_context` reads as preparation, registry lookup,
+optional body construction, and call emission. `DynamicCapture` stores each
+parameter's name, tracing spec, and bound parent `ir.Value`; `FunctionCaptures`
+keeps these records in signature order beside static kwargs and fingerprints.
+No partially populated dictionaries are passed between phases. Dynamic keyword
+values travel as regular JAX primitive operands, with hashable index references
+preserving their keyword names. JAX can therefore track their dependencies
+through control flow, dead-code elimination, and batching. The shared argument
+decoder reconstructs positional arguments and keywords at each boundary;
+Function captures require no private tracer-frame lookup. Static Python
+configuration stays in primitive parameters.
+
+Static configuration uses value-based cache keys for supported scalars, arrays,
+and recursive containers. Mutable built-in containers and NumPy arrays are
+snapshotted when the primitive is bound. Array digests accelerate lookup;
+exact content comparison determines equality. Object-array addresses and
+`repr` strings do not establish equivalence. Opaque configuration values
+conservatively receive separate function definitions and must remain stable
+during conversion. Abstract evaluation decodes parameters inside its tracing
+closure: only regular operands become JAX abstract inputs, while static modes,
+booleans, and shape configuration remain Python values.
+
+The initial export trace may promote declared `input_params` to runtime flags.
+Function-body tracing already receives those flags as explicit operands, so
+explicit Python constants in that body remain constants. Control-flow children
+inherit this policy from their enclosing context. This prevents an inner call
+such as `deterministic=False` from selecting a same-named outer flag.
+Omitted keywords in Function bodies retain the callee's Python defaults;
+forward a flag explicitly when the callee should receive it.
+
+`IRContext.create_child_context(scope="function" | "control_flow")` owns the
+common settings and recording/registry inheritance. Function scopes mirror
+inputs into fresh formal values and remap symbolic origins; control-flow scopes
+retain lexical origins and publish local function definitions to the enclosing
+model. The child never receives the parent's parameter-to-IR-value dictionary.
+Function tracing uses `try/finally` to restore activation state even on failure.
+Only `If` permits lazy lexical capture of variables and external BOOL call
+parameters; Loop and scan keep their explicit carried-input contracts. See
+[control-flow body inputs](advanced_topics/subgraph_input_handling.md).
 
 `unique=True` changes the capture signature from object identity to a stable
 fingerprint of the callable/function state, so equivalent blocks can share one

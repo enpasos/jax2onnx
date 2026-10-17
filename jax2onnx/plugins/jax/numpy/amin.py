@@ -26,13 +26,16 @@ from jax2onnx.plugins.jax.numpy._reduction_utils import (
     normalize_axis_to_axes,
     register_reduction_batch_rule,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _AMIN_PRIM: Final = make_jnp_primitive("jax.numpy.amin")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_AMIN_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.amin.html",
     onnx=[

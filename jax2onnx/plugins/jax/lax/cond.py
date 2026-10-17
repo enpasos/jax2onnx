@@ -16,7 +16,10 @@ from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
@@ -38,7 +41,7 @@ def _extract_branches(
     return (true_jaxpr, true_consts), (false_jaxpr, false_consts)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.cond_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.cond.html",
     onnx=[
@@ -297,7 +300,7 @@ class CondPlugin(PrimitiveLeafPlugin):
         *,
         prefix: str,
     ) -> ir.Graph:
-        branch_ctx = make_subgraph_context(ctx, prefix=prefix)
+        branch_ctx = make_subgraph_context(ctx, prefix=prefix, implicit_captures=True)
 
         # Bind constants inside the branch context.
         for const_var, const_value in zip(branch_jaxpr.constvars, consts):

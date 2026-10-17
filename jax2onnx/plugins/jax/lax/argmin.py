@@ -10,10 +10,13 @@ import jax.numpy as jnp
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._arg_utils import lower_arg_reduction
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.argmin_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.argmin.html",
     onnx=[

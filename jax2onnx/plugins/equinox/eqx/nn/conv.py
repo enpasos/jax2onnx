@@ -27,7 +27,10 @@ from jax2onnx.plugins._post_check_onnx_graph import expect_graph
 from jax2onnx.plugins._utils import inline_reshape_initializer
 from jax2onnx.plugins._complex_utils import cast_real_tensor
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _normalized_shape(
@@ -131,7 +134,7 @@ _EQX_CONV_EXAMPLE: Final[eqx.nn.Conv2d] = eqx.nn.Conv2d(
 )
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="eqx.nn.conv",
     jax_doc="https://docs.kidger.site/equinox/api/nn/conv/",
     onnx=[

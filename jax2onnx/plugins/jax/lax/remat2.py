@@ -13,7 +13,10 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import Primitive
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _unwrap_closed_jaxpr(jaxpr_like: Any) -> Tuple[Any, Iterable[Any]]:
@@ -53,7 +56,7 @@ def _remat2_tuple_passthrough(
     return cast(tuple[jax.Array, jax.Array], jax.checkpoint(body)(a, b))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="remat2",
     jax_doc="https://docs.jax.dev/en/latest/jep/11830-new-remat-checkpoint.html",
     onnx=[],

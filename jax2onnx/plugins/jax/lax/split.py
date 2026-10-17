@@ -13,10 +13,13 @@ from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.split_p.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.split.html",
     onnx=[

@@ -21,8 +21,12 @@ from jax2onnx.plugins._loop_extent_meta import set_axis0_override
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat import jax as jax_compat
 from jax2onnx._compat.jax import DropVar, Var
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
+    LoopCallParameters,
     builder_cast,
     builder_identity,
     builder_loop,
@@ -306,7 +310,7 @@ def _scan_captured_vector_with_xs_f64(xs: Any) -> Any:
     )[1]
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.scan_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.scan.html",
     onnx=[
@@ -798,6 +802,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         jaxpr = closed_jaxpr.jaxpr
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        call_parameters = LoopCallParameters(ctx, loop_ctx)
 
         has_scatter = _jaxpr_contains_scatter(jaxpr)
         jaxpr = closed_jaxpr.jaxpr
@@ -984,7 +989,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     flush=True,
                 )
 
-        loop_ctx.builder.outputs = body_outputs
+        loop_ctx.builder.outputs = call_parameters.body_outputs(body_outputs)
 
         body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = ctx.fresh_name("scan_loop_body")
@@ -1170,13 +1175,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_results = builder_loop(
             ctx,
-            *node_inputs,
+            *call_parameters.loop_inputs(node_inputs),
             body=body_graph,
-            output_names=output_names,
+            output_names=call_parameters.output_names(output_names),
         )
 
         if not isinstance(loop_results, tuple):
             loop_results = (loop_results,)
+        loop_results = call_parameters.original_results(loop_results)
 
         for template, produced in zip(node_outputs, loop_results):
             tmpl_meta = getattr(template, "meta", None)
@@ -1292,6 +1298,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                     )
 
         loop_ctx = make_subgraph_context(ctx, prefix="scan_loop")
+        call_parameters = LoopCallParameters(ctx, loop_ctx)
         jaxpr = closed_jaxpr.jaxpr
         dtypes = [
             np.dtype(getattr(var.aval, "dtype"))
@@ -1575,7 +1582,7 @@ class ScanPlugin(PrimitiveLeafPlugin):
                         flush=True,
                     )
 
-        loop_ctx.builder.outputs = body_outputs
+        loop_ctx.builder.outputs = call_parameters.body_outputs(body_outputs)
 
         body_graph = loop_ctx.builder.graph.clone(allow_outer_scope_values=True)
         body_graph.name = ctx.fresh_name("scan_loop_body")
@@ -1776,13 +1783,14 @@ class ScanPlugin(PrimitiveLeafPlugin):
 
         loop_results = builder_loop(
             ctx,
-            *node_inputs,
+            *call_parameters.loop_inputs(node_inputs),
             body=body_graph,
-            output_names=output_names,
+            output_names=call_parameters.output_names(output_names),
         )
 
         if not isinstance(loop_results, tuple):
             loop_results = (loop_results,)
+        loop_results = call_parameters.original_results(loop_results)
 
         for template, produced in zip(node_outputs, loop_results):
             tmpl_meta = getattr(template, "meta", None)

@@ -18,7 +18,7 @@ from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -195,7 +195,7 @@ def _require_builder(ctx: LoweringContextProtocol) -> IRBuilderProtocol:
     return ctx.builder
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=GROUP_NORM_PRIM.name,
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/normalization.html#flax.nnx.GroupNorm",
     onnx=GROUP_NORM_ONNX_COMPONENTS,

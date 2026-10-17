@@ -14,10 +14,13 @@ from jax2onnx.plugins._complex_utils import (
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
 from jax2onnx._compat.jax import JaxprEqn
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.complex_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.complex.html",
     onnx=[

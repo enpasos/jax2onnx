@@ -29,7 +29,7 @@ from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive, get_orig_impl
 from jax2onnx.plugins.plugin_system import (
     PLUGIN_REGISTRY,
     PrimitiveLeafPlugin,
-    register_primitive,
+    register_native_primitive,
 )
 
 
@@ -38,7 +38,7 @@ _STACK_PRIM: Final = make_jnp_primitive("jax.numpy.stack")
 BatchDim: TypeAlias = int | None
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_STACK_PRIM.name,
     jax_doc="https://jax.readthedocs.io/en/latest/_autosummary/jax.numpy.stack.html",
     onnx=[

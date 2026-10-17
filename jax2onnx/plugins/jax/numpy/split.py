@@ -25,7 +25,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 from jax2onnx.plugins._utils import normalize_builder_outputs
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import make_jnp_primitive
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _SPLIT_PRIM: Final = make_jnp_primitive("jax.numpy.split")
@@ -111,7 +114,7 @@ def _resolve_split_sizes(
     return _split_sizes(int(dim_size), normalized)
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_SPLIT_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.split.html",
     onnx=[

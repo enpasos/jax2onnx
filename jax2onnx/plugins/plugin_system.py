@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import re
 import importlib
 import inspect
@@ -14,6 +13,7 @@ import weakref
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Any,
@@ -24,7 +24,9 @@ from typing import (
     Iterator,
     Mapping,
     Optional,
+    Sequence,
     Set,
+    TypeVar,
     Union,
     cast,
 )
@@ -32,24 +34,33 @@ from typing import (
 import jax
 import jax.tree_util as jtu
 import numpy as np
+import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
+from jax2onnx.plugins._function_keys import snapshot_static_value, static_value_key
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
+    ClosedJaxpr,
+    JaxprEqn,
+    Literal,
     Primitive,
     ShapedArray,
+    Tracer,
     Var,
     batching,
     ensure_batching_not_mapped_attr,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
-    make_converter_facade,
 )
+from jax2onnx.converter.lowering_registry import PluginRegistry
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
+    ConverterContext,
+    NativeLoweringContext,
     PrimitiveLowering,
     RngTrace,
     SymbolicDimOrigin,
@@ -78,7 +89,7 @@ def _sanitize_op_type(s: str) -> str:
 
 # Primitive name -> plugin (FunctionPlugin or PrimitiveLeafPlugin instance)
 PluginEntry = Union["FunctionPlugin", PrimitiveLowering]
-PLUGIN_REGISTRY: Dict[str, PluginEntry] = {}
+PLUGIN_REGISTRY: PluginRegistry = PluginRegistry()
 PatchCallable = Callable[[Callable[..., Any]], Callable[..., Any]]
 PatchSpec = tuple[PatchCallable, list[Any], str]
 
@@ -89,11 +100,13 @@ ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
 INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
 
 # Track @onnx_function hits (optional)
-_ONNX_FN_HITS: ContextVar[set[str]] = ContextVar("_ONNX_FN_HITS", default=set())
+_ONNX_FN_HITS: ContextVar[frozenset[str]] = ContextVar(
+    "_ONNX_FN_HITS", default=frozenset()
+)
 
 # During function body build, prevent that function from rebinding itself
-_IN_FUNCTION_BUILD: ContextVar[set[str]] = ContextVar(
-    "_IN_FUNCTION_BUILD", default=set()
+_IN_FUNCTION_BUILD: ContextVar[frozenset[str]] = ContextVar(
+    "_IN_FUNCTION_BUILD", default=frozenset()
 )
 
 # Optional examples registry (used by docs/test generation tooling)
@@ -235,7 +248,7 @@ def with_prng_key(seed: int | Callable[[Any], int]) -> _FactoryValue:
 
 
 class _DynamicParamWrapper:
-    """Hashable wrapper for traced kwargs passed to ONNX function primitives."""
+    """Legacy hashable value wrapper retained for primitive-specific plugins."""
 
     __slots__ = ("value",)
 
@@ -247,6 +260,59 @@ class _DynamicParamWrapper:
 
     def __eq__(self, other: object) -> bool:  # pragma: no cover - trivial
         return isinstance(other, _DynamicParamWrapper) and other.value is self.value
+
+
+@dataclass(frozen=True)
+class _DynamicParamRef:
+    """Hashable reference to a keyword value carried as a primitive operand."""
+
+    index: int
+
+
+@dataclass(frozen=True)
+class _StaticParam:
+    """Hashable static configuration for JAX's primitive-parameter caches."""
+
+    value: object = field(compare=False, hash=False, repr=False)
+    signature: tuple[object, ...]
+
+
+_Operand = TypeVar("_Operand")
+
+
+def _pack_function_arguments(
+    args: tuple[object, ...], kwargs: Mapping[str, object]
+) -> tuple[tuple[object, ...], dict[str, object]]:
+    """Encode dynamic dependencies and hashable static configuration for JAX."""
+    operands = list(args)
+    params: dict[str, object] = {}
+    for name, value in kwargs.items():
+        if isinstance(value, (Tracer, jax.Array)):
+            params[name] = _DynamicParamRef(len(operands))
+            operands.append(value)
+        else:
+            frozen_value = snapshot_static_value(value)
+            params[name] = _StaticParam(frozen_value, static_value_key(frozen_value))
+    return tuple(operands), params
+
+
+def _unpack_function_arguments(
+    operands: Sequence[_Operand], params: Mapping[str, object]
+) -> tuple[tuple[_Operand, ...], dict[str, object]]:
+    """Restore positional arguments and kwargs from the shared primitive format."""
+    keyword_count = sum(
+        isinstance(value, _DynamicParamRef) for value in params.values()
+    )
+    positional_count = len(operands) - keyword_count
+    kwargs: dict[str, object] = {}
+    for name, value in params.items():
+        if isinstance(value, _DynamicParamRef):
+            kwargs[name] = operands[value.index]
+        elif isinstance(value, _StaticParam):
+            kwargs[name] = value.value
+        else:
+            kwargs[name] = value
+    return tuple(operands[:positional_count]), kwargs
 
 
 class _ConstructAndCall:
@@ -462,6 +528,24 @@ def _qualname_of_target(target: Any) -> str:
 # ------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class DynamicCapture:
+    """One ordered function parameter and its already-bound parent value."""
+
+    name: str
+    spec: jax.ShapeDtypeStruct
+    value: ir.Value
+
+
+@dataclass(frozen=True)
+class FunctionCaptures:
+    """Call arguments, kept in signature order for tracing and call emission."""
+
+    dynamic: tuple[DynamicCapture, ...]
+    static_kwargs: Mapping[str, object]
+    signature: tuple[tuple[str, tuple[object, ...]], ...]
+
+
 class FunctionPlugin(PrimitivePlugin):
     """
     Wrap a decorated target (class or function) in a JAX Primitive
@@ -489,6 +573,20 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive.def_impl(self._primitive_impl)
         batching.primitive_batchers[self.primitive] = self._batching_rule
         self._orig_fn: Callable[..., Any] | None = None  # set by patch wrapper
+        self._unbound_orig_fn: Callable[..., Any] | None = None
+
+    def _resolve_orig_fn(
+        self, instance_key: object | None = None
+    ) -> Callable[..., Any] | None:
+        if isinstance(instance_key, int):
+            instance = INSTANCE_MAP2.get(instance_key)
+            unbound = self._unbound_orig_fn
+            if instance is not None and unbound is not None:
+                return cast(
+                    Callable[..., Any],
+                    unbound.__get__(instance, type(instance)),
+                )
+        return self._orig_fn
 
     # Implement abstract method (used by monkey-patch activator)
     def get_patch_params(self) -> list[tuple[Any, str, Callable[..., Any]]]:
@@ -528,21 +626,11 @@ class FunctionPlugin(PrimitivePlugin):
         )
 
     def _abstract_eval_with_kwargs(self, *args: Any, **kwargs: Any) -> Any:
-        if self._orig_fn is None:
+        instance_key = kwargs.get("instance_key")
+        orig_fn = self._resolve_orig_fn(instance_key)
+        if orig_fn is None:
             raise ValueError(f"Original function not set for '{self.name}'")
 
-        def _coerce_kwarg(value: Any) -> Any:
-            if isinstance(value, _DynamicParamWrapper):
-                tracer = value.value
-                aval = getattr(tracer, "aval", None)
-                if aval is not None:
-                    return jax.ShapeDtypeStruct(
-                        tuple(getattr(aval, "shape", ())), getattr(aval, "dtype", None)
-                    )
-                return tracer
-            return value
-
-        kwargs = {k: _coerce_kwarg(v) for k, v in kwargs.items() if k != "instance_key"}
         specs = [
             (
                 jax.ShapeDtypeStruct(arg.shape, arg.dtype)
@@ -551,7 +639,15 @@ class FunctionPlugin(PrimitivePlugin):
             )
             for arg in args
         ]
-        out_aval = jax.eval_shape(self._orig_fn, *specs, **kwargs)
+
+        def _call_with_static_kwargs(*operand_args: Any) -> Any:
+            positional_args, call_kwargs = _unpack_function_arguments(
+                operand_args, kwargs
+            )
+            call_kwargs.pop("instance_key", None)
+            return orig_fn(*positional_args, **call_kwargs)
+
+        out_aval = jax.eval_shape(_call_with_static_kwargs, *specs)
         if isinstance(out_aval, jax.ShapeDtypeStruct):
             out_aval = self._aval_to_shaped_array(out_aval)
         elif isinstance(out_aval, tuple):
@@ -561,27 +657,29 @@ class FunctionPlugin(PrimitivePlugin):
         return out_aval
 
     def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
-        if self._orig_fn is None:
+        instance_key = kwargs.pop("instance_key", None)
+        orig_fn = self._resolve_orig_fn(instance_key)
+        if orig_fn is None:
             raise ValueError("Original function not set for primitive!")
-        return self._orig_fn(*args, **kwargs)
+        positional_args, call_kwargs = _unpack_function_arguments(args, kwargs)
+        return orig_fn(*positional_args, **call_kwargs)
 
     def _batching_rule(
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[Any, Any]:
-        params.pop("instance_key", None)
-        call_kwargs = {}
-        for key, value in params.items():
-            if isinstance(value, _DynamicParamWrapper):
-                call_kwargs[key] = value.value
-            else:
-                call_kwargs[key] = value
-
-        original_fn = self._orig_fn
+        instance_key = params.pop("instance_key", None)
+        original_fn = self._resolve_orig_fn(instance_key)
 
         if original_fn is None:
             raise NotImplementedError(
                 f"Batching rule for '{self.name}' missing original callable."
             )
+
+        def _call_single(*single_args: Any) -> Any:
+            positional_args, call_kwargs = _unpack_function_arguments(
+                single_args, params
+            )
+            return original_fn(*positional_args, **call_kwargs)
 
         axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
@@ -594,7 +692,7 @@ class FunctionPlugin(PrimitivePlugin):
             break
 
         if axis_size is None:
-            result = original_fn(*args, **call_kwargs)
+            result = _call_single(*args)
             out_dims = jtu.tree_map(lambda _: NOT_MAPPED, result)
             return result, out_dims
 
@@ -602,9 +700,6 @@ class FunctionPlugin(PrimitivePlugin):
             batching.bdim_at_front(arg, bdim, axis_size)
             for arg, bdim in zip(args, dims)
         ]
-
-        def _call_single(*single_args: Any) -> Any:
-            return original_fn(*single_args, **call_kwargs)
 
         batched_result = jax.vmap(_call_single)(*prepared_args)
         out_dims = jtu.tree_map(lambda _: 0, batched_result)
@@ -614,6 +709,7 @@ class FunctionPlugin(PrimitivePlugin):
         def patch(original_call: Callable[..., Any]) -> Callable[..., Any]:
             sig = inspect.signature(original_call)
             params = list(sig.parameters.keys())
+            self._unbound_orig_fn = original_call
 
             @functools.wraps(original_call)
             def wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -623,41 +719,40 @@ class FunctionPlugin(PrimitivePlugin):
                     instance_key = id(instance)
                     INSTANCE_MAP2[instance_key] = instance
                     bound_orig = original_call.__get__(instance, type(instance))
+                    prev_orig_fn = self._orig_fn
                     self._orig_fn = bound_orig
                     # If we are currently constructing this function's body, do NOT emit
                     # the function primitive again—call through so inner patches take effect.
                     if self.name in _IN_FUNCTION_BUILD.get():
-                        return bound_orig(*args[1:], **kwargs)
+                        try:
+                            return bound_orig(*args[1:], **kwargs)
+                        finally:
+                            self._orig_fn = prev_orig_fn
                     # Record a hit (for optional test bookkeeping) and bind the primitive.
-                    hits = set(_ONNX_FN_HITS.get())
-                    hits.add(self.name.split("::", 1)[1])
-                    _ONNX_FN_HITS.set(hits)
-                    bound_kwargs = {}
-                    for key, value in kwargs.items():
-                        if key == "instance_key":
-                            continue
-                        if hasattr(value, "aval"):
-                            bound_kwargs[key] = _DynamicParamWrapper(value)
-                        else:
-                            bound_kwargs[key] = value
+                    _ONNX_FN_HITS.set(
+                        _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
+                    )
+                    operands, bound_kwargs = _pack_function_arguments(
+                        args[1:],
+                        {
+                            key: value
+                            for key, value in kwargs.items()
+                            if key != "instance_key"
+                        },
+                    )
                     return primitive.bind(
-                        *args[1:],
+                        *operands,
                         **{**bound_kwargs, "instance_key": instance_key},
                     )
                 else:
                     self._orig_fn = original_call
                     if self.name in _IN_FUNCTION_BUILD.get():
                         return original_call(*args, **kwargs)
-                    hits = set(_ONNX_FN_HITS.get())
-                    hits.add(self.name.split("::", 1)[1])
-                    _ONNX_FN_HITS.set(hits)
-                    bound_kwargs = {}
-                    for key, value in kwargs.items():
-                        if hasattr(value, "aval"):
-                            bound_kwargs[key] = _DynamicParamWrapper(value)
-                        else:
-                            bound_kwargs[key] = value
-                    return primitive.bind(*args, **bound_kwargs)
+                    _ONNX_FN_HITS.set(
+                        _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
+                    )
+                    operands, bound_kwargs = _pack_function_arguments(args, kwargs)
+                    return primitive.bind(*operands, **bound_kwargs)
 
             return wrapped
 
@@ -679,27 +774,8 @@ class FunctionPlugin(PrimitivePlugin):
         return "Function"
 
     @staticmethod
-    def _value_fingerprint(value: Any) -> tuple[Any, ...]:
-        if value is None:
-            return ("none",)
-        if isinstance(value, (bool, int, float, complex, str, bytes)):
-            literal = value if isinstance(value, (str, bytes)) else repr(value)
-            return ("literal", type(value).__name__, literal)
-        try:
-            arr = np.array(value)
-        except Exception:
-            arr = None
-        if arr is not None and getattr(arr, "dtype", None) is not None:
-            dtype = str(arr.dtype)
-            if arr.dtype != object:
-                shape = tuple(getattr(arr, "shape", ()))
-                try:
-                    data_bytes = arr.tobytes()
-                except Exception:
-                    data_bytes = repr(arr).encode("utf-8", "ignore")
-                digest = hashlib.sha1(data_bytes).hexdigest()
-                return ("array", shape, dtype, digest)
-        return ("object", type(value).__name__, repr(value))
+    def _value_fingerprint(value: object) -> tuple[object, ...]:
+        return static_value_key(value)
 
     def _fingerprint_instance_state(self, instance: Any) -> tuple[Any, ...]:
         if instance is None:
@@ -711,7 +787,7 @@ class FunctionPlugin(PrimitivePlugin):
             leaves = None
             treedef = None
         else:
-            components.append(("treedef", repr(treedef)))
+            components.append(("treedef", treedef))
         if leaves:
             for idx, leaf in enumerate(leaves):
                 components.append(("leaf", idx, self._value_fingerprint(leaf)))
@@ -723,15 +799,15 @@ class FunctionPlugin(PrimitivePlugin):
                         ("attr", key, self._value_fingerprint(state[key]))
                     )
             else:
-                components.append(("repr", repr(instance)))
+                components.append(("opaque", self._value_fingerprint(instance)))
         return tuple(components)
 
     def _build_unique_signature(
         self,
-        callee: Any,
-        capture_items: list[tuple[str, tuple[Any, ...]]],
-    ) -> tuple[Any, ...]:
-        signature_parts: list[tuple[Any, ...]] = [
+        callee: object,
+        capture_items: tuple[tuple[str, tuple[object, ...]], ...],
+    ) -> tuple[object, ...]:
+        signature_parts: list[tuple[object, ...]] = [
             ("target", self._qualified_target),
             ("captures", tuple(capture_items)),
         ]
@@ -759,10 +835,15 @@ class FunctionPlugin(PrimitivePlugin):
                 signature_parts.append(("callable_name", call_ident))
         return tuple(signature_parts)
 
-    def get_handler(self, converter: Any) -> Callable[[Any, Any, dict[str, Any]], Any]:
-        return lambda conv, eqn, params: self._lower_and_call(conv, eqn, params)
+    def lower(self, ctx: ConverterContext, eqn: JaxprEqn) -> None:
+        """Lower directly in the context and bind every function-call output."""
+        self._lower_in_context(ctx, eqn, eqn.params)
 
-    def _allocate_friendly_name(self, ctx: Any) -> tuple[str, str]:
+    def get_handler(self, converter: Any) -> Callable[[Any, Any, dict[str, Any]], Any]:
+        """Retain the converter-facade entry point for legacy callers."""
+        return self._lower_and_call
+
+    def _allocate_friendly_name(self, ctx: ConverterContext) -> tuple[str, str]:
         """
         Produce the human-readable FunctionProto identifiers.
 
@@ -775,406 +856,277 @@ class FunctionPlugin(PrimitivePlugin):
         """
         base = _sanitize_op_type_name(self._friendly_name_base())
         namespace = self.namespace or _FUNCTION_DOMAIN
+        kind = "unique" if self.unique else "shared"
+        counter_key = (namespace, base, kind)
+        idx = ctx._func_name_counters.get(counter_key, 0) + 1
+        ctx._func_name_counters[counter_key] = idx
         if self.unique:
-            counters = getattr(ctx, "_func_name_counters", None)
-            if counters is None:
-                counters = {}
-            counter_key = (namespace, base, "unique")
-            idx = counters.get(counter_key, 0) + 1
-            counters[counter_key] = idx
-            setattr(ctx, "_func_name_counters", counters)
             if idx == 1:
                 domain = f"{namespace}.{base}.unique"
             else:
                 domain = f"{namespace}.{base}.unique.{idx}"
             return base, domain
-        counters = getattr(ctx, "_func_name_counters", None)
-        if counters is None:
-            counters = {}
-        counter_key = (namespace, base, "shared")
-        idx = counters.get(counter_key, 0) + 1
-        counters[counter_key] = idx
-        setattr(ctx, "_func_name_counters", counters)
         domain = f"{namespace}.{base}.{idx}"
         return base, domain
 
     def _lower_and_call(self, converter: Any, eqn: Any, params: dict[str, Any]) -> None:
-        # Resolve callee
-        callee = self._orig_fn
-        if "instance_key" in params:
-            key = params["instance_key"]
-            del params["instance_key"]
-            callee = INSTANCE_MAP2.get(key)
-        if callee is None:
-            raise RuntimeError("[onnx_function] Cannot resolve callee")
-
-        # Parent ctx
         ctx = _extract_ir_ctx(converter)
         if ctx is None:
             raise RuntimeError("[onnx_function] Cannot locate IRContext")
+        self._lower_in_context(ctx, eqn, params)
 
-        call_param_names = set(getattr(ctx, "_call_input_param_names", set()))
-        # Ensure a function registry exists on the parent (converter sets this)
-        freg = ctx.get_function_registry()
-        if freg is None:
+    def _lower_in_context(
+        self,
+        ctx: ConverterContext,
+        eqn: JaxprEqn,
+        params: dict[str, object],
+    ) -> None:
+        invars, params = _unpack_function_arguments(eqn.invars, params)
+        eqn = eqn.replace(invars=list(invars), params=params)
+        callee = self._resolve_lowering_callee(params)
+        captures = self._capture_arguments(ctx, callee, params)
+        registry = ctx.get_function_registry()
+        if registry is None:
             raise RuntimeError("[onnx_function] Function registry missing")
+        key = self._function_key(callee, eqn, captures)
+        definition = registry.get(key)
+        if definition is None:
+            definition = self._build_function(ctx, callee, eqn, captures)
+            registry.put(key, definition)
+        self._emit_function_call(ctx, eqn, definition, captures)
 
-        # Dedup key: (qualified, in_sigs, capture)
-        in_sigs: list[tuple[tuple[Any, ...], str]] = []
-        for v in eqn.invars:
-            aval = getattr(v, "aval", None)
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype = getattr(aval, "dtype", None)
-            in_sigs.append((shape, str(dtype)))
-        in_sigs_t = tuple(in_sigs)
-        qualname = self.name
+    def _resolve_lowering_callee(
+        self, params: dict[str, object]
+    ) -> Callable[..., object]:
+        callee = self._orig_fn
+        if "instance_key" in params:
+            instance_key = params.pop("instance_key")
+            if not isinstance(instance_key, int):
+                raise TypeError("[onnx_function] instance_key must be an integer")
+            callee = INSTANCE_MAP2.get(instance_key)
+        if callee is None:
+            raise RuntimeError("[onnx_function] Cannot resolve callee")
+        return callee
 
-        def _capture_dynamic_from_var(var: Any) -> tuple[Any, ...]:
-            aval = getattr(var, "aval", None)
-            if aval is None:
-                return ("dynamic", "<unknown>")
-            return (
-                "dynamic",
-                tuple(getattr(aval, "shape", ())),
-                str(getattr(aval, "dtype", "")),
-            )
+    def _capture_spec(
+        self, ctx: ConverterContext, var: Var | Literal
+    ) -> jax.ShapeDtypeStruct:
+        aval = self._aval_to_shaped_array(var.aval)
+        shape: list[object] = []
+        for dim in aval.shape:
+            actual_dim = dim
+            if not isinstance(dim, (int, np.integer)):
+                origin = SymbolicDimOrigin.resolve(ctx.get_symbolic_dim_origin, dim)
+                if origin is not None and origin.value.shape is not None:
+                    source_dims = origin.value.shape.dims
+                    if len(source_dims) > origin.axis:
+                        candidate = source_dims[origin.axis]
+                        if isinstance(candidate, (int, np.integer)):
+                            actual_dim = int(candidate)
+            shape.append(actual_dim)
+        return jax.ShapeDtypeStruct(tuple(shape), aval.dtype)
 
-        def _capture_const(value: Any) -> tuple[Any, ...]:
-            arr = np.asarray(value)
-            return (
-                "const",
-                tuple(arr.shape),
-                str(arr.dtype),
-                hash(arr.tobytes()),
-            )
-
-        def _resolve_tracer_var(tracer: Any) -> Any | None:
-            frame = getattr(getattr(tracer, "_trace", None), "frame", None)
-            if frame is None:
-                return None
-            tracer_map = getattr(frame, "tracer_to_var", None)
-            getter = getattr(tracer_map, "get", None)
-            var = getter(id(tracer)) if callable(getter) else None
-            if var is None:
-                return None
-            const_map = getattr(frame, "constvar_to_val", None)
-            const_getter = getattr(const_map, "get", None)
-            const_val = const_getter(var) if callable(const_getter) else None
-            if const_val is not None:
-                return const_val
-            return var
-
-        def _shape_dtype_struct_from_var(var: Any) -> jax.ShapeDtypeStruct:
-            aval = getattr(var, "aval", None)
-            raw_shape = tuple(getattr(aval, "shape", ()))
-            resolved_shape: list[Any] = []
-            origin_lookup = getattr(ctx, "get_symbolic_dim_origin", None)
-            for axis, dim in enumerate(raw_shape):
-                actual_dim = dim
-                if origin_lookup is not None and not isinstance(dim, (int, np.integer)):
-                    origin = SymbolicDimOrigin.resolve(origin_lookup, dim)
-                    if origin is not None:
-                        src_shape = getattr(origin.value, "shape", None)
-                        src_dims = getattr(src_shape, "dims", src_shape)
-                        if src_dims is not None and len(src_dims) > origin.axis:
-                            candidate = src_dims[origin.axis]
-                            if isinstance(candidate, (int, np.integer)):
-                                actual_dim = int(candidate)
-                resolved_shape.append(actual_dim)
-            dtype = getattr(aval, "dtype", None) or np.float32
-            return jax.ShapeDtypeStruct(tuple(resolved_shape), dtype)
-
-        dynamic_entries: list[dict[str, Any]] = []
-        static_params: dict[str, Any] = {}
-        capture_items: list[tuple[str, tuple[Any, ...]]] = []
-
-        for pname, pval in params.items():
-            original_val = (
-                pval.value if isinstance(pval, _DynamicParamWrapper) else pval
-            )
-            resolved = (
-                _resolve_tracer_var(original_val)
-                if hasattr(original_val, "aval")
-                else None
-            )
-
-            if isinstance(resolved, Var):
-                dynamic_entries.append(
-                    {
-                        "name": pname,
-                        "var": resolved,
-                        "sds": _shape_dtype_struct_from_var(resolved),
-                    }
-                )
-                capture_items.append((pname, _capture_dynamic_from_var(resolved)))
-            elif pname in call_param_names:
-                if hasattr(original_val, "aval"):
-                    aval = getattr(original_val, "aval", None)
-                    shape = tuple(getattr(aval, "shape", ()))
-                    aval_dtype = getattr(aval, "dtype", np.float32)
-                    try:
-                        dtype_np = np.dtype(aval_dtype)
-                    except TypeError:
-                        dtype_np = np.dtype(np.float32)
-                    dtype_for_capture = dtype_np
-                else:
-                    arr = np.asarray(original_val)
-                    shape = tuple(arr.shape)
-                    dtype_np = arr.dtype
-                    dtype_for_capture = dtype_np
-                entry_sds = jax.ShapeDtypeStruct(shape, dtype_np)
-                dynamic_entries.append(
-                    {
-                        "name": pname,
-                        "var": None,
-                        "sds": entry_sds,
-                        "force_external": True,
-                    }
-                )
-                capture_items.append(
-                    (pname, ("call_input", shape, str(dtype_for_capture)))
-                )
-                continue
-            else:
-                value_for_capture = resolved if resolved is not None else original_val
+    @staticmethod
+    def _parameter_spec(value: object) -> jax.ShapeDtypeStruct:
+        """Inspect a Python/JAX parameter at the capture boundary."""
+        if isinstance(value, (Tracer, jax.Array)):
+            aval = value.aval
+            if isinstance(aval, ShapedArray):
                 try:
-                    capture_items.append((pname, _capture_const(value_for_capture)))
-                except Exception:
-                    capture_items.append(
-                        (pname, ("static", type(value_for_capture).__name__))
-                    )
-                static_params[pname] = original_val
+                    dtype = np.dtype(aval.dtype)
+                except TypeError:
+                    dtype = np.dtype(np.float32)
+                return jax.ShapeDtypeStruct(aval.shape, dtype)
+        array = np.asarray(value)
+        return jax.ShapeDtypeStruct(array.shape, array.dtype)
 
-        handled_names: set[str] = {entry["name"] for entry in dynamic_entries}
-        handled_names.update(static_params.keys())
-        literal_map = getattr(ctx, "_call_input_param_literals", None)
-        if isinstance(literal_map, dict):
-            for pname in call_param_names:
-                if pname in handled_names:
-                    continue
-                if pname not in literal_map:
-                    continue
-                accepts_param = False
-                target_fn = callee
-                if target_fn is not None:
-                    try:
-                        sig = inspect.signature(target_fn)
-                        accepts_param = pname in sig.parameters
-                    except Exception:
-                        accepts_param = False
-                if not accepts_param:
-                    continue
-                literal = literal_map[pname]
-                arr = np.asarray(literal)
-                shape = tuple(arr.shape)
-                dtype_np = arr.dtype
-                dynamic_entries.append(
-                    {
-                        "name": pname,
-                        "var": None,
-                        "sds": jax.ShapeDtypeStruct(shape, dtype_np),
-                        "force_external": True,
-                    }
+    @staticmethod
+    def _static_capture_signature(value: object) -> tuple[object, ...]:
+        return static_value_key(value)
+
+    def _capture_arguments(
+        self,
+        ctx: ConverterContext,
+        callee: Callable[..., object],
+        params: Mapping[str, object],
+    ) -> FunctionCaptures:
+        dynamic: list[DynamicCapture] = []
+        static: dict[str, object] = {}
+        signature: list[tuple[str, tuple[object, ...]]] = []
+        for name, value in params.items():
+            if isinstance(value, (Var, Literal)):
+                spec = self._capture_spec(ctx, value)
+                parent_value = ctx.require_value_for_var(value)
+                dynamic.append(DynamicCapture(name, spec, parent_value))
+                aval = self._aval_to_shaped_array(value.aval)
+                signature.append(
+                    (name, ("dynamic", tuple(aval.shape), str(aval.dtype)))
                 )
-                capture_items.append((pname, ("call_input", shape, str(dtype_np))))
-                handled_names.add(pname)
-
-        for entry in dynamic_entries:
-            if entry.get("force_external"):
-                entry["ir_value"] = ctx.ensure_external_flag(
-                    entry["name"], entry.get("var")
+            elif ctx._promote_call_input_params and name in ctx._call_input_param_names:
+                spec = self._parameter_spec(value)
+                dynamic.append(
+                    DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
+                )
+                signature.append(
+                    (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
                 )
             else:
-                entry["ir_value"] = ctx.get_value_for_var(
-                    entry["var"], name_hint=entry["name"]
-                )
+                signature.append((name, self._static_capture_signature(value)))
+                static[name] = value
 
-        param_values = [entry["ir_value"] for entry in dynamic_entries]
-        if self.unique:
-            capture_sig = self._build_unique_signature(callee, capture_items)
-        else:
-            capture_sig = (id(callee), tuple(capture_items))
-        fkey = FunctionKey(
-            qualified_name=qualname, input_sig=in_sigs_t, capture_sig=capture_sig
+        handled = set(static) | {capture.name for capture in dynamic}
+        implicit_names = (
+            ctx._call_input_param_names - handled
+            if ctx._promote_call_input_params
+            else set()
         )
-
-        fdef = freg.get(fkey)
-        if fdef is None:
-            # new child scope
-            fname, fdomain = self._allocate_friendly_name(ctx)
-            fscope = FunctionScope(ctx, name=fname, domain=fdomain)
-            # Make the CHILD context see the same function registry as the parent.
-            parent_registry = ctx.get_function_registry()
-            if parent_registry is not None:
-                fscope.ctx.set_function_registry(parent_registry)
-            counters = getattr(ctx, "_func_name_counters", None)
-            if counters is not None:
-                setattr(fscope.ctx, "_func_name_counters", counters)
-            call_param_names_obj = getattr(ctx, "_call_input_param_names", None)
-            if isinstance(call_param_names_obj, set):
-                setattr(
-                    fscope.ctx,
-                    "_call_input_param_names",
-                    set(call_param_names_obj),
-                )
-            call_param_literals_obj = getattr(ctx, "_call_input_param_literals", None)
-            if isinstance(call_param_literals_obj, dict):
-                setattr(
-                    fscope.ctx,
-                    "_call_input_param_literals",
-                    dict(call_param_literals_obj),
-                )
-
-            # parent → child inputs for this call-site
-            base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
-            base_input_count = len(base_inputs)
-            in_vals_parent = base_inputs + param_values
-            in_vals_child = fscope.begin(in_vals_parent)
-
-            if dynamic_entries:
-                child_dynamic_vals = in_vals_child[base_input_count:]
-                if child_dynamic_vals:
-                    existing_lookup = getattr(
-                        fscope.ctx, "_call_param_value_by_name", None
-                    )
-                    if isinstance(existing_lookup, dict):
-                        call_value_map = dict(existing_lookup)
-                    else:
-                        call_value_map = {}
-                    for entry, child_input in zip(dynamic_entries, child_dynamic_vals):
-                        entry["child_input"] = cast(Any, child_input)
-                        call_value_map[entry["name"]] = child_input
-                    if call_value_map:
-                        setattr(fscope.ctx, "_call_param_value_by_name", call_value_map)
-
-            # ---- Trace the callee with child input specs and lower into CHILD ctx ----
-
-            # Build ShapeDtypeStructs from the *outer* eqn's invars (safer than IR dtypes)
-            sds: list[jax.ShapeDtypeStruct] = []
-            for v in eqn.invars:
-                aval = getattr(v, "aval", None)
-                sds.append(
-                    jax.ShapeDtypeStruct(
-                        tuple(getattr(aval, "shape", ())), getattr(aval, "dtype", None)
-                    )
-                )
-
-            dynamic_sds: list[jax.ShapeDtypeStruct] = [
-                entry["sds"] for entry in dynamic_entries
-            ]
-            base_arg_count = len(sds)
-
-            def _wrapped(*all_args: Any) -> Any:
-                core_args = all_args[:base_arg_count]
-                dyn_args = all_args[base_arg_count:]
-                kw = dict(static_params)
-                for dyn_val, entry in zip(dyn_args, dynamic_entries):
-                    kw[entry["name"]] = dyn_val
-                return callee(*core_args, **kw)
-
-            active = set(_IN_FUNCTION_BUILD.get())
-            _IN_FUNCTION_BUILD.set(active | {self.name})
+        if implicit_names:
+            # Signature inspection is a Python-callable boundary, not an IR capability check.
+            accepted_names: Mapping[str, inspect.Parameter]
             try:
-                with _activate_full_plugin_worlds_for_body():
-                    closed = jax.make_jaxpr(_wrapped)(
-                        *(tuple(sds) + tuple(dynamic_sds))
-                    )
-                jpr_f = closed.jaxpr
-            finally:
-                _IN_FUNCTION_BUILD.set(active)
+                accepted_names = inspect.signature(callee).parameters
+            except (TypeError, ValueError):
+                accepted_names = {}
+            for name in ctx._call_input_param_names:
+                if name not in implicit_names or name not in accepted_names:
+                    continue
+                if name not in ctx._call_input_param_literals:
+                    continue
+                spec = self._parameter_spec(ctx._call_input_param_literals[name])
+                dynamic.append(
+                    DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
+                )
+                signature.append(
+                    (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
+                )
+        return FunctionCaptures(tuple(dynamic), static, tuple(signature))
 
-            # Bind consts into CHILD ctx
-            for cv, cval in zip(jpr_f.constvars, closed.consts):
-                fscope.ctx.bind_const_for_var(cv, np.asarray(cval))
-            # Bind function inputs (inner invars) to CHILD f_in_* values
-            for v_var, v_val in zip(jpr_f.invars, in_vals_child):
-                fscope.ctx.bind_value_for_var(v_var, v_val)
+    def _function_key(
+        self,
+        callee: Callable[..., object],
+        eqn: JaxprEqn,
+        captures: FunctionCaptures,
+    ) -> FunctionKey:
+        input_signature = tuple(
+            (tuple(aval.shape), str(aval.dtype)) for aval in self._input_avals(eqn)
+        )
+        capture_signature = (
+            self._build_unique_signature(callee, captures.signature)
+            if self.unique
+            else (id(callee), captures.signature)
+        )
+        return FunctionKey(self.name, input_signature, capture_signature)
 
-            # Create a child converter facade
-            child_conv = make_converter_facade(fscope.ctx)
-            # Walk inner equations and dispatch plugins in CHILD ctx
-            lower_jaxpr_with_plugins(
-                ctx=fscope.ctx,
-                jaxpr=jpr_f,
-                registry=PLUGIN_REGISTRY,
-                source="onnx_function",
-                converter=child_conv,
-                missing_plugin_detail="in function body",
+    def _input_avals(self, eqn: JaxprEqn) -> tuple[ShapedArray, ...]:
+        return tuple(self._aval_to_shaped_array(var.aval) for var in eqn.invars)
+
+    def _trace_function_body(
+        self,
+        callee: Callable[..., object],
+        eqn: JaxprEqn,
+        captures: FunctionCaptures,
+    ) -> ClosedJaxpr:
+        base_specs = tuple(
+            jax.ShapeDtypeStruct(aval.shape, aval.dtype)
+            for aval in self._input_avals(eqn)
+        )
+        base_count = len(base_specs)
+
+        def wrapped(*arguments: object) -> object:
+            kwargs = dict(captures.static_kwargs)
+            kwargs.update(
+                (capture.name, argument)
+                for capture, argument in zip(captures.dynamic, arguments[base_count:])
             )
+            return callee(*arguments[:base_count], **kwargs)
 
-            if dynamic_entries:
-                nodes = list(getattr(fscope.ctx.builder, "nodes", []) or [])
-                fn_outputs = list(getattr(fscope.ctx.builder, "outputs", []) or [])
+        active = _IN_FUNCTION_BUILD.get()
+        token = _IN_FUNCTION_BUILD.set(active | {self.name})
+        try:
+            with _activate_full_plugin_worlds_for_body():
+                return jax.make_jaxpr(wrapped)(
+                    *base_specs, *(capture.spec for capture in captures.dynamic)
+                )
+        finally:
+            _IN_FUNCTION_BUILD.reset(token)
 
-                def _value_used(val: Any) -> bool:
-                    for node in nodes:
-                        for inp in getattr(node, "inputs", []) or []:
-                            if inp is val:
-                                return True
-                    for out in fn_outputs:
-                        if out is val:
-                            return True
-                    return False
+    @staticmethod
+    def _keep_unused_captures(
+        ctx: NativeLoweringContext,
+        captures: tuple[DynamicCapture, ...],
+        child_values: list[ir.Value],
+    ) -> None:
+        """Keep declared, unused dynamic parameters in the function signature."""
+        builder = ctx.builder
+        for capture, value in zip(captures, child_values):
+            if consumers_in_graph(builder.graph, value) or any(
+                output is value for output in builder.outputs
+            ):
+                continue
+            sink = ir.Value(
+                name=ctx.fresh_name(f"{capture.name}_sink"),
+                type=value.type,
+                shape=value.shape,
+            )
+            builder.op("Identity", [value], output=sink)
 
-                for entry in dynamic_entries:
-                    child_val = entry.get("child_input")
-                    if child_val is None:
-                        continue
-                    if _value_used(child_val):
-                        continue
-                    sink_name = fscope.ctx.fresh_name(f"{entry['name']}_sink")
-                    sink_val = fscope.ctx.builder.Identity(
-                        child_val,
-                        _outputs=[sink_name],
-                    )
-                    child_type = getattr(child_val, "type", None)
-                    child_shape = getattr(child_val, "shape", None)
-                    if child_type is not None:
-                        sink_val.type = child_type
-                    if child_shape is not None:
-                        sink_val.shape = child_shape
+    def _build_function(
+        self,
+        ctx: ConverterContext,
+        callee: Callable[..., object],
+        eqn: JaxprEqn,
+        captures: FunctionCaptures,
+    ) -> ir.Function:
+        name, domain = self._allocate_friendly_name(ctx)
+        scope = FunctionScope(ctx, name=name, domain=domain)
+        parent_values = [ctx.require_value_for_var(var) for var in eqn.invars]
+        child_values = scope.begin(
+            parent_values + [capture.value for capture in captures.dynamic]
+        )
+        child_captures = child_values[len(parent_values) :]
+        scope.ctx._call_param_value_by_name.update(
+            (capture.name, value)
+            for capture, value in zip(captures.dynamic, child_captures)
+        )
+        closed = self._trace_function_body(callee, eqn, captures)
+        body = closed.jaxpr
+        for var, value in zip(body.constvars, closed.consts):
+            scope.ctx.bind_const_for_var(var, np.asarray(value))
+        for var, value in zip(body.invars, child_values):
+            scope.ctx.bind_value_for_var(var, value)
+        lower_jaxpr_with_plugins(
+            ctx=scope.ctx,
+            jaxpr=body,
+            registry=PLUGIN_REGISTRY,
+            source="onnx_function",
+            missing_plugin_detail="in function body",
+        )
+        self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
+        outputs = [scope.ctx.require_value_for_var(var) for var in body.outvars]
+        definition = scope.end(outputs=outputs)
+        ctx.ir_functions.append(definition)
+        ctx.ir_functions.extend(scope.ctx.ir_functions)
+        return definition
 
-            # Explicit outputs from inner jaxpr
-            child_out_vals = [fscope.ctx.get_value_for_var(v) for v in jpr_f.outvars]
-            fdef = fscope.end(outputs=child_out_vals)
-            # Create a native onnx_ir.Function and attach to the PARENT context
-            ir_fn = fscope.to_ir_function()
-            ctx.ir_functions.append(ir_fn)
-
-            nested_ir_fns = list(fscope.ctx.ir_functions)
-            if nested_ir_fns:
-                ctx.ir_functions.extend(nested_ir_fns)
-
-            # Keep the friendly name and domain around (for call-site)
-            freg.put(fkey, fdef)
-
-        # Emit call-site
-        base_inputs = [ctx.get_value_for_var(v) for v in eqn.invars]
-        in_vals = base_inputs + param_values
-        out_vals = [ctx.get_value_for_var(v) for v in eqn.outvars]
-        raw_call_name = ctx.builder.fresh_name(fdef.name)
-
-        def _bump_suffix(name: str) -> str:
-            pivot = name.rfind("_")
-            if pivot < 0:
-                return name
-            suffix = name[pivot + 1 :]
-            if not suffix.isdecimal():
-                return name
-            try:
-                bumped = int(suffix) + 1
-            except Exception:
-                return name
-            return f"{name[:pivot]}_{bumped}"
-
-        call_name = _bump_suffix(raw_call_name)
-
-        ctx.builder.op_multi_out(
-            fdef.name,
-            in_vals,
-            None,
-            outputs=out_vals,
-            domain=fdef.domain or "",
+    @staticmethod
+    def _emit_function_call(
+        ctx: NativeLoweringContext,
+        eqn: JaxprEqn,
+        definition: ir.Function,
+        captures: FunctionCaptures,
+    ) -> None:
+        inputs = [ctx.require_value_for_var(var) for var in eqn.invars]
+        inputs.extend(capture.value for capture in captures.dynamic)
+        outputs = [ctx.allocate_value_for_var(var) for var in eqn.outvars]
+        builder = ctx.builder
+        # Builder names have a numeric suffix starting at zero; calls historically start at one.
+        base, _, suffix = builder.fresh_name(definition.name).rpartition("_")
+        call_name = f"{base}_{int(suffix) + 1}"
+        builder.op_multi_out(
+            definition.name,
+            inputs,
+            outputs=outputs,
+            domain=definition.domain,
             name=call_name,
         )
 
@@ -1210,7 +1162,7 @@ def _register_onnx_function_plugin(
         if isinstance(override_name, str) and override_name:
             fp.display_name = override_name
         ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = fp
-        PLUGIN_REGISTRY[prim_name] = fp
+        PLUGIN_REGISTRY.register_canonical(prim_name, fp)
         return qual, fp
 
     if isinstance(plugin, FunctionPlugin):
@@ -1231,6 +1183,7 @@ def _register_onnx_function_plugin(
         if unique:
             plugin.unique = True
         ONNX_FUNCTION_PLUGIN_REGISTRY[qual] = plugin
+        PLUGIN_REGISTRY.register_canonical(prim_name, plugin)
         return qual, plugin
 
     raise ValueError(
@@ -1300,7 +1253,7 @@ def onnx_function(
 
 def _consume_onnx_function_hits() -> set[str]:
     hits = set(_ONNX_FN_HITS.get())
-    _ONNX_FN_HITS.set(set())
+    _ONNX_FN_HITS.set(frozenset())
     return hits
 
 
@@ -1326,6 +1279,21 @@ def register_example(**metadata: Any) -> dict[str, Any]:
 def register_primitive(
     **metadata: Any,
 ) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
+    """Register an extension through the legacy calling-convention adapter."""
+    return _primitive_decorator(metadata, PLUGIN_REGISTRY.__setitem__)
+
+
+def register_native_primitive(
+    **metadata: Any,
+) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
+    """Register the statically typed ``lower(ctx, eqn) -> None`` contract."""
+    return _primitive_decorator(metadata, PLUGIN_REGISTRY.register_canonical)
+
+
+def _primitive_decorator(
+    metadata: dict[str, Any],
+    register: Callable[[str, PrimitiveLeafPlugin], None],
+) -> Callable[[type[PrimitiveLeafPlugin]], type[PrimitiveLeafPlugin]]:
     primitive = metadata.get("jaxpr_primitive", "")
 
     def _decorator(cls: type[PrimitiveLeafPlugin]) -> type[PrimitiveLeafPlugin]:
@@ -1337,7 +1305,7 @@ def register_primitive(
         if hasattr(cls, "patch_info"):
             instance.patch_info = cls.patch_info
         if isinstance(primitive, str) and primitive:
-            PLUGIN_REGISTRY[primitive] = instance
+            register(primitive, instance)
         return cls
 
     return _decorator
@@ -1421,8 +1389,10 @@ def _import_tree(root_dir: Path, pkg_prefix: str) -> None:
     if not root_dir.exists():
         return
 
+    seen_modules: set[str] = set()
+
     # 1) File-system scan (works even without intermediate __init__.py files)
-    for py in root_dir.rglob("*.py"):
+    for py in sorted(root_dir.rglob("*.py")):
         if py.name in {"plugin_system.py", "__init__.py"}:
             continue
         rel = py.relative_to(root_dir).with_suffix("")
@@ -1430,18 +1400,22 @@ def _import_tree(root_dir: Path, pkg_prefix: str) -> None:
         modname = ".".join(parts)
         try:
             importlib.import_module(modname)
+            seen_modules.add(modname)
         except Exception as e:
             # Surface import problems loudly so you can spot why a tree didn't load
             logger.warning(
                 "Skipping import of %s due to error: %s", modname, e, exc_info=True
             )
 
-    # 2) pkgutil walk (dup-safe)
+    # 2) pkgutil walk (dup-safe; skips modules already imported in step 1)
     for _, module_name, _ in pkgutil.walk_packages(
         [str(root_dir)], prefix=f"{pkg_prefix}."
     ):
+        if module_name in seen_modules or module_name == f"{pkg_prefix}.plugin_system":
+            continue
         try:
             importlib.import_module(module_name)
+            seen_modules.add(module_name)
         except Exception as e:
             logger.warning(
                 "Skipping pkgutil import of %s due to error: %s",

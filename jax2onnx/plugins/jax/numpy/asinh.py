@@ -27,13 +27,16 @@ from jax2onnx.plugins.jax.numpy._unary_utils import (
     lower_unary_elementwise_with_optional_cast,
     register_unary_elementwise_batch_rule,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 _ASINH_PRIM: Final = make_jnp_primitive("jax.numpy.asinh")
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=_ASINH_PRIM.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.numpy.asinh.html",
     onnx=[

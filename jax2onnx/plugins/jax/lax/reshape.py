@@ -12,7 +12,10 @@ from jax import lax
 
 import onnx_ir as ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 from jax2onnx.plugins._ir_shapes import (
     _stamp_type_and_shape,
     is_shape_all_unknown,
@@ -110,7 +113,7 @@ def _reshape_flatten_trailing(x: Any) -> Any:
         return jax.numpy.reshape(x, (-1, x.shape[-1]))
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=lax.reshape_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reshape.html",
     onnx=[

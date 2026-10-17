@@ -14,7 +14,7 @@ from jax2onnx.plugins._utils import cast_param_like, inline_reshape_initializer
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
-    register_primitive,
+    register_native_primitive,
     with_requested_dtype,
     with_rng_seed,
 )
@@ -210,7 +210,7 @@ EXPECT_DYNAMIC_RGR: Final = EG(
 # ------------------------------------------------------------------
 # ONNX primitive registration and plugin for LinearGeneral
 # ------------------------------------------------------------------
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive="nnx.linear_general",
     jax_doc="https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html#flax.nnx.LinearGeneral",
     onnx=[

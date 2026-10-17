@@ -10,7 +10,7 @@ from onnx_ir.tape import Tape
 
 from jax2onnx.ir_utils import const_value_to_numpy
 
-from .optimizer_graph_utils import _node_inputs, _node_outputs, _producer_node
+from .optimizer_graph_utils import _node_inputs, _node_outputs, producer_in_graph
 
 _BIAS_DTYPES: Final = frozenset({ir.DataType.FLOAT, ir.DataType.DOUBLE})
 _SHAPE_ONLY_OPS: Final = frozenset(
@@ -60,7 +60,6 @@ def _channel_constant(
     Moving unit dimensions does not reorder this vector. Requiring constant
     auxiliary inputs also prevents folding a runtime reshape or axes parameter.
     """
-    nodes = list(graph)
     seen: set[ir.Value] = set()
     while value not in seen:
         seen.add(value)
@@ -80,10 +79,9 @@ def _channel_constant(
                 return None
             return value, array
 
-        producer = _producer_node(nodes, value)
+        producer = producer_in_graph(graph, value)
         if (
             producer is None
-            or producer.graph is not graph
             or producer.domain != ""
             or producer.overload
             or producer.op_type not in _SHAPE_ONLY_OPS
@@ -170,10 +168,9 @@ def _fold_local_graph(graph: ir.Graph) -> None:
         for index, conv_output in enumerate(add_inputs):
             if conv_output is None:
                 continue
-            conv = _producer_node(nodes, conv_output)
+            conv = producer_in_graph(graph, conv_output)
             if (
                 conv is None
-                or conv.graph is not graph
                 or not _standard_node(conv, "ConvTranspose")
                 or len(_node_outputs(conv)) != 1
                 or conv_output.is_graph_output()
@@ -271,10 +268,9 @@ def _fold_layout_pairs(graph: ir.Graph) -> None:
         for index, transposed in enumerate(add.inputs):
             if transposed is None:
                 continue
-            before = _producer_node(nodes, transposed)
+            before = producer_in_graph(graph, transposed)
             if (
                 before is None
-                or before.graph is not graph
                 or len(before.inputs) != 1
                 or len(before.outputs) != 1
                 or not _single_use(transposed, add)
@@ -283,10 +279,9 @@ def _fold_layout_pairs(graph: ir.Graph) -> None:
             raw = before.inputs[0]
             if raw is None or not _single_use(raw, before):
                 continue
-            conv = _producer_node(nodes, raw)
+            conv = producer_in_graph(graph, raw)
             if (
                 conv is None
-                or conv.graph is not graph
                 or not _standard_node(conv, "ConvTranspose")
                 or len(conv.outputs) != 1
                 or len(conv.inputs) not in {2, 3}

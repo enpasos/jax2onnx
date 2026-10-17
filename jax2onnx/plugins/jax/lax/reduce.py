@@ -15,7 +15,10 @@ from jax2onnx.plugins.jax.lax._reduce_utils import (
     lower_boolean_reduction,
     lower_reduction,
 )
-from jax2onnx.plugins.plugin_system import PrimitiveLeafPlugin, register_primitive
+from jax2onnx.plugins.plugin_system import (
+    PrimitiveLeafPlugin,
+    register_native_primitive,
+)
 
 
 def _canonical_reducer_name(name: str | None) -> str | None:
@@ -89,7 +92,7 @@ def _is_identity_init(reducer: str, init_arr: np.ndarray, dtype: np.dtype) -> bo
     return False
 
 
-@register_primitive(
+@register_native_primitive(
     jaxpr_primitive=jax.lax.reduce_p.name,
     jax_doc="https://docs.jax.dev/en/latest/_autosummary/jax.lax.reduce.html",
     onnx=[
