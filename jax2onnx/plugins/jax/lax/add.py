@@ -24,6 +24,7 @@ from jax2onnx.plugins._complex_utils import (
     _shape_tuple,
 )
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -138,6 +139,12 @@ def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
                 break
         return
 
+    a_val = promote_float32_operand(
+        ctx, a_val, target_dtype=out_spec.dtype, name_hint="add_lhs_double"
+    )
+    b_val = promote_float32_operand(
+        ctx, b_val, target_dtype=out_spec.dtype, name_hint="add_rhs_double"
+    )
     result = cast(
         ir.Value,
         ctx.builder.Add(a_val, b_val, _outputs=[output_name]),

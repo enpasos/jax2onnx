@@ -44,6 +44,10 @@
 * **Preserve precision and export integrity:** Keep FP16/BF16 types across NCHW
   export bridges, protect existing graph values during output allocation, and
   retain safe import retries and precision restoration after failed exports.
+* **Repair explicit FP32 consumers in double-precision export:** Adapt arithmetic
+  operands explicitly while preserving the preceding FP32 rounding, direct FP32
+  outputs, and bitcast representations. Align concatenation inputs and outputs
+  with the effective precision policy, including inside child scopes.
 * **Require ONNX IR 1.0.0 or newer:** Align the declared dependency floor,
   package metadata, developer guidance, and minimum-version CI coverage on
   `onnx-ir>=1.0.0`.

@@ -6,6 +6,7 @@ import jax
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax.lax._opset_utils import (
     builder_reduce_with_axes,
     reduction_axes_from_node,
@@ -65,8 +66,13 @@ class SqrtPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("sqrt_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("sqrt_out"))
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("sqrt_out")
+        )
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="sqrt_input_double"
+        )
 
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("sqrt_out")
         producer = getattr(out_spec, "producer", lambda: None)

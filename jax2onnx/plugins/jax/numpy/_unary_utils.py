@@ -17,9 +17,9 @@ from jax2onnx._compat.jax import (
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import NativeLoweringContext
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl
 
 
@@ -65,8 +65,14 @@ def lower_unary_elementwise_with_optional_cast(
     ):
         op_name = "Identity"
     elif cast_input_to_output_dtype and in_dtype != out_dtype:
-        op_input = _cast_value(ctx, x_val, out_dtype, output_hint=output_hint)
+        op_input = _cast_value(ctx, x_val, out_spec.dtype, output_hint=output_hint)
 
+    op_input = promote_float32_operand(
+        ctx,
+        op_input,
+        target_dtype=out_spec.dtype,
+        name_hint=f"{output_hint}_operand_double",
+    )
     result = ctx.builder.op(op_name, [op_input], output=out_spec)
     ctx.bind_value_for_var(y_var, result)
 
@@ -79,18 +85,19 @@ def _var_dtype(var: Var | Literal, default: np.dtype[Any]) -> np.dtype[Any]:
 def _cast_value(
     ctx: NativeLoweringContext,
     value: ir.Value,
-    dtype: np.dtype[Any],
+    dtype: ir.DataType | None,
     *,
     output_hint: str,
 ) -> ir.Value:
-    cast_dtype = _dtype_to_ir(dtype, ctx.builder.enable_double_precision)
+    if dtype is None:
+        raise TypeError("Unary output is missing its dtype")
     output = ir.Value(
         name=ctx.fresh_name(f"{output_hint}_cast"),
-        type=ir.TensorType(cast_dtype),
+        type=ir.TensorType(dtype),
         shape=value.shape,
     )
     cast_value = ctx.builder.op(
-        "Cast", [value], {"to": int(cast_dtype.value)}, output=output
+        "Cast", [value], {"to": int(dtype.value)}, output=output
     )
     _ensure_value_metadata(ctx, cast_value)
     return cast_value
@@ -107,10 +114,16 @@ def cast_input_to_output_dtype(
     """Cast unary input to output dtype when JAX promotion changed the dtype."""
     in_dtype: np.dtype[Any] = _var_dtype(x_var, np.dtype(np.float32))
     out_dtype: np.dtype[Any] = _var_dtype(y_var, in_dtype)
-    if in_dtype == out_dtype:
-        return x_val
+    target_dtype = ctx.require_value_for_var(y_var).dtype
+    if in_dtype != out_dtype:
+        x_val = _cast_value(ctx, x_val, target_dtype, output_hint=output_hint)
 
-    return _cast_value(ctx, x_val, out_dtype, output_hint=output_hint)
+    return promote_float32_operand(
+        ctx,
+        x_val,
+        target_dtype=target_dtype,
+        name_hint=f"{output_hint}_operand_double",
+    )
 
 
 def register_unary_elementwise_batch_rule(prim: Primitive) -> None:

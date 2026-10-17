@@ -5,10 +5,12 @@ from typing import Any
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 import numpy as np
+import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -50,10 +52,16 @@ class CosPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("cos_in"))
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("cos_out")
+        )
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="cos_input_double"
+        )
 
         x_dtype: np.dtype[Any] = np.dtype(getattr(x_var.aval, "dtype", np.float32))
-        if x_dtype == np.float64:
+        if x_val.dtype == ir.DataType.DOUBLE:
             # Older supported ORT versions lack DOUBLE Cos. The half-angle
             # identity avoids losing the pi/2 shift for large |x|. Cancellation
             # near cosine zeros limits relative accuracy, but the absolute
@@ -82,9 +90,6 @@ class CosPlugin(PrimitiveLeafPlugin):
                 _ensure_value_metadata(ctx, value)
             ctx.bind_value_for_var(out_var, result)
         else:
-            out_spec = ctx.get_value_for_var(
-                out_var, name_hint=ctx.fresh_name("cos_out")
-            )
             result = ctx.builder.Cos(x_val, _outputs=[out_spec.name])
             result.type = out_spec.type
             result.shape = out_spec.shape

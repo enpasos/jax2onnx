@@ -18,11 +18,11 @@ from numpy.typing import ArrayLike, DTypeLike
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -30,7 +30,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _ORIGINAL_JNP_CONCATENATE: Final = jnp.concatenate
 
@@ -242,11 +241,22 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
         target_dtype = _promote_dtype(
             [np.dtype(getattr(v.aval, "dtype", np.float32)) for v in in_vars]
         )
-        target_enum = numpy_dtype_to_ir(target_dtype)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("jnp_concat_out")
+        )
+        target_enum = out_spec.dtype
+        if target_enum is None:
+            raise TypeError("Concatenate output is missing its dtype")
 
         inputs: list[ir.Value] = []
         for var in in_vars:
             val = ctx.get_value_for_var(var, name_hint=ctx.fresh_name("jnp_concat_in"))
+            val = promote_float32_operand(
+                ctx,
+                val,
+                target_dtype=target_enum,
+                name_hint="jnp_concat_operand_double",
+            )
             var_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
             if var_dtype != target_dtype:
                 cast_val = ctx.builder.Cast(
@@ -261,9 +271,6 @@ class JnpConcatenatePlugin(PrimitiveLeafPlugin):
             else:
                 inputs.append(val)
 
-        out_spec = ctx.get_value_for_var(
-            out_var, name_hint=ctx.fresh_name("jnp_concat_out")
-        )
         desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Concat")
         producer = getattr(out_spec, "producer", lambda: None)
         if callable(producer) and producer() is not None:

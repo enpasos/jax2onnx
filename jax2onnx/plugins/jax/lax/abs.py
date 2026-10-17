@@ -7,6 +7,7 @@ import jax
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins._precision_utils import promote_float32_operand
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -42,17 +43,13 @@ class AbsPlugin(PrimitiveLeafPlugin):
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
-        x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("abs_in"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("abs_out"))
+        x_val = ctx.require_value_for_var(x_var)
+        out_spec = ctx.allocate_value_for_var(
+            out_var, name_hint=ctx.fresh_name("abs_out")
+        )
+        x_val = promote_float32_operand(
+            ctx, x_val, target_dtype=out_spec.dtype, name_hint="abs_input_double"
+        )
 
-        desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("abs_out")
-        producer = getattr(out_spec, "producer", lambda: None)
-        if callable(producer) and producer() is not None:
-            desired_name = ctx.fresh_name("abs_out")
-
-        result = ctx.builder.Abs(x_val, _outputs=[desired_name])
-        if getattr(out_spec, "type", None) is not None:
-            result.type = out_spec.type
-        if getattr(out_spec, "shape", None) is not None:
-            result.shape = out_spec.shape
+        result = ctx.builder.op("Abs", [x_val], output=out_spec)
         ctx.bind_value_for_var(out_var, result)
