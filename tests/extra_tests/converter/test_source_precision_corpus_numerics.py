@@ -524,19 +524,21 @@ def test_unexpected_reference_trace_changes_are_not_normalized():
         numerical.reference_context_changes(raw, changed)
 
 
-def test_current_default_add_admission_and_matrix_exclusion_remain():
+def test_current_default_add_and_reviewed_ordinary_matrix_admission():
     for origin in ("plugin::jax.numpy.add", "plugin::dot_general"):
         row, metadata, _ = _original_artifact(origin, 0)
         scenario = raw_source_scenarios(metadata, SourceProvenance(origin, 0))[0]
-        result = run_source_case(metadata, scenario, optimization=None)
-        if origin == "plugin::jax.numpy.add":
+        result = run_source_case(
+            metadata,
+            scenario,
+            optimization=None,
+            _corpus_counterpart=counterpart_for(origin, 0, row.contract_sha256),
+        )
+        assert result.model is not None and result.audit.status is CheckStatus.VALIDATED
+        if origin == "plugin::dot_general":
+            assert result.raw_callback_status == "failed"
             assert (
-                result.model is not None
-                and result.audit.status is CheckStatus.VALIDATED
-            )
-        else:
-            assert (
-                result.model is None and result.audit.status is CheckStatus.UNVERIFIED
+                result.corpus_structure is not None and result.corpus_structure.accepted
             )
     assert row.criteria is None
 

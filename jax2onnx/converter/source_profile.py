@@ -246,6 +246,88 @@ def _float_values(values: Sequence[_Tensor], site: _Site) -> None:
     )
 
 
+def _validate_ordinary_dot(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    lhs, rhs = inputs
+    rank = len(lhs.shape)
+    site.require(
+        rank in (2, 3, 4)
+        and len(rhs.shape) == rank
+        and all(
+            isinstance(dim, (int, np.integer))
+            and not isinstance(dim, (bool, np.bool_))
+            and dim > 0
+            for dim in (*lhs.shape, *rhs.shape)
+        ),
+        "ordinary matrix dimensions are outside the profile",
+        "equal positive static operand ranks 2, 3, or 4",
+    )
+    dimensions = eqn.params["dimension_numbers"]
+    site.require(
+        isinstance(dimensions, (tuple, list))
+        and len(dimensions) == 2
+        and all(
+            isinstance(pair, (tuple, list)) and len(pair) == 2 for pair in dimensions
+        )
+        and all(
+            isinstance(axes, (tuple, list)) for pair in dimensions for axes in pair
+        ),
+        "malformed matrix dimension_numbers",
+        "ordered contracting and batch axis pairs",
+        category="lowering-defect",
+    )
+    (lc, rc), (lb, rb) = (tuple(tuple(axes) for axes in pair) for pair in dimensions)
+    for contracting, batch in ((lc, lb), (rc, rb)):
+        axes = contracting + batch
+        site.require(
+            all(
+                isinstance(axis, (int, np.integer))
+                and not isinstance(axis, (bool, np.bool_))
+                and 0 <= axis < rank
+                for axis in axes
+            )
+            and len(set(axes)) == len(axes),
+            "invalid or overlapping matrix axes",
+            "distinct non-Boolean axes in the operand rank",
+            category="lowering-defect",
+        )
+    site.require(
+        len(lc) == len(rc) and len(lb) == len(rb),
+        "inconsistent matrix axis pair counts",
+        "equal numbers of paired contracting and batch axes",
+        category="lowering-defect",
+    )
+    site.require(
+        len(lc) == 1 and len(lb) == rank - 2,
+        "ordinary matrix axis cardinality is outside the profile",
+        "one contracting and one free axis per operand, with rank minus two paired batch axes",
+    )
+    site.require(
+        lhs.shape[lc[0]] == rhs.shape[rc[0]]
+        and all(
+            lhs.shape[left] == rhs.shape[right]
+            for left, right in zip(lb, rb, strict=True)
+        ),
+        "inconsistent matrix contracting/batch dimensions",
+        "equal paired contracting and batch sizes",
+        category="lowering-defect",
+    )
+    lf = next(axis for axis in range(rank) if axis not in lc + lb)
+    rf = next(axis for axis in range(rank) if axis not in rc + rb)
+    site.require(
+        outputs[0].dtype == lhs.dtype,
+        "ordinary matrix result dtype differs from its operands",
+        "the common operand dtype as the result dtype",
+        category="lowering-defect",
+    )
+    _same_shape(
+        outputs[0].shape,
+        tuple(lhs.shape[axis] for axis in lb) + (lhs.shape[lf], rhs.shape[rf]),
+        site,
+    )
+
+
 def _validate_dot(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -256,6 +338,13 @@ def _validate_dot(
         site,
         required={"dimension_numbers"},
     )
+    site.require(
+        not set(eqn.params)
+        - {"dimension_numbers", "precision", "preferred_element_type", "out_sharding"}
+        and eqn.params.get("out_sharding") is None,
+        "unaudited matrix parameters or placement",
+        "only dimension_numbers, default precision, preferred_element_type and absent/None out_sharding",
+    )
     default = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
     precision = eqn.params.get("precision")
     site.require(
@@ -264,6 +353,14 @@ def _validate_dot(
         "default precision without HIGH, HIGHEST, or an explicit algorithm",
     )
     preferred = eqn.params.get("preferred_element_type")
+    if inputs[0].dtype == inputs[1].dtype and inputs[0].dtype in {"float32", "float64"}:
+        site.require(
+            preferred is None or np.dtype(preferred) == np.dtype(inputs[0].dtype),
+            "ordinary matrix preferred result type is outside the profile",
+            "absent or same-dtype preferred_element_type",
+        )
+        _validate_ordinary_dot(eqn, inputs, outputs, site)
+        return
     site.require(
         tuple(value.dtype for value in (*inputs, *outputs))
         == ("float16", "float16", "float32")
@@ -557,6 +654,20 @@ def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
         f"opset {opset} is outside the profile",
         "explicit opset 23 or 26",
     )
+    # Attribute an actual effectful dot to its equation before the graph-wide
+    # purity guard. Effects elsewhere retain the existing profile exclusion.
+    for index, eqn in enumerate(jaxpr.eqns):
+        if eqn.primitive.name == "dot_general" and eqn.effects:
+            _Site(
+                f"equation {index}",
+                opset,
+                "dot_general",
+                tuple(str(var.aval.dtype) for var in (*eqn.invars, *eqn.outvars)),
+            ).fail(
+                "matrix equation has effects",
+                "an effect-free dot_general equation",
+                category="lowering-defect",
+            )
     site.require(
         not jaxpr.effects,
         "effects are outside the profile",

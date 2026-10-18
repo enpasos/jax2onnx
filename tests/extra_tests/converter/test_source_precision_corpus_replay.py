@@ -419,11 +419,77 @@ def test_unlisted_vmap_callback_absence_remains_absent_and_default_admission_unc
         for r in after
         if r["origin"] == "plugin::jax.numpy.add"
     )
-    assert all(
-        r["audit"]["status"] is CheckStatus.UNVERIFIED and r["artifact_sha256"] is None
-        for r in after
-        if r["origin"] == "plugin::dot_general"
-    )
+    assert probe._corpus_controls_admitted(after)
+    assert [(r["origin"], r["ordinal"], r["scenario"]) for r in after] == [
+        (origin, 0, scenario)
+        for origin in ("plugin::jax.numpy.add", "plugin::dot_general")
+        for scenario in ("raw-x64-off", "raw-x64-on")
+    ]
+    for item in after:
+        assert item["export_report"]["profile"] == "source-static-v1"
+        assert item["schema"] is CheckStatus.VALIDATED
+        assert item["runtime"] is item["numerics"] is CheckStatus.UNVERIFIED
+        if item["origin"] == "plugin::dot_general":
+            assert item["raw_callback_status"] == "failed"
+            assert (
+                item["corpus_structure"]["counterpart_sha256"]
+                == oracles.DOT_COUNTERPARTS[0].sha256
+            )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "empty",
+        "missing-dot",
+        "duplicate",
+        "scenario",
+        "counterpart",
+        "digest",
+        "report",
+    ],
+)
+def test_audited_control_invariant_cannot_pass_by_omission_or_corruption(fault):
+    registrations, _ = raw_registrations()
+    controls = probe._corpus_product_controls(_plan(), registrations)
+    assert probe._corpus_controls_admitted(controls)
+    if fault == "empty":
+        controls = []
+    elif fault == "missing-dot":
+        controls = controls[:2]
+    elif fault == "duplicate":
+        controls[-1] = controls[-2]
+    elif fault == "scenario":
+        controls[-1]["scenario"] = "not-approved"
+    elif fault == "counterpart":
+        controls[-1]["corpus_structure"] = None
+    elif fault == "digest":
+        controls[-1]["artifact_sha256"] = None
+    else:
+        controls[-1]["export_report"]["profile"] = "source-diagnostic-v1"
+    assert not probe._corpus_controls_admitted(controls)
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_live_audited_dot_control_requires_its_actual_reviewed_counterpart(
+    missing, monkeypatch
+):
+    registrations, _ = raw_registrations()
+    if missing:
+        monkeypatch.setattr(probe, "counterpart_for", lambda *args: None)
+        with pytest.raises(ValueError, match="reviewed counterpart"):
+            probe._corpus_product_controls(_plan(), registrations)
+    else:
+        original = oracles.DotCounterpart.check
+
+        def broken(self, prepared, model):
+            return replace(
+                original(self, prepared, model), source_structure=CheckStatus.FAILED
+            )
+
+        monkeypatch.setattr(oracles.DotCounterpart, "check", broken)
+        controls = probe._corpus_product_controls(_plan(), registrations)
+        assert not probe._corpus_controls_admitted(controls)
 
 
 @pytest.mark.parametrize(

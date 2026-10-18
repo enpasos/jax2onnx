@@ -70,6 +70,11 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
 
 
 SCENARIOS: Final[tuple[str, str]] = ("raw-x64-off", "raw-x64-on")
+CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v2"
+_CONTROL_CONTRACTS: Final = {
+    "plugin::jax.numpy.add": "39f16c5258b9354829fd94c8825deb0e8a389215d0be1fcced026de8ae82a922",
+    "plugin::dot_general": "6957d2d4640c79d15f46c7e930fcbd67467e3b278929165cf8619e6f88c7f8d4",
+}
 FIRST_DIAGNOSTIC_CASES: Final[tuple[SourceProvenance, ...]] = tuple(
     SourceProvenance(f"plugin::{name}", 0)
     for name in (
@@ -809,15 +814,47 @@ def _corpus_product_controls(
         row = next(
             row for row in plan.rows if row.origin == origin and row.ordinal == 0
         )
+        if row.contract_sha256 != _CONTROL_CONTRACTS[origin]:
+            raise ValueError("The fixed audited admission control contract changed")
+        counterpart = counterpart_for(origin, 0, row.contract_sha256)
+        if origin == "plugin::dot_general" and counterpart != DOT_COUNTERPARTS[0]:
+            raise ValueError(
+                "The fixed audited dot control needs its reviewed counterpart"
+            )
         metadata = _resolve_case(row, registered)
         for scenario in raw_source_scenarios(metadata, SourceProvenance(origin, 0)):
-            result = run_source_case(metadata, scenario, optimization=None)
+            result = run_source_case(
+                metadata,
+                scenario,
+                optimization=None,
+                _corpus_counterpart=counterpart,
+            )
+            report = (
+                get_precision_report(result.model) if result.model is not None else None
+            )
+            checks = (
+                {check.category: check.status for check in report.checks}
+                if report
+                else {}
+            )
             controls.append(
                 {
+                    "control_revision": CORPUS_CONTROL_REVISION,
                     "origin": origin,
+                    "ordinal": 0,
                     "scenario": scenario.name,
+                    "contract_sha256": row.contract_sha256,
                     "stage": result.stage,
                     "audit": asdict(result.audit),
+                    "schema": result.schema,
+                    "export_report": asdict(report) if report is not None else None,
+                    "runtime": checks.get("runtime-execution", CheckStatus.UNVERIFIED),
+                    "raw_callback_status": result.raw_callback_status,
+                    "corpus_structure": (
+                        asdict(result.corpus_structure)
+                        if result.corpus_structure is not None
+                        else None
+                    ),
                     "artifact_sha256": (
                         result.validation.artifact_sha256
                         if result.validation is not None
@@ -827,6 +864,67 @@ def _corpus_product_controls(
                 }
             )
     return controls
+
+
+def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
+    """Require all four fixed audited controls, including the retained raw failure."""
+    expected = [
+        (origin, 0, scenario)
+        for origin in ("plugin::jax.numpy.add", "plugin::dot_general")
+        for scenario in SCENARIOS
+    ]
+    if [
+        (c.get("origin"), c.get("ordinal"), c.get("scenario")) for c in controls
+    ] != expected:
+        return False
+    for control in controls:
+        report = control.get("export_report")
+        digest = control.get("artifact_sha256")
+        if (
+            control.get("control_revision") != CORPUS_CONTROL_REVISION
+            or control.get("contract_sha256") != _CONTROL_CONTRACTS[control["origin"]]
+            or control.get("stage") != "artifact-checked"
+            or control.get("audit", {}).get("status") != CheckStatus.VALIDATED
+            or control.get("schema") != CheckStatus.VALIDATED
+            or control.get("runtime") != CheckStatus.UNVERIFIED
+            or control.get("numerics") != CheckStatus.UNVERIFIED
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or not isinstance(report, Mapping)
+        ):
+            return False
+        checks = report.get("checks", ())
+        if (
+            report.get("profile") != "source-static-v1"
+            or report.get("opset") != 23
+            or report.get("schema_version") != 1
+            or len(checks) != 4
+            or {check["category"]: check["status"] for check in checks}
+            != {
+                "representation": CheckStatus.VALIDATED,
+                "lowering": CheckStatus.VALIDATED,
+                "runtime-execution": CheckStatus.UNVERIFIED,
+                "numerical-acceptance": CheckStatus.UNVERIFIED,
+            }
+        ):
+            return False
+        structure = control.get("corpus_structure")
+        if control["origin"] == "plugin::jax.numpy.add":
+            if structure is not None or control.get("raw_callback_status") != "passed":
+                return False
+        elif (
+            not isinstance(structure, Mapping)
+            or structure.get("counterpart_identifier")
+            != "static-dot-source-counterpart-v1:plugin::dot_general:0"
+            or structure.get("counterpart_sha256")
+            != "6a8f289e93735fe3e8f927a002c61b66fd90646df308d9133228286f12b2c5ea"
+            or structure.get("source_structure") != CheckStatus.VALIDATED
+            or structure.get("raw_callback_status") != "failed"
+            or control.get("raw_callback_status") != "failed"
+        ):
+            return False
+    return True
 
 
 def execute_corpus_revision(
@@ -873,6 +971,7 @@ def execute_corpus_revision(
     configuration = {
         "schema_version": 1,
         "kind": "separate-static-corpus-revision-supplement",
+        "control_revision": CORPUS_CONTROL_REVISION,
         "date": "2026-10-18",
         "checkout": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT, text=True
@@ -979,18 +1078,14 @@ def execute_corpus_revision(
         ),
         "default_admission_controls_unchanged": bool(controls_before)
         and controls_before == controls_after,
-        "audited_add_keeps_default_admission": bool(controls_after)
+        "audited_add_keeps_default_admission": _corpus_controls_admitted(controls_after)
         and all(
             item["audit"]["status"] is CheckStatus.VALIDATED
             for item in controls_after
             if item["origin"] == "plugin::jax.numpy.add"
         ),
-        "unaudited_matrix_keeps_default_exclusion": bool(controls_after)
-        and all(
-            item["audit"]["status"] is CheckStatus.UNVERIFIED
-            and item["artifact_sha256"] is None
-            for item in controls_after
-            if item["origin"] == "plugin::dot_general"
+        "audited_ordinary_matrix_keeps_default_admission": _corpus_controls_admitted(
+            controls_after
         ),
     }
     return {

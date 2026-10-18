@@ -204,7 +204,6 @@ def test_profile_rejects_matrix_precision_requirements_with_context(
     [
         ((0, 2), np.float16, np.float32),
         ((2, 2), np.float16, None),
-        ((2, 2), np.float32, np.float32),
         ((2, 2), jnp.bfloat16, np.float32),
     ],
 )
@@ -218,6 +217,15 @@ def test_profile_rejects_unaudited_matrix_types_and_empty_shapes(
     )
     with pytest.raises(SourcePrecisionError, match="matrix .* outside the profile"):
         validate_source_jaxpr(trace, 23)
+
+
+def test_profile_admits_ordinary_fp32_with_same_dtype_preference() -> None:
+    trace = _trace(
+        lambda x, w: _dot(x, w, preferred_element_type=np.float32),
+        _spec((2, 2)),
+        _spec((2, 2)),
+    )
+    validate_source_jaxpr(trace, 23)
 
 
 def test_profile_rejects_valid_but_unaudited_matrix_axes() -> None:
