@@ -68,22 +68,25 @@ plus RNG), global Ruff and both inventory CLI comparisons pass. The inventory
 records 203 files, 1,114 functions and 362 additions, retaining all original
 anchors and raw contracts. These are historical checkpoint results.
 
-The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
-record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
-per stack. The separately approved numerical tooling passes 247 main checks per
-stack and records all 24 selected strong-FP32 cells under both CPU settings:
-48 actual runs per stack, all three fixed comparisons passing, no pending cell.
-These are sample results; general diagnostic lowering remains UNVERIFIED and
-no default operation admission changes. Independent post-run review accepts
-these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
-manual inventory
-records 205 files, 1,146 functions and 394 additions, retaining all 752 original
-anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
-pass. The first integrated full run's 6,577 passes and two failed facade
-assertions remain recorded. After the reviewed native-Sin assertion repair,
-the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
-Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
-code/test/inventory hashes match after commit.
+The [native Linear/reshape findings](poc/native_linear_reshape_findings.md)
+record the adapter checkpoint `791664f8`: unchanged NNX Linear sources retain their
+native computation, exact parameters and real named-function aliases in static
+diagnostic exports. Main checks pass **544 tests per stack**, including all 41
+new cases, on the independently accepted code. The five effective/global JAX
+settings, patched callables and policy restore. No new SOURCE runtime,
+audited admission or symbolic-artifact claim follows from these results.
+The manual inventory records **206 files, 1,159 functions and 407 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained. Typing (542 files plus RNG), global Ruff and both inventory CLI
+comparisons pass. The complete primary-stack run passes **6,620 tests**
+(13,120 warnings, 452.13 seconds). All seven actual hooks pass on retry after
+an AST-identical test-header correction; the findings preserve that byte lineage.
+The code is committed at `791664f8`.
+
+The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
+`d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
+observations: 96 recorded outputs and 288 approved comparisons across both
+stacks. Its failures, criteria and unverified general lowering remain unchanged.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL

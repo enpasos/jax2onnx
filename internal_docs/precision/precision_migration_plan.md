@@ -55,22 +55,25 @@ warnings, 413.65 seconds), and all seven actual configured hooks passing. Typing
 1,114 functions and 362 additions, with no original anchor or raw contract loss.
 This checkpoint changes no default operation admission or numerical criterion.
 
-The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
-record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
-per stack. The separately approved numerical tooling passes 247 main checks per
-stack and records all 24 selected strong-FP32 cells under both CPU settings:
-48 actual runs per stack, all three fixed comparisons passing, no pending cell.
-These are sample results; general diagnostic lowering remains UNVERIFIED and
-no default operation admission changes. Independent post-run review accepts
-these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
-manual inventory
-records 205 files, 1,146 functions and 394 additions, retaining all 752 original
-anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
-pass. The first integrated full run's 6,577 passes and two failed facade
-assertions remain recorded. After the reviewed native-Sin assertion repair,
-the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
-Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
-code/test/inventory hashes match after commit.
+The [native Linear/reshape findings](poc/native_linear_reshape_findings.md)
+record the adapter checkpoint `791664f8`: unchanged NNX Linear sources retain their
+native computation, exact parameters and real named-function aliases in static
+diagnostic exports. Main checks pass **544 tests per stack**, including all 41
+new cases, on the independently accepted code. The five effective/global JAX
+settings, patched callables and policy restore. No new SOURCE runtime,
+audited admission or symbolic-artifact claim follows from these results.
+The manual inventory records **206 files, 1,159 functions and 407 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained. Typing (542 files plus RNG), global Ruff and both inventory CLI
+comparisons pass. The complete primary-stack run passes **6,620 tests**
+(13,120 warnings, 452.13 seconds). All seven actual hooks pass on retry after
+an AST-identical test-header correction; the findings preserve that byte lineage.
+The code is committed at `791664f8`.
+
+The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
+`d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
+observations: 96 recorded outputs and 288 approved comparisons across both
+stacks. Its failures, criteria and unverified general lowering remain unchanged.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -375,10 +378,9 @@ After this checkpoint, the next implementation is audited admission for the
 already bounded ordinary FP32/FP64 matrix contract, with precise obsolete
 control maintenance. Root will record fresh audited numerical observations
 separately; the historical numerical CLI and its bindings stay strictly pinned.
-The three-file native NNX Linear/reshape dispatch prerequisite has independent
-acceptance in the isolated `02211b62` checkout plus accepted trig patch, under
-the recorded scheduling amendment: 544 tests pass per stack. It is not yet
-integrated into main. It leads to one shared leading-B
+The independently accepted three-file native NNX Linear/reshape prerequisite
+is applied to main, with 544 focused passes per stack. Full-suite/hooks/commit
+gates remain pending. Its static diagnostic artifacts lead to one shared leading-B
 matrix/bias-broadcast packet using the five unchanged MatMul, GPT Add and NNX
 Linear anchors, including both bias choices. Native trace feasibility is already
 recorded; symbolic artifacts, strict sample binding, bias reshape and numerical

@@ -42,22 +42,25 @@ mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
 
-The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
-record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
-per stack. The separately approved numerical tooling passes 247 main checks per
-stack and records all 24 selected strong-FP32 cells under both CPU settings:
-48 actual runs per stack, all three fixed comparisons passing, no pending cell.
-These are sample results; general diagnostic lowering remains UNVERIFIED and
-no default operation admission changes. Independent post-run review accepts
-these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
-manual inventory
-records 205 files, 1,146 functions and 394 additions, retaining all 752 original
-anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
-pass. The first integrated full run's 6,577 passes and two failed facade
-assertions remain recorded. After the reviewed native-Sin assertion repair,
-the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
-Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
-code/test/inventory hashes match after commit.
+The [native Linear/reshape findings](poc/native_linear_reshape_findings.md)
+record the adapter checkpoint `791664f8`: unchanged NNX Linear sources retain their
+native computation, exact parameters and real named-function aliases in static
+diagnostic exports. Main checks pass **544 tests per stack**, including all 41
+new cases, on the independently accepted code. The five effective/global JAX
+settings, patched callables and policy restore. No new SOURCE runtime,
+audited admission or symbolic-artifact claim follows from these results.
+The manual inventory records **206 files, 1,159 functions and 407 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained. Typing (542 files plus RNG), global Ruff and both inventory CLI
+comparisons pass. The complete primary-stack run passes **6,620 tests**
+(13,120 warnings, 452.13 seconds). All seven actual hooks pass on retry after
+an AST-identical test-header correction; the findings preserve that byte lineage.
+The code is committed at `791664f8`.
+
+The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
+`d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
+observations: 96 recorded outputs and 288 approved comparisons across both
+stacks. Its failures, criteria and unverified general lowering remain unchanged.
 The first 36-cell diagnostic batch has run on both stacks, with every
 lowering/runtime/numerical gate still unverified. Broader source-corpus execution
 and migration remain open.
@@ -390,8 +393,8 @@ planning work is separate from production-code ownership.
 | B3 revision supplement | Replay 13 unchanged rows/26 artifact-only cells; retain raw outcomes and four SOURCE matrix counterparts; propose criteria separately. | Independently accepted; main replays retain 24 artifacts/two unresolved outcomes per stack; zero ORT, no criterion adoption in this packet; integrated checks and actual hooks pass | `fc3f9323` |
 | Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Independently reviewed main evidence: 553 checks per stack; gather remains pending at configuration/custom Where; no new artifact or runtime evidence from that supplement | `d2292b89`; full run and all actual hooks pass |
 | Fixed FP32 corpus numerics | Preserve twelve original rows/24 cells, both source contexts and the preapproved three-comparison criterion on one actual output per mode. | 247 main checks per stack; 48 CPU runs per stack pass, zero pending; independent post-run review accepted; general lowering UNVERIFIED | `d2292b89`; full run and all actual hooks pass |
-| Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path plan accepted; isolated implementation is active from `d2292b89`; review and fresh audited numerical observations remain pending | Not integrated or accepted; main admission unchanged |
-| Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted isolated implementation: 544 tests per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | Awaiting main integration; not part of `d2292b89` |
+| Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path isolated implementation independently accepted, including its comment-only header delta; fresh audited numerical observations remain pending | Not integrated into main; current main admission unchanged |
+| Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted code; main 544 passes per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | `791664f8`; full run and all actual hooks pass, with post-full header-only normalization recorded |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -814,14 +817,14 @@ The secondary v2 driver succeeds. Custom Where's independently checked
 structural rule and DOUBLE cosine's half-angle numerical audit remain work;
 neither is admitted by forwarding native calls.
 
-Next, implement the accepted ordinary-matrix admission contract with its six
-owned paths, including the precise obsolete guard. Root will create separate
+Next, integrate the independently accepted ordinary-matrix admission packet's
+six owned paths, including the precise obsolete guard. Root will create separate
 fresh audited numerical observations while retaining the historical numerical
-CLI's strict bindings and every old result. The accepted three-path NNX
-Linear/reshape dispatch prerequisite is independently accepted on the approved
-`02211b62` base plus accepted trig patch: 544 tests pass per stack, including
-41 new cases. It awaits main integration and changes no shared binder, profile
-or corpus rule. Then extend the
+CLI's strict bindings and every old result; no fresh audited packet has run yet.
+The three-path NNX Linear/reshape prerequisite is committed at `791664f8`:
+544 focused tests pass per stack, including 41 new cases; the full run and
+actual hooks pass with the comment-only normalization recorded in the findings.
+It changes no shared binder, profile or corpus rule. Then extend the
 shared leading-B matrix/bias-broadcast contract through the five original rows:
 JNP MatMul ordinals 6/5, GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3.
 Native symbolic traces and B=2/5 references are feasible on both stacks, with
@@ -1112,6 +1115,15 @@ Checkpoint evidence on 2026-10-18:
   hashes match after commit. The completed checkpoint is recorded in
   `/tmp/jax2onnx-trig-numerics-code-checkpoint.json`; the original failed run
   and earlier accepted numerical observations remain unchanged.
+
+The [Linear/reshape findings](poc/native_linear_reshape_findings.md) retain the
+current 544-case main checks per stack, state/import/hash verification and
+preparation failures. The manual inventory is now 206/1,159/407 with the original
+anchors/raw contracts intact. Both inventory CLI comparisons pass. The full run
+passes 6,620 tests, with 13,120 warnings in 452.13 seconds; all seven hooks pass
+on retry and code is committed at `791664f8`. The findings retain the initial
+path-marker failure, exact comment-only correction and pre/post-header freezes.
+These results do not complete migration.
 
 ## Validation and final review
 

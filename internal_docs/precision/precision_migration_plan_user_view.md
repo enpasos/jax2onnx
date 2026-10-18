@@ -45,16 +45,14 @@ artifact-only corpus tooling. Both stacks pass 323 focused checks; the complete
 primary-stack run passes **6,466 tests**, and all actual hooks pass. This
 checkpoint changes no default operation admission or numerical criteria.
 
-The [new findings](poc/native_trig_and_corpus_numerics_findings.md) record the
-separate approved numerical counterpart: twelve unchanged FP32 sources, both
-original x64 settings and 48 CPU runs per stack. Every captured result passes
-all three fixed comparisons; independent post-run review accepts these
-recorded samples.
-The results cover those inputs and targets, with general lowering still
-unverified. Current focused checks pass. The first full run's two failed
-facade assertions about native Sin metadata remain recorded. After the reviewed
-repair, the fresh full run passes **6,579 tests** and commit `d2292b89` passes
-all seven actual hooks. Historical failures and comparison records remain unchanged.
+The [current Linear/reshape findings](poc/native_linear_reshape_findings.md)
+record the next adapter step on unchanged models: native computation, weights,
+bias and named-function aliases survive static diagnostic export. Both stacks
+pass 544 main focused checks. The complete primary-stack run passes **6,620 tests**;
+both inventory comparisons and all seven hooks pass at commit `791664f8`, after
+the documented comment-header correction. No new SOURCE runtime, general model
+or symbolic-export acceptance is claimed. The [preceding numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md)
+retains its scoped sample results, original criteria and failures.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -136,9 +134,9 @@ example still produces no artifact: its x64-on scenario reaches a custom-Where
 boundary, and x64-off retains its configuration conflict. The next work admits
 the reviewed ordinary matrix forms, then extends shared-batch matrices and bias
 broadcasting through unchanged MatMul, GPT Add and NNX Linear sources. A bounded
-native Linear/reshape adapter prerequisite is independently accepted in its
-isolated checkout and awaits main integration. These plans preserve real model
-weights, bias and configuration; they do
+native Linear/reshape adapter is independently accepted and applied to main,
+with focused checks passing; its full integration gate remains pending. These
+plans preserve real model weights, bias and configuration; they do
 not replace the original sources with simpler examples or close all dynamic
 shape/model requirements.
 An unreviewed operation or an unfinished implementation remains open work; it

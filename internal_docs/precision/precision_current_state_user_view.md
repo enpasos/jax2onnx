@@ -77,18 +77,19 @@ Both stacks pass 323 focused checks; the complete primary-stack run passes
 without running them, so that historical checkpoint establishes no corpus
 numerical acceptance.
 
-The [new findings](poc/native_trig_and_corpus_numerics_findings.md) record a
-separate, preapproved comparison of twelve unchanged FP32 sources under both
-original x64 settings. All 48 CPU runs per stack pass the three required
-comparisons on their captured outputs. This covers those samples and settings;
-it does not certify complete models or all inputs. Independent post-run
-review accepts these recorded samples. Native sine/cosine calls now preserve
-JAX tracing, but
-the existing gather example still stops at another conversion boundary and
-produces no artifact. Current focused checks pass on both stacks. The first
-full run's two failed facade assertions about native Sin metadata remain
-recorded. The reviewed repair is included in commit `d2292b89`; the fresh full
-run passes **6,579 tests**, and all seven actual repository hooks pass. Public options and
+The [new Linear/reshape findings](poc/native_linear_reshape_findings.md) show
+that two unchanged NNX Linear sources, with and without bias, now keep their
+native computation through the private SOURCE adapter. Static exports preserve
+weights, bias and named-function results. Main focused checks pass 544 tests on
+each stack. The complete primary-stack run passes **6,620 tests**; both inventory
+comparisons and all seven hooks pass. Commit `791664f8` includes only a
+comment-header correction after that run, as recorded in the findings.
+These are diagnostic artifacts, with no new SOURCE runtime or
+whole-model numerical acceptance. Symbolic batch tracing is a separate control,
+not an accepted symbolic export.
+
+The [preceding numerical results](poc/native_trig_and_corpus_numerics_findings.md)
+remain scoped to their original samples and settings. Public options and
 defaults remain unchanged; no new precision choice is added.
 
 ## Choosing the Export Setting

@@ -19,7 +19,8 @@ is available. These experiments inform the
 | Static layouts and native binary binding | Can external storage and native promotion preserve unchanged source computations? | [Layout and binary findings](layout_and_native_binary_findings.md): committed binder/Mul and C4b/observer repairs, passing 6,351-test integration after ten retained regressions, signed-zero failures and future symbolic work. |
 | Shared symbolic batch and Min/Max feasibility | Can one artifact preserve a shared batch contract, and what does the finite selection audit establish? | [Shared-batch findings](symbolic_batch_and_minmax_findings.md): focused Add/named-composition acceptance, strict sample binding, retained BF16/subnormal failures, measured selection costs and planned artifact-only corpus tooling. |
 | Min/Max lowering and corpus replay | Does the finite zero-sign representation survive real export, and how far do unchanged raw scenarios progress? | [Checkpoint findings](minmax_and_corpus_replay_findings.md): committed lowerer and repaired B3 tooling, retained target failures/cost and artifact-only outcomes; 6,466-test integrated run and actual hooks pass. |
-| Native trig and fixed corpus numerics | Does native dispatch preserve the source, and do the fixed FP32 samples meet all approved comparisons? | [Current findings](native_trig_and_corpus_numerics_findings.md): reviewed trig binding, retained gather gaps and 48 successful CPU observations per stack; general lowering stays unverified and checkpoint gates remain explicit. |
+| Native trig and fixed corpus numerics | Does native dispatch preserve the source, and do the fixed FP32 samples meet all approved comparisons? | [Trig/numerical findings](native_trig_and_corpus_numerics_findings.md): committed binding and fixed sample evidence; gather gaps and unverified general lowering remain. |
+| Native NNX Linear and reshape | Can unchanged model methods preserve native tracing and static diagnostic artifacts? | [Current findings](native_linear_reshape_findings.md): exact parameters, bias/no-bias and named aliases; 544 main checks per stack, with full integration gates pending. |
 
 ## Run it
 
@@ -58,13 +59,15 @@ hooks and that complete primary-stack run passed 6,391 tests. The preceding
 [checkpoint](minmax_and_corpus_replay_findings.md), `fc3f9323`, commits Min/Max and
 B3 after independent review, 323 focused passes per stack, both main replays and
 inventory comparisons, a 6,466-test full run and all seven actual hooks.
-The [current checkpoint](native_trig_and_corpus_numerics_findings.md), `d2292b89`, has 553 trig
-and 247 numerical-tooling main checks per stack. Its separately released fixed
-numerical packet records 48 CPU runs per stack, all passing the approved
-comparisons. Independent post-run review accepts the recorded samples. The first
-full run's 6,577 passes and two failed native-Sin facade assertions remain
-recorded. After the reviewed assertion repair, the fresh full run passes
-**6,579 tests** and all seven actual configured hooks pass.
+The [trig/numerical checkpoint](native_trig_and_corpus_numerics_findings.md),
+`d2292b89`, retains its 6,579-test full pass and scoped numerical observations.
+The [Linear/reshape checkpoint](native_linear_reshape_findings.md), `791664f8`, passes
+544 main checks per stack on the independently accepted code, including 41 new
+cases. Static diagnostic artifacts preserve real model parameters and named
+aliases; there is no new SOURCE runtime or audited admission. The full primary
+run passes **6,620 tests**; both inventory CLI comparisons and all seven actual
+hooks pass. The findings retain the post-full, AST-identical test-header repair
+and the initial hook failure.
 
 ## Observable source behavior
 
