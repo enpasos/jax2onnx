@@ -17,9 +17,12 @@ metadata-ownership repair and inventory additions are committed at `3dbec1b8`.
 All four commits passed actual repository hooks. C4a recording/web packaging is
 committed at `8a82d510`; D1a array-promotion repairs and the reviewed manual
 inventory refresh are committed at `223f24bf`, also with independent review and
-actual hooks passing. The latest complete primary-stack run passes **5,803 tests**.
-An earlier failed preflight exposed raw metadata mutation, now repaired; an
-interrupted run is not counted as passing.
+actual hooks passing. C4c scalar-BOOL binding is committed at `4c1c57fe`; D1b
+native sequence binding is committed at `05037961`. Both passed independent
+review and actual hooks. The latest complete primary-stack run passes **6,035
+tests**. An earlier failed preflight exposed raw metadata mutation, now repaired;
+a later preflight was deliberately interrupted after typing exposed defects.
+Interrupted runs are not counted as passing.
 The first 36-cell diagnostic batch has run on both stacks, with every
 lowering/runtime/numerical gate still unverified. Broader source-corpus execution
 and migration remain open.
@@ -335,6 +338,8 @@ planning work is separate from production-code ownership.
 | B3b: artifact diagnostic runner | Bind immutable stage history to exact rows, settings, original traces, typed values and artifacts; inspect only explicitly known structural families. | Independently accepted; first 36 cells per stack measured; metadata repair, integrated run and actual hooks pass | `3dbec1b8` |
 | C4a: recording and packaging | Reuse shared logging and serialization; preserve exact large root/nested payloads, names/reports and primary failures; remove real stale sidecars in web mode. | Independently accepted; both-stack focused checks, complete integrated run and actual hooks pass | `8a82d510` |
 | D1a: array promotion | Preserve native `where` promotion and `full` weakness, immutable canonical operands and Boolean logical selection; retain diagnostic-only admission and failed target evidence. | Independently accepted; both-stack focused/generated checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `223f24bf` |
+| C4c: real scalar-BOOL parameters | Trace one prepared root with actual positional/named operands; share checked bindings across names/reports/boundaries and preserve framework controls/defaults/literals. | Private diagnostic packet independently accepted; both-stack focused/legacy checks, complete integrated run and actual hooks pass; all-22 model acceptance remains open | `4c1c57fe` |
+| D1b: native sequence binding | Dispatch original `arange`/`linspace` arguments before normalization; preserve native typed arithmetic while retaining failed target criteria and dynamic compatibility gaps. | Independently accepted; both-stack focused/legacy checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `05037961` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -473,8 +478,9 @@ requires JAX control flow through a supported framework or external caller
 adapter; use a static binding only for an intended fixed setting. Defaults and literal
 overrides stay local, unused inputs may be pruned, and both BOOL values must
 match independent original-JAX references through Function/If/Loop scopes.
-The first implementation packet may audit scalar BOOLs; unimplemented parameter
-contracts stay open and cannot become a final public partial profile.
+The first implemented packet covers scalar BOOLs through private diagnostics;
+unimplemented parameter contracts stay open and cannot become a final public
+partial profile.
 The [fixed-source compatibility review](poc/fixed_source_compatibility_findings.md)
 has classified all 22 baseline models and the static/manual witnesses: 16 rows
 have live positive-rate dynamic controls, five GPT rows are flag-insensitive at
@@ -502,31 +508,34 @@ data, same-path web sidecar cleanup, names/reports, off/on/off recording, a sing
 root flush through Function/If/Loop scopes and best-effort log failures that
 preserve the primary result/error. Browser execution remains a separate gate.
 
-C4c is the next coupled parameter packet. One owner changes root tracing and
+C4c is committed at `4c1c57fe`. The coupled packet changes root tracing and
 binding metadata in `conversion_api.py`, facade names/reports in
 `user_interface.py`, SOURCE ownership in `ir_context.py` and `plugin_system.py`,
-and the NNX/Equinox Dropout lowerers. Linen inherits the NNX lowerer. Existing
-Function argument packing and ordinary If/Loop operand wiring are reused;
-additional control-flow or optimizer changes need a demonstrated defect.
+and the NNX/Equinox Dropout lowerers. Linen inherits the NNX lowerer. A protocol
+declaration exposes the existing training-mode helper: seven production files
+in total, six with behavioral changes, plus three test files. Existing Function
+argument packing and ordinary If/Loop operand wiring are reused; no optimizer
+traversal or report schema change was needed.
 
-Trace the complete unchanged callable once with positional specs followed by
-real typed scalar-BOOL named operands. Accept actual Boolean scalar declarations
-without coercing numeric values; reject other unimplemented named contracts
+The complete unchanged callable is traced once with positional specs followed
+by real typed scalar-BOOL named operands. Actual Boolean scalar declarations are
+accepted without numeric coercion; other unimplemented named contracts fail
 explicitly. Closures, construction and partial application hold intended static
-settings. The first packet is diagnostic-only; audited product admission and
+settings. The private facade/core handshake requires explicit diagnostic
+validation, including false-valued validator objects; direct core calls also
+require explicit runtime-parameter permission. Audited product admission and
 LEGACY behavior remain unchanged. Default/literal callee settings remain local,
 regardless of whether their names match a declared runtime argument.
 
-Use one immutable ordered binding tuple tied to actual root vars, normalized
-specs, positional indices/keyword keys and trace indices. Retain every genuine
-root formal initially, including unused flags, using internal `in_N` names
-through optimization. No new pruning policy or report schema is needed. Resolve
-the tuple against finalized/cloned inputs with strict arity, order and shared
-representation checks; never retain stale pre-clone identities or invent avals.
-Input names remain positional-only. Final naming and output-alias separation
-receive the complete input target map, including named ports, and apply one
-collision-checked rename. Reports use that same mapping for supplied, normalized,
-traced and exported properties, including proto/file rechecks.
+One immutable ordered binding tuple holds actual root vars, normalized specs,
+positional indices/keyword keys and trace indices. Every genuine root formal is
+retained initially, including unused flags, using internal `in_N` names through
+optimization. The tuple resolves against finalized/cloned inputs with strict
+arity, order and shared representation checks. Input-name declarations remain
+positional-only. Final naming and output-alias separation receive the complete
+input target map, including named ports, and apply one collision-checked rename.
+Reports use that mapping for supplied, normalized, traced and exported properties,
+including proto/file rechecks. Same-typed input/output reorder corruptions fail.
 
 SOURCE skips late input-parameter materialization and promotion by name. Named
 Function captures and Dropout resolve actual typed vars; a name-only flag request
@@ -546,13 +555,23 @@ combinatorial wrapper engine or freeze a working dynamic control. Stochastic
 JAX/ONNX masks, sequences and state advancement are separate unresolved contracts.
 
 Focused regressions cover root-only and mixed root/Function control, defaults,
-literal overrides, unused inputs, zero-trip and nested loops, names/aliases,
-failure restoration and cache ordering on both stacks. Original references run
-outside plugin activation. Follow with a bounded all-22 preparation/trace/export
-pass: retain exact missing audits or lowering gates; no permissive validator may
-turn large-model attempts into support claims. Concrete `B=1` probes do not
-close the separate symbolic-batch gap. Extend the same contract to all remaining
-parameter types before final acceptance.
+literal overrides, unused inputs, zero-trip and nested loops, names/aliases and
+failure restoration on both stacks. Original references run outside plugin
+activation. The all-22 preparation/trace/export pass produced three checked
+framework Dropout artifacts and 19 pending rows per stack, preserving the exact
+missing audit/lowering gates. No ORT sessions ran; lowering, runtime and numerics
+remain UNVERIFIED. Concrete `B=1` probes do not close symbolic-batch coverage.
+Extend the contract to all remaining parameter types and complete all-22 model
+acceptance before the final transition.
+
+A separate confirmed shared optimizer defect remains open: matching a same-graph
+`Not(True)` feeding Dropout can replace its uses with an unowned `false_const`.
+It affects the shared LEGACY/SOURCE pass and can break other uses of that matched
+value; a generic Boolean graph without the Dropout match is not exposed by this
+pass. C4c's actual SOURCE literals use builder-owned constants. The planned
+minimal optimizer repair would omit only the proven-false optional Dropout
+training input and preserve shared/observable Not outputs; no production repair
+or broader traversal change is claimed yet.
 
 D1a is committed at `223f24bf`: `where` uses native JAX operand-aware promotion,
 `full` retains weak fills, and SOURCE consumer casts leave canonical constants
@@ -565,18 +584,25 @@ cache mechanism was needed. The
 [curated findings](poc/option_and_array_creation_findings.md) retain kernel failures
 and the precise regression scope.
 
-D1b next uses captured original `arange`/`linspace` binding where traceable,
-preserving native dtype/weakness, omitted-step behavior, explicit conversions,
-appended endpoints and integer flooring. Existing dynamic `arange` capability
+D1b is committed at `05037961`. SOURCE dispatches original `arange`/`linspace`
+arguments to captured native JAX before normalization, preserving dtype/weakness,
+omitted-step behavior, explicit conversions, appended endpoints and integer
+flooring. Native positional/device forms and strict-promotion errors retain
+their original meaning; LEGACY code and policy-scoped cache behavior are preserved. Existing dynamic `arange` capability
 remains compatibility work even when native JAX rejects data-dependent bounds.
 Selected FP16/FP32 native `linspace` traces and ONNX intermediate types match,
 but exact JAX samples differ from ORT and ONNX ReferenceEvaluator on both stacks.
-These remain failed exact criteria. Compiled arithmetic, contraction and
-low-precision evaluation need investigation before any faithful adaptation;
-none is established as the cause. Do not call this an ORT-only defect or ONNX
-impossibility, change the algorithm, widen the computation, or loosen the failed
-criteria to make the packet pass. Ordinary cross-runtime floating reproducibility
-and deliberately required rounding remain distinct acceptance questions.
+These remain failed exact criteria. Independent compiled-arithmetic review of
+the selected witnesses observes JAX CPU reciprocal substitution, reassociation
+and FP32 fused multiply-add relative to the preserved typed graph; it does not
+explain every additional ORT FP16 discrepancy. The
+[curated diagnosis](poc/option_and_array_creation_findings.md#native-sequences-and-retained-exact-failures)
+keeps original dynamic-endpoint references unchanged. Do not call this an
+ORT-only defect or ONNX impossibility, widen the computation, or loosen failed
+criteria. BF16 Add loading/result-interface failures and the installed opset27
+runtime limit stay separate from numerical comparisons. Ordinary cross-runtime
+floating reproducibility and deliberately required rounding remain distinct
+gates; the accepted binding packet does not close family-wide numerical work.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -696,7 +722,7 @@ Checkpoint evidence on 2026-10-18:
   exact CPU samples with optimization off/all across inline/Function/If/Loop
   scopes. BF16 and neutral LEGACY Boolean Where kernel failures are recorded
   separately; a passing test count does not turn them into runtime support.
-- The latest complete primary-stack suite passes **5,803 tests**, with 13,104
+- The C4a/D1a complete primary-stack suite passes **5,803 tests**, with 13,104
   warnings in 382.81 seconds. Required package typing passes 541 files, RNG
   registration and global Ruff pass, and both C4a (`8a82d510`) and D1a
   (`223f24bf`) pass actual repository hooks.
@@ -705,6 +731,30 @@ Checkpoint evidence on 2026-10-18:
   contracts and optional entries remain unchanged; no original anchor was
   removed. Fresh CLI comparisons pass on both stacks. The historical first B3
   batch remains bound to its original baseline and was not rerun.
+
+- C4c has 107 new cases; independent review passes 110 selected cases on each
+  stack, including three existing trace-helper controls, then the one affected
+  regression after the final behavior-neutral typing repair. Owner selections
+  pass 726 cases per stack, including 45 LEGACY controls. These overlapping
+  counts are regression evidence, not a support denominator. The all-22 batch
+  retains three checked artifacts and 19 pending rows per stack, zero ORT runs
+  and unverified lowering/runtime/numerics.
+- D1b passes 508 focused and 70 generated/LEGACY controls per stack; independent
+  review passes all 125 new cases. Four exact linspace cells per stack remain
+  failed under ORT off/all and ONNX ReferenceEvaluator. BF16 and dynamic arange
+  target/compatibility failures stay explicit. The actual pinned Black hook
+  changed one redundant-parentheses line; independent full-AST comparison,
+  including type comments, confirms no behavior change.
+- The latest complete primary-stack suite passes **6,035 tests**, with 13,110
+  warnings in 402.20 seconds, with no exclusions. Required package typing passes
+  541 files, RNG registration and global Ruff pass, and C4c (`4c1c57fe`) and D1b
+  (`05037961`) pass actual configured hooks. The earlier preflight interrupted
+  after 1,215 passes during the typing repair is not a completed run.
+- C4c's reviewed manual inventory records 194 files, 990 functions and 238
+  migration additions. D1b's final refresh records 195 files, 1,003 functions and
+  251 additions. All 752 original anchors, 1,802 raw contracts and optional
+  entries remain unchanged. Fresh CLI comparisons pass on both stacks. The
+  historical B3 batch remains bound to its `158ce625` baseline and was not rerun.
 
 ## Validation and final review
 

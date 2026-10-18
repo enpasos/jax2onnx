@@ -33,7 +33,15 @@ as do native JAX promotion for `where`/`full` and selected Boolean results. The
 from remaining BF16 execution and floating-point comparison failures. They do
 not establish browser support or broaden the audited operation profile.
 
-The latest complete run passes **5,803 tests**. These reviewed changes are
+Private migration checks now also carry real named Boolean arguments through
+the complete prepared call and framework Dropout, while preserving local defaults
+and static settings. Native `arange`/`linspace` binding retains JAX's chosen
+calculation. Selected exact sequence comparisons, BF16 execution and dynamic
+`arange` compatibility remain open. The all-22 model diagnostic pass yields
+three checked artifacts and 19 pending cases per stack, with no runtime or
+numerical acceptance.
+
+The latest complete run passes **6,035 tests**. These reviewed changes are
 committed locally and passed repository hooks. The refreshed inventory retains
 all original contracts and test anchors. The
 [work plan](precision_implementation_work_plan.md) tracks the remaining operators,

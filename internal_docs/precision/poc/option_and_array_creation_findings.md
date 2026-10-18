@@ -1,10 +1,11 @@
 # Recording, Packaging and Array-Creation Findings
 
-Date: 2026-10-18. C4a is committed at `8a82d510`; D1a and the reviewed manual
-inventory refresh are committed at `223f24bf`. Both passed independent review
-and actual repository hooks. This is private migration evidence. Public
-`to_onnx` still uses LEGACY, and `where`/`full` remain excluded from the audited
-`source-static-v1` profile. Only phase F completes the transition.
+Date: 2026-10-18. C4a is committed at `8a82d510`, D1a at `223f24bf`, C4c at
+`4c1c57fe` and D1b at `05037961`, including reviewed manual inventory additions.
+All passed independent review and actual repository hooks. This is private
+migration evidence. Public `to_onnx` still uses LEGACY; the new named-parameter
+and array-creation diagnostics do not broaden audited `source-static-v1`
+admission. Only phase F completes the transition.
 
 ## Recording and packaging
 
@@ -30,6 +31,47 @@ does not introduce a separate logger or serializer.
 Maintained regressions:
 [recording](../../../tests/extra_tests/converter/test_conversion_primitive_recording.py)
 and [facade/serialization](../../../tests/extra_tests/converter/test_source_facade.py).
+
+## Real named Boolean operands
+
+C4c traces positional inputs and real scalar-BOOL named operands in one complete
+prepared root. One immutable binding tuple connects actual source vars, specs,
+positional indices/keyword names, final inputs and report entries. Genuine unused
+formals remain ports without artificial sinks. Checked rebinding after graph
+cloning, complete alias/name mapping and atomic renaming preserve ordering through
+IR, proto and saved/reloaded boundaries, including same-typed port reversals.
+
+The private facade/core handshake requires explicit diagnostic validation;
+false-valued validators still work. SOURCE skips late parameter materialization
+and promotion by name. NNX/Linen/Equinox Dropout consumes actual typed operands,
+while Function defaults, static literals and captures retain their local meaning.
+Name-only flag requests fail instead of appending ports. Public LEGACY behavior
+and default audited admission remain unchanged.
+
+Focused tests follow real positive-rate controls through Function/If/Loop scopes
+to outputs. Exact deterministic inference and zero-rate references remain
+separate from finite training mask/scaling checks; no equality of JAX/ONNX random
+streams is claimed. An external whole-call `lax.cond` adapter preserves an
+unchanged Python-branch source and both live runtime choices. Static partial
+application covers an intended fixed setting only. Original NNX/Linen state and
+Equinox key prerequisites remain explicit.
+
+The [all-22 diagnostic pass](fixed_source_compatibility_findings.md#c4c-diagnostic-pass-over-all-22-rows)
+yields three checked artifacts and 19 pending rows per stack. No ORT sessions ran
+in that batch; all lowering/runtime/numerical gates remain UNVERIFIED. Focused
+successes do not establish full-model or stochastic acceptance.
+
+A confirmed separate shared optimizer defect remains open: a same-graph
+`Not(True)` feeding Dropout can be replaced by an unowned `false_const`, also
+breaking other uses of that matched value. Generic Boolean graphs without that
+Dropout match are not affected by this pass. C4c folds actual SOURCE literals
+with builder-owned constants. A minimal shared optimizer repair is planned,
+without a production-fix claim in this checkpoint.
+
+Maintained regressions:
+[runtime parameters](../../../tests/extra_tests/converter/test_source_runtime_parameters.py),
+[framework Dropout](../../../tests/extra_tests/converter/test_source_dropout_parameters.py)
+and [trace helpers](../../../tests/extra_tests/converter/test_conversion_trace_helpers.py).
 
 ## Native promotion and immutable operands
 
@@ -72,17 +114,21 @@ claim numerical acceptance. Kernel-negative tests retain explicit evidence and
 also accept a future kernel only if its sample matches exactly. None of these
 observations establishes universal ONNX or deployment support.
 
-## Future sequence work: exact failures remain visible
+## Native sequences and retained exact failures
 
-The proposed D1b `arange`/`linspace` work is not part of these commits. Captured
-original JAX binding preserves native typed arithmetic more faithfully than
-rebuilding it from NumPy promotion or delta stepping. Existing dynamic `arange`
-capability remains required compatibility work even where native tracing rejects
-data-dependent bounds.
+D1b dispatches SOURCE `arange`/`linspace` to captured original JAX before argument
+normalization. It preserves native dtype/weakness, strict-promotion errors,
+original positional/device forms and explicit conversion boundaries. Omitted
+versus explicit arange step retains the distinct low-precision iota/arithmetic
+sequence. Linspace retains weighted endpoints, exact endpoint append, floor
+before integer conversion and native empty/singleton behavior. Tests compare
+unpatched native typed programs and references before export, then check serialized
+artifacts and separate CPU samples. Same-callable native/LEGACY/SOURCE cache orders
+cover inline/Function/If/Loop without clearing caches or changing LEGACY lowerers.
 
-Additional local diagnostic probes preserve the original `linspace` trace and
-ONNX intermediate types but fail their exact numerical criterion on both JAX
-0.11.2 and 0.10.2 stacks:
+Four exact linspace cells per stack (these two dtypes with x64 off/on) preserve
+the original trace and ONNX intermediate types but fail their numerical criterion
+on both JAX 0.11.2 and 0.10.2 stacks:
 
 | Original computation | Original JAX eager/JIT | ONNX ReferenceEvaluator |
 | --- | --- | --- |
@@ -91,23 +137,53 @@ ONNX intermediate types but fail their exact numerical criterion on both JAX
 
 ORT with optimization off/all also fails these exact samples; the FP16 probe
 has additional differing elements. JAX eager/JIT agree for the recorded samples.
-This is not evidence of an ORT-only defect or an ONNX impossibility. Compiler
-contraction/reassociation and low-precision evaluation are hypotheses requiring
-compiled-IR and arithmetic investigation. Observing additional intermediates may
-itself change fusion, so diagnostic observations cannot replace the original
-reference.
+This is not evidence of an ORT-only defect or an ONNX impossibility.
+
+Independent review of native StableHLO, optimized HLO, LLVM/disassembly and bounded
+native controls establishes a narrow compiler observation: these selected
+witnesses show JAX CPU reciprocal substitution, reassociation and FP32 fused
+multiply-add relative to the preserved typed graph. For FP16 weight index 5,
+`FP16(5 * FP16(1/6))` has bits `0x3aaa`, while `FP16(5/6)` has `0x3aab`.
+For the FP32 sample, dynamic endpoints give index-3 bits `0x3e4ccccf`, while
+endpoints embedded in the outer jitted function give `0x3e4cccd0` on both stacks
+with x64 off/on. The observed fused arithmetic reproduces that narrow difference.
+
+Constant endpoints and exposed intermediates can change compilation. They are
+diagnostic controls, not replacement oracles for the original dynamic-endpoint
+call. This evidence does not explain every additional ORT FP16 discrepancy or
+justify a general reciprocal/FMA emulation. The original exact comparisons remain
+FAILED; no algorithm, endpoint staticness, reference or criterion was changed.
 
 Preserve mandatory dtype, weak-type, integer-floor, endpoint and explicit-cast
 semantics. Ordinary cross-runtime floating reproducibility and required rounding
 need separate reviewed criteria. Do not widen the computation, replace the native
-algorithm or relax these exact failures to close D1b. Missing corpus criteria
-remain unresolved; a later justified criterion must not erase this evidence.
+algorithm or relax these exact failures. Native binding acceptance does not close
+family-wide numerical work. Missing corpus criteria remain unresolved; a later
+justified criterion must not erase this evidence.
+
+BF16 arange with omitted step currently fails CPU Add loading; explicit step
+reaches the NumPy result-interface failure. Both retain UNVERIFIED numerical
+acceptance and failed overall target evidence. Data-dependent arange remains a
+separate unfinished compatibility capability: public LEGACY FLOAT32/opset23
+passes exact CPU samples off/all, while native SOURCE tracing raises
+`ConcretizationTypeError`. BF16/opset23 is schema-positive but fails the result
+interface. Legacy opset27 artifacts are schema-positive but the installed runtimes
+reject that unreleased opset. These are distinct target/implementation gaps, not
+retirement of the existing dynamic capability or ONNX-impossibility claims.
+
+The [maintained sequence regressions](../../../tests/extra_tests/converter/test_source_array_creation_sequences.py)
+record these outcomes with unchanged criteria. Their narrow recursive diagnostic
+rejects malformed typed/parameter/placement forms and keeps lowering UNVERIFIED;
+it does not broaden product admission.
 
 The local replay evidence is `/tmp/jax2onnx-d1b-rounding-py312.jsonl` and
 `/tmp/jax2onnx-d1b-rounding-py311.jsonl`, with standalone ONNX paths recorded
 there. These are local diagnostic artifacts, not maintained runnable tools or
 committed models. The values above preserve the findings independently of those
-temporary files.
+temporary files. The reviewed compiled diagnosis is recorded in
+`/tmp/jax2onnx-d1b-compiled-rounding-{py312,py311}.jsonl` and
+`/tmp/jax2onnx-d1b-semantic-assessment.md`; the bounded observations above do not
+depend on retaining those temporary files.
 
 ## Validation and provenance
 
@@ -118,30 +194,41 @@ Selections overlap and must not be added into a support count.
 | --- | --- | --- |
 | C4a | 485 passed; 23 new cases | 23 passed on each stack |
 | D1a | 453 passed; 47 generated LEGACY controls also passed | 134 passed on each stack |
+| C4c | 726 passed across owner selections, including 45 LEGACY controls; 107 new cases | 110 passed per stack, including three existing trace-helper controls; one affected regression per stack after the typing-only repair |
+| D1b | 508 focused and 70 generated/LEGACY controls passed | All 125 new cases passed per stack |
 
-The latest complete primary-stack suite passes **5,803 tests**, with 13,104
-warnings in 382.81 seconds. Required package typing passes 541 files, RNG
-registration and global Ruff pass, and both commits pass actual pinned hooks.
+C4c comprises six behavioral production files, one existing-capability protocol
+declaration and three test files. D1b comprises two dispatch files and one test
+module. The final pinned Black change to that module removes redundant parentheses;
+independent complete-AST comparison, including type comments, confirms unchanged
+behavior. Production hashes are unchanged.
+
+The latest complete primary-stack suite passes **6,035 tests**, with 13,110
+warnings in 402.20 seconds and no exclusions. Required package typing passes
+541 files, RNG registration and global Ruff pass, and both new commits pass
+actual configured hooks. The earlier preflight was intentionally interrupted
+after typing found defects; its 1,215 passes are not a complete-run result.
 This regression result includes tests that correctly retain failed target
 evidence; it is not a source-corpus or deployment acceptance count.
 
-The reviewed inventory has 192 handwritten-test files, 963 functions and 211
-migration additions. All 752 original anchors, 1,802 raw contracts and optional
+C4c's reviewed inventory has 194 handwritten-test files, 990 functions and 238
+migration additions. D1b's final inventory has 195 files, 1,003 functions and
+251 migration additions. All 752 original anchors, 1,802 raw contracts and optional
 entries remain unchanged; no original anchor was removed. Fresh inventory CLI
 comparisons pass on both stacks. The
 [first B3 batch](source_corpus_findings.md) was not rerun and remains bound to its
-historical baseline. The [22-row compatibility review](fixed_source_compatibility_findings.md)
-also remains a migration obligation rather than new SOURCE acceptance.
+historical `158ce625` baseline. The [22-row compatibility review](fixed_source_compatibility_findings.md)
+also remains a migration obligation rather than completed SOURCE acceptance.
 
-Local logs: `/tmp/jax2onnx-precision-c4a-d1a-full-py312.log`,
-`/tmp/jax2onnx-c4a-astra-new-py312.log`,
-`/tmp/jax2onnx-c4a-astra-new-py311.log`,
-`/tmp/jax2onnx-d1a-astra-py312.log` and
-`/tmp/jax2onnx-d1a-astra-py311.log`. Maintained regression commands run the linked
-test modules with the repository's normal pytest setup; these log paths are
-provenance, not dependencies of the tests.
+The prior C4a/D1a full run is `/tmp/jax2onnx-precision-c4a-d1a-full-py312.log`.
+The new complete run is `/tmp/jax2onnx-precision-c4c-d1b-full-final-py312.log`;
+independent focused logs are `/tmp/jax2onnx-c4c-astra-py{312,311}.log`,
+`/tmp/jax2onnx-c4c-astra-typing-repair-final-py{312,311}.log` and
+`/tmp/jax2onnx-d1b-astra-py{312,311}.log`. Maintained regression commands run the
+linked test modules with the repository's normal pytest setup; these log paths
+are provenance, not dependencies of the tests.
 
-The [work plan](../precision_implementation_work_plan.md) specifies the next
-coupled C4c root-binding packet and D1b numerical gates. Broader options,
-framework/random contracts, full-model validation and the final public transition
-remain open.
+The [work plan](../precision_implementation_work_plan.md) retains the remaining
+parameter/model coverage, shared optimizer repair and numerical gates. Broader
+options, framework/random contracts, full-model validation and the final public
+transition remain open.

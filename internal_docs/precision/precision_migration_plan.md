@@ -14,12 +14,14 @@ primary-stack tests. Further promotion-context, finite complex-loop and
 required-finalization repairs are committed at `ea6a8da7`, `8ba3c681` and
 `f1ee71b3`. B3 diagnostics, the raw-metadata ownership repair and reviewed
 inventory additions are committed at `3dbec1b8`. Private recording/web packaging
-is committed at `8a82d510`; SOURCE `where`/`full` promotion repairs and the latest
-manual inventory are committed at `223f24bf`. All passed actual repository hooks.
-The latest complete primary-stack run passes **5,803 tests**; required typing
-covers 541 files, with RNG registration and global Ruff passing. The
-inventory now records 192 handwritten-test files, 963 functions and 211 added
-migration tests, retaining all 752 original anchors and 1,802 raw contracts.
+is committed at `8a82d510`; SOURCE `where`/`full` promotion repairs are committed
+at `223f24bf`. C4c scalar-BOOL binding and D1b native sequence binding are committed
+at `4c1c57fe` and `05037961`, with reviewed manual inventory additions. All passed
+actual repository hooks. The latest complete primary-stack run passes **6,035
+tests**; required typing covers 541 files, with RNG registration and global Ruff
+passing. The inventory now records 195 handwritten-test files, 1,003 functions
+and 251 migration additions, retaining all 752 original anchors and 1,802 raw
+contracts.
 Both fresh inventory comparisons pass; the first B3 batch retains its historical
 baseline and has not been rerun. The
 [option and array-creation findings](poc/option_and_array_creation_findings.md)
@@ -214,28 +216,36 @@ follows from its artifact checks.
 Preexisting negative contracts remain distinct from positive capabilities that
 the migration must preserve.
 
-The next C4c packet traces positional inputs and real scalar-BOOL named operands
-in one complete prepared root. One ordered map ties each actual source var to
-its normalized spec, final graph input, name and report entry. Initially every
+C4c now traces positional inputs and real scalar-BOOL named operands in one
+complete prepared root through the private diagnostic handshake. One ordered map
+ties each actual source var to its normalized spec, final graph input, name and report entry. Initially every
 real root formal is retained, including unused declarations; no artificial sink
 or weakened boundary check is needed. SOURCE bypasses late name-based promotion
-and materialization. NNX/Linen/Equinox Dropout must consume actual operands, while
-callee defaults and explicit literals stay local. The first packet remains
-diagnostic and keeps all 22 compatibility rows and their state/key prerequisites
-visible. An external whole-root `lax.cond` adapter can support genuine Python
+and materialization. NNX/Linen/Equinox Dropout consumes actual operands, while
+callee defaults and explicit literals stay local. The packet remains diagnostic
+and keeps all 22 compatibility rows and their state/key prerequisites visible.
+The bounded all-22 pass yields three checked artifacts and 19 pending rows per
+stack, with zero ORT executions and all lowering/runtime/numerical gates
+unverified. An external whole-root `lax.cond` adapter can support genuine Python
 branching in an unchanged pure source; static binding is only for an intended
 fixed setting. Structural control checks do not certify stochastic equivalence.
 
-D1b next addresses `arange`/`linspace` through captured native JAX binding,
-preserving dtype, weakness, omitted-step behavior, integer flooring and explicit
-conversion boundaries. Existing dynamic `arange` capability remains required
-compatibility work. Native typed graphs alone do not establish exact floating
+D1b now uses captured native JAX `arange`/`linspace` binding before argument
+normalization, preserving dtype, weakness, omitted-step behavior, integer flooring
+and explicit conversion boundaries. Existing dynamic `arange` capability remains
+required compatibility work. Native typed graphs alone do not establish exact floating
 results: recorded FP16 and FP32 `linspace` samples disagree with both JAX stacks
 on ORT and ONNX ReferenceEvaluator. Those exact criteria remain failed; the
 evidence does not establish an ORT-only defect or an ONNX impossibility.
-Investigate compiled arithmetic and rounding before proposing an adaptation.
+The reviewed compiled-arithmetic observations in the linked findings explain
+selected discrepancies; any numerical adaptation still needs separate evidence.
 Ordinary cross-runtime reproducibility and deliberately required rounding need
-separate, reviewed criteria; do not loosen these failed witnesses to close D1b.
+separate, reviewed criteria; accepted binding changes do not close these failed
+numerical gates. BF16 loading/result-interface failures and the installed
+opset27 runtime limit remain separately recorded. A shared Dropout optimizer
+rewrite can create an unowned `false_const` after matching `Not(True)` feeding
+Dropout. Its separate minimal repair is planned; the defect remains open and
+is not evidence of a generic Boolean-graph failure.
 
 ## Stage 1 Inventory and freeze observable behavior
 

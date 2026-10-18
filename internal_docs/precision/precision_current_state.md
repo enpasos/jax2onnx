@@ -70,10 +70,32 @@ product admission still excludes `where`/`full`. BF16 and neutral Boolean
 Where kernel failures remain separate target evidence. See the
 [curated findings](poc/option_and_array_creation_findings.md).
 
-The latest complete primary-stack run passes **5,803 tests** (13,104 warnings,
-382.81 seconds). Required typing covers 541 files; RNG registration and global
-Ruff pass on the frozen combined changes. The refreshed inventory records
-192 handwritten-test files, 963 functions and 211 migration additions, retaining
+The C4a/D1a checkpoint passed **5,803 tests** (13,104 warnings, 382.81 seconds)
+and recorded 192 handwritten-test files, 963 functions and 211 migration additions.
+
+C4c (`4c1c57fe`) now traces positional and real scalar-BOOL named operands in one
+prepared root, retaining actual unused formals without artificial sinks. One
+checked binding map drives names, reports and IR/proto/reloaded boundaries.
+SOURCE framework Dropout consumes actual operands; defaults and static literals
+stay local. Whole-root external `lax.cond` preparation covers a bounded unchanged
+Python-branch source without freezing its runtime control. The all-22 diagnostic
+pass yields three checked artifacts and 19 pending rows per stack: zero ORT
+executions and unverified lowering/runtime/numerics. It does not establish
+stochastic or full-model acceptance.
+
+D1b (`05037961`) dispatches SOURCE `arange`/`linspace` to captured native JAX before
+argument normalization. It preserves native promotion, omitted-step arithmetic,
+integer flooring and explicit conversion boundaries. Four exact FP16/FP32
+`linspace` cells per stack still fail on ORT and ONNX ReferenceEvaluator; BF16
+runtime limits and native-untraceable, LEGACY-positive dynamic `arange` remain
+open. Public LEGACY and audited admission are unchanged. A separate shared
+Dropout optimizer rewrite can introduce an unowned `false_const` after matching
+`Not(True)` feeding Dropout; that confirmed defect is still open.
+
+The latest complete primary-stack run passes **6,035 tests** (13,110 warnings,
+402.20 seconds). Required typing covers 541 files; RNG registration and global
+Ruff pass. Both new commits passed actual hooks. The final inventory records
+195 handwritten-test files, 1,003 functions and 251 migration additions, retaining
 all 752 original anchors, all 1,802 raw contracts and optional entries. Fresh CLI
 comparisons pass on both stacks. The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.

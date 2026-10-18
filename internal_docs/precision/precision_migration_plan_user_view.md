@@ -22,8 +22,9 @@ Private recording and web-file packaging now have reviewed coverage, alongside
 native JAX promotion for `where`/`full` and selected Boolean results. These
 [bounded changes](poc/option_and_array_creation_findings.md) are committed with
 repository hooks passing; public behavior and audited operation admission stay
-unchanged. The latest complete run passes **5,803 tests**. The refreshed inventory
-retains every original contract and test anchor; this regression result does
+unchanged. Real scalar-Boolean runtime binding and native `arange`/`linspace`
+binding now also have reviewed private coverage. The latest complete run passes
+**6,035 tests**. The refreshed inventory retains every original contract and test anchor; this regression result does
 not complete source coverage.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
@@ -31,7 +32,9 @@ per stack, producing 26 checked artifacts while retaining ten failed or pending
 outcomes. No runtime or numerical acceptance was claimed. The
 [fixed-source review](poc/fixed_source_compatibility_findings.md) classifies all 22
 parameterized models so their existing runtime controls and static settings can
-be preserved without editing the supplied implementation. Broader operation,
+be preserved without editing the supplied implementation. The subsequent
+private diagnostic pass produces three checked artifacts and 19 pending cases
+per stack, with no ONNX Runtime executions or numerical acceptance. Broader operation,
 option and full-model acceptance remain unfinished. There is no new public
 precision choice.
 
@@ -79,10 +82,14 @@ operators, scopes and options. Missing comparison criteria remain unverified;
 they are not silently replaced with exact agreement. Integer and Boolean
 results must remain exact even when floating outputs use a tolerance.
 Runtime failures remain visible under their recorded criteria.
-The next parameter work carries real named Boolean inputs through the complete
-model while retaining unchanged supplied implementations. Array-sequence work
-must also resolve recorded exact floating-point discrepancies; matching graph
-types does not by itself establish matching results on a runtime.
+The first private parameter packet now carries real named Boolean inputs
+through the complete prepared call, including framework Dropout and local
+Function defaults. An external whole-call `lax.cond` adapter preserves a bounded
+unchanged Python-branch implementation and both runtime choices; static binding
+is appropriate only for an intended fixed setting. Broader model and stochastic
+contracts remain open. Native array-sequence binding is implemented, but recorded
+exact floating-point discrepancies and dynamic `arange` compatibility remain
+unresolved; matching graph types does not establish matching runtime results.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

@@ -33,15 +33,20 @@ complex-loop and required-finalization repairs are now committed at `ea6a8da7`,
 reviewed inventory additions are committed at `3dbec1b8`. Private recording/web
 packaging and array-creation promotion repairs are now committed at `8a82d510`
 and `223f24bf`, with independent review and actual repository hooks passing.
-The latest complete primary-stack run passes **5,803 tests**. The inventory
-retains every raw contract and original anchor, with 192 handwritten-test files,
-963 functions and 211 migration additions.
+Private scalar-BOOL runtime binding is committed at `4c1c57fe`; native
+`arange`/`linspace` binding is committed at `05037961`. Both passed independent
+review and actual hooks. The latest complete primary-stack run passes **6,035
+tests**. The inventory retains every raw contract and original anchor, with
+195 handwritten-test files, 1,003 functions and 251 migration additions.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
-record exact large-payload serialization, recording behavior, native JAX
-promotion/weakness and Boolean selection evidence. `where`/`full` remain outside
-the audited product profile; BF16 kernel failures and failed exact floating
-samples remain visible. These changes do not establish browser or model-wide
+record exact large-payload serialization, recording behavior, real named BOOL
+operands, native JAX promotion/sequence binding and Boolean selection evidence.
+Named runtime operands and these array-creation families still require private
+diagnostic admission; recording/web options work through the private audited
+facade. BF16 target failures, failed exact `linspace` samples and dynamic `arange`
+compatibility work remain visible. A separate shared Dropout optimizer defect
+is still open. These changes do not establish browser, stochastic or model-wide
 numerical acceptance.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
@@ -51,9 +56,11 @@ unverified; the other 3,568 cells remain unchanged. The
 [fixed-source compatibility review](poc/fixed_source_compatibility_findings.md)
 classifies all 22 parameterized models: 16 have real dynamic controls, five GPT
 configurations are flag-insensitive at zero dropout, and one SpectralNorm case
-is static. These are migration requirements, not completed SOURCE support.
-Existing export options, remaining operators and full-model acceptance stay
-open. Only phase F completes the transition.
+is static. The subsequent C4c diagnostic pass produces three checked artifacts
+and 19 pending rows per stack, with zero ONNX Runtime executions and all
+lowering/runtime/numerical gates unverified. These are migration requirements,
+not completed SOURCE support. Existing export options, remaining operators and
+full-model acceptance stay open. Only phase F completes the transition.
 
 The current-state documents preserve the analysis of `main` at `fae17822` on
 2026-10-17, including the merged fix from

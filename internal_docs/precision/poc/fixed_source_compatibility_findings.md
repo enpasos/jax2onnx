@@ -1,6 +1,7 @@
 # Fixed-source parameter compatibility
 
-Status: read-only compatibility classification, 2026-10-18. All 22 exact raw
+Status: compatibility baseline and subsequent private C4c diagnostics, 2026-10-18.
+For the original baseline, all 22 exact raw
 `input_params` rows were instantiated with their original factories and dtypes,
 exported through public LEGACY, serialized/reloaded and checked on both stacks.
 All **44 serialized checks passed in total**, 22 per stack. Another **20 manual
@@ -78,9 +79,9 @@ numerical forward passes were not run.
 
 ## Whole-model runtime meaning
 
-The manual dependency walk follows actual operands into Functions, lexical
-captures into If branches, and Loop formals/carried recurrence. Root-only
-Python-if, where and numeric-scale cases are currently static. Forwarded
+The baseline LEGACY manual dependency walk follows actual operands into
+Functions, lexical captures into If branches, and Loop formals/carried recurrence.
+Its root-only Python-if, where and numeric-scale cases are static. Forwarded
 Function/If/Loop flags reach live Where controls. Unused formals and Identity
 sinks do not; omitted defaults and explicit False literals stay local.
 
@@ -90,23 +91,57 @@ returns `[24,26]`. A late synthetic flag cannot repair an already specialized
 root. Separately, a legacy forwarded numeric scale is incorrectly materialized
 as BOOL and fails the checker; numeric parameters must not use a Boolean helper.
 
-C4c must trace one prepared root with real typed runtime arguments, carry those
-actual operands through framework adapters and Function/If/Loop scopes, and
-derive names/reports from the same input mapping. Existing NNX/Linen/Equinox
-Dropout adapters must keep live controls, rather than synthesizing inputs by
-name after tracing. Defaults and explicit literals retain their normal meaning.
+The private C4c packet (`4c1c57fe`) now traces one prepared root with real typed
+scalar-BOOL runtime arguments, carries actual operands through framework adapters
+and Function/If/Loop scopes, and derives names/reports from one checked input
+mapping. NNX/Linen/Equinox Dropout consumes these operands. Defaults and explicit
+literals retain their normal meaning. Genuine unused root formals remain ports
+without artificial sinks; their presence alone does not establish liveness.
 
 For fixed sources with direct Python branches, an external `lax.cond` wrapper
 can call the complete unchanged source with concrete True/False values. Earlier
-bounded evidence covers an actual deterministic wrapper under CPU optimization
-off/all; it does not establish arbitrary framework-state or training semantics.
+bounded evidence, now covered by maintained C4c regressions, exercises an actual
+deterministic wrapper under CPU optimization off/all; it does not establish
+arbitrary framework-state or training semantics.
 Static binding is appropriate only for intended fixed configuration.
 
-The first implementation packet may cover scalar BOOLs, but all remaining
+The first implemented packet covers scalar BOOLs privately, but all remaining
 parameter types and all 22 rows stay in the final acceptance inventory. Full
 SOURCE, numerical and stochastic-model acceptance remains open. Whether an
 external preparation facility must also transform hardcoded FP32 calculations
 to FP64 is still awaiting the user's answer; no such API is assumed here.
+
+## C4c diagnostic pass over all 22 rows
+
+Both stacks retain the exact original row contracts, factories and dtypes. The
+bounded pass uses concrete `B=1` for symbolic dimensions and an actual root
+binding for each named flag; SpectralNorm retains its intended static False
+preparation. Full artifact checking succeeds for the three framework Dropout
+rows (Equinox, Linen and NNX). Their named BOOL operands reach live positive-rate
+controls and outputs. Nineteen rows remain pending at explicit first unaudited
+families, including iota, framework dense/linear/normalization/convolution,
+reshape and matmul. No permissive validator converts those gaps into acceptance.
+
+This is **three checked artifacts and 19 pending rows per stack**, with **zero
+ORT executions** in this batch. All lowering, runtime and numerical gates remain
+UNVERIFIED. It is separate from focused deterministic flag samples and from the
+original 44 serialized LEGACY checks. It does not certify symbolic batches,
+random-stream equivalence or full-model numerical behavior. Equinox's original
+missing-key training failure remains a prerequisite, not an inferred source
+success.
+
+The shared optimizer's confirmed Dropout-specific `Not(True)` rewrite can create
+an unowned `false_const`; its separate repair is still pending. The C4c tests
+use builder-owned constants for actual SOURCE literals and retain this independent
+bug as open work. See the
+[option findings](option_and_array_creation_findings.md#real-named-boolean-operands)
+for the implementation and focused evidence.
+
+Maintained regressions cover
+[runtime bindings](../../../tests/extra_tests/converter/test_source_runtime_parameters.py)
+and [framework controls](../../../tests/extra_tests/converter/test_source_dropout_parameters.py).
+The all-22 batch itself remains local diagnostic evidence, not a maintained
+production runner or completed support claim.
 
 ## Evidence location
 
@@ -116,6 +151,9 @@ threads. Local evidence is
 `/tmp/jax2onnx-c4-fixed-source-classification.{md,json}`, supplemented by
 `/tmp/jax2onnx-c4-manual-bool-liveness-{py311,py312}.json` and
 `/tmp/jax2onnx-c4-original-bool-prereqs-{py311,py312}.json`.
-These temporary probe artifacts are not maintained repository commands.
-The [work plan](../precision_implementation_work_plan.md) records implementation
-and final acceptance gates; this classification made no production changes.
+The subsequent batch is recorded in `/tmp/jax2onnx-c4c-all22-findings.md` and
+`/tmp/jax2onnx-c4c-all22-summary.json`, with immutable per-row records in
+`/tmp/jax2onnx-c4c-all22/`. These temporary probe artifacts are not maintained
+repository commands. The [work plan](../precision_implementation_work_plan.md)
+records the committed private implementation and remaining acceptance gates;
+the original baseline classification made no production changes.
