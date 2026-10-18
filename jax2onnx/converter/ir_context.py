@@ -31,6 +31,7 @@ from .ir_builder import IRBuilder
 from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import ConverterContext, SymbolicDimOrigin
+from .precision_policy import PrecisionPolicy
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -179,7 +180,13 @@ class IRContext:
         normalization_mode: str = "auto",
         input_specs: Sequence[Any] | None = None,
         stacktrace_metadata: Optional[bool] = None,
+        precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+        jaxpr_validator: Callable[[Any, int], None] | None = None,
     ):
+        if precision_policy is PrecisionPolicy.SOURCE and enable_double_precision:
+            raise ValueError("Source precision cannot use legacy double promotion")
+        self._precision_policy = precision_policy
+        self._jaxpr_validator = jaxpr_validator
         if stacktrace_metadata is None:
             env_flag = os.getenv(_STACKTRACE_METADATA_ENV)
             if env_flag is None:
@@ -281,6 +288,10 @@ class IRContext:
     def normalization_mode(self) -> str:
         return self._normalization_mode
 
+    @property
+    def precision_policy(self) -> PrecisionPolicy:
+        return self._precision_policy
+
     # ------------------------------- Function registry helpers ------------------
 
     def get_function_registry(self) -> Optional["FunctionRegistry"]:
@@ -312,6 +323,8 @@ class IRContext:
             normalization_mode=self.normalization_mode,
             input_specs=[],
             stacktrace_metadata=self.builder.stacktrace_metadata_enabled,
+            precision_policy=self.precision_policy,
+            jaxpr_validator=self._jaxpr_validator,
         )
         child.record_primitive_calls_file = self.record_primitive_calls_file
         child._lowering_record_owner = self._lowering_record_owner
@@ -782,6 +795,12 @@ class IRContext:
             return self._bind_literal_value_for_var(
                 var, prefer_np_dtype=prefer_np_dtype
             )
+        source_type = None
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            source_dtype = _maybe_dtype(_maybe_aval(var))
+            if source_dtype is None:
+                raise TypeError("Source output aval missing dtype")
+            source_type = ir.TensorType(_dtype_to_ir(source_dtype, False))
         value = self.lookup_value_for_var(var)
         if value is not None:
             if (
@@ -790,11 +809,15 @@ class IRContext:
                 and not value.is_initializer()
                 and value.const_value is None
             ):
+                if source_type is not None:
+                    value.type = source_type
                 return value
             output_name = name_hint or self.fresh_name("v")
             if output_name == value.name:
                 output_name = self.fresh_name(output_name)
-            output = ir.Value(name=output_name, type=value.type, shape=value.shape)
+            output = ir.Value(
+                name=output_name, type=source_type or value.type, shape=value.shape
+            )
             self.bind_value_for_var(var, output)
             return output
 
@@ -805,7 +828,8 @@ class IRContext:
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
         if (
-            not self.builder.enable_double_precision
+            self.precision_policy is PrecisionPolicy.LEGACY
+            and not self.builder.enable_double_precision
             and np.issubdtype(aval_dtype, np.floating)
             and aval_dtype != np.dtype(np.float16)
             and aval_dtype.name != "bfloat16"

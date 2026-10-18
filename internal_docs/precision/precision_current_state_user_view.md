@@ -1,6 +1,8 @@
 # Computation Precision: Current User Experience
 
-Behavior snapshot: 2026-10-17, after the merged double-consumer repair.
+Public behavior snapshot: `main` at `fae17822`, 2026-10-17, after the merged
+double-consumer repair. A newer local branch experiment is identified separately;
+it changes private converter code, while public options and defaults stay the same.
 
 This document explains the precision behavior currently available to JAX model
 exporters. See the [technical details](precision_current_state.md) for evidence
@@ -20,6 +22,12 @@ setting is restored after the call, including when export raises an error.
 Consequently, enabling x64 elsewhere in your application does not replace this
 export argument.
 
+| Existing call | JAX setting during export | Input default when only a shape is supplied |
+| --- | --- | --- |
+| Argument omitted | x64 disabled | FP32 |
+| `enable_double_precision=False` | x64 disabled | FP32 |
+| `enable_double_precision=True` | x64 enabled | FP64 |
+
 The argument also selects the input dtype when you provide only a shape. For
 example, `to_onnx(fn, [(4,)])` uses a float32 input, while
 `to_onnx(fn, [(4,)], enable_double_precision=True)` uses a float64 input. If the
@@ -31,6 +39,45 @@ float64. Explicit conversions, selected array constructors, and some operations
 retain lower precision. Float16 and bfloat16 also have their own supported
 cases. The argument therefore does not currently offer one uniform rule for
 models that intentionally mix floating types.
+
+An explicit FP64 input does not override the disabled x64 setting on the old
+omitted/false route. In the tested case, JAX truncates an FP64 input
+specification: JAX 0.10.2 does so silently, while JAX 0.11.2 warns. A requested
+FP64 cast inside model code warns and becomes FP32 on both tested stacks.
+Configure the JAX reference consistently when comparing with such exports.
+
+Scalar inputs can also carry JAX's `weak_type` property, which affects how their
+type combines with another operand. For example, `jnp.asarray(2048.0)` creates
+such a scalar. Public legacy input preparation loses that property. Matching
+shape and dtype alone therefore may not reproduce the intended JAX promotion.
+The private source experiment now preserves it: in the
+[tested addition](poc/migration_ux_findings.md#weak-input-properties-preserved-on-the-source-path),
+a weak scalar plus explicitly FP16 `1` returns FP16 `2048`, while a strong
+input with the same shape and dtype returns FP32 or FP64 `2049`. Both source
+routes have regression coverage on both supported JAX stacks. That correction
+does not alter public legacy normalization.
+
+The [local integration](poc/source_integration_findings.md) also preserves
+selected mixed-type calculations through real named functions and two-branch
+conditionals, including constants and both runtime branch choices. Its private
+function variant handles mixed and structured results and distinguishes weak
+and strong input signatures. It also retains local JAX x64 and matrix-precision
+settings across a named function. Sequential source and legacy exports now
+have regression checks around cached conditionals and ordinary JAX execution.
+These selected serialized CPU cases are evidence for a future supported subset.
+The local follow-up also preserves weak typing in stored model parameters and
+nested configuration values when reusing a named function. Optional exporter
+optimizations now respect the selected source calculation too. These repairs
+have separate regression coverage; they do not certify runtime precision.
+No public source option is available; loops, JIT regions, broader operations,
+and deployment validation remain open.
+
+A further FP32 reciprocal example agrees with JAX under the tested ORT sessions
+with optimization off, but differs when optimization is on. A captured FP16
+addition also loses its intended intermediate rounding in both profiles.
+The [follow-up findings](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
+record the exact cases. Disabling runtime optimization is therefore not a
+general precision remedy.
 
 ## Explicit Conversions Can Depend on the Input Type
 
@@ -84,6 +131,31 @@ arithmetic. Some normalization calculations deliberately use a wider
 accumulator while returning the original output dtype. Such choices can improve
 accuracy on tested inputs without promising identical results across JAX and
 ONNX runtimes.
+
+The [numerical experiment](poc/numerical_contract_findings.md) makes three
+different situations visible:
+
+| Example | Observed behavior | Meaning for an export user |
+| --- | --- | --- |
+| FP16 matrix operands with a requested FP32 result | JAX returns FP32 `2049`; public legacy export returns FP16 `2048`. The private source path now returns FP32 `2049` for the tested matrix cases. | A bounded private repair exists; it has no public export switch and makes no general matrix-algorithm or performance promise. |
+| FP16 square followed by a sum | JAX rounds the squares to zero and sums to zero. The tested ONNX Runtime CPU sessions expose zero squares but return a nonzero sum. | Matching input/output types and successful execution do not establish required intermediate rounding. |
+| FP32 normalization with a selected FP64 variance sum | The private source path now exports the complete tested calculation, including inside a named function or conditional. | The selected wider sum retains the small contributions in these samples; broader normalization support remains to be established. |
+
+The matrix comparison distinguishes the public exporter from the private
+experiment. The square/sum case uses the private path and does not establish
+the behavior of every public FP16 export. Normalization now has complete source
+exports as well as the original separately constructed feasibility control.
+All are bounded CPU observations on the versions recorded in the findings.
+
+A private sample check now records the CPU execution settings and distinguishes
+an acceptable result, a numerical mismatch, and an untested sample. It refuses
+to mark the known square/sum failure as accepted. Exporting the file still
+succeeds; the check does not repair that runtime result or certify other inputs.
+
+The tested square/sum example can pass after explicitly changing its model
+arithmetic. That change remains a candidate requiring its own validation; it
+is not an automatic repair available from an export switch. Execution cost
+and applicability to other inputs still need assessment.
 
 Check the exported model on the runtime and execution provider you will deploy.
 Small direct ONNX models tested with ONNX 1.23.2 and ONNX Runtime 1.31.0 CPU

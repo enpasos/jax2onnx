@@ -1,36 +1,49 @@
-# Precision Contract Experiment
+# Precision Contract Experiments
 
-Status: internal integration proof of concept, based on `main` at `fae17822`
-(2026-10-17). This is a runnable discussion aid for the
-[target design](../precision_target_state.md), with a deliberately small scope.
-The public exporter and its legacy precision behavior are unchanged.
+Status: bounded private integration, 2026-10-18, beyond `main` at `fae17822`.
+The converter carries SOURCE policy through selected real lowerings and scopes.
+Public options and legacy defaults retain their meanings; no public source mode
+is available. These experiments inform the
+[target design](../precision_target_state.md) and
+[migration plan](../precision_migration_plan.md).
+
+| Experiment | Question | Evidence |
+| --- | --- | --- |
+| [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
+| [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
+| [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
 
 ## Run it
 
-From the repository root, using the project's installed Poetry environment:
+From the repository root in the installed Poetry environment:
 
 ```sh
 JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   poetry run python -m internal_docs.precision.poc.demo
 
 JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-  poetry run pytest -q internal_docs/precision/poc/test_source_export.py
+  poetry run python -m internal_docs.precision.poc.numerical_contract
+
+JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  poetry run python -m internal_docs.precision.poc.migration_ux
+
+JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  poetry run pytest -q tests/extra_tests/converter/test_source_*.py \
+    internal_docs/precision/poc
 ```
 
-The demo prints the environment, graph operator/result types, actual results,
-and expected failures. It checks its examples against JAX and writes no model
-files. The tests also cover constants, shared values, configuration isolation,
-and the experiment's rejection boundaries. These internal tests are invoked
-explicitly; the default repository suite collects `tests/`.
+The demos keep models in memory. Source and UX implementations now live in
+[private test support](../../../tests/extra_tests/converter/precision_test_support.py)
+and [UX test support](../../../tests/extra_tests/converter/precision_ux_support.py);
+the old module paths remain runnable compatibility entry points. The durable
+source regressions live in `tests/extra_tests/converter` and run in normal CI.
+Supplemental experiments in this folder still need an explicit test invocation.
+See [recorded validation](source_integration_findings.md#recorded-validation)
+for suite counts, versions and actual results.
 
-## The question it answers
+## Observable source behavior
 
-Can the existing lowering pipeline preserve the dtypes JAX actually traced,
-including mixed FP64/FP32 and FP16/FP32 computation, when legacy promotion is
-removed from the selected path?
-
-For the cases below, yes. The experiment also shows why this is a numerical
-contract decision rather than merely changing ONNX type labels.
+For exact FP32 work after FP64 input `1e8`:
 
 ```python
 def exact_region(x):
@@ -38,126 +51,77 @@ def exact_region(x):
     return (y + 1) - y
 ```
 
-With FP64 input `100_000_000`, JAX performs the arithmetic in FP32 and returns
-`0`. The merged legacy double export preserves the initial FP32 conversion,
-widens subsequent arithmetic, and returns `1` in FP64. The experiment returns
-`0` in FP32, matching JAX for this case. The lower result is the intended
-consequence of preserving that model's arithmetic, not a request to maximize
-accuracy by choosing a different calculation.
+JAX and the source experiment return FP32 `0`. Legacy double export preserves
+the initial conversion but widens subsequent arithmetic and returns FP64 `1`.
+The source contract preserves that model's chosen computation. To choose a
+local minimum instead, model code can use `jnp.promote_types(x.dtype, jnp.float32)`;
+typed export inputs instantiate that rule.
 
-To request a local minimum instead, the model can choose
-`jnp.promote_types(x.dtype, jnp.float32)`. The same expression then keeps FP64
-for FP64 input, while selecting FP32 for FP16 input. The export call supplies
-typed input specifications; the rule itself belongs to JAX code.
+| Model choice | Current experimental evidence |
+| --- | --- |
+| Mixed FP64 calculation and shared rounded FP32 value | Direct mixed outputs, arithmetic and same-width bitcast retain the intended types and selected values. |
+| FP16 work with selected FP32 arithmetic and cast-back | Chosen input, intermediate and output boundaries are retained on the tested samples. |
+| Weak scalar plus explicitly FP16 one | Weak input `2048` returns FP16 `2048`; the strong input with the same shape/dtype returns FP32/FP64 `2049`. |
+| Local x64 or matrix-precision setting around a named function | Captured settings survive body retracing and distinguish specialization. Cached source traces cannot leak into ordinary/legacy calls. |
+| FP16 matrix inputs with preferred FP32 result | Bounded default-precision matrix lowering preserves FP16 inputs and returns FP32 `2049`. |
+| FP32 squares followed by selected FP64 variance work | Actual source exports preserve exact variance `8388609` inline, in a Function and in both conditional branches. |
+| FP16 square then sum | The graph is valid and executes, but the tested ORT targets miss the required rounding. Sample acceptance rejects it. |
 
-## Observed examples
+The [review findings](source_integration_findings.md#review-findings) explain
+three repaired defects: lost local tracing context, cached branch leakage
+between policies, and legacy algebraic fusion changing source arithmetic.
+Source now retains separate operations where those fusions lacked numerical
+justification. The known FP16 runtime failure persists without converter fusion.
 
-The demo was run on Python 3.12.9, JAX 0.11.2, ONNX 1.23.2, ONNX IR 1.0.0, and
-ONNX Runtime 1.31.0. Execution used `CPUExecutionProvider`, one thread, and
-`ORT_DISABLE_ALL`. JAX x64 was enabled by the demo before tracing; the exporter
-does not change it. All successful demo samples passed the full ONNX checker
-and matched the JAX reference's result types and values.
+The [follow-up review](source_integration_findings.md#follow-up-review-on-2026-10-18)
+closed two additional gaps: the shared optimizer now honors SOURCE eligibility,
+and function specialization includes weak metadata in captured state and static
+arguments. Both fixes have regular-suite regression coverage on both stacks.
+The new exact FP32 reciprocal sample still differs under ORT optimization;
+that profile fails its exact sample acceptance even with the correct source
+graph. See the recorded numerical evidence before choosing a runtime profile.
 
-All 26 focused tests also passed on both repository-supported JAX stacks:
+## Scope and limitations
 
-| Python | JAX / JAXLIB | ONNX | ONNX Runtime | Result |
-| --- | --- | --- | --- | --- |
-| 3.12.9 | 0.11.2 | 1.23.2 | 1.31.0 | 26 passed |
-| 3.11.12 | 0.10.2 | 1.22.0 | 1.29.0 | 26 passed |
+The private harness uses the actual tracing, IR context, plugins, optimizer,
+post-processing and serialization. It checks static floating inputs and a small
+primitive set at opsets 23/26, including selected Function/If cases. It rejects
+loops, scan, JIT regions, effects, symbolic shapes and unaudited operations.
+Bodies are validated recursively. Same-width BitCast requires explicit opset26;
+different-width bitcasts need a different representation and are rejected.
+No opset is raised automatically. These are experiment limits, not universal
+ONNX support classifications.
 
-Both used ONNX IR 1.0.0. This includes expected rejection tests and BF16
-structural tests; it does not mean 26 different runtime capabilities were
-established.
+Matrix support is limited to positive static rank-2/rank-3 standard matrix axes,
+FP16 operands, an explicitly preferred FP32 result and default precision.
+Explicit algorithms and other combinations are rejected. The wider computation
+has no measured latency/memory advantage and does not promise a native
+low-precision hardware algorithm. Numerical coverage is for selected samples.
 
-The unchanged public-export regression suite also passed on the Python 3.12
-stack: **4460 passed**, using CPU execution and four pytest workers. The
-repository's lint, formatting, typing, builder-policy checks, and strict MkDocs
-build passed. Internal Markdown links were checked separately because this
-folder is not part of the published documentation build.
+BF16 structural validity does not establish runtime kernels. Function coverage
+does not establish all nested combinations or every JAX setting. Names/layouts,
+parameter materialization, other return modes and concurrent export remain
+outside the harness. The normal public pipeline still uses its legacy policy.
+The [next implementation work](../precision_migration_plan.md#next-implementation-work)
+addresses a finite initial subset and shared export-boundary integration.
 
-| Model choice | Experimental result | What it makes visible |
-| --- | --- | --- |
-| Exact FP32 arithmetic after FP64 input `1e8` | `0`, FP32; legacy double export gives `1`, FP64 | The source rounding and arithmetic boundaries matter. |
-| Minimum FP32 arithmetic after FP64 input `1e8` | `1`, FP64 | JAX code can deliberately retain higher precision. |
-| The same minimum rule after FP16 input `2048` | `1`, FP32 | Typed inputs instantiate the model's rule. |
-| FP64 arithmetic plus a shared FP32 cast and its negation | FP64, FP32, FP32 outputs | Higher and lower precision coexist; one consumer does not rewrite another. |
-| FP16 input `[2048, 1]`, selected FP32 addition, cast back | `[2048, 2]` FP16; `[2049, 2]` FP32; `[2048, 2]` FP16 | Model code chooses where extra precision and subsequent rounding occur. |
-| FP32 values `[1e8, 1, -1e8]` explicitly converted for an FP64 reduction, then returned as FP32 | `1`, FP32, with DOUBLE ReduceSum | A wider intermediate calculation can have a lower-precision interface. |
-| Shared FP32 value used directly, negated, and bitcast to UINT32 | All three agree with JAX at opset 26, including signed-zero bits | Representation-sensitive uses retain the original FP32 binding. |
+## Numerical acceptance is a separate result
 
-Exact equality on these chosen samples is a regression criterion, not a
-cross-runtime bitwise-equality promise. The reduction example does not establish
-all reduction orders or accumulator implementations. FP16 graph types and these
-results do not prove native FP16 hardware execution or a speed advantage.
+The numerical demo reports actual source exports separately from changed-source
+candidates and independent hand-built graphs. A candidate passing one example
+is not an automatic exporter repair. In particular, wider arithmetic with an
+explicit FP16 intermediate cast passes the square/sum sample, while the original
+composition fails on both recorded CPU runtimes and both optimization settings.
 
-## Where it stops
+The [private CPU sample gate](../../../tests/extra_tests/converter/precision_runtime_support.py)
+checks a supplied artifact, input/reference sample and execution profile.
+`require_sample_acceptance` rejects failed and unverified results. The demo
+shows this rejection for the original FP16 sample. Kernel execution failure is
+distinct from numerical failure. An accepted sample does not certify all inputs
+or every composition of allowed primitives.
 
-The experiment distinguishes an ONNX representation limit from a limit of its
-own implementation:
-
-- A same-width FP32-to-UINT32 bitcast is rejected at opset 23 with a diagnostic
-  naming the equation, types, and required opset. An explicit selection of
-  opset 26 succeeds on the tested CPU runtime. The experiment never raises the
-  opset automatically. See the official
-  [BitCast schema](https://onnx.ai/onnx/operators/onnx__BitCast.html).
-- A different-width bitcast needs another representation; this experiment
-  rejects it rather than inserting a numeric cast.
-- An explicit FP64 input specification with JAX x64 disabled fails before
-  tracing. Already-truncated arrays cannot reveal a former FP64 intention.
-- Functions, control flow, JIT call regions, symbolic shapes, effects, and
-  operations outside the small allowlist raise `PrototypeLimit`. That says
-  nothing about whether ONNX or a runtime could support them.
-
-The allowlist is `add`, `sub`, `mul`, `neg`, `convert_element_type`, `reduce_sum`,
-and `bitcast_convert_type`, at opsets 23 or 26. Inputs must be explicitly typed
-static floating tensors; UINT32 is included for bitcast results. BF16 has
-structural test coverage only: BF16 runtime execution and numerical acceptance
-remain unverified here. This list is an exploration boundary, not a product
-support matrix for every composition, shape, or attribute combination.
-
-The harness establishes schema validity and checks selected semantic examples.
-The demo and tests establish CPU execution and numerical agreement only for
-their recorded cases. It has no runtime capability database, deployment target
-API, automatic fallback selection, latency benchmark, or memory benchmark.
-A failed CPU kernel load would be a runtime failure; passing the ONNX checker
-alone would not establish deployability.
-
-## How it connects to the implementation
-
-[source_export.py](source_export.py) uses the actual internal tracing helper,
-existing primitive plugins and dispatch ownership checks, IR optimizer,
-post-processing, and ONNX serialization. It does not construct hand-written
-expected graphs or replace module functions to make a test pass.
-
-A local `IRContext` subclass changes the type of a writable output placeholder
-to its traced dtype. It first uses the existing allocator to preserve ownership
-rules. Typed inputs and constants use the existing non-promoting bindings;
-graph outputs refer to produced values. Post-processing runs with constant
-promotion disabled. The selected plugin paths receive the legacy flag `False`
-only to suppress promotion; this is not a general implementation of the target
-contract through that Boolean.
-
-The public entry point is bypassed because it also overrides JAX x64. The
-experiment requires typed inputs and leaves the caller's tracing configuration
-in place. It also bypasses public input normalization, names/layout options,
-parameter materialization, and file-return handling. Those surfaces still need
-integration work. Concurrent export and arbitrary tracing side effects have
-not been validated by this experiment.
-
-Child contexts currently construct the production `IRContext` directly; they
-would not inherit this subclass's allocation rule. Functions and control flow
-are therefore rejected before lowering. A production path needs an explicit
-internal policy threaded through all scopes, constants, and finalization, with
-an audit of plugins that consult the existing Boolean directly.
-
-## Recommended next step
-
-Use these examples to agree on observable behavior, especially the `0` versus
-`1` result and mixed output types. Then replace the local subclass with a
-private, explicit conversion policy and validate it first through one nested
-function and one control-flow boundary. Retain legacy regressions beside it.
-Only widen the supported subset after its source semantics, schema validity,
-and claimed runtime behavior have evidence.
-
-The experiment begins [migration Stage 3](../precision_migration_plan.md#stage-3-build-an-internal-path-that-preserves-source-dtypes);
-it does not complete that stage or determine the eventual public argument name.
+The calling experiment uses `precision="source"` only as a private spelling.
+Its supplied/normalized/traced properties, actual warnings and legacy comparison
+remain useful before any public interface is finalized. Neither it nor the
+CPU sample gate is a general deployment capability engine. Public availability
+requires the bounded acceptance gates in the migration plan.

@@ -38,6 +38,7 @@ from .optimizer_graph_utils import (
     _v_name,
 )
 from .conv_transpose_bias_folding import fold_conv_transpose_constant_bias
+from .precision_policy import PrecisionPolicy
 
 # ---------------- Config ----------------
 
@@ -139,6 +140,7 @@ _has_input_name_or_obj: Callable[
 @dataclass(frozen=True)
 class _OptimizerPass:
     name: str
+    precision_policies: frozenset[PrecisionPolicy]
     model_runner: ModelOptimizer | None = None
     graph_runner: GraphOptimizer | None = None
     function_graph_runner: GraphOptimizer | None = None
@@ -2567,8 +2569,15 @@ def _run_lift_constants_to_initializers_pass(model: ir.Model) -> None:
     common_passes.LiftConstantsToInitializersPass(size_limit=0)(model)
 
 
-def _model_pass(name: str, runner: ModelOptimizer) -> _OptimizerPass:
-    return _OptimizerPass(name=name, model_runner=runner)
+def _model_pass(
+    name: str,
+    runner: ModelOptimizer,
+    *,
+    precision_policies: frozenset[PrecisionPolicy],
+) -> _OptimizerPass:
+    return _OptimizerPass(
+        name=name, model_runner=runner, precision_policies=precision_policies
+    )
 
 
 def _graph_pass(
@@ -2576,53 +2585,123 @@ def _graph_pass(
     runner: GraphOptimizer,
     *,
     function_bodies: bool = True,
+    precision_policies: frozenset[PrecisionPolicy],
 ) -> _OptimizerPass:
     return _OptimizerPass(
         name=name,
         graph_runner=runner,
         function_graph_runner=runner if function_bodies else None,
+        precision_policies=precision_policies,
     )
 
 
+# These passes change arithmetic boundaries or floating reduction order. They
+# remain available to LEGACY exports; SOURCE needs a separate numerical audit
+# before opting into them, even when a legacy environment flag requests one.
+_LEGACY_PRECISION_ONLY: frozenset[PrecisionPolicy] = frozenset({PrecisionPolicy.LEGACY})
+# Eligibility preserves structural cleanup for the bounded SOURCE experiment;
+# it does not certify every backend kernel or every possible input domain.
+_STRUCTURAL_PRECISION_POLICIES: frozenset[PrecisionPolicy] = frozenset(
+    {PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE}
+)
+
+
 _OPTIMIZER_PASSES: tuple[_OptimizerPass, ...] = (
-    _model_pass("name_fix", _run_name_fix_pass),
-    _graph_pass("remove_redundant_casts", remove_redundant_casts_ir),
+    _model_pass(
+        "name_fix",
+        _run_name_fix_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_redundant_casts",
+        remove_redundant_casts_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _graph_pass(
         "remove_redundant_transpose_reduce",
         remove_redundant_transpose_reduce_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
     ),
     _graph_pass(
         "remove_redundant_transpose_add_forests",
         remove_redundant_transpose_add_forests_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
     _graph_pass(
-        "remove_redundant_transpose_pairs", remove_redundant_transpose_pairs_ir
+        "remove_redundant_transpose_pairs",
+        remove_redundant_transpose_pairs_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("remove_redundant_reshape_pairs", remove_redundant_reshape_pairs_ir),
-    _graph_pass("remove_identity_reshapes", remove_identity_reshapes_ir),
+    _graph_pass(
+        "remove_redundant_reshape_pairs",
+        remove_redundant_reshape_pairs_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_identity_reshapes",
+        remove_identity_reshapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _model_pass(
         "common_subexpression_elimination",
         _run_common_subexpression_elimination_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
     _model_pass(
-        "lift_constants_to_initializers", _run_lift_constants_to_initializers_pass
+        "lift_constants_to_initializers",
+        _run_lift_constants_to_initializers_pass,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("fold_conv_transpose_constant_bias", fold_conv_transpose_constant_bias),
-    _graph_pass("rewrite_mul_sigmoid_as_swish", rewrite_mul_sigmoid_as_swish_ir),
-    _graph_pass("rewrite_mul_rsqrt_as_div", rewrite_mul_rsqrt_as_div_ir),
+    _graph_pass(
+        "fold_conv_transpose_constant_bias",
+        fold_conv_transpose_constant_bias,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
+    _graph_pass(
+        "rewrite_mul_sigmoid_as_swish",
+        rewrite_mul_sigmoid_as_swish_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
+    _graph_pass(
+        "rewrite_mul_rsqrt_as_div",
+        rewrite_mul_rsqrt_as_div_ir,
+        precision_policies=_LEGACY_PRECISION_ONLY,
+    ),
     _graph_pass(
         "inline_dropout_training_mode_constants",
         inline_dropout_training_mode_constants_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
-    _graph_pass("propagate_elementwise_shapes", propagate_elementwise_shapes_ir),
-    _graph_pass("propagate_unary_shapes", propagate_unary_shapes_ir),
-    _graph_pass("remove_redundant_casts_after_propagation", remove_redundant_casts_ir),
-    _model_pass("remove_dead_nodes", remove_dead_nodes_ir),
-    _graph_pass("remove_orphan_transposes", remove_orphan_transposes_ir),
+    _graph_pass(
+        "propagate_elementwise_shapes",
+        propagate_elementwise_shapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "propagate_unary_shapes",
+        propagate_unary_shapes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_redundant_casts_after_propagation",
+        remove_redundant_casts_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _model_pass(
+        "remove_dead_nodes",
+        remove_dead_nodes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
+    _graph_pass(
+        "remove_orphan_transposes",
+        remove_orphan_transposes_ir,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
+    ),
     _graph_pass(
         "prune_unused_graph_inputs",
         prune_unused_graph_inputs_ir,
         function_bodies=False,
+        precision_policies=_STRUCTURAL_PRECISION_POLICIES,
     ),
 )
 
@@ -2644,9 +2723,18 @@ def _run_function_optimizer_pass(opt_pass: _OptimizerPass, graph: ir.Graph) -> N
     opt_pass.function_graph_runner(graph)
 
 
-def optimize_graph(ir_model: ir.Model) -> ir.Model:
+def optimize_graph(
+    ir_model: ir.Model,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+) -> ir.Model:
     _dbg("optimize_graph invoked")
-    for opt_pass in _OPTIMIZER_PASSES:
+    passes = tuple(
+        opt_pass
+        for opt_pass in _OPTIMIZER_PASSES
+        if precision_policy in opt_pass.precision_policies
+    )
+    for opt_pass in passes:
         _run_top_level_optimizer_pass(opt_pass, ir_model)
 
     # The passes are destructive; might as well raise exceptions if they occur.
@@ -2657,7 +2745,7 @@ def optimize_graph(ir_model: ir.Model) -> ir.Model:
         if graph_obj is None:
             continue
         fgr = cast(ir.Graph, graph_obj)
-        for opt_pass in _OPTIMIZER_PASSES:
+        for opt_pass in passes:
             _run_function_optimizer_pass(opt_pass, fgr)
 
     return ir_model

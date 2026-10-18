@@ -10,7 +10,11 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    NativeLoweringContext,
+)
 from jax2onnx.plugins._complex_utils import (
     COMPLEX_DTYPES,
     cast_real_tensor,
@@ -198,11 +202,15 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.dot_general`` via MatMul/Gemm fast-path or Einsum fallback."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source(ctx, eqn)
+            return
+
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 
         params = getattr(eqn, "params", {})
-        ((lhs_contract, rhs_contract), (lhs_batch, rhs_batch)) = params[
+        (lhs_contract, rhs_contract), (lhs_batch, rhs_batch) = params[
             "dimension_numbers"
         ]
 
@@ -271,6 +279,83 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             lhs_batch,
             rhs_batch,
         )
+
+    def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> None:
+        """Bounded FP16 matrix operands with a preferred FP32 result.
+
+        JAX's preferred element type specifies the result and hints at the
+        accumulator; an explicit precision algorithm is a separate contract.
+        Finite FP16 operands and their products are exactly representable in
+        FP32. Widening operands before MatMul therefore retains those values
+        without introducing an FP16 product/result rounding. Reduction order,
+        runtime arithmetic, and cost still require target-specific validation.
+        No native low-precision hardware algorithm is promised by this lowering.
+        """
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
+        params = eqn.params
+        precision = params.get("precision")
+        default_pair = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
+        if precision is not None and precision != default_pair:
+            raise NotImplementedError(
+                "SOURCE dot_general: precision "
+                f"{precision!r} is outside the audited private subset; "
+                "only default precision without an explicit algorithm is covered"
+            )
+
+        dtypes = tuple(np.dtype(var.aval.dtype) for var in (*eqn.invars, out_var))
+        preferred = params.get("preferred_element_type")
+        if (
+            dtypes != (np.dtype(np.float16), np.dtype(np.float16), np.dtype(np.float32))
+            or preferred is None
+            or np.dtype(preferred) != np.dtype(np.float32)
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: operand/result types "
+                f"{dtypes} and preferred_element_type={preferred} are outside "
+                "the audited private subset; FP16 operands with an explicitly "
+                "preferred FP32 result are covered"
+            )
+
+        lhs_shape = tuple(lhs_var.aval.shape)
+        rhs_shape = tuple(rhs_var.aval.shape)
+        rank = len(lhs_shape)
+        batch = tuple(range(rank - 2))
+        expected_dimensions = (((rank - 1,), (rank - 2,)), (batch, batch))
+        dimensions = params["dimension_numbers"]
+        if (
+            rank not in (2, 3)
+            or len(rhs_shape) != rank
+            or dimensions != expected_dimensions
+            or any(
+                not isinstance(dim, (int, np.integer)) or dim <= 0
+                for dim in (*lhs_shape, *rhs_shape)
+            )
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: shapes "
+                f"{lhs_shape}, {rhs_shape} with dimension_numbers={dimensions} "
+                "are outside the audited private subset; positive static "
+                "rank-2 matrices or rank-3 matrices with batch axis 0 and "
+                "contracting axes (-1, -2) are covered"
+            )
+
+        def widen_operand(var: Any, name: str) -> ir.Value:
+            source = ctx.require_value_for_var(var)
+            output = ir.Value(
+                name=ctx.fresh_name(name),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=source.shape,
+            )
+            return ctx.builder.op(
+                "Cast", [source], {"to": int(ir.DataType.FLOAT)}, output=output
+            )
+
+        lhs = widen_operand(lhs_var, "dot_lhs_float32")
+        rhs = widen_operand(rhs_var, "dot_rhs_float32")
+        output = ctx.allocate_value_for_var(out_var, name_hint="dot_float32")
+        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
+        ctx.bind_value_for_var(out_var, result)
 
     def _maybe_lower_complex(
         self,

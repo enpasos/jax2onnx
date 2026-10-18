@@ -1,6 +1,7 @@
 # Computation Precision Target State
 
-Status: proposed design, 2026-10-17. No public interface is specified here.
+Status: proposed semantic contract, 2026-10-18. The public selection and release
+of this behavior are not specified here.
 
 For model preparation and expected export behavior, read the
 [user view](precision_target_state_user_view.md). All companion documents are
@@ -21,8 +22,14 @@ JAX preparation, the export call, and the execution session have distinct roles:
 | Configuration place | Choices | Effect |
 | --- | --- | --- |
 | JAX model and caller configuration | Stored parameter types; operation, accumulation, and output dtypes; explicit conversions; `jax_enable_x64` before array creation and tracing. | Defines the typed computation that JAX traces and the numerical boundaries export must preserve. |
-| ONNX export call | Callable; input shapes and dtypes; ONNX opset; options selecting a semantics-preserving implementation. | Supplies tracing inputs, defines the ONNX input interface, and selects a supported representation of the computation. |
+| ONNX export call | Callable; input shapes, dtypes, and precision-relevant tracing properties; ONNX opset; options selecting a semantics-preserving implementation. | Supplies tracing inputs, defines the ONNX input interface, and selects a supported representation of the computation. |
 | Runtime session and deployment configuration | Runtime version, execution provider, hardware, math modes, and optimization settings. | Determines how the exported operators execute and which numerical and performance properties require validation. |
+
+This contract accommodates entirely FP16 or BF16 computation, selected wider
+regions in a low-precision model, and scientific computation requiring FP64.
+Computation, accumulation, and output precision can differ within one
+operation. A default for unspecified input types does not impose a computation
+precision on the model.
 
 Input dtypes supplied to the export call cross the JAX/ONNX boundary: they
 determine the arguments used for JAX tracing and the exported input signature.
@@ -53,9 +60,12 @@ which deployment checks remain unverified:
 | Numerical acceptance | Representative and difficult inputs satisfy the documented criteria on that execution target. |
 
 Support evidence is scoped to that combination. Record each check as validated,
-known unsupported, or not validated; passing one check does not imply the others.
-Include relevant shape and attribute restrictions. A successful example does
-not establish support for every shape or dtype of the same operation.
+failed, or unverified, with the reason and its evidence. A failure can mean an
+unavailable representation or kernel, an incorrect lowering, or unacceptable
+numerical behavior. These are different causes; none alone establishes that
+ONNX cannot support the source operation. Passing one check does not imply
+the others. Include relevant shape and attribute restrictions; a successful
+sample does not establish support for every composition of those operators.
 
 An export without a declared runtime may establish ONNX validity and the
 documented lowering contract, but must leave runtime compatibility and numerical
@@ -64,6 +74,13 @@ incompatibilities must select a supported implementation or fail. Unknown
 compatibility must remain visible; a deployment-readiness claim requires the
 missing execution and numerical validation. Export need not benchmark every
 model or invent support information for unavailable hardware.
+
+A known numerical failure on a declared target is a failed gate even when the
+model passes the checker and executes. Select a validated alternative or
+report the target as failing the contract. Do not mark an observed failure as
+merely unverified, and do not report a successful export satisfying that target
+without resolving the failure. ONNX validity remains a separate observation;
+it does not certify the failed target.
 
 ONNX representation and runtime support can differ. ONNX permits DOUBLE for
 [Conv](https://onnx.ai/onnx/operators/onnx__Conv.html), while a particular runtime
@@ -88,14 +105,38 @@ for unspecified types. Explicit model dtypes continue to govern the
 computation; enabling x64 does not convert every FP32 operation to FP64. See
 [Default dtypes and the X64 flag](https://docs.jax.dev/en/latest/101/default_dtypes.html).
 
-Export uses the caller's effective JAX configuration. The JAX reference used
-for numerical validation must use that same configuration and input dtypes.
+Export starts with the caller's effective JAX configuration and preserves
+scoped configuration choices made by the model. The JAX reference used for
+numerical validation must use the same configuration at each call boundary,
+input dtypes, and precision-relevant tracing properties.
+
+Input normalization preserves JAX properties that affect precision choices,
+including `weak_type` on arrays and `ShapeDtypeStruct`. Two inputs with the same
+shape and dtype can lead to different promotion and output types when one is
+weakly typed. Preserve this property through every normalization step before
+tracing; if a supported path cannot do so, reject that input with an actionable
+error before invoking the model. Reconstructing an input from shape and dtype
+alone must not silently change its promotion behavior.
+
+`weak_type` is a JAX tracing property, not an additional ONNX tensor dtype.
+The resulting ONNX graph preserves the concrete types, operations, and
+conversions selected by JAX with the original input properties. Export
+diagnostics distinguish the supplied and effective tracing properties when
+they affect those choices; matching the boundary dtypes alone cannot validate
+input normalization.
 
 Explicit input specifications retain their requested dtypes. If an explicit
 FP64 input request would be truncated because x64 is disabled, export fails with
 an actionable error before tracing instead of silently changing that request.
 Arrays already created with reduced precision cannot be reconstructed from an
 earlier, higher-precision intention.
+
+Model-internal dtype requests are subject to JAX tracing as well. If JAX warns
+that an FP64 conversion was truncated with x64 disabled, surface that warning
+with the tracing diagnostics. Preserving the resulting FP32 graph does not
+establish that the original FP64 request was fulfilled. The caller must correct
+the JAX configuration and trace again when FP64 was intended; export cannot
+recover that intention from the typed graph alone.
 
 Shape-only input specifications use a documented FP32 default. Explicitly typed
 specifications select the requested supported types, including FP16, BF16, FP32,
@@ -104,15 +145,23 @@ untyped constant inside the model under its active configuration.
 
 Any deliberately scoped tracing override must restore the previous
 configuration on success, failure, and nested export. Function bodies and
-control-flow subgraphs must use the same effective tracing contract. Export
-must not introduce a new precision choice merely because a body is retraced.
+control-flow subgraphs retain the effective configuration of their original
+call, including a local override surrounding that call. If lowering traces a
+body again after that scope has ended, it must reproduce the original tracing
+contract. Function specialization and reuse must distinguish any such choices
+that change the body, even when input and output dtypes stay the same.
+If a configuration cannot be preserved, reject the affected case explicitly.
+Export must not introduce a new precision choice merely because a body is
+retraced under a different ambient configuration.
 
 ## The traced graph defines the type contract
 
-For a directly representable tensor, a JAX value's traced dtype determines the
-dtype of its canonical ONNX value. Explicit conversions determine where that
-dtype changes. Operations after a conversion use the types recorded in the
-traced graph.
+The source contract includes the typed JAX graph, explicit conversions, and
+precision-relevant primitive parameters. For a directly representable tensor,
+a JAX value's traced dtype determines the dtype of its canonical ONNX value.
+Operations after a conversion follow the traced types and operation
+requirements. Copying only input/output dtypes is insufficient when the
+primitive separately requests an accumulation type or matrix algorithm.
 
 For example:
 
@@ -223,6 +272,13 @@ requested. Reuse must respect graph ownership and lexical scope.
 | Numeric cast | Preserve the requested target type and its conversion semantics. |
 | Bitcast | Preserve input and output bit representations and the corresponding shape relationship. |
 | Wider accumulator | Use separate intermediate values and return to the specified result type at the documented boundary. |
+| Matrix product | Preserve operand types, requested result type, and accumulation/algorithm requirements separately. A result type cannot substitute for an algorithm contract. |
+
+Each implementation records which requirements are directly representable,
+which use a validated decomposition, and which cannot be met. Widening both
+operands before multiplication may be a candidate standard representation, but
+does not establish the same low-precision hardware algorithm or execution cost.
+Casting only the result cannot restore precision lost in earlier arithmetic.
 
 Bitcasts deserve particular care: widening a numeric value can preserve its
 number while changing all of its bits and its word size. An arithmetic
@@ -231,8 +287,8 @@ promotion rule is therefore not a valid bitcast rule. See
 
 ## Handling an unsupported operation
 
-Apply the following rules whenever a candidate implementation fails a required
-feasibility check:
+Apply the following rules whenever a candidate implementation fails any required
+check, including numerical acceptance on a declared target:
 
 1. Select an available, validated standard ONNX implementation that preserves
    the contract. This can be a native operator, a decomposition into supported
@@ -255,7 +311,14 @@ feasibility check:
    actionable diagnostic. Identify the model or graph location, operation,
    requested types, opset, applicable runtime target, failed requirement, and
    known alternatives. Do not return a known invalid model as a successful
-   export or leave an unsupported node as an implicit runtime experiment.
+   export or certify a numerically failing implementation for its declared target.
+
+Diagnostics identify the phase as well as the failed requirement: option or
+input validation, JAX tracing, ONNX representation/lowering, runtime execution,
+or numerical acceptance. Trace warnings are preserved alongside the observed
+types. A prototype exclusion is identified as such, without being classified
+as an ONNX limitation. Unknown runtime support remains unverified; deployment
+readiness requires the missing evidence.
 
 These rules define a bounded implementation repertoire, not a requirement to
 invent an arbitrary emulation for every JAX operation. An alternative may cost
@@ -285,12 +348,38 @@ state. A layout change changes axis order, not precision. A branch or loop
 signature must agree with its body values without acquiring a context-specific
 precision interpretation.
 
+Function reuse also preserves precision-relevant properties of captured model
+state and static arguments. Equal shapes, dtypes, and stored numbers do not
+establish equivalent computations when JAX promotion metadata such as
+`weak_type` differs. Cache keys retain that metadata through the supported
+containers and pytrees; truly equivalent states can still share a definition.
+Output-signature equality alone cannot detect changed internal arithmetic.
+
 ## Numerical correctness
 
 Type preservation does not promise bitwise equality between JAX and every ONNX
 runtime. Reduction ordering, kernel choices, and deliberate implementation
 details can produce numerical differences. Validation must establish suitable
 bounds for the actual operation, dtype, and runtime.
+
+Distinguish differences allowed by those bounds from violations of a required
+rounding boundary. Computing a product in a wider type and rounding only after
+its reduction can differ from rounding the product before summing. A wider
+accumulator does not by itself authorize removing that earlier rounding.
+If a contract requires that intermediate boundary, a loose final-output
+tolerance cannot waive it. Test the intermediate and the downstream use that
+depends on it; merely returning the rounded value through another branch is
+insufficient. Exact equality can be appropriate for a chosen rounding witness
+without promising bitwise agreement for arbitrary reductions.
+Check sensitive intermediates and their consumers, as well as final outputs,
+with the runtime optimization settings being claimed. Disabling optional graph
+optimizations does not by itself prove the arithmetic used by runtime kernels.
+
+For matrix products, preserve operand, result, and accumulation requirements
+separately. An FP32 output alone is not evidence of FP32 accumulation. An
+implementation that widens inputs before multiplication needs its own numerical
+and cost assessment; it cannot be assumed to retain a native low-precision
+matrix algorithm. See [JAX matmul precision](https://docs.jax.dev/en/latest/201/precision.html).
 
 Runtime settings are part of this evidence. For example, ONNX Runtime's
 [CUDA `use_tf32` option](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#use_tf32)
@@ -303,10 +392,13 @@ validation results; runtime fusion may change the executed computation.
 
 An explicitly documented lowering may use a wider internal accumulator while
 preserving source input types, output types, and required conversion boundaries.
+That freedom must be justified for the particular source operation. It cannot
+override an explicit accumulation type, required rounding, or algorithm merely
+because a wider calculation improves a sample's accuracy.
 The [LayerNorm accuracy policy](../../docs/user_guide/known_limitations.md#normalization-export-policy)
 illustrates why such choices need operation-specific evidence. Its bounds do
 not establish a global guarantee for all normalization or mixed-precision
-graphs.
+graphs, or automatically authorize that lowering under the source contract.
 
 Structural checks must cover dtypes, casts, signatures, and constant payloads.
 Numerical checks must include rounding-sensitive inputs and appropriate NaN,
@@ -319,5 +411,5 @@ changing precision or overstating deployment readiness.
 
 - [Current state](precision_current_state.md)
 - [Migration plan](precision_migration_plan.md)
-- [Bounded implementation experiment](poc/README.md), with its own coverage and
+- [Internal experiments](poc/README.md), with their own coverage and
   validation limits; it does not establish implementation of this full design.

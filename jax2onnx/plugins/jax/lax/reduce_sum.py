@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.ir_utils import const_value_to_numpy
 from jax2onnx.plugins.jax.lax._opset_utils import builder_reduce_with_axes
@@ -168,6 +169,12 @@ class ReduceSumPlugin(PrimitiveLeafPlugin):
     """IR-only lowering of ``lax.reduce_sum`` via ONNX ReduceSum."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            # Consuming the produced value retains any preceding rounded square
+            # or absolute value. Kernel arithmetic still needs runtime validation.
+            lower_reduction(ctx, eqn, op_type="ReduceSum", allow_dtype_param=True)
+            return
+
         operand_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

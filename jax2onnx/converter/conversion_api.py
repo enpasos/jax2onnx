@@ -48,6 +48,7 @@ from .ir_context import IRContext
 from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
+from .precision_policy import PrecisionPolicy, precision_policy_scope
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
 
@@ -160,7 +161,10 @@ def _convert_ir_attr(name: str, value: object) -> Optional[Attr]:
 
 
 def _as_sds_list(
-    inputs: Sequence[InputSpec], enable_double_precision: bool
+    inputs: Sequence[InputSpec],
+    enable_double_precision: bool,
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
 ) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
@@ -201,7 +205,17 @@ def _as_sds_list(
                     dims_list.append(int(dim))
                 else:
                     dims_list.append(dim)
-            sds_list.append(jax.ShapeDtypeStruct(tuple(dims_list), spec.dtype))
+            sds_list.append(
+                jax.ShapeDtypeStruct(
+                    tuple(dims_list),
+                    spec.dtype,
+                    weak_type=(
+                        spec.weak_type
+                        if precision_policy is PrecisionPolicy.SOURCE
+                        else False
+                    ),
+                )
+            )
             continue
 
         dims_tuple = tuple(
@@ -266,9 +280,10 @@ def _optimize_graph_with_failure_policy(
     model: ir.Model,
     *,
     strict_optimizer_failures: Optional[bool],
+    precision_policy: PrecisionPolicy,
 ) -> None:
     try:
-        optimize_graph(model)
+        optimize_graph(model, precision_policy=precision_policy)
     except Exception as exc:
         if _resolve_strict_optimizer_failures(strict_optimizer_failures):
             raise
@@ -465,6 +480,7 @@ def _build_and_finalize_ir_model(
     _optimize_graph_with_failure_policy(
         ir_model,
         strict_optimizer_failures=strict_optimizer_failures,
+        precision_policy=ctx.precision_policy,
     )
 
     _apply_late_ir_attr_overrides(ir_model, ctx)
@@ -725,14 +741,17 @@ def _trace_to_jaxpr(
     outputs_as_nchw: Optional[Sequence[int]],
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
 ) -> _TraceResult:
-    sds_list = _as_sds_list(inputs, enable_double_precision)
+    sds_list = _as_sds_list(
+        inputs, enable_double_precision, precision_policy=precision_policy
+    )
     frozen_params: Dict[str, object] = dict(input_params or {})
 
     def _wrapped(*xs: Any) -> Any:
         return fn(*xs, **frozen_params)
 
-    with _activate_plugin_worlds():
+    with precision_policy_scope(precision_policy), _activate_plugin_worlds():
         closed = jax.make_jaxpr(_wrapped)(*sds_list)
     if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
         try:

@@ -58,6 +58,35 @@ Only graph-scoped passes with `function_bodies=True` run inside imported ONNX
 Function bodies. Model-wide passes (`name_fix`, CSE, constant lifting,
 dead-node removal) and `prune_unused_graph_inputs` stay top-level only.
 
+### Precision policy
+
+The shared converter finalizer passes `IRContext.precision_policy` to
+`optimize_graph`. Direct calls default to `PrecisionPolicy.LEGACY`, preserving
+the existing pass selection and environment-controlled behavior.
+
+Every registered pass explicitly declares the precision policies for which it
+is eligible. The optimizer selects that sequence once and applies it to the
+existing top-level and Function-body paths. A newly registered pass must make
+this choice explicitly.
+
+For the bounded private SOURCE path, the following passes remain excluded
+pending a numerical audit:
+
+- `remove_redundant_transpose_reduce`, which can change reduction order;
+- `fold_conv_transpose_constant_bias`;
+- `rewrite_mul_sigmoid_as_swish`;
+- `rewrite_mul_rsqrt_as_div`.
+
+SOURCE retains the eligible structural cleanup passes. A legacy environment
+flag does not authorize one of the excluded rewrites under SOURCE. In
+particular, changing `x * (1 / sqrt(y))` to `x / sqrt(y)` removes a rounding
+boundary even when the numerator is exactly one. A numerator merely close to
+one also must not be discarded.
+
+This pass selection protects the audited source representation; it does not
+establish runtime kernel behavior or numerical acceptance for arbitrary models.
+The private SOURCE policy is not a public export option.
+
 ## Graph Scope and Value Ownership
 
 Passes receive an `ir.Graph` and traverse real `ir.Value` objects. Use the

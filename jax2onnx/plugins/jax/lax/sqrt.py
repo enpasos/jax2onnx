@@ -3,6 +3,7 @@
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -83,7 +84,10 @@ class SqrtPlugin(PrimitiveLeafPlugin):
         input_producer = (
             input_producer_getter() if callable(input_producer_getter) else None
         )
-        if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and getattr(input_producer, "op_type", "") == "ReduceSumSquare"
+        ):
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
                 reduce_axes = reduction_axes_from_node(input_producer)

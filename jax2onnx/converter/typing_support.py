@@ -22,6 +22,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx._compat.jax import JaxprEqn
+from .precision_policy import PrecisionPolicy
 
 if TYPE_CHECKING:
     from jax2onnx.utils.debug import RecordedPrimitiveCallLog
@@ -221,6 +222,9 @@ class NativeLoweringContext(SymbolicDimTracker, Protocol):
     @property
     def normalization_mode(self) -> str: ...
 
+    @property
+    def precision_policy(self) -> PrecisionPolicy: ...
+
     def fresh_name(self, base: str) -> str: ...
 
     def add_node(
@@ -278,6 +282,7 @@ class ConverterContext(NativeLoweringContext, Protocol):
     _lowering_record_depth: int
     _lowering_record_owner: ConverterContext
     _func_name_counters: dict[tuple[str, str, str], int]
+    _jaxpr_validator: Callable[[Any, int], None] | None
     _call_input_param_literals: dict[str, object]
     _call_param_value_by_name: dict[str, ir.Value]
 

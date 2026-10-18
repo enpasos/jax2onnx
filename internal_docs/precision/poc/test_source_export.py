@@ -16,10 +16,11 @@ import pytest
 from internal_docs.precision.poc.source_export import (
     PrototypeLimit,
     RepresentationLimit,
-    _SourceContext,
     export_source_dtypes,
 )
 from jax2onnx import onnx_function, to_onnx
+from jax2onnx.converter.ir_context import IRContext
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 
 
 @pytest.fixture(autouse=True)
@@ -243,9 +244,8 @@ def _function_body(x: jax.Array) -> jax.Array:
     [
         jax.jit(lambda x: -x),
         lambda x: jax.lax.scan(lambda carry, _: (-carry, carry), x, None, length=2)[0],
-        lambda x: _function_body(x),
     ],
-    ids=["jit", "scan", "onnx_function"],
+    ids=["jit", "scan"],
 )
 def test_nested_scopes_are_explicitly_outside_the_experiment(
     fn: Callable[[jax.Array], jax.Array],
@@ -293,7 +293,11 @@ def test_input_scope_limits_are_reported_before_tracing(inputs, opset, message) 
 def test_reallocating_output_preserves_the_existing_producer_and_binding_value() -> (
     None
 ):
-    ctx = _SourceContext(opset=23, enable_double_precision=False)
+    ctx = IRContext(
+        opset=23,
+        enable_double_precision=False,
+        precision_policy=PrecisionPolicy.SOURCE,
+    )
     source = ir.Value(name="input", type=ir.TensorType(ir.DataType.FLOAT), shape=(2,))
     ctx.add_graph_input_value(source)
     previous = ctx.builder.op(

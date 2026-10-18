@@ -179,7 +179,7 @@ def test_invalid_outputs_as_nchw_index_raises():
 
 
 def test_nonfatal_optimize_graph_failure_is_logged(monkeypatch, caplog):
-    def _boom(_model):
+    def _boom(_model, *, precision_policy):
         raise RuntimeError("optimizer boom")
 
     monkeypatch.setattr(conversion_api, "optimize_graph", _boom)
@@ -192,7 +192,7 @@ def test_nonfatal_optimize_graph_failure_is_logged(monkeypatch, caplog):
 
 
 def test_strict_optimize_graph_failure_env_reraises(monkeypatch):
-    def _boom(_model):
+    def _boom(_model, *, precision_policy):
         raise RuntimeError("optimizer boom")
 
     monkeypatch.setattr(conversion_api, "optimize_graph", _boom)

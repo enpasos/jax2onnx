@@ -13,6 +13,7 @@ from jax2onnx._compat.jax import (
 import jax.numpy as jnp
 import numpy as np
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -35,7 +36,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _SQRT_PRIM: Final = make_jnp_primitive("jax.numpy.sqrt")
 
@@ -147,7 +147,10 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
         input_producer = (
             input_producer_getter() if callable(input_producer_getter) else None
         )
-        if getattr(input_producer, "op_type", "") == "ReduceSumSquare":
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and getattr(input_producer, "op_type", "") == "ReduceSumSquare"
+        ):
             reduce_inputs = list(getattr(input_producer, "inputs", ()))
             if reduce_inputs:
                 reduce_axes = reduction_axes_from_node(input_producer)

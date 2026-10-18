@@ -1,8 +1,19 @@
 # Computation Precision Migration Plan: User View
 
-Status: proposed transition, 2026-10-17. PR #275's bounded repair is merged. The
-proposed behavior has no public export mode; an internal proof of concept
-exercises selected cases. No release or deadline is promised.
+Status: proposed transition, 2026-10-18. PR #275's bounded repair is merged. The
+proposed behavior has no public export mode. The local branch now preserves
+weak inputs and selected calculations through real functions and branches
+using a private policy. Local JAX settings and successive export modes now have
+regression coverage. Bounded matrix and selected-FP64 normalization cases also
+export through this path. Public legacy options and defaults retain their rules;
+known runtime-rounding failures and broader deployment work remain open.
+No release or deadline is promised.
+
+The latest local step preserves promotion metadata in stored model state and
+configuration when sharing named functions. It also makes optional exporter
+optimizations respect the source calculation. The next step is a bounded
+private integration with the common export path, followed by validation of its
+chosen interface and execution conditions.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -18,18 +29,34 @@ under the existing double-precision rules. Existing export options, including
 `enable_double_precision`, retain their meanings. This is a bounded fix, not
 general support for every operation or runtime at every dtype.
 
-A first [internal proof of concept](poc/README.md) now exercises selected models
-through the actual conversion pipeline. For exact FP32 arithmetic after an FP64
-input of `1e8`, its result is `0` in FP32, matching the JAX calculation; the
-existing double export produces `1` in FP64. This illustrates a change in the
-calculation being preserved, rather than merely a different output type.
+The [experiments](poc/README.md) give practical reasons to keep the
+transition explicit:
 
-The experiment also covers chosen low/mixed-precision examples and deliberate
-output conversions. It is limited to simple operations and explicitly typed,
-fixed-shape inputs. Its runtime observations cover the recorded CPU samples;
-BF16 execution remains unverified. Nested functions and control flow still need
-integration work. Existing public calls are unchanged, and this internal
-experiment is not a supported export option.
+| What was observed | What must happen before relying on the proposed behavior |
+| --- | --- |
+| After an FP64 input `1e8`, deliberate FP32 arithmetic returns `0` in JAX and the source experiment, while legacy double export returns `1` in FP64. | Explain this expected contract change and compare application results with the intended JAX model as well as the previous artifact. |
+| Public matrix export loses a requested FP32 result; the bounded private source lowering now retains it. A separate FP16 square/sum example still misses required intermediate rounding. | Keep the successful matrix cases and the rejected square/sum sample separate. Validate result types and rounding on the actual target. |
+| Complete source exports of the selected FP64 variance calculation now succeed inline, in a named function, and in a conditional. | Retain these regression cases while extending normalization coverage and checking the intended deployment. |
+| Source input preparation now preserves weak typing: weak scalar `2048` plus explicit FP16 `1` returns FP16 `2048`; a strong input with the same shape/dtype returns FP32 or FP64 `2049`. | Keep the original input properties in comparisons. The source correction has regression coverage on both stacks; public legacy normalization retains its observed behavior. |
+| Selected mixed FP64/FP32 calculations survive serialization inside a named function and either branch of a conditional. | Retain these bounded source/legacy checks while completing other scopes, operations, and deployment evidence. |
+| Local JAX x64 and matrix-precision settings survive named-function boundaries, and cached conditionals no longer mix successive source and legacy exports. | Keep the contextual and sequential-export regressions in the regular suite as supported cases expand. |
+
+The calling experiment also makes omitted/false/true legacy settings,
+source-preserving calls, warnings, and conflicts directly comparable. Its
+argument names are private discussion tools. Positive results cover selected
+CPU samples, including audited named functions and two-branch conditionals.
+Loops, JIT regions, general deployment diagnostics, and broader operation
+coverage remain open. BF16 model validity alone does
+not establish execution support. The private CPU sample check records execution
+settings and refuses to accept a failed or untested numerical sample. The known
+FP16 square/sum result remains a failure on the recorded runtimes. Passing the
+tests includes recognizing that failure; it is not a deployment certificate.
+
+The next work is to validate the integrated changes, retain the successful
+cases in the regular test suite, and resolve or explicitly exclude the remaining
+rounding failure for each claimed target. Wider operator coverage and a public
+calling convention follow those checks. Further broad planning is unnecessary
+for these concrete steps.
 
 After the documented supported cases have been validated, users could explicitly
 choose the new behavior. Its argument names have not been decided. Any later
@@ -37,13 +64,33 @@ change to the default would need separate release notes, migration examples,
 and compatibility guidance. There is no need to rewrite a working export call
 because this proposal exists.
 
+## Understand the proposed call choices
+
+The eventual public syntax is undecided. The intended transition distinguishes
+these behaviors:
+
+| Choice | Effect |
+| --- | --- |
+| Keep the old argument omitted or explicitly `False` | Retain today's x64 override and input defaults. Whether the argument was supplied remains distinguishable. |
+| Keep the old argument explicitly `True` | Retain today's x64 override, shape-only FP64 input default, and legacy precision rules. |
+| Explicitly choose the proposed source contract | Use your active JAX configuration, preserve typed inputs and the traced computation, and use the proposed FP32 fallback for shape-only inputs. |
+| Combine source selection with either explicit old Boolean | Receive a conflict error before your model is traced. |
+
+The internal wrapper uses `precision="source"`; that spelling is not a public
+`to_onnx` argument. The FP32 shape-only fallback is part of the proposed
+behavior, not a global minimum or a conclusion that the PoC has settled the
+public API. A later default switch would require a separate compatibility
+decision.
+
 ## Prepare a useful comparison
 
 Keep a record of the export that works for your application:
 
 - Save the model version, weights, export options, JAX configuration, and
   explicitly requested input dtypes. Distinguish shape-only specifications from
-  specifications that also name a dtype.
+  specifications that also name a dtype. Retain JAX input properties such as
+  `weak_type` when present, since shape and dtype alone may not describe the
+  same tracing input.
 - Record the exported model's input and output types and representative outputs.
   Include examples that exercise your chosen precisions and deliberate rounding,
   whether they stay entirely at a lower precision or use higher-precision regions.
@@ -100,13 +147,15 @@ its requested dtype.
 The transition would distinguish four questions: is the file valid for its ONNX
 opset; does it preserve the intended calculation and rounding; can your runtime
 execute it under the specified settings; and are its numerical results
-acceptable? Each answer should identify what was checked, what is known to be
-unsupported, and what remains unverified.
+acceptable? Each answer should identify what was validated, what failed, and
+what remains unverified, together with the reason. A missing kernel differs
+from a calculation that runs but produces unacceptable precision.
 
 Without a declared runtime, an ONNX file can be valid while execution support
 remains unverified. For a declared target, a known unsupported case needs a
-suitable alternative or a clear error. An unverified case needs validation
-before it can be described as ready for that deployment.
+suitable alternative or a clear error. The same applies to a known numerical
+failure on that target, even if execution succeeds. An unverified case needs
+validation before it can be described as ready for that deployment.
 
 Configure the actual runtime session separately. Its provider, hardware, and
 settings must match the requirements used for validation. Declaring a target
@@ -121,6 +170,10 @@ it does not impose a minimum precision on the model. Request FP64 with explicitl
 typed input specifications and JAX x64 enabled.
 An explicit FP64 input request with x64 disabled would produce an actionable
 error instead of silently becoming FP32.
+An FP64 request inside model code is a different case: JAX may warn and trace
+FP32 instead. The proposed diagnostics surface that warning. If FP64 was
+intended, enable x64 and repeat the export; preserving the resulting FP32 graph
+cannot fulfill the earlier request.
 
 Today, omitting the option or passing `enable_double_precision=False` temporarily
 disables JAX x64 during export. The proposed behavior uses your existing JAX
@@ -134,8 +187,9 @@ example, a model doing FP32 arithmetic on explicitly typed FP32 inputs would
 retain that arithmetic, where the existing export policy may have widened it
 to FP64. This difference can affect computation and output types even if the
 input specification stays the same. For intended FP64 computation, configure
-the model and its typed inputs accordingly; an export option would not rewrite
-an FP32 calculation into FP64.
+the model and, where needed, its typed inputs accordingly; an export option
+would not rewrite an FP32 calculation into FP64. A model can also choose FP64
+work internally while retaining a lower-precision input interface.
 
 ## Evaluate an optional transition
 
@@ -146,10 +200,28 @@ predictions, and application behavior in your intended runtime. Use numerical
 tolerances appropriate to the computation; identical types do not guarantee
 identical floating-point results.
 
+Include cases where deliberate rounding changes a later result. If the model
+requires that intermediate boundary, an acceptable final-output tolerance
+alone cannot prove it was kept. Check the boundary and its consumer, using
+runtime optimization settings representative of deployment. Switching optional
+optimization off does not by itself establish the arithmetic used by kernels.
+
 For dtype-dependent model rules, compare the choices produced by the typed
 inputs you actually pass to export. Use the same model settings and JAX
 configuration for the JAX reference. Confirm the execution session's actual
 settings as well as its declared target before drawing a deployment conclusion.
+
+For scalar JAX inputs, also retain whether they are weakly typed. Rebuilding
+them solely from shape and dtype can change JAX's promotion choices before
+export begins. The private source experiment now
+[preserves this property](poc/migration_ux_findings.md#weak-input-properties-preserved-on-the-source-path)
+and reports it before and after normalization and during actual tracing.
+Its function implementation also distinguishes weak and strong signatures and
+retains local JAX precision settings. Cached conditional bodies are checked
+across source/legacy export sequences and ordinary JAX execution. When
+comparing results, keep the original JAX input properties rather than
+reproducing their earlier loss in the reference calculation. This source
+correction is not a change to public legacy input preparation.
 
 If a limit is encountered, the exporter could use a validated alternative that
 preserves the intended precision and rounding. A newer opset, another provider,
@@ -167,8 +239,8 @@ change from its precision behavior. Check that an entirely lower-precision model
 gains no unintended FP32 regions. Other examples include checking selective FP32
 regions and casts back, or the FP64 calculations a scientific application needs.
 Evaluate latency and memory separately from numerical correctness: a faster
-result still needs adequate accuracy, and a more
-accurate result may have an unacceptable deployment cost. A model loading
+result still needs adequate accuracy, and a more accurate result may have an
+unacceptable deployment cost. A model loading
 successfully is only the first check.
 
 During the transition, the proposal keeps the previous export behavior available.

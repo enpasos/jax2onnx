@@ -37,7 +37,11 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
-from jax2onnx.plugins._function_keys import snapshot_static_value, static_value_key
+from jax2onnx.plugins._function_keys import (
+    snapshot_static_value,
+    source_static_value_key,
+    static_value_key,
+)
 from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rules
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
@@ -52,6 +56,11 @@ from jax2onnx._compat.jax import (
     ensure_batching_not_mapped_attr,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+    precision_policy_scope,
+)
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -67,6 +76,25 @@ from jax2onnx.converter.typing_support import (
 )
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
+_SOURCE_TRACE: str = "__jax2onnx_source_trace"
+
+
+@dataclass(frozen=True)
+class _SourceFunctionTrace:
+    """Call-site facts required when a source function is retraced later."""
+
+    output_avals: tuple[ShapedArray, ...]
+    x64_enabled: bool
+    default_matmul_precision: str | None
+
+    @contextmanager
+    def activate(self) -> Iterator[None]:
+        with (
+            jax.enable_x64(self.x64_enabled),
+            jax.default_matmul_precision(self.default_matmul_precision),
+        ):
+            yield
+
 
 ensure_batching_not_mapped_attr()
 
@@ -286,13 +314,18 @@ def _pack_function_arguments(
     """Encode dynamic dependencies and hashable static configuration for JAX."""
     operands = list(args)
     params: dict[str, object] = {}
+    value_key = (
+        source_static_value_key
+        if active_precision_policy() is PrecisionPolicy.SOURCE
+        else static_value_key
+    )
     for name, value in kwargs.items():
         if isinstance(value, (Tracer, jax.Array)):
             params[name] = _DynamicParamRef(len(operands))
             operands.append(value)
         else:
             frozen_value = snapshot_static_value(value)
-            params[name] = _StaticParam(frozen_value, static_value_key(frozen_value))
+            params[name] = _StaticParam(frozen_value, value_key(frozen_value))
     return tuple(operands), params
 
 
@@ -572,6 +605,13 @@ class FunctionPlugin(PrimitivePlugin):
         self.primitive.def_abstract_eval(self._abstract_eval_with_kwargs)
         self.primitive.def_impl(self._primitive_impl)
         batching.primitive_batchers[self.primitive] = self._batching_rule
+        # A distinct primitive identity keeps source abstract-evaluation caches
+        # separate and supports structured results without altering legacy calls.
+        self._source_primitive = Primitive(primitive_name)
+        self._source_primitive.multiple_results = True
+        self._source_primitive.def_abstract_eval(self._source_abstract_eval)
+        self._source_primitive.def_impl(self._source_primitive_impl)
+        batching.primitive_batchers[self._source_primitive] = self._source_batching_rule
         self._orig_fn: Callable[..., Any] | None = None  # set by patch wrapper
         self._unbound_orig_fn: Callable[..., Any] | None = None
 
@@ -616,11 +656,21 @@ class FunctionPlugin(PrimitivePlugin):
             )
 
     @staticmethod
-    def _aval_to_shaped_array(aval: Any) -> ShapedArray:
+    def _aval_to_shaped_array(
+        aval: Any, *, preserve_weak_type: bool = False
+    ) -> ShapedArray:
         if isinstance(aval, ShapedArray):
             return aval
         if hasattr(aval, "shape") and hasattr(aval, "dtype"):
-            return ShapedArray(aval.shape, aval.dtype)
+            return ShapedArray(
+                aval.shape,
+                aval.dtype,
+                weak_type=(
+                    bool(getattr(aval, "weak_type", False))
+                    if preserve_weak_type
+                    else False
+                ),
+            )
         raise TypeError(
             f"Cannot convert abstract value of type {type(aval)} to ShapedArray."
         )
@@ -655,6 +705,63 @@ class FunctionPlugin(PrimitivePlugin):
         elif isinstance(out_aval, list):
             out_aval = [self._aval_to_shaped_array(a) for a in out_aval]
         return out_aval
+
+    @staticmethod
+    def _source_abstract_eval(*args: Any, **kwargs: Any) -> list[ShapedArray]:
+        trace: _SourceFunctionTrace = kwargs[_SOURCE_TRACE]
+        return list(trace.output_avals)
+
+    def _source_primitive_impl(self, *args: Any, **kwargs: Any) -> list[Any]:
+        trace: _SourceFunctionTrace = kwargs.pop(_SOURCE_TRACE)
+        with trace.activate():
+            return list(jtu.tree_leaves(self._primitive_impl(*args, **kwargs)))
+
+    def _source_batching_rule(
+        self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
+    ) -> tuple[list[Any], list[Any]]:
+        trace: _SourceFunctionTrace = params.pop(_SOURCE_TRACE)
+        with trace.activate():
+            values, output_dims = self._batching_rule(args, dims, **params)
+        return jtu.tree_leaves(values), jtu.tree_leaves(output_dims)
+
+    def _bind_function_call(
+        self,
+        primitive: Primitive,
+        callee: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        instance_key: int | None = None,
+    ) -> Any:
+        operands, parameters = _pack_function_arguments(args, kwargs)
+        if instance_key is not None:
+            parameters["instance_key"] = instance_key
+        if active_precision_policy() is PrecisionPolicy.LEGACY:
+            return primitive.bind(*operands, **parameters)
+        if _SOURCE_TRACE in kwargs:
+            raise ValueError(f"{_SOURCE_TRACE} is reserved for internal tracing")
+
+        def source_call(*operand_args: Any) -> Any:
+            positional, call_kwargs = _unpack_function_arguments(
+                operand_args, parameters
+            )
+            call_kwargs.pop("instance_key", None)
+            return callee(*positional, **call_kwargs)
+
+        call_x64 = bool(jax.config.x64_enabled)
+        call_matmul_precision = jax.config.jax_default_matmul_precision
+        outputs = jax.eval_shape(source_call, *operands)
+        leaves, result_tree = jtu.tree_flatten(outputs)
+        parameters[_SOURCE_TRACE] = _SourceFunctionTrace(
+            tuple(
+                self._aval_to_shaped_array(leaf, preserve_weak_type=True)
+                for leaf in leaves
+            ),
+            x64_enabled=call_x64,
+            default_matmul_precision=call_matmul_precision,
+        )
+        results = self._source_primitive.bind(*operands, **parameters)
+        return jtu.tree_unflatten(result_tree, results)
 
     def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
         instance_key = kwargs.pop("instance_key", None)
@@ -732,17 +839,17 @@ class FunctionPlugin(PrimitivePlugin):
                     _ONNX_FN_HITS.set(
                         _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
                     )
-                    operands, bound_kwargs = _pack_function_arguments(
+                    call_kwargs = {
+                        key: value
+                        for key, value in kwargs.items()
+                        if key != "instance_key"
+                    }
+                    return self._bind_function_call(
+                        primitive,
+                        bound_orig,
                         args[1:],
-                        {
-                            key: value
-                            for key, value in kwargs.items()
-                            if key != "instance_key"
-                        },
-                    )
-                    return primitive.bind(
-                        *operands,
-                        **{**bound_kwargs, "instance_key": instance_key},
+                        call_kwargs,
+                        instance_key=instance_key,
                     )
                 else:
                     self._orig_fn = original_call
@@ -751,8 +858,9 @@ class FunctionPlugin(PrimitivePlugin):
                     _ONNX_FN_HITS.set(
                         _ONNX_FN_HITS.get() | {self.name.split("::", 1)[1]}
                     )
-                    operands, bound_kwargs = _pack_function_arguments(args, kwargs)
-                    return primitive.bind(*operands, **bound_kwargs)
+                    return self._bind_function_call(
+                        primitive, original_call, args, kwargs
+                    )
 
             return wrapped
 
@@ -773,11 +881,12 @@ class FunctionPlugin(PrimitivePlugin):
             pass
         return "Function"
 
-    @staticmethod
-    def _value_fingerprint(value: object) -> tuple[object, ...]:
-        return static_value_key(value)
-
-    def _fingerprint_instance_state(self, instance: Any) -> tuple[Any, ...]:
+    def _fingerprint_instance_state(
+        self,
+        instance: Any,
+        *,
+        value_key: Callable[[object], tuple[object, ...]] = static_value_key,
+    ) -> tuple[Any, ...]:
         if instance is None:
             return (("instance", "none"),)
         components: list[tuple[Any, ...]] = []
@@ -790,22 +899,22 @@ class FunctionPlugin(PrimitivePlugin):
             components.append(("treedef", treedef))
         if leaves:
             for idx, leaf in enumerate(leaves):
-                components.append(("leaf", idx, self._value_fingerprint(leaf)))
+                components.append(("leaf", idx, value_key(leaf)))
         else:
             state = getattr(instance, "__dict__", None)
             if isinstance(state, dict):
                 for key in sorted(state):
-                    components.append(
-                        ("attr", key, self._value_fingerprint(state[key]))
-                    )
+                    components.append(("attr", key, value_key(state[key])))
             else:
-                components.append(("opaque", self._value_fingerprint(instance)))
+                components.append(("opaque", value_key(instance)))
         return tuple(components)
 
     def _build_unique_signature(
         self,
         callee: object,
         capture_items: tuple[tuple[str, tuple[object, ...]], ...],
+        *,
+        value_key: Callable[[object], tuple[object, ...]] = static_value_key,
     ) -> tuple[object, ...]:
         signature_parts: list[tuple[object, ...]] = [
             ("target", self._qualified_target),
@@ -820,7 +929,10 @@ class FunctionPlugin(PrimitivePlugin):
                 )
             )
             signature_parts.append(
-                ("instance_state", self._fingerprint_instance_state(callee))
+                (
+                    "instance_state",
+                    self._fingerprint_instance_state(callee, value_key=value_key),
+                )
             )
         else:
             if callee is None:
@@ -881,6 +993,13 @@ class FunctionPlugin(PrimitivePlugin):
         eqn: JaxprEqn,
         params: dict[str, object],
     ) -> None:
+        params = dict(params)
+        source_trace: _SourceFunctionTrace | None = None
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            trace_parameter = params.pop(_SOURCE_TRACE)
+            if not isinstance(trace_parameter, _SourceFunctionTrace):
+                raise TypeError("Source function call is missing its tracing context")
+            source_trace = trace_parameter
         invars, params = _unpack_function_arguments(eqn.invars, params)
         eqn = eqn.replace(invars=list(invars), params=params)
         callee = self._resolve_lowering_callee(params)
@@ -888,10 +1007,14 @@ class FunctionPlugin(PrimitivePlugin):
         registry = ctx.get_function_registry()
         if registry is None:
             raise RuntimeError("[onnx_function] Function registry missing")
-        key = self._function_key(callee, eqn, captures)
+        key = self._function_key(
+            callee, eqn, captures, ctx=ctx, source_trace=source_trace
+        )
         definition = registry.get(key)
         if definition is None:
-            definition = self._build_function(ctx, callee, eqn, captures)
+            definition = self._build_function(
+                ctx, callee, eqn, captures, source_trace=source_trace
+            )
             registry.put(key, definition)
         self._emit_function_call(ctx, eqn, definition, captures)
 
@@ -924,10 +1047,20 @@ class FunctionPlugin(PrimitivePlugin):
                         if isinstance(candidate, (int, np.integer)):
                             actual_dim = int(candidate)
             shape.append(actual_dim)
-        return jax.ShapeDtypeStruct(tuple(shape), aval.dtype)
+        return jax.ShapeDtypeStruct(
+            tuple(shape),
+            aval.dtype,
+            weak_type=(
+                aval.weak_type
+                if ctx.precision_policy is PrecisionPolicy.SOURCE
+                else False
+            ),
+        )
 
     @staticmethod
-    def _parameter_spec(value: object) -> jax.ShapeDtypeStruct:
+    def _parameter_spec(
+        value: object, *, preserve_weak_type: bool = False
+    ) -> jax.ShapeDtypeStruct:
         """Inspect a Python/JAX parameter at the capture boundary."""
         if isinstance(value, (Tracer, jax.Array)):
             aval = value.aval
@@ -936,13 +1069,13 @@ class FunctionPlugin(PrimitivePlugin):
                     dtype = np.dtype(aval.dtype)
                 except TypeError:
                     dtype = np.dtype(np.float32)
-                return jax.ShapeDtypeStruct(aval.shape, dtype)
+                return jax.ShapeDtypeStruct(
+                    aval.shape,
+                    dtype,
+                    weak_type=aval.weak_type if preserve_weak_type else False,
+                )
         array = np.asarray(value)
         return jax.ShapeDtypeStruct(array.shape, array.dtype)
-
-    @staticmethod
-    def _static_capture_signature(value: object) -> tuple[object, ...]:
-        return static_value_key(value)
 
     def _capture_arguments(
         self,
@@ -953,6 +1086,11 @@ class FunctionPlugin(PrimitivePlugin):
         dynamic: list[DynamicCapture] = []
         static: dict[str, object] = {}
         signature: list[tuple[str, tuple[object, ...]]] = []
+        value_key = (
+            source_static_value_key
+            if ctx.precision_policy is PrecisionPolicy.SOURCE
+            else static_value_key
+        )
         for name, value in params.items():
             if isinstance(value, (Var, Literal)):
                 spec = self._capture_spec(ctx, value)
@@ -963,7 +1101,10 @@ class FunctionPlugin(PrimitivePlugin):
                     (name, ("dynamic", tuple(aval.shape), str(aval.dtype)))
                 )
             elif ctx._promote_call_input_params and name in ctx._call_input_param_names:
-                spec = self._parameter_spec(value)
+                spec = self._parameter_spec(
+                    value,
+                    preserve_weak_type=ctx.precision_policy is PrecisionPolicy.SOURCE,
+                )
                 dynamic.append(
                     DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
                 )
@@ -971,7 +1112,7 @@ class FunctionPlugin(PrimitivePlugin):
                     (name, ("call_input", tuple(spec.shape), str(spec.dtype)))
                 )
             else:
-                signature.append((name, self._static_capture_signature(value)))
+                signature.append((name, value_key(value)))
                 static[name] = value
 
         handled = set(static) | {capture.name for capture in dynamic}
@@ -992,7 +1133,10 @@ class FunctionPlugin(PrimitivePlugin):
                     continue
                 if name not in ctx._call_input_param_literals:
                     continue
-                spec = self._parameter_spec(ctx._call_input_param_literals[name])
+                spec = self._parameter_spec(
+                    ctx._call_input_param_literals[name],
+                    preserve_weak_type=ctx.precision_policy is PrecisionPolicy.SOURCE,
+                )
                 dynamic.append(
                     DynamicCapture(name, spec, ctx.ensure_external_flag(name, None))
                 )
@@ -1006,16 +1150,38 @@ class FunctionPlugin(PrimitivePlugin):
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
+        *,
+        ctx: ConverterContext,
+        source_trace: _SourceFunctionTrace | None = None,
     ) -> FunctionKey:
         input_signature = tuple(
             (tuple(aval.shape), str(aval.dtype)) for aval in self._input_avals(eqn)
         )
         capture_signature = (
-            self._build_unique_signature(callee, captures.signature)
+            self._build_unique_signature(
+                callee,
+                captures.signature,
+                value_key=(
+                    source_static_value_key
+                    if source_trace is not None
+                    else static_value_key
+                ),
+            )
             if self.unique
             else (id(callee), captures.signature)
         )
-        return FunctionKey(self.name, input_signature, capture_signature)
+        tracing_signature: tuple[object, ...] = ()
+        if source_trace is not None:
+            tracing_signature = (
+                ctx.precision_policy.value,
+                source_trace.x64_enabled,
+                source_trace.default_matmul_precision,
+                tuple(aval.weak_type for aval in self._input_avals(eqn)),
+                tuple(capture.spec.weak_type for capture in captures.dynamic),
+            )
+        return FunctionKey(
+            self.name, input_signature, capture_signature, tracing_signature
+        )
 
     def _input_avals(self, eqn: JaxprEqn) -> tuple[ShapedArray, ...]:
         return tuple(self._aval_to_shaped_array(var.aval) for var in eqn.invars)
@@ -1025,9 +1191,20 @@ class FunctionPlugin(PrimitivePlugin):
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
+        *,
+        precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+        source_trace: _SourceFunctionTrace | None = None,
     ) -> ClosedJaxpr:
         base_specs = tuple(
-            jax.ShapeDtypeStruct(aval.shape, aval.dtype)
+            jax.ShapeDtypeStruct(
+                aval.shape,
+                aval.dtype,
+                weak_type=(
+                    aval.weak_type
+                    if precision_policy is PrecisionPolicy.SOURCE
+                    else False
+                ),
+            )
             for aval in self._input_avals(eqn)
         )
         base_count = len(base_specs)
@@ -1038,12 +1215,22 @@ class FunctionPlugin(PrimitivePlugin):
                 (capture.name, argument)
                 for capture, argument in zip(captures.dynamic, arguments[base_count:])
             )
-            return callee(*arguments[:base_count], **kwargs)
+            with ExitStack() as call_stack:
+                if source_trace is not None:
+                    call_stack.enter_context(source_trace.activate())
+                return callee(*arguments[:base_count], **kwargs)
 
         active = _IN_FUNCTION_BUILD.get()
         token = _IN_FUNCTION_BUILD.set(active | {self.name})
         try:
-            with _activate_full_plugin_worlds_for_body():
+            with ExitStack() as stack:
+                stack.enter_context(precision_policy_scope(precision_policy))
+                if source_trace is not None:
+                    # Recreate already-typed formals without truncating FP64
+                    # specs. The callee itself runs under its captured settings;
+                    # JAX permits an existing FP64 value in a local x64-off scope.
+                    stack.enter_context(jax.enable_x64(True))
+                stack.enter_context(_activate_full_plugin_worlds_for_body())
                 return jax.make_jaxpr(wrapped)(
                     *base_specs, *(capture.spec for capture in captures.dynamic)
                 )
@@ -1076,6 +1263,8 @@ class FunctionPlugin(PrimitivePlugin):
         callee: Callable[..., object],
         eqn: JaxprEqn,
         captures: FunctionCaptures,
+        *,
+        source_trace: _SourceFunctionTrace | None = None,
     ) -> ir.Function:
         name, domain = self._allocate_friendly_name(ctx)
         scope = FunctionScope(ctx, name=name, domain=domain)
@@ -1088,8 +1277,19 @@ class FunctionPlugin(PrimitivePlugin):
             (capture.name, value)
             for capture, value in zip(captures.dynamic, child_captures)
         )
-        closed = self._trace_function_body(callee, eqn, captures)
+        closed = self._trace_function_body(
+            callee,
+            eqn,
+            captures,
+            precision_policy=ctx.precision_policy,
+            source_trace=source_trace,
+        )
         body = closed.jaxpr
+        if (
+            source_trace is not None
+            and tuple(var.aval for var in body.outvars) != source_trace.output_avals
+        ):
+            raise ValueError("Source function retracing changed its result signature")
         for var, value in zip(body.constvars, closed.consts):
             scope.ctx.bind_const_for_var(var, np.asarray(value))
         for var, value in zip(body.invars, child_values):
@@ -1103,6 +1303,22 @@ class FunctionPlugin(PrimitivePlugin):
         )
         self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
         outputs = [scope.ctx.require_value_for_var(var) for var in body.outvars]
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            # Function result names must be unique and distinct from formals,
+            # including repeated values and input passthrough in result trees.
+            seen: set[str | None] = set()
+            for index, value in enumerate(outputs):
+                if value.is_graph_input() or value.name in seen:
+                    outputs[index] = scope.ctx.builder.op(
+                        "Identity",
+                        [value],
+                        output=ir.Value(
+                            name=scope.ctx.fresh_name("result_alias"),
+                            type=value.type,
+                            shape=value.shape,
+                        ),
+                    )
+                seen.add(outputs[index].name)
         definition = scope.end(outputs=outputs)
         ctx.ir_functions.append(definition)
         ctx.ir_functions.extend(scope.ctx.ir_functions)

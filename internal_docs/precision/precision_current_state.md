@@ -5,6 +5,18 @@ Date: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
+The public-behavior and implementation analysis below retains that baseline.
+The later local branch integration is identified separately: private converter
+code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
+defaults remain unchanged. See the
+[integration findings](poc/source_integration_findings.md) for its bounded scope.
+
+The local follow-up reviewed on 2026-10-18 also carries SOURCE policy into the
+shared optimizer and includes promotion metadata from captured state in
+function keys. The [follow-up findings](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
+record the repaired cases and further runtime failures. They do not change the
+public baseline analyzed below.
+
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are
 listed in the [precision overview](README.md).
@@ -17,11 +29,9 @@ behavior is not one uniform dtype contract. The proposed
 [migration plan](precision_migration_plan.md) describe how to resolve this.
 The merged fix repairs selected consumer type mismatches within the existing
 policy; it does not implement that broader target.
-The broader design goal is to respect the computation, accumulation, and output
-dtypes chosen for each operation, together with deliberate conversions. A model
-may intentionally retain FP16 or BF16 throughout. Selected FP32 stability steps
-and scientific or physics calculations requiring FP64 are further examples;
-the goal sets no universal FP32 minimum.
+The local experiments now include private core changes. Their successful
+samples, known gaps, and separate feasibility controls are summarized below;
+they do not establish a released source mode.
 
 ## One Argument Controls Several Decisions
 
@@ -42,6 +52,27 @@ normalization. Later tracing and lowering still apply their own rules, so this
 initial preservation does not establish an end-to-end dtype guarantee. See
 [conversion_api.py](../../jax2onnx/converter/conversion_api.py) and
 [user_interface.py](../../jax2onnx/user_interface.py).
+
+The baseline normalization reconstructs `ShapeDtypeStruct` from shape and dtype
+and drops `weak_type`. That JAX property affects type promotion, so retaining
+the dtype alone can change the computation JAX traces. Public legacy calls
+retain those observed normalization rules. The initial source experiment
+inherited the same loss in both the UX wrapper and shared tracing helper.
+The later private source policy now preserves the property through both steps,
+including direct helper calls, and reports supplied/normalized/traced flags.
+The [regression](poc/migration_ux_findings.md#weak-input-properties-preserved-on-the-source-path)
+returns FP16 `2048` for a weak scalar plus explicit FP16 `1`, while a strong
+input with the same shape/dtype returns FP32 or FP64 `2049`. Both supported
+stacks cover this source correction; it does not change legacy normalization.
+
+The [calling experiment](poc/migration_ux_findings.md) compares real public calls
+with the argument omitted, explicitly `False`, and explicitly `True`, for
+shape-only inputs, typed specifications, NumPy arrays, and JAX arrays under
+both ambient x64 settings. Omission and `False` currently select the same
+behavior. An FP64 `ShapeDtypeStruct` on those routes is truncated during JAX
+tracing: JAX 0.10.2 is silent for the tested case; JAX 0.11.2 warns. Both warn
+for a model-internal `.astype(jnp.float64)` under disabled x64. These are
+observed version differences, not diagnostics guaranteed by the exporter.
 
 The shared `numpy_dtype_to_ir_with_float_policy` maps FP32 to ONNX `DOUBLE`
 when the argument is `True`. It preserves FP16, BF16, and FP64 in its own
@@ -155,6 +186,95 @@ fixed bounds cover specified FP32 cases, inputs, opset, runtime provider, and
 optimization settings. They provide no general guarantee of bitwise equality,
 universal improvement from widening, or equivalent bounds for every
 normalization family.
+
+## What the Precision PoCs Establish
+
+The [numerical findings](poc/numerical_contract_findings.md) compare JAX eager
+and JIT execution, ONNX ReferenceEvaluator, and ONNX Runtime CPU with optional
+optimization disabled and enabled. Both installed stacks reproduce the
+observations: JAX 0.11.2 / ORT 1.31.0 and JAX 0.10.2 / ORT 1.29.0. The findings
+record exact versions and inputs. The artifact origin matters:
+
+| Case and origin | ONNX validity | Execution and numerical observation | What remains open |
+| --- | --- | --- | --- |
+| Public export: FP16 batched `dot_general`, preferred FP32 result | Full checker passes. | JAX returns FP32 `2049`; exported `MatMul` returns FP16 `2048` on ReferenceEvaluator and both ORT settings. | This public legacy result-type gap remains; the private source lowering below handles a bounded subset. |
+| Private source export: default-precision FP16 rank-2/rank-3 matrix operands, explicitly preferred FP32 result | Full checker passes. | Operand casts precede an FP32 `MatMul`; the `2049` witness and additional finite-value cases retain FP32 results while shared input values remain FP16. | Other layouts, dtypes, explicit precision algorithms, targets, and performance require separate work. |
+| Changed JAX source: explicitly FP32 matrix operands, public export | Full checker passes. | All tested paths return FP32 `2049`. | Sample agreement does not make this a validated automatic lowering or establish its hardware and performance properties. |
+| Hand-built normalization control: FP32 centering/squares, FP64 variance sum and division, FP32 output | Full checker passes. | JAX, independent staged reference, ReferenceEvaluator, and both ORT settings agree on variance `8388609`; a NumPy FP32-only sum gives `8388608`. | This original control establishes feasibility; the local source integration below now exports the complete callable. |
+| Private source export: the same selected-FP64 normalization, inline, in a Function, and in either conditional branch | Full checker passes after save/reload. | Six boundary/optimization cases retain exact centered values, squares, and variance, with a tolerance on normalized outputs. | This covers the stated calculation and inputs, rather than general normalization families or deployment targets. |
+| Source-PoC export: FP16 square then sum | Full checker passes; ReferenceEvaluator agrees with JAX on the sample. | JAX returns zero squares and zero sum. Both ORT settings return zero squares but sum `2**-23`. | The tested runtime fails the sample's required intermediate rounding despite successful execution. |
+| Hand-built unfused FP16 `Mul -> ReduceSum` control | Full checker passes. | The same ORT rounding discrepancy occurs. | This rules out blaming converter fusion alone; it does not identify the underlying cause. |
+| Changed JAX source: explicit FP32 multiplication, FP16 rounding, FP32 sum, FP16 result; source-PoC export | Full checker passes. | Every tested path returns zero with the original FP16 output signatures. | The arithmetic change is only a bounded source candidate, not a general exporter repair. |
+
+For normalization, exact centered values, squares, and variance are checked;
+only the final normalized output uses a tolerance. A broad relative tolerance
+on variance would accept losing the very terms the experiment is designed to
+preserve. The constant input row also has an exact zero result.
+
+The FP16 discrepancy remains when optional ORT graph optimization is disabled.
+That setting does not establish the arithmetic performed inside a kernel.
+Neither ReferenceEvaluator agreement nor the unfused control proves a general
+rounding guarantee or identifies a converter fusion bug.
+
+The [calling experiment](poc/migration_ux_findings.md) adds input normalization,
+actual tracing observations, option conflicts, and warning reporting around
+the existing entry points. Explicit FP64 inputs with x64 disabled are rejected before tracing
+on the candidate source route; a model-internal FP64 conversion can already
+have been truncated by JAX and is reported through its actual warning.
+
+The later [private integration](poc/source_integration_findings.md) replaces
+the local allocation subclass with `PrecisionPolicy.SOURCE` in the real
+`IRContext`. It reaches audited `onnx_function` and two-branch `cond` children,
+preserving selected mixed outputs, shared FP32 values, and FP32/FP64 constants
+through serialization and CPU execution. Floating `gt` and Boolean-to-INT32
+selector conversion cover the tested condition wiring. Recursive validation
+checks branches and actual retraced function bodies; loops, JIT regions, and
+other unaudited operations remain excluded.
+
+The source function variant carries flattened result abstract values and
+reconstructs structured returns. It now captures `jax_enable_x64` and
+`jax_default_matmul_precision` at each call site, replays them while tracing the
+body, and includes them in function cache signatures alongside weak flags,
+shape/dtype, and captures. Already-typed FP64 formals survive a local x64-off
+scope; recreating the formals must not truncate a value that already existed.
+The retraced result signature is checked against the original call.
+
+Review exposed two distinct faults that the local implementation now repairs:
+replaying a function under ambient rather than call-site x64 could return FP32
+`0` instead of `1`, and JAX's cached conditional branch could retain a source
+primitive during a later public legacy export. A private tracing discriminator
+now separates ordinary JAX, legacy export, and source export caches. It uses
+JAX's trace/JIT cache context through the compatibility layer rather than
+clearing caches. The
+[context regressions](../../tests/extra_tests/converter/test_source_function_context.py)
+cover both local x64 directions, unchanged result dtypes, mixed call-site
+settings in one graph, nested functions, scoped matrix requirements, failure
+restoration, and export sequences around ordinary eager/JIT execution.
+
+The [input](../../tests/extra_tests/converter/test_source_inputs.py) and
+[scope](../../tests/extra_tests/converter/test_source_scopes.py) regressions now
+live in the regular repository suite. They cover static arguments, structured
+returns, repeated aliases, and input passthrough as well as mixed types.
+The bounded source
+[matrix lowering](../../tests/extra_tests/converter/test_source_dot_precision.py),
+[normalization integration](../../tests/extra_tests/converter/test_source_normalization.py),
+and [arithmetic-boundary checks](../../tests/extra_tests/converter/test_source_arithmetic_fusion.py)
+also run there. The source path retains `Add -> Div` and `Mul -> ReduceSum`
+instead of applying the legacy Mean and ReduceSumSquare substitutions without
+an audited numerical equivalence argument.
+
+The [sample acceptance helper](../../tests/extra_tests/converter/precision_runtime_support.py)
+records the actual CPU runtime, optimization mode, architecture, thread counts,
+and comparison result. It rejects failed or unverified sample acceptance and
+keeps execution errors separate. It does not prevent export or implement a
+public target-selection API. In particular, the known FP16 square/sum model
+still exports and executes, but fails acceptance against its exact reference
+on the recorded runtimes. That numerical defect remains unresolved.
+
+Current validation totals are recorded centrally in the
+[integration findings](poc/source_integration_findings.md#recorded-validation).
+A green suite can include tests that recognize the known numerical failure;
+it does not establish model-wide or deployment-wide precision compliance.
 
 ## ONNX Feasibility and Runtime Evidence
 

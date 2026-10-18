@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from jax import core as jax_core
@@ -142,6 +144,31 @@ def ensure_batching_not_mapped_attr() -> Any:
 
 
 NOT_MAPPED: Any = ensure_batching_not_mapped_attr()
+
+
+def _export_trace_state() -> Any:
+    # JAX's control-flow tracing caches consult trace_context, rather than
+    # Python ContextVars. Keep this internal API at the compatibility boundary.
+    # State's constructor and these options agree on both supported stacks.
+    from jax._src import config
+
+    return config.State(
+        name="jax2onnx_export_trace",
+        default=None,
+        help="Private jax2onnx tracing-cache namespace.",
+        include_in_trace_context=True,
+        include_in_jit_key=True,
+    )
+
+
+_EXPORT_TRACE_STATE = _export_trace_state()
+
+
+@contextmanager
+def export_trace_scope(policy: str) -> Iterator[None]:
+    """Separate ordinary JAX, legacy export, and source export trace caches."""
+    with _EXPORT_TRACE_STATE(policy):
+        yield
 
 
 def _resolve_definitely_equal_shape() -> Callable[[Any, Any], bool]:

@@ -1,12 +1,12 @@
 # Computation Precision Target Behavior for Users
 
-Status: proposed behavior, 2026-10-17. The public selection of this behavior has
-not been specified.
+Status: proposed behavior, 2026-10-18. The public selection and release of this
+behavior have not been specified.
 
 The JAX model defines how each calculation chooses its computation and
 accumulation precision, including deliberate conversions and output dtypes.
-The export call supplies the input shapes and dtypes used to trace that model
-and selects its ONNX representation. Export preserves the resulting computation
+The export call supplies the inputs and their tracing properties and selects
+the ONNX representation. Export preserves the resulting computation
 within the capabilities of the selected ONNX version and execution target.
 
 A model may keep calculations in FP16 or BF16, use wider arithmetic for selected
@@ -38,7 +38,7 @@ cannot recover lost information.
 | Export choice | What it controls |
 | --- | --- |
 | Callable or configured model | The JAX computation to export. |
-| Input shapes and dtypes through `inputs` | The inputs JAX uses for tracing and the exported model's input interface. |
+| Input arrays or specifications through `inputs` | The shapes, dtypes, and precision-relevant properties JAX uses for tracing, and the exported model's input interface. |
 | ONNX operator-set version through `opset` | The operator schemas available for representing that computation. |
 | Supported implementation options | The ONNX representation, such as a native normalization operator or an explicit sequence of operations, subject to its numerical requirements. |
 | Names, layouts, and output format | The interface and packaging of the exported artifact. |
@@ -49,19 +49,57 @@ can change that choice during tracing. Fixed parameter types and explicit casts
 still follow their own model settings. The exported output dtype follows the
 JAX computation and its deliberate output conversions.
 
+JAX inputs can also carry a property called `weak_type`. For example,
+`jnp.asarray(2048.0)` creates a scalar whose type can adapt when combined with
+an explicitly typed operand. Export preserves that behavior when preparing
+the model for tracing. If an input property cannot be supported, export
+explains the limitation before tracing. Your JAX comparison must use the same
+input properties as well as the same shapes and dtypes.
+
+The same applies to JAX values stored in a model or passed as configuration.
+Equal stored numbers can participate in different precision choices if their
+JAX typing properties differ. Export preserves those choices when reusing a
+named function for multiple model instances.
+
 A model can return results of different dtypes. For example, it can return an
 FP64 result from one calculation and an explicitly rounded FP32 result from
 another. Both choices belong in the exported output interface.
 
 Typed input specifications retain their requested types. Shape-only
 specifications use FP32 as their documented input default. An explicit FP64
-request with JAX x64 disabled produces an error explaining the conflict. Export
-uses the caller's active JAX configuration and restores that configuration on
-return, including after a failed export.
+input request with JAX x64 disabled produces an error explaining the conflict.
+Export uses the caller's active JAX configuration and restores that configuration
+on return, including after a failed export.
+
+Local JAX settings inside the model also matter. If a model enables x64 only
+around a function call, that function must retain the same precision when
+exported as a named function. Moving a calculation behind a function boundary
+must not change it. Export explains any unsupported configuration instead of
+silently using the settings active after the local scope has ended.
+
+Warnings from JAX while tracing also belong in the export diagnostics. For
+example, with x64 disabled, JAX may turn a requested FP64 conversion inside the
+model into FP32. Enable x64 and export again if FP64 was intended. The exporter
+cannot recover that request from an already reduced value or graph.
+
+The export report distinguishes the types and precision-relevant input
+properties you supplied, those used for tracing, and the exported types. A
+warning about FP64 truncation identifies a JAX configuration problem; it does
+not mean that ONNX lacks the requested type. The public argument name used to
+select this contract is a separate interface decision.
 
 Selecting an ONNX implementation must preserve the model's numerical contract.
 For example, choosing a native operator requires suitable computation and
 accumulation behavior as well as matching input and output dtypes.
+Any implementation freedom to use wider arithmetic must respect the model's
+explicit accumulation and rounding requirements. A more accurate result on one
+sample does not by itself justify changing those choices.
+
+For example, FP16 matrix inputs may deliberately produce an FP32 result.
+Preserving the FP16 inputs while returning an FP16 result fails that request.
+Conversely, an FP32 result alone does not prove the chosen accumulation or
+hardware algorithm. A selected FP64 sum inside an otherwise FP32 calculation
+must also remain wider work, rather than just converting the final result.
 
 ## Example: exactly FP32 or at least FP32
 
@@ -143,17 +181,27 @@ Four separate checks determine whether an export meets your needs:
 4. Do the actual outputs meet the numerical tolerances established for your
    model and inputs?
 
-Results identify what was validated, what is known to be unsupported, and what
-remains unverified, together with the relevant versions and settings. Without a
-declared execution target, runtime compatibility remains unverified. Matching
-dtypes alone does not establish numerical agreement between JAX and a runtime.
+Results identify each check as validated, failed, or unverified, together with
+the reason, relevant versions, and settings. A missing implementation and a
+calculation that runs with unacceptable precision are different failures.
+Without a declared execution target, runtime compatibility remains unverified.
+Matching dtypes alone does not establish numerical agreement between JAX and
+a runtime.
 Compare representative and difficult inputs against JAX using the intended
 model and input configuration.
+
+If the model deliberately rounds an intermediate result before using it again,
+check that boundary too. A runtime may execute successfully with the expected
+input and output types yet produce a different result by rounding later.
+Skipping a required rounding boundary fails the contract; a generous tolerance
+on the final output cannot certify that boundary. Compare the intermediate and
+its later use, as well as the final answer. Passing such a chosen check does not
+promise identical results for every input or reduction order.
 
 See the [technical deployment contract](precision_target_state.md#onnx-feasibility-and-deployment-contract)
 for implementation requirements.
 
-## When the requested operation is unsupported
+## When a required check fails
 
 A validated alternative sequence of ONNX operations can implement a calculation
 if it preserves the required types, rounding, and accumulation behavior. Any
@@ -164,6 +212,12 @@ on the intended workload.
 A newer opset, a different provider, a CPU fallback, or a custom operator must
 be allowed by your deployment choices. The exporter explains the relevant
 requirements before relying on such an alternative.
+
+These rules also apply when the runtime can execute the model but fails its
+numerical requirements. That target is a known failure, rather than simply
+unverified. A successful execution must not be presented as a successful
+precision check. Without execution evidence, the target stays unverified;
+validation is needed before a deployment-readiness claim can be made.
 
 If no suitable implementation exists for the allowed target, export fails with
 the location, operation, dtypes, target, and known alternatives. Changing the

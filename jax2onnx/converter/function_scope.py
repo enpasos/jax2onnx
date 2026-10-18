@@ -13,6 +13,7 @@ class FunctionKey:
     qualified_name: str  # e.g. "pkg.module.SuperBlock"
     input_sig: tuple[tuple[tuple[object, ...], str], ...]
     capture_sig: tuple[object, ...]  # instance/config hash or tuple of static fields
+    tracing_sig: tuple[object, ...] = ()
 
 
 class FunctionRegistry:

@@ -6,6 +6,7 @@ import onnx_ir as ir
 import jax
 import numpy as np
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
@@ -474,8 +475,14 @@ class DivPlugin(PrimitiveLeafPlugin):
         rhs_val = promote_float32_operand(
             ctx, rhs_val, target_dtype=out_spec.dtype, name_hint="div_rhs_double"
         )
-        # A new consumer Cast must retain the preceding FLOAT rounding boundary.
-        allow_fusion = lhs_val is original_lhs and rhs_val is original_rhs
+        # Source arithmetic retains its operation boundaries. The legacy
+        # algebraic fusions have no source-rounding or divisor-preservation audit.
+        # A new consumer Cast also retains the preceding FLOAT rounding boundary.
+        allow_fusion = (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and lhs_val is original_lhs
+            and rhs_val is original_rhs
+        )
 
         out_aval_dtype = getattr(getattr(out_var, "aval", None), "dtype", None)
         out_is_f64 = False
