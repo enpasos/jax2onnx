@@ -108,6 +108,8 @@ class PrecisionReport:
     )
     schema_version: int = PRECISION_SCHEMA_VERSION
     profile: str = SOURCE_PRECISION_PROFILE
+    caller_numpy_dtype_promotion: str | None = None
+    caller_numpy_rank_promotion: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != PRECISION_SCHEMA_VERSION:
@@ -118,6 +120,16 @@ class PrecisionReport:
             raise PrecisionReportError(
                 f"Unsupported precision profile: {self.profile!r}"
             )
+        if self.caller_numpy_dtype_promotion is not None and (
+            not isinstance(self.caller_numpy_dtype_promotion, str)
+            or self.caller_numpy_dtype_promotion not in ("standard", "strict")
+        ):
+            raise PrecisionReportError("Invalid caller NumPy dtype promotion setting")
+        if self.caller_numpy_rank_promotion is not None and (
+            not isinstance(self.caller_numpy_rank_promotion, str)
+            or self.caller_numpy_rank_promotion not in ("allow", "warn", "raise")
+        ):
+            raise PrecisionReportError("Invalid caller NumPy rank promotion setting")
         for name in (
             "inputs",
             "traced_outputs",
@@ -258,6 +270,8 @@ def _report_from_json(payload: str) -> PrecisionReport:
             checks=checks,
             schema_version=data["schema_version"],
             profile=data["profile"],
+            caller_numpy_dtype_promotion=data.get("caller_numpy_dtype_promotion"),
+            caller_numpy_rank_promotion=data.get("caller_numpy_rank_promotion"),
         )
     except PrecisionReportError:
         raise

@@ -714,6 +714,8 @@ def _build_source_report(
     *,
     caller_x64: bool,
     caller_precision: str | None,
+    caller_dtype_promotion: str,
+    caller_rank_promotion: str,
     opset: int,
     diagnostic: bool,
 ) -> PrecisionReport:
@@ -737,6 +739,8 @@ def _build_source_report(
         opset=opset,
         caller_x64_enabled=caller_x64,
         caller_default_matmul_precision=caller_precision,
+        caller_numpy_dtype_promotion=caller_dtype_promotion,
+        caller_numpy_rank_promotion=caller_rank_promotion,
         inputs=tuple(
             PrecisionInputSummary(
                 index,
@@ -1023,6 +1027,8 @@ def _to_onnx(
         raise TypeError("diagnostic_jaxpr_validator must be callable")
     caller_x64 = bool(jax.config.x64_enabled)
     caller_precision = jax.config.jax_default_matmul_precision
+    caller_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
+    caller_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
     captured_warnings: list[PrecisionWarning] = []
     supplied: tuple[TensorProperties, ...] = ()
     trace_result: _TraceResult | None = None
@@ -1233,6 +1239,8 @@ def _to_onnx(
             caller_precision=(
                 str(caller_precision) if caller_precision is not None else None
             ),
+            caller_dtype_promotion=caller_dtype_promotion,
+            caller_rank_promotion=caller_rank_promotion,
             opset=opset,
             diagnostic=diagnostic,
         )

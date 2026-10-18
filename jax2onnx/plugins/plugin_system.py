@@ -87,12 +87,16 @@ class _SourceFunctionTrace:
     output_avals: tuple[ShapedArray, ...]
     x64_enabled: bool
     default_matmul_precision: str | None
+    numpy_dtype_promotion: str
+    numpy_rank_promotion: str
 
     @contextmanager
     def activate(self) -> Iterator[None]:
         with (
             jax.enable_x64(self.x64_enabled),
             jax.default_matmul_precision(self.default_matmul_precision),
+            jax.numpy_dtype_promotion(self.numpy_dtype_promotion),
+            jax.numpy_rank_promotion(self.numpy_rank_promotion),
         ):
             yield
 
@@ -751,6 +755,8 @@ class FunctionPlugin(PrimitivePlugin):
 
         call_x64 = bool(jax.config.x64_enabled)
         call_matmul_precision = jax.config.jax_default_matmul_precision
+        call_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
+        call_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
         outputs = jax.eval_shape(source_call, *operands)
         leaves, result_tree = jtu.tree_flatten(outputs)
         parameters[_SOURCE_TRACE] = _SourceFunctionTrace(
@@ -760,6 +766,8 @@ class FunctionPlugin(PrimitivePlugin):
             ),
             x64_enabled=call_x64,
             default_matmul_precision=call_matmul_precision,
+            numpy_dtype_promotion=call_dtype_promotion,
+            numpy_rank_promotion=call_rank_promotion,
         )
         results = self._source_primitive.bind(*operands, **parameters)
         return jtu.tree_unflatten(result_tree, results)
@@ -1177,6 +1185,8 @@ class FunctionPlugin(PrimitivePlugin):
                 ctx.precision_policy.value,
                 source_trace.x64_enabled,
                 source_trace.default_matmul_precision,
+                source_trace.numpy_dtype_promotion,
+                source_trace.numpy_rank_promotion,
                 tuple(aval.weak_type for aval in self._input_avals(eqn)),
                 tuple(capture.spec.weak_type for capture in captures.dynamic),
             )
