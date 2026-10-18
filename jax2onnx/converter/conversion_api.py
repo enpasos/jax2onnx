@@ -832,6 +832,7 @@ def _convert_to_ir(
     strict_optimizer_failures: Optional[bool] = None,
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     jaxpr_validator: Callable[[Any, int], None] | None = None,
+    trace_observer: Callable[[_TraceResult], None] | None = None,
 ) -> ir.Model:
     """Trace, lower, and finalize through one private conversion pipeline.
 
@@ -839,6 +840,10 @@ def _convert_to_ir(
     configuration and requires a validator for its bounded, static subset.
     """
     if precision_policy is PrecisionPolicy.SOURCE:
+        if inputs_as_nchw is not None and len(inputs_as_nchw) == 0:
+            inputs_as_nchw = None
+        if outputs_as_nchw is not None and len(outputs_as_nchw) == 0:
+            outputs_as_nchw = None
         strict_optimizer_failures = True
         if enable_double_precision:
             raise ValueError("Source precision cannot use legacy double promotion")
@@ -848,8 +853,6 @@ def _convert_to_ir(
             "input_params": bool(input_params),
             "inputs_as_nchw": inputs_as_nchw is not None,
             "outputs_as_nchw": outputs_as_nchw is not None,
-            "input_names": input_names is not None,
-            "output_names": output_names is not None,
             "record_primitive_calls_file": record_primitive_calls_file is not None,
             "normalization_mode": normalization_mode != "auto",
         }
@@ -886,6 +889,8 @@ def _convert_to_ir(
         output_names=output_names,
         precision_policy=precision_policy,
     )
+    if trace_observer is not None:
+        trace_observer(trace)
     jpr = trace.jaxpr
     if jaxpr_validator is not None:
         jaxpr_validator(jpr, opset)

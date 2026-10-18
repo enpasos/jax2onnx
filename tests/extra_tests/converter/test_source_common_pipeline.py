@@ -247,8 +247,6 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
         ({"input_params": {"scale": 2}}, "does not support input_params"),
         ({"inputs_as_nchw": [0]}, "does not support inputs_as_nchw"),
         ({"outputs_as_nchw": [0]}, "does not support outputs_as_nchw"),
-        ({"input_names": ["x"]}, "does not support input_names"),
-        ({"output_names": ["y"]}, "does not support output_names"),
         ({"record_primitive_calls_file": "calls.json"}, "does not support record"),
         ({"normalization_mode": "prefer_native"}, "does not support normalization"),
         ({"inputs": [()]}, "requires typed inputs"),
@@ -284,3 +282,12 @@ def test_common_source_path_rejects_disabled_x64_before_tracing() -> None:
         _source_convert(model, inputs=[jax.ShapeDtypeStruct((), np.float64)])
     assert not called
     assert not jax.config.x64_enabled
+
+
+@pytest.mark.parametrize("option", ["inputs_as_nchw", "outputs_as_nchw"])
+@pytest.mark.parametrize("empty", [[], ()])
+def test_common_source_path_empty_layout_selection_is_a_noop(
+    option: str, empty: Any
+) -> None:
+    model = _source_convert(lambda x: -x, **{option: empty})
+    assert [node.op_type for node in model.graph] == ["Neg"]

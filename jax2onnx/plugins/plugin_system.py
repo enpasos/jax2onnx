@@ -61,6 +61,7 @@ from jax2onnx.converter.precision_policy import (
     active_precision_policy,
     precision_policy_scope,
 )
+from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.converter.optimizer_graph_utils import consumers_in_graph
 from jax2onnx.converter.lowering_dispatch import (
     lower_jaxpr_with_plugins,
@@ -1294,13 +1295,20 @@ class FunctionPlugin(PrimitivePlugin):
             scope.ctx.bind_const_for_var(var, np.asarray(value))
         for var, value in zip(body.invars, child_values):
             scope.ctx.bind_value_for_var(var, value)
-        lower_jaxpr_with_plugins(
-            ctx=scope.ctx,
-            jaxpr=body,
-            registry=PLUGIN_REGISTRY,
-            source="onnx_function",
-            missing_plugin_detail="in function body",
-        )
+        try:
+            lower_jaxpr_with_plugins(
+                ctx=scope.ctx,
+                jaxpr=body,
+                registry=PLUGIN_REGISTRY,
+                source="onnx_function",
+                missing_plugin_detail="in function body",
+            )
+        except SourcePrecisionError as exc:
+            if ctx.precision_policy is not PrecisionPolicy.SOURCE:
+                raise
+            raise exc.with_context(
+                f"function {self._friendly_name_base()} ({self._qualified_target})"
+            ) from exc
         self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
         outputs = [scope.ctx.require_value_for_var(var) for var in body.outvars]
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
