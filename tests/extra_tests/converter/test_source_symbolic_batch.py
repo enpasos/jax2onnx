@@ -626,7 +626,7 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
         (other,) = export.symbolic_shape("B")
         shapes = [(batch, 3), (other, 3)]
     elif kind == "rank":
-        shapes = [("B", 3, 2)] * 2
+        shapes = [("B", 3, 2, 2)] * 2
     elif kind == "K-zero":
         shapes = [("B", 0)] * 2
     else:

@@ -49,14 +49,12 @@ def source_shape_contract(
     if static:
         return normalized_shape_dimensions(dims), None
     requirement = (
-        "static nonnegative integer dimensions or rank-two (B,K) with one atomic "
-        "leading batch variable and positive static K"
+        "static nonnegative integer dimensions or rank-two/rank-three shapes "
+        "with one atomic leading batch variable and positive static tails"
     )
-    if (
-        len(dims) != 2
-        or isinstance(dims[1], bool)
-        or not isinstance(dims[1], (int, np.integer))
-        or dims[1] <= 0
+    if len(dims) not in (2, 3) or any(
+        isinstance(dim, bool) or not isinstance(dim, (int, np.integer)) or dim <= 0
+        for dim in dims[1:]
     ):
         raise ValueError(requirement)
     batch = dims[0]
@@ -69,7 +67,7 @@ def source_shape_contract(
             symbol = atomic_symbolic_dimension(batch)
         except ValueError as exc:
             raise ValueError(f"{requirement}: {exc}") from exc
-    return (symbol[0], int(dims[1])), symbol
+    return (symbol[0], *(int(cast(int, dim)) for dim in dims[1:])), symbol
 
 
 def validate_source_shapes(shapes: Sequence[Sequence[object]]) -> object | None:

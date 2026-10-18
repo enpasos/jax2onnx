@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Any, Final, TYPE_CHECKING
 
+from flax import nnx
+import numpy as np
 import onnx
 
 from jax2onnx.precision import CheckStatus
@@ -33,9 +35,14 @@ APPROVED_SELECTOR_SHA256: Final = (
 )
 DOT_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 DOT_SOURCE_SHA256: Final = (
-    "03799a9949277f9ad934abfac1b5dee7f2d3e3510600fba2d453244ac8a24790"
+    "f3b4753d24f2e2ebb4da20919adadf2c5da203ee8af8fc9033a0bf89bd39447c"
 )
-ORACLE_VERSION: Final = "static-dot-source-counterpart-v1"
+ORACLE_VERSION: Final = "static-dot-source-counterpart-v2"
+LINEAR_SOURCE_PATH: Final = "jax2onnx/plugins/flax/nnx/linear.py"
+LINEAR_SOURCE_SHA256: Final = (
+    "3a3e17bd6d3ad1e259f0ebe293d8b303fec58e37569d5271515eef5b433660ba"
+)
+LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v1"
 
 
 def fingerprint(value: Any) -> str:
@@ -350,13 +357,323 @@ DOT_COUNTERPARTS: Final[tuple[DotCounterpart, ...]] = tuple(
 )
 
 
+@dataclass(frozen=True)
+class LinearCounterpart:
+    """Exact original native Linear with its actual captured parameter bytes."""
+
+    case: CorpusCase
+    use_bias: bool
+
+    @property
+    def identifier(self) -> str:
+        return f"{LINEAR_ORACLE_VERSION}:{self.case.origin}:{self.case.ordinal}"
+
+    @property
+    def sha256(self) -> str:
+        return fingerprint(
+            {
+                "identifier": self.identifier,
+                "mapping": asdict(self),
+                "source_sha256": LINEAR_SOURCE_SHA256,
+                "dot_source_sha256": DOT_SOURCE_SHA256,
+                "oracle_file_sha256": hashlib.sha256(
+                    Path(__file__).read_bytes()
+                ).hexdigest(),
+            }
+        )
+
+    def descriptor(self) -> dict[str, Any]:
+        return {"identifier": self.identifier, "sha256": self.sha256, **asdict(self)}
+
+    def _parameters(self, prepared: PreparedSourceCase) -> tuple[np.ndarray, ...]:
+        if type(prepared.fn) is not nnx.Linear:
+            raise ValueError("Linear counterpart requires the actual native module")
+        kernel = np.asarray(prepared.fn.kernel[...])
+        bias = prepared.fn.bias
+        if kernel.dtype != np.dtype(np.float32) or kernel.shape != (128, 64):
+            raise ValueError("Linear captured kernel dtype/shape changed")
+        if self.use_bias:
+            if bias is None:
+                raise ValueError("Linear captured bias is missing")
+            array = np.asarray(bias[...])
+            if array.dtype != np.dtype(np.float32) or array.shape != (64,):
+                raise ValueError("Linear captured bias dtype/shape changed")
+            return kernel, array
+        if bias is not None:
+            raise ValueError("Bias-free Linear must keep its actual bias None")
+        return (kernel,)
+
+    def _check_source(self, prepared: PreparedSourceCase) -> None:
+        from tests.extra_tests.converter.source_precision_support import (
+            PRESERVE_FACTORY_DTYPE,
+        )
+
+        provenance = prepared.scenario.provenance
+        if provenance is None or (provenance.origin, provenance.ordinal) != (
+            self.case.origin,
+            self.case.ordinal,
+        ):
+            raise ValueError(
+                "Linear counterpart provenance differs from the fixed raw row"
+            )
+        unresolved: list[str] = []
+        contract = canonical_contract(
+            {
+                key: value
+                for key, value in prepared.metadata.items()
+                if key not in {"testcase", "description", "context", "component"}
+            },
+            unresolved=unresolved,
+        )
+        if (
+            prepared.metadata.get("testcase") != self.case.testcase
+            or unresolved
+            or fingerprint(contract) != self.case.contract_sha256
+        ):
+            raise ValueError("Linear counterpart raw contract changed")
+        recipe = prepared.metadata["callable"]
+        if (
+            recipe._ctor is not nnx.Linear
+            or recipe._args != (128, 64)
+            or recipe._dtype is not None
+            or recipe._instance is not None
+            or prepared.scenario.model_dtype is not PRESERVE_FACTORY_DTYPE
+        ):
+            raise ValueError(
+                "Linear counterpart requires the unchanged raw constructor recipe"
+            )
+        if (
+            hashlib.sha256(
+                (REPOSITORY_ROOT / LINEAR_SOURCE_PATH).read_bytes()
+            ).hexdigest()
+            != LINEAR_SOURCE_SHA256
+            or hashlib.sha256(
+                (REPOSITORY_ROOT / DOT_SOURCE_PATH).read_bytes()
+            ).hexdigest()
+            != DOT_SOURCE_SHA256
+        ):
+            raise ValueError("Linear counterpart source module bytes changed")
+        arrays = self._parameters(prepared)
+        count = len(arrays)
+
+        def var(index: int, shape: list[int | str]) -> dict[str, Any]:
+            return {"var": index, "aval": ["float32", shape, False]}
+
+        product = var(count + 1, ["B", 64])
+        output = var(count + 3, ["B", 64]) if self.use_bias else product
+        equations = [
+            {
+                "primitive": "dot_general",
+                "inputs": [var(count, ["B", 128]), var(0, [128, 64])],
+                "outputs": [product],
+                "params": {
+                    "dimension_numbers": [[[1], [0]], [[], []]],
+                    "out_sharding": None,
+                    "precision": None,
+                    "preferred_element_type": None,
+                },
+                "effects": [],
+            }
+        ]
+        if self.use_bias:
+            reshaped = var(count + 2, [1, 64])
+            equations.extend(
+                [
+                    {
+                        "primitive": "reshape",
+                        "inputs": [var(1, [64])],
+                        "outputs": [reshaped],
+                        "params": {
+                            "dimensions": None,
+                            "new_sizes": [1, 64],
+                            "sharding": None,
+                        },
+                        "effects": [],
+                    },
+                    {
+                        "primitive": "add",
+                        "inputs": [product, reshaped],
+                        "outputs": [output],
+                        "params": {},
+                        "effects": [],
+                    },
+                ]
+            )
+        expected = {
+            "inputs": [["float32", ["B", 128], False]],
+            "consts": [["float32", list(a.shape), False] for a in arrays],
+            "const_payloads": [
+                {
+                    "array_dtype": "float32",
+                    "shape": list(a.shape),
+                    "sha256": hashlib.sha256(a.tobytes(order="C")).hexdigest(),
+                    "weak_type": False,
+                }
+                for a in arrays
+            ],
+            "outputs": [output],
+            "equations": equations,
+            "effects": [],
+            "unresolved_parameters": [],
+        }
+        if json.loads(prepared.original_trace_json) != expected:
+            raise ValueError(
+                "Linear counterpart requires exact native typed topology and captured bytes"
+            )
+        if prepared.settings.default_matmul_precision is not None:
+            raise ValueError(
+                "Linear counterpart requires unchanged raw matmul settings"
+            )
+
+    def _check_model(
+        self, prepared: PreparedSourceCase, model: onnx.ModelProto
+    ) -> None:
+        graph = model.graph
+        if (
+            len(graph.input) != 1
+            or len(graph.output) != 1
+            or model.functions
+            or graph.sparse_initializer
+        ):
+            raise ValueError("Linear counterpart forbids extra ports or Functions")
+        for value, shape in zip(
+            (*graph.input, *graph.output), (("B", 128), ("B", 64)), strict=True
+        ):
+            tensor = value.type.tensor_type
+            actual = tuple(
+                dim.dim_value if dim.HasField("dim_value") else dim.dim_param or None
+                for dim in tensor.shape.dim
+            )
+            if tensor.elem_type != onnx.TensorProto.FLOAT or actual != shape:
+                raise ValueError("Linear counterpart boundary dtype/shape changed")
+        nodes = list(graph.node)
+        ops = [n.op_type for n in nodes]
+        if any(n.domain for n in nodes) or (
+            ops not in (["MatMul", "Reshape", "Add"], ["MatMul", "Add"])
+            if self.use_bias
+            else ops != ["MatMul"]
+        ):
+            raise ValueError(
+                "Linear counterpart requires exact native MatMul/bias structure"
+            )
+        tensors = {t.name: onnx.numpy_helper.to_array(t) for t in graph.initializer}
+        if len(tensors) != len(graph.initializer):
+            raise ValueError("Linear counterpart has duplicate initializer names")
+        arrays = self._parameters(prepared)
+        matmul = nodes[0]
+        if (
+            matmul.attribute
+            or len(matmul.input) != 2
+            or len(matmul.output) != 1
+            or matmul.input[0] != graph.input[0].name
+        ):
+            raise ValueError("Linear MatMul does not consume the actual runtime input")
+        used = {matmul.input[1]}
+
+        def exact(name: str, expected: np.ndarray) -> None:
+            actual = tensors.get(name)
+            if (
+                actual is None
+                or actual.dtype != expected.dtype
+                or actual.shape != expected.shape
+                or actual.tobytes(order="C") != expected.tobytes(order="C")
+            ):
+                raise ValueError(
+                    "Linear initializer differs from actual captured parameters"
+                )
+
+        exact(matmul.input[1], arrays[0])
+        if self.use_bias:
+            add = nodes[-1]
+            if (
+                add.attribute
+                or len(add.output) != 1
+                or len(add.input) != 2
+                or add.input[0] != matmul.output[0]
+            ):
+                raise ValueError("Linear native bias Add is disconnected or reordered")
+            if ops == ["MatMul", "Reshape", "Add"]:
+                reshape = nodes[1]
+                if (
+                    len(reshape.input) != 2
+                    or len(reshape.output) != 1
+                    or reshape.attribute
+                    or reshape.output[0] != add.input[1]
+                ):
+                    raise ValueError("Linear bias reshape is disconnected or permuted")
+                exact(reshape.input[0], arrays[1])
+                exact(reshape.input[1], np.asarray([1, 64], np.int64))
+                used.update(reshape.input)
+            else:
+                exact(add.input[1], arrays[1].reshape(1, 64))
+                used.add(add.input[1])
+            result = add.output[0]
+        else:
+            result = matmul.output[0]
+        if result != graph.output[0].name or set(tensors) != used:
+            raise ValueError(
+                "Linear counterpart has unused constants or disconnected output"
+            )
+
+    def check(
+        self, prepared: PreparedSourceCase, model: onnx.ModelProto
+    ) -> CorpusStructureEvidence:
+        callback = prepared.metadata.get("post_check_onnx_graph")
+        raw_status, raw_detail = "absent", "No original structural callback"
+        if callback is not None:
+            try:
+                passed = bool(callback(model))
+                raw_status = "passed" if passed else "failed"
+                raw_detail = "Original raw callback returned " + str(passed)
+            except Exception as exc:
+                raw_status, raw_detail = "error", f"{type(exc).__name__}: {exc}"
+        try:
+            if self not in LINEAR_COUNTERPARTS or raw_status != "failed":
+                raise ValueError(
+                    "Unreviewed Linear mapping or changed raw Gemm callback outcome"
+                )
+            self._check_source(prepared)
+            self._check_model(prepared, model)
+            status, detail = (
+                CheckStatus.VALIDATED,
+                "Exact native Linear parameters and MatMul/bias structure checked; numerics unverified",
+            )
+        except Exception as exc:
+            status, detail = CheckStatus.FAILED, str(exc)
+        return CorpusStructureEvidence(
+            self.identifier, self.sha256, raw_status, raw_detail, status, detail
+        )
+
+
+LINEAR_COUNTERPARTS: Final[tuple[LinearCounterpart, ...]] = (
+    LinearCounterpart(
+        CorpusCase(
+            "plugin::nnx.linear",
+            0,
+            "linear_symbolic_batch",
+            "8c70628910c9d9bc30737e3bb959dafc3dea41c24eecfd7cc1853f076519a515",
+        ),
+        True,
+    ),
+    LinearCounterpart(
+        CorpusCase(
+            "plugin::nnx.linear",
+            3,
+            "linear_no_bias",
+            "06c91c76e73a3daced2f70b65cb56d9e59797008354dababdcb3d4d2bebc77ef",
+        ),
+        False,
+    ),
+)
+
+
 def counterpart_for(
     origin: str, ordinal: int, contract_sha256: str
-) -> DotCounterpart | None:
+) -> DotCounterpart | LinearCounterpart | None:
     return next(
         (
             item
-            for item in DOT_COUNTERPARTS
+            for item in (*DOT_COUNTERPARTS, *LINEAR_COUNTERPARTS)
             if (item.case.origin, item.case.ordinal, item.case.contract_sha256)
             == (origin, ordinal, contract_sha256)
         ),

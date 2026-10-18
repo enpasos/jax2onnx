@@ -70,7 +70,7 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
 
 
 SCENARIOS: Final[tuple[str, str]] = ("raw-x64-off", "raw-x64-on")
-CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v2"
+CORPUS_CONTROL_REVISION: Final = "source-static-add-ordinary-dot-v3"
 _CONTROL_CONTRACTS: Final = {
     "plugin::jax.numpy.add": "39f16c5258b9354829fd94c8825deb0e8a389215d0be1fcced026de8ae82a922",
     "plugin::dot_general": "6957d2d4640c79d15f46c7e930fcbd67467e3b278929165cf8619e6f88c7f8d4",
@@ -916,9 +916,9 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
         elif (
             not isinstance(structure, Mapping)
             or structure.get("counterpart_identifier")
-            != "static-dot-source-counterpart-v1:plugin::dot_general:0"
+            != "static-dot-source-counterpart-v2:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
-            != "6a8f289e93735fe3e8f927a002c61b66fd90646df308d9133228286f12b2c5ea"
+            != "7a75bc04f47a300181f7df403311378dbeb3393f2f17e4b71f5c9ba376952637"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

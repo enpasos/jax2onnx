@@ -2,10 +2,9 @@
 
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
-The persisted identifier also covers one audited symbolic expansion: rank-two
-equal-shape floating Add with one shared atomic leading batch variable, including
-actual named Function bodies and returned aliases. Other symbolic rules remain
-separate migration work.
+The persisted identifier includes finite rank-two/rank-three leading-batch Add
+and canonical MatMul, plus the static bias reshape, actual named Function bodies
+and returned aliases. Other symbolic rules remain separate migration work.
 
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns floating input normalization. Recursive callbacks may
@@ -359,6 +358,9 @@ def _validate_dot(
             "ordinary matrix preferred result type is outside the profile",
             "absent or same-dtype preferred_element_type",
         )
+        if any(value.symbol is not None for value in (*inputs, *outputs)):
+            _validate_leading_batch_dot(eqn, inputs, outputs, site)
+            return
         _validate_ordinary_dot(eqn, inputs, outputs, site)
         return
     site.require(
@@ -390,6 +392,130 @@ def _validate_dot(
     _same_shape(outputs[0].shape, lhs.shape[:-1] + (rhs.shape[-1],), site)
 
 
+def _validate_leading_batch_dot(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    lhs, rhs = inputs
+    result = outputs[0]
+    free_batch = (
+        len(lhs.shape) == len(rhs.shape) == 2
+        and lhs.symbol is not None
+        and rhs.symbol is None
+    )
+    paired_batch = (
+        len(lhs.shape) == len(rhs.shape) == 3
+        and lhs.symbol is not None
+        and rhs.symbol == lhs.symbol
+    )
+    site.require(
+        free_batch or paired_batch,
+        "symbolic matrix dimensions are outside the profile",
+        "(B,K)@(K,N) or (B,M,K)@(B,K,N) with one shared native batch scope",
+    )
+    dimensions = (
+        (((1,), (0,)), ((), ())) if free_batch else (((2,), (1,)), ((0,), (0,)))
+    )
+    actual_dimensions = eqn.params["dimension_numbers"]
+    site.require(
+        isinstance(actual_dimensions, (tuple, list))
+        and len(actual_dimensions) == 2
+        and all(
+            isinstance(pair, (tuple, list))
+            and len(pair) == 2
+            and all(
+                isinstance(axes, (tuple, list))
+                and all(
+                    isinstance(axis, (int, np.integer))
+                    and not isinstance(axis, (bool, np.bool_))
+                    for axis in axes
+                )
+                for axes in pair
+            )
+            for pair in actual_dimensions
+        ),
+        "malformed symbolic matrix axes",
+        "non-Boolean integer contracting and batch axes",
+        category="lowering-defect",
+    )
+    site.require(
+        actual_dimensions == dimensions,
+        "symbolic matrix axes are outside the profile",
+        "canonical final contracting axes and only the declared leading batch axis",
+    )
+    site.require(
+        all(
+            isinstance(dim, int) and not isinstance(dim, bool) and dim > 0
+            for dim in (*lhs.shape[1:], *(rhs.shape if free_batch else rhs.shape[1:]))
+        ),
+        "symbolic matrix static dimensions are outside the profile",
+        "positive static M/K/N extents",
+    )
+    site.require(
+        lhs.shape[-1] == rhs.shape[-2],
+        "inconsistent symbolic matrix contracting dimensions",
+        "equal positive static contracting sizes",
+        category="lowering-defect",
+    )
+    site.require(
+        result.symbol == lhs.symbol and result.dtype == lhs.dtype,
+        "symbolic matrix result scope or dtype differs from its operands",
+        "the same native batch scope and common FP32/FP64 dtype",
+        category="lowering-defect",
+    )
+    site.require(
+        bool(eqn.outvars[0].aval.weak_type)
+        == all(bool(var.aval.weak_type) for var in eqn.invars),
+        "symbolic matrix result weakness differs from its native operands",
+        "the native dot_general weak-type rule without rebuilding avals",
+        category="lowering-defect",
+    )
+    _same_shape(result.shape, lhs.shape[:-1] + (rhs.shape[-1],), site)
+
+
+def _validate_bias_reshape(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1, 1, site)
+    _params(
+        eqn,
+        {"new_sizes", "dimensions"},
+        site,
+        required={"new_sizes", "dimensions"},
+    )
+    site.require(
+        not set(eqn.params) - {"new_sizes", "dimensions", "sharding", "out_sharding"}
+        and eqn.params.get("sharding") is None
+        and eqn.params.get("out_sharding") is None
+        and eqn.params["dimensions"] is None,
+        "reshape attributes or placement are outside the profile",
+        "only a static unpermuted bias reshape with unspecified placement",
+    )
+    source, target = inputs[0], outputs[0]
+    _float_values((source, target), site)
+    site.require(
+        len(source.shape) == 1
+        and isinstance(source.shape[0], int)
+        and source.shape[0] > 0,
+        "reshape dimensions are outside the profile",
+        "a positive static floating bias [N] reshaped to [1,N]",
+    )
+    expected = (1, source.shape[0])
+    site.require(
+        eqn.params["new_sizes"] == expected
+        and all(type(dim) is int for dim in eqn.params["new_sizes"]),
+        "reshape sizes are outside the profile",
+        "resolved new_sizes=(1,N) with positive static N",
+    )
+    site.require(
+        source.dtype == target.dtype
+        and bool(eqn.invars[0].aval.weak_type) == bool(eqn.outvars[0].aval.weak_type),
+        "bias reshape result dtype or weakness differs from its operand",
+        "the original floating dtype and native weakness",
+        category="lowering-defect",
+    )
+    _same_shape(target.shape, expected, site)
+
+
 def _validate_equation(
     eqn: Any,
     site: _Site,
@@ -410,9 +536,11 @@ def _validate_equation(
     name = site.primitive
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
-        not symbolic or name == "add" or bool(name and name.startswith("onnx_fn::")),
+        not symbolic
+        or name in {"add", "dot_general"}
+        or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
-        "equal-shape floating Add, named Function signatures, and returned aliases",
+        "shared leading-batch Add/MatMul, named Function signatures, and returned aliases",
     )
     if name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
@@ -443,14 +571,34 @@ def _validate_equation(
             category="lowering-defect",
         )
         if symbolic:
+            symbolic_inputs = [value for value in inputs if value.symbol is not None]
             site.require(
-                inputs[0].symbol is not None
-                and inputs[0].symbol == inputs[1].symbol == outputs[0].symbol
-                and inputs[0].shape == inputs[1].shape,
-                "symbolic Add operands do not share the same (B,K) shape",
-                "equal operand shapes with the same native batch variable",
+                bool(symbolic_inputs),
+                "symbolic Add operands do not provide a native batch variable",
+                "at least one operand with the declared native B",
+                category="lowering-defect",
             )
-            shape = inputs[0].shape
+            batch = symbolic_inputs[0]
+            site.require(
+                all(
+                    value.shape == batch.shape
+                    and value.symbol == batch.symbol
+                    or value.symbol is None
+                    and value.shape == (1, *batch.shape[1:])
+                    for value in inputs
+                )
+                and outputs[0].symbol == batch.symbol,
+                "symbolic Add operands do not share the same leading-batch shape",
+                "equal rank-two/rank-three tails with the same native B or a literal leading extent 1",
+            )
+            site.require(
+                bool(eqn.outvars[0].aval.weak_type)
+                == all(bool(var.aval.weak_type) for var in eqn.invars),
+                "symbolic Add result weakness differs from its native operands",
+                "the native floating Add weak-type rule",
+                category="lowering-defect",
+            )
+            shape = batch.shape
         else:
             try:
                 shape = tuple(np.broadcast_shapes(*(value.shape for value in inputs)))
@@ -558,6 +706,8 @@ def _validate_equation(
         )
     elif name == "dot_general":
         _validate_dot(eqn, inputs, outputs, site)
+    elif name == "reshape":
+        _validate_bias_reshape(eqn, inputs, outputs, site)
     elif name == "bitcast_convert_type":
         _arity(eqn, 1, 1, site)
         _params(eqn, {"new_dtype"}, site, required={"new_dtype"})

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
 import json
@@ -28,8 +28,15 @@ import onnx_ir as ir
 from jax2onnx import user_interface
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
-from jax2onnx.converter.source_profile import SourcePrecisionError
-from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.converter.source_profile import (
+    SourcePrecisionError,
+    validate_source_jaxpr,
+)
+from jax2onnx.converter.source_representation import (
+    representation_for_aval,
+    source_shape_contract,
+    validate_source_shapes,
+)
 from jax2onnx.precision import (
     CheckStatus,
     PrecisionCheck,
@@ -45,6 +52,7 @@ if TYPE_CHECKING:
     from tests.extra_tests.converter.source_precision_corpus_oracles import (
         CorpusStructureEvidence,
         DotCounterpart,
+        LinearCounterpart,
     )
 
 
@@ -400,6 +408,46 @@ def _argument(value: Any, spec: jax.ShapeDtypeStruct) -> jax.Array:
     return argument
 
 
+def _bind_source_shape(
+    actual: tuple[int, ...],
+    declared: tuple[object, ...],
+    bindings: dict[str, int],
+    *,
+    bind: bool,
+) -> tuple[int, ...]:
+    shape, _ = source_shape_contract(declared)
+    if len(actual) != len(shape):
+        raise SourcePreparationError(
+            "Source input/reference rank differs from its declaration"
+        )
+    concrete = []
+    for extent, expected in zip(actual, shape, strict=True):
+        if (
+            not isinstance(extent, Integral)
+            or isinstance(extent, (bool, np.bool_))
+            or extent < 0
+        ):
+            raise SourcePreparationError(
+                "Concrete sample extents must be nonnegative integers"
+            )
+        size = int(extent)
+        if isinstance(expected, str):
+            if size <= 0:
+                raise SourcePreparationError("Source sample batch must be positive")
+            if expected not in bindings and bind:
+                bindings[expected] = size
+            if bindings.get(expected) != size:
+                raise SourcePreparationError(
+                    "Source input/reference must match one shared batch binding"
+                )
+        elif size != expected:
+            raise SourcePreparationError(
+                "Source input/reference changed a static dimension"
+            )
+        concrete.append(size)
+    return tuple(concrete)
+
+
 def _input_data(
     metadata: Mapping[str, Any],
     scenario: SourceScenario,
@@ -460,13 +508,22 @@ def _input_data(
         )
     for spec in specs:
         _require_preserved_dtype(spec.dtype)
-    normalized = tuple(
-        conversion_api._as_sds_list(
-            specs, False, precision_policy=PrecisionPolicy.SOURCE
+    try:
+        normalized = tuple(
+            conversion_api._as_sds_list(
+                specs, False, precision_policy=PrecisionPolicy.SOURCE
+            )
         )
-    )
+    except ValueError as exc:
+        raise SourcePreparationError(str(exc)) from exc
+    bindings: dict[str, int] = {}
+    shapes = scenario.concrete_shapes
+    if shapes is not None:
+        shapes = tuple(
+            _bind_source_shape(tuple(shape), tuple(spec.shape), bindings, bind=True)
+            for shape, spec in zip(shapes, normalized, strict=True)
+        )
     if supplied is None:
-        shapes = scenario.concrete_shapes
         if shapes is None:
             if any(
                 not all(isinstance(dim, Integral) for dim in spec.shape)
@@ -519,11 +576,9 @@ def _input_data(
             raise SourcePreparationError(
                 "Source input sample shape differs from its declaration"
             )
-        for actual, declared in zip(argument.shape, spec.shape, strict=True):
-            if isinstance(declared, Integral) and actual != declared:
-                raise SourcePreparationError(
-                    "Source input sample changed a static dimension"
-                )
+        _bind_source_shape(
+            tuple(argument.shape), tuple(normalized[index].shape), bindings, bind=True
+        )
     return normalized, arguments
 
 
@@ -583,6 +638,15 @@ def prepare_source_case(
             return target(*values, **params)
 
         closed = jax.make_jaxpr(original)(*specs)
+        validate_source_shapes(
+            [tuple(spec.shape) for spec in specs]
+            + [tuple(var.aval.shape) for var in closed.jaxpr.outvars]
+        )
+        bindings: dict[str, int] = {}
+        for spec, argument in zip(specs, arguments, strict=True):
+            _bind_source_shape(
+                tuple(argument.shape), tuple(spec.shape), bindings, bind=True
+            )
         reference = jax.device_get(original(*arguments))
         outputs, tree = jax.tree_util.tree_flatten(reference)
         snapshots = []
@@ -596,13 +660,7 @@ def prepare_source_case(
                 "Original JAX trace/evaluation output arities differ"
             )
         for value, properties in zip(snapshots, traced_outputs, strict=True):
-            if (
-                all(isinstance(dim, int) for dim in properties.shape)
-                and value.shape != properties.shape
-            ):
-                raise SourcePreparationError(
-                    "Original JAX trace/evaluation output shapes differ"
-                )
+            _bind_source_shape(value.shape, properties.shape, bindings, bind=False)
             if value.dtype.name != properties.dtype:
                 raise SourcePreparationError(
                     "Original JAX trace/evaluation output dtypes differ"
@@ -751,7 +809,7 @@ def run_source_case(
     optimization: Literal["disabled", "all"] | None = "disabled",
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     _prepared: PreparedSourceCase | None = None,
-    _corpus_counterpart: DotCounterpart | None = None,
+    _corpus_counterpart: DotCounterpart | LinearCounterpart | None = None,
 ) -> SourceCaseResult:
     prepared = _prepared
     try:
@@ -761,6 +819,75 @@ def run_source_case(
             raise SourcePreparationError(
                 "Prepared evidence belongs to another scenario"
             )
+        body = getattr(prepared.original_jaxpr, "jaxpr", prepared.original_jaxpr)
+        if _prepared is not None and any(
+            any(not isinstance(dim, Integral) for dim in item.shape)
+            for item in (
+                *prepared.input_specs,
+                *prepared.traced_inputs,
+                *prepared.traced_outputs,
+                *(var.aval for var in (*body.invars, *body.constvars, *body.outvars)),
+            )
+        ):
+            if not (
+                len(prepared.input_specs)
+                == len(prepared.arguments)
+                == len(prepared.traced_inputs)
+                == len(body.invars)
+                and len(prepared.traced_outputs)
+                == len(prepared.reference_outputs)
+                == len(body.outvars)
+            ):
+                raise SourcePreparationError(
+                    "Prepared symbolic input/reference counts differ from the original trace"
+                )
+            validate_source_shapes(
+                [tuple(spec.shape) for spec in prepared.input_specs]
+                + [
+                    tuple(var.aval.shape)
+                    for var in (*body.invars, *body.constvars, *body.outvars)
+                ]
+            )
+            prepared_bindings: dict[str, int] = {}
+            for spec, argument, properties, var in zip(
+                prepared.input_specs,
+                prepared.arguments,
+                prepared.traced_inputs,
+                body.invars,
+                strict=True,
+            ):
+                if (
+                    properties != _properties(spec)
+                    or properties != _properties(var.aval)
+                    or np.dtype(argument.dtype).name != properties.dtype
+                    or bool(getattr(argument, "weak_type", False)) != spec.weak_type
+                ):
+                    raise SourcePreparationError(
+                        "Prepared symbolic input dtype/weakness differs from its original declaration"
+                    )
+                _bind_source_shape(
+                    tuple(argument.shape),
+                    tuple(spec.shape),
+                    prepared_bindings,
+                    bind=True,
+                )
+            for properties, reference, var in zip(
+                prepared.traced_outputs,
+                prepared.reference_outputs,
+                body.outvars,
+                strict=True,
+            ):
+                array = np.asarray(reference)
+                if (
+                    properties != _properties(var.aval)
+                    or array.dtype.name != properties.dtype
+                ):
+                    raise SourcePreparationError(
+                        "Prepared symbolic reference dtype differs from the original trace"
+                    )
+                _bind_source_shape(
+                    array.shape, properties.shape, prepared_bindings, bind=False
+                )
     except Exception as exc:
         return SourceCaseResult(
             "source-preparation",
@@ -781,10 +908,28 @@ def run_source_case(
         unsupported.append("normalization_mode")
     if prepared.metadata.get("export_mode", "standard") != "standard":
         unsupported.append("export_mode")
-    if unsupported or any(
-        (diagnostic_jaxpr_validator is None and not is_source_float(spec.dtype))
-        or any(not isinstance(dim, Integral) for dim in spec.shape)
+    symbolic = any(
+        any(not isinstance(dim, Integral) for dim in spec.shape)
         for spec in prepared.input_specs
+    )
+    symbolic_excluded = False
+    if symbolic:
+        try:
+            validate_source_jaxpr(
+                getattr(prepared.original_jaxpr, "jaxpr", prepared.original_jaxpr),
+                int(prepared.metadata.get("opset_version", 23)),
+            )
+        except SourcePrecisionError as exc:
+            # Keep excluded symbolic sources at the existing admission boundary.
+            # Other defects retain the facade's normal owning error category.
+            symbolic_excluded = exc.category == "profile-exclusion"
+    if (
+        unsupported
+        or symbolic_excluded
+        or any(
+            diagnostic_jaxpr_validator is None and not is_source_float(spec.dtype)
+            for spec in prepared.input_specs
+        )
     ):
         return SourceCaseResult(
             "profile-admission",
@@ -820,6 +965,15 @@ def run_source_case(
                 if raw_callback_status == "failed":
                     raise AssertionError("Raw metadata structural callback failed")
         else:
+            from tests.extra_tests.converter.source_precision_corpus_oracles import (
+                DotCounterpart,
+                LinearCounterpart,
+            )
+
+            if type(_corpus_counterpart) not in (DotCounterpart, LinearCounterpart):
+                raise SourcePreparationError(
+                    "Corpus structure requires an actual reviewed DotCounterpart or LinearCounterpart"
+                )
             corpus_structure = _corpus_counterpart.check(prepared, model)
             raw_callback_status = corpus_structure.raw_callback_status
             if not corpus_structure.accepted:
@@ -883,16 +1037,31 @@ def run_source_case(
     samples = []
     if not skipped:
         assert prepared.criteria is not None
+        bindings: dict[str, int] = {}
+        for spec, value in zip(prepared.input_specs, prepared.arguments, strict=True):
+            _bind_source_shape(
+                tuple(value.shape), tuple(spec.shape), bindings, bind=True
+            )
+
+        def encode(value: Any, properties: TensorProperties) -> np.ndarray:
+            array = np.asarray(value)
+            shape = _bind_source_shape(
+                array.shape, properties.shape, bindings, bind=False
+            )
+            return representation_for_aval(
+                replace(properties, shape=shape)
+            ).encode_array(array)
+
         samples.append(
             SourceSample(
                 tuple(
-                    representation_for_aval(spec).encode_array(np.asarray(value))
+                    encode(value, _properties(spec))
                     for spec, value in zip(
                         prepared.input_specs, prepared.arguments, strict=True
                     )
                 ),
                 tuple(
-                    representation_for_aval(properties).encode_array(value)
+                    encode(value, properties)
                     for properties, value in zip(
                         prepared.traced_outputs, prepared.reference_outputs, strict=True
                     )

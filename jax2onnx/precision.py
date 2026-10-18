@@ -614,14 +614,15 @@ def _source_batch_boundaries(
         labels = [dim for dim in item.shape if isinstance(dim, str)]
         if labels:
             if (
-                len(item.shape) != 2
+                len(item.shape) not in (2, 3)
                 or len(labels) != 1
                 or item.shape[0] != labels[0]
                 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
                 or item.dtype not in {None, "float16", "bfloat16", "float32", "float64"}
-                or not isinstance(item.shape[1], int)
-                or isinstance(item.shape[1], bool)
-                or item.shape[1] <= 0
+                or any(
+                    not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
+                    for dim in item.shape[1:]
+                )
                 or (symbol is not None and symbol != labels[0])
             ):
                 raise PrecisionReportError("Unsupported SOURCE symbolic batch contract")

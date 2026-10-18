@@ -11,6 +11,11 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import (
+    normalized_shape_dimensions,
+    source_shape_contract,
+    validate_source_shapes,
+)
 from jax2onnx.converter.typing_support import (
     LoweringContextProtocol,
     NativeLoweringContext,
@@ -326,6 +331,11 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             and dtypes[0] == dtypes[1] == dtypes[2]
             and (preferred is None or np.dtype(preferred) == dtypes[2])
         ):
+            shapes = [tuple(var.aval.shape) for var in (*eqn.invars, out_var)]
+            contracts = [source_shape_contract(shape) for shape in shapes]
+            if any(symbol is not None for _, symbol in contracts):
+                self._lower_source_leading_batch(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
+                return
             self._lower_source_ordinary(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
             return
         if (
@@ -379,6 +389,89 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         output = ctx.allocate_value_for_var(out_var, name_hint="dot_float32")
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(out_var, result)
+
+    def _lower_source_leading_batch(
+        self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
+    ) -> None:
+        """Emit one canonical MatMul after proving actual native batch scopes."""
+        native_shapes = [tuple(var.aval.shape) for var in (*eqn.invars, *eqn.outvars)]
+        validate_source_shapes(native_shapes)
+        contracts = [source_shape_contract(shape) for shape in native_shapes]
+        (lhs_shape, lhs_symbol), (rhs_shape, rhs_symbol), (out_shape, out_symbol) = (
+            contracts
+        )
+        if any(symbol is not None and symbol[1] is None for _, symbol in contracts):
+            raise NotImplementedError(
+                "SOURCE dot_general: unverified symbolic declarations are outside the audited private subset"
+            )
+        if lhs_symbol is None or out_symbol != lhs_symbol:
+            raise ValueError("SOURCE dot_general: native result batch scope differs")
+        free_batch = len(lhs_shape) == len(rhs_shape) == 2 and rhs_symbol is None
+        paired_batch = (
+            len(lhs_shape) == len(rhs_shape) == 3 and rhs_symbol == lhs_symbol
+        )
+        dimensions = (
+            (((1,), (0,)), ((), ())) if free_batch else (((2,), (1,)), ((0,), (0,)))
+        )
+        actual_dimensions = eqn.params["dimension_numbers"]
+        if not (
+            isinstance(actual_dimensions, (tuple, list))
+            and len(actual_dimensions) == 2
+            and all(
+                isinstance(pair, (tuple, list))
+                and len(pair) == 2
+                and all(
+                    isinstance(axes, (tuple, list))
+                    and all(
+                        isinstance(axis, (int, np.integer))
+                        and not isinstance(axis, (bool, np.bool_))
+                        for axis in axes
+                    )
+                    for axes in pair
+                )
+                for pair in actual_dimensions
+            )
+        ):
+            raise ValueError("SOURCE dot_general: malformed symbolic matrix axes")
+        if (
+            not (free_batch or paired_batch)
+            or actual_dimensions != dimensions
+            or any(
+                isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0
+                for dim in (
+                    *lhs_shape[1:],
+                    *(rhs_shape if free_batch else rhs_shape[1:]),
+                )
+            )
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: symbolic matrix form is outside the audited private subset"
+            )
+        if lhs_shape[-1] != rhs_shape[-2] or out_shape != lhs_shape[:-1] + (
+            rhs_shape[-1],
+        ):
+            raise ValueError(
+                "SOURCE dot_general: symbolic result/contracting dimensions differ"
+            )
+        lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
+        output = ctx.allocate_value_for_var(
+            eqn.outvars[0], name_hint="dot_batch_matrix"
+        )
+        for value, expected in (
+            (lhs, lhs_shape),
+            (rhs, rhs_shape),
+            (output, out_shape),
+        ):
+            if (
+                _value_ir_dtype(value) != dtype
+                or value.shape is None
+                or normalized_shape_dimensions(tuple(value.shape)) != expected
+            ):
+                raise ValueError(
+                    "SOURCE dot_general: physical symbolic dtype/shape differs from aval"
+                )
+        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
+        ctx.bind_value_for_var(eqn.outvars[0], result)
 
     def _lower_source_ordinary(
         self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType

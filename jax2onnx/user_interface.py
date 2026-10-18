@@ -510,7 +510,7 @@ def _source_input_properties(
             requested_dtypes=() if dtype is None else (dtype,),
             opset=opset,
             requirement=str(exc),
-            action="use static inputs or the audited shared leading (B,K) batch declaration; broader symbolic migration remains pending",
+            action="use static inputs or the audited shared leading rank-two/rank-three batch declaration; broader symbolic migration remains pending",
         ) from exc
     return TensorProperties(
         None,
@@ -532,9 +532,7 @@ def _validate_source_inputs(
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
         shape = tuple(spec.shape)
-        requirement = (
-            "static shapes or shared leading (B,K), and FP16/BF16/FP32/FP64 inputs"
-        )
+        requirement = "static shapes or shared leading rank-two/rank-three batches, and FP16/BF16/FP32/FP64 inputs"
         action = "use typed floating inputs within the finite audited shape contract"
         if not diagnostic and dtype not in {
             "float16",
@@ -563,7 +561,7 @@ def _validate_source_inputs(
             category="profile-exclusion",
             location="inputs",
             opset=opset,
-            requirement="static shapes or one shared atomic leading batch variable in rank two",
+            requirement="static shapes or one shared atomic leading batch variable in rank two/three with positive static tails",
             action="retain one unconstrained native scope and the same batch variable; broader symbolic migration remains pending",
         ) from exc
 
