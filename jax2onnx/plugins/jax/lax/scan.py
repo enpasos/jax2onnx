@@ -11,6 +11,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import lax
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -729,7 +730,25 @@ class ScanPlugin(PrimitiveLeafPlugin):
             aval = getattr(var, "aval", None)
             if aval is not None:
                 aval_shape = tuple(getattr(aval, "shape", ()))
-                if idx >= num_carry and aval_shape:
+                if (
+                    ctx.precision_policy is PrecisionPolicy.SOURCE
+                    and idx >= num_carry
+                    and length == 0
+                    and all(isinstance(dim, (int, np.integer)) for dim in aval_shape)
+                ):
+                    # A zero-trip Loop cannot recover relaxed body dimensions:
+                    # runtimes may return (0, 0) for a required (0, N) result.
+                    # Its scan result is exactly the typed, statically empty
+                    # tensor. Keep lowering/validating the body and carries.
+                    val = ctx.bind_const_for_var(
+                        var, np.empty(aval_shape, dtype=aval.dtype)
+                    )
+                    node_outputs[out_idx] = val
+                if (
+                    ctx.precision_policy is PrecisionPolicy.LEGACY
+                    and idx >= num_carry
+                    and aval_shape
+                ):
                     first_dim = aval_shape[0]
                     first_dim_resolved: Union[int, str]
                     builder_stacktrace_enabled = False
@@ -765,7 +784,9 @@ class ScanPlugin(PrimitiveLeafPlugin):
                 desired_np_dtype: np.dtype[Any] = np.dtype(
                     getattr(aval, "dtype", np.float32)
                 )
-                if np.issubdtype(desired_np_dtype, np.integer):
+                if ctx.precision_policy is PrecisionPolicy.LEGACY and np.issubdtype(
+                    desired_np_dtype, np.integer
+                ):
                     target_enum = (
                         ir.DataType.INT64
                         if ctx.builder.enable_double_precision

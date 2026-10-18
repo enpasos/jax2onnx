@@ -12,6 +12,7 @@ import numpy as np
 import onnx_ir as ir
 from jax import tree_util
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._loop_extent_meta import set_axis0_override
@@ -294,6 +295,11 @@ class ForiLoopPlugin(PrimitiveLeafPlugin):
     def binding_specs(cls) -> list[Any]:
         def _patch(orig: Any) -> Any:
             cls._ORIG_FORI_LOOP = orig
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                # JAX owns carry promotion, weak types, bound validation,
+                # and the index aval. Its native scan/while trace uses the
+                # same shared lowerers as explicit scan/while calls.
+                return orig
 
             def _wrapped(lower: Any, upper: Any, body_fun: Any, init_val: Any) -> Any:
                 return cls._fori_loop_binding(lower, upper, body_fun, init_val)

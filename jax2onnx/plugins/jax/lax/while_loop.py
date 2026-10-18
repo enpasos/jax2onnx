@@ -10,6 +10,7 @@ import numpy as np
 import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -1061,7 +1062,11 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, val)
             ctx.bind_value_for_var(var, val)
 
-        if eqn.invars and all(_is_literal(v) for v in eqn.invars):
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and eqn.invars
+            and all(_is_literal(v) for v in eqn.invars)
+        ):
             for var in eqn.outvars:
                 aval = getattr(var, "aval", None)
                 if aval is None:
