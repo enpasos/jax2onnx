@@ -17,13 +17,17 @@ On the local migration branch, the shared private export path now carries
 reports through names and file formats, and its artifacts reach the separate
 CPU sample-validation helper. Exact typed constants are also preserved in that
 path. These reviewed changes are committed, and the integrated primary-stack
-regression passes 4,995 tests. The new inventory/reference tests are excluded
-from that run; after two preparation fixes they separately pass 53 tests on each
-stack and independent review. Complex-constant storage is also repaired and
-committed. Complex-number boundaries and broader loop behavior remain implementation work;
-focused probes already identify changed integer/Boolean carries and a lost
-static scan dimension. The [work plan](precision_implementation_work_plan.md)
-tracks those gaps. Public calls still use the behavior described below.
+regression passes all 5,363 tests, including the new inventory/reference tests;
+after two preparation fixes those also separately pass 53 tests on each
+stack and independent review. The reference infrastructure and complex-constant
+repair are committed. Typed complex boundaries, exact integer/Boolean
+comparisons and selected loop repairs now have independent acceptance and local
+commits. A fixed source-scenario
+plan retains all baseline rows, but the full corpus has not passed source
+validation. Complex loops, local promotion settings and broader options remain
+open work. Diagnostic artifacts explicitly keep lowering unverified. The
+[work plan](precision_implementation_work_plan.md) tracks those gates. Public
+calls still use the behavior described below.
 
 ## Choosing the Export Setting
 

@@ -20,17 +20,25 @@ public baseline analyzed below.
 The branch now has committed shared-facade report, naming, serialization and
 CPU-sample integration (`3b3a48e0`), the separate report/evidence module
 (`ccc861b0`), and exact typed initializer handling (`b2974c3d`). The integrated
-primary-stack regression passes 4,995 tests. It excludes the new inventory and
-original-JAX reference modules, whose review found typed-scalar fingerprint loss
+primary-stack regression passes all 5,363 tests, including the new inventory and
+original-JAX reference modules. Their review found typed-scalar fingerprint loss
 and input narrowing during preparation. Both defects are repaired; the modules
-pass 53 focused tests on each stack and independent review, without establishing
-source coverage of the full inventory. The shared complex-constant storage
-repair is committed at `3e904b46`; its 99 helper/packing and 69 affected generated
-tests pass on both stacks. Logical/physical boundary work is in progress.
-A narrow read-only probe on both
-stacks also identifies int32/int64 and Boolean carry defects in while/fori/scan,
-plus loss of a static scan output extent. Selected mixed JIT and loop probes
-pass, without establishing audited support for those families. The
+pass 53 focused tests on each stack and independent review and are committed at
+`206277ac`, without establishing source coverage of the full inventory. The
+shared complex-constant storage repair is committed at `3e904b46`; its 99
+helper/packing and 69 affected generated
+tests pass on both stacks. The logical/physical boundary and discrete-comparison
+repairs now pass the same 976-test selection on each stack; independent review
+passes their 148 new tests. Noncomplex while/fori/scan repairs retain original
+trace types, static extents and zero-trip output shapes; their 60 new cases pass
+independent review, alongside separate primary/older-stack selections recorded
+in the work plan. The fixed 3,604-cell source-scenario plan is also reviewed.
+The comparison, boundary and loop repairs are committed at `52389e29`,
+`530561d1` and `1461e4b9`; the scenario-plan checkpoint accompanies this update.
+Diagnostic artifacts explicitly retain unverified lowering; neither these
+samples nor the plan establish whole-corpus or family-wide support.
+Complex loop representations and local dtype/rank-promotion replay remain open,
+along with other existing options and operations. The
 [work plan](precision_implementation_work_plan.md) records the remaining gates.
 
 For observable behavior and export choices, read the

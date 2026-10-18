@@ -20,12 +20,17 @@ optimizations respect the source calculation. The shared private conversion
 pipeline and separate CPU sample-validation API are committed; integration with
 all existing export options and calculations remains required work.
 The private facade's naming, report, file-format and CPU sample integration is
-reviewed and committed. The integrated primary-stack regression passes 4,995
-tests. The new inventory/reference modules separately pass 53 focused tests on
+reviewed and committed. The full integrated primary-stack regression passes
+5,363 tests. The new inventory/reference modules separately pass 53 focused tests on
 each stack and independent review; the full source corpus still needs execution
-and reconciliation. Complex-constant storage is repaired, while broader complex
-boundaries and loops remain in progress. This remains internal work, not a new
-public precision choice.
+and reconciliation. The reference infrastructure and complex-constant repair
+are committed. Typed complex boundaries, exact integer/Boolean comparisons,
+selected loop repairs and a fixed scenario plan have now passed independent
+review and are included in that full run. The repairs are committed locally;
+the scenario-plan checkpoint accompanies this update.
+Complex loops, local promotion settings and the remaining export options and
+calculations still need migration. Diagnostic artifacts do not claim audited
+lowering. This remains internal work, not a new public precision choice.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -64,9 +69,12 @@ settings and refuses to accept a failed or untested numerical sample. The known
 FP16 square/sum result remains a failure on the recorded runtimes. Passing the
 tests includes recognizing that failure; it is not a deployment certificate.
 
-The next work inventories every existing conversion capability, builds an
-independent JAX comparison path, and migrates the remaining operators, scopes,
-and options. Runtime failures remain visible under their recorded criteria.
+The next work runs the frozen scenario plan in bounded batches, completes
+unresolved recipes and comparison criteria, and migrates the remaining
+operators, scopes and options. Missing comparison criteria remain unverified;
+they are not silently replaced with exact agreement. Integer and Boolean
+results must remain exact even when floating outputs use a tolerance.
+Runtime failures remain visible under their recorded criteria.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

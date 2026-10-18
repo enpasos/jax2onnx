@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 import hashlib
 from numbers import Integral
 from typing import Any, Literal
@@ -39,17 +40,44 @@ from jax2onnx.precision import (
 )
 
 
+class FactoryDtypePolicy(Enum):
+    PRESERVE = "preserve-original-factory"
+
+
+PRESERVE_FACTORY_DTYPE = FactoryDtypePolicy.PRESERVE
+
+
+@dataclass(frozen=True)
+class SourceProvenance:
+    origin: str
+    ordinal: int
+
+    def __post_init__(self) -> None:
+        if not self.origin or self.ordinal < 0:
+            raise ValueError(
+                "Source provenance needs a registration and nonnegative ordinal"
+            )
+
+
 @dataclass(frozen=True)
 class SourceScenario:
     name: str
     caller_x64_enabled: bool
-    model_dtype: Any
+    model_dtype: Any = PRESERVE_FACTORY_DTYPE
     input_specs: tuple[jax.ShapeDtypeStruct, ...] | None = None
     input_values: tuple[Any, ...] | None = None
     concrete_shapes: tuple[tuple[int, ...], ...] | None = None
     default_input_dtype: Any = np.float32
     default_matmul_precision: str | None = None
     criteria: SampleCriteria | None = None
+    provenance: SourceProvenance | None = None
+    require_reviewed_criteria: bool = False
+
+    @property
+    def cell_identity(self) -> tuple[str, int, str] | None:
+        if self.provenance is None:
+            return None
+        return (self.provenance.origin, self.provenance.ordinal, self.name)
 
 
 @dataclass(frozen=True)
@@ -64,7 +92,7 @@ class PreparedSourceCase:
     traced_outputs: tuple[TensorProperties, ...]
     reference_outputs: tuple[np.ndarray, ...]
     output_tree: str
-    criteria: SampleCriteria
+    criteria: SampleCriteria | None
 
 
 @dataclass(frozen=True)
@@ -136,9 +164,13 @@ def _properties(aval: Any) -> TensorProperties:
     )
 
 
-def _criteria(metadata: Mapping[str, Any], scenario: SourceScenario) -> SampleCriteria:
+def _criteria(
+    metadata: Mapping[str, Any], scenario: SourceScenario
+) -> SampleCriteria | None:
     if scenario.criteria is not None:
         return scenario.criteria
+    if scenario.require_reviewed_criteria:
+        return None
     if "rtol" in metadata or "atol" in metadata:
         if "rtol" not in metadata or "atol" not in metadata:
             raise SourcePreparationError(
@@ -161,6 +193,72 @@ def _typed_input_spec(value: Any) -> jax.ShapeDtypeStruct | None:
         np.dtype(value.dtype),
         weak_type=bool(getattr(value, "weak_type", False)),
     )
+
+
+def raw_source_scenarios(
+    metadata: Mapping[str, Any],
+    provenance: SourceProvenance,
+    *,
+    criteria: SampleCriteria | None = None,
+) -> tuple[SourceScenario, SourceScenario]:
+    """Freeze one original input recipe for both raw caller configurations.
+
+    This does not construct models, trace JAX, or infer a numerical criterion.
+    Shape-only metadata uses a strong FP32 input unless it explicitly declares
+    a dtype. Untyped values without shapes need a separately reviewed recipe.
+    """
+    supplied = metadata.get("input_values")
+    shapes = metadata.get("input_shapes")
+    dtypes = metadata.get("input_dtypes")
+    if shapes is not None:
+        if dtypes is not None and len(shapes) != len(dtypes):
+            raise SourcePreparationError("input_shapes and input_dtypes lengths differ")
+        specs = tuple(
+            jax.ShapeDtypeStruct(
+                tuple(shape), np.float32 if dtypes is None else dtypes[index]
+            )
+            for index, shape in enumerate(shapes)
+        )
+    elif supplied is not None:
+        typed_specs = tuple(_typed_input_spec(value) for value in supplied)
+        if any(spec is None for spec in typed_specs):
+            raise SourcePreparationError(
+                "Untyped raw values without declared shapes need a reviewed fixed input recipe"
+            )
+        specs = tuple(spec for spec in typed_specs if spec is not None)
+    else:
+        raise SourcePreparationError("Raw metadata must declare inputs, including []")
+
+    def snapshot(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            copied = value.copy()
+            copied.setflags(write=False)
+            return copied
+        if isinstance(value, np.generic):
+            return value.copy()
+        if (
+            isinstance(value, (jax.Array, bool, int, float, complex, str))
+            or value is None
+        ):
+            return value
+        if isinstance(value, (list, tuple)):
+            return tuple(snapshot(item) for item in value)
+        raise SourcePreparationError("Raw input value needs a reviewed snapshot recipe")
+
+    values = None if supplied is None else tuple(snapshot(value) for value in supplied)
+    scenarios = tuple(
+        SourceScenario(
+            name,
+            enabled,
+            input_specs=specs,
+            input_values=values,
+            criteria=criteria,
+            provenance=provenance,
+            require_reviewed_criteria=True,
+        )
+        for name, enabled in (("raw-x64-off", False), ("raw-x64-on", True))
+    )
+    return scenarios[0], scenarios[1]
 
 
 def _require_preserved_dtype(dtype: Any) -> None:
@@ -286,7 +384,12 @@ def _input_data(
             raise SourcePreparationError(
                 "Concrete sample shape count differs from source inputs"
             )
-        seed = hashlib.sha256("|".join((*identity, scenario.name)).encode()).digest()
+        seed_identity = (
+            f"{scenario.provenance.origin}\0{scenario.provenance.ordinal}"
+            if scenario.provenance is not None
+            else "|".join((*identity, scenario.name))
+        )
+        seed = hashlib.sha256(seed_identity.encode()).digest()
         rng = np.random.default_rng(int.from_bytes(seed[:8], "big"))
         generated = []
         for shape, spec in zip(shapes, specs, strict=True):
@@ -362,7 +465,12 @@ def prepare_source_case(
         specs, arguments = _input_data(metadata, scenario, identity)
         target = metadata.get("callable")
         if target is not None and getattr(target, "__jax2onnx_factory__", False):
-            target = target.with_dtype(scenario.model_dtype).instantiate()
+            recipe = (
+                target
+                if scenario.model_dtype is PRESERVE_FACTORY_DTYPE
+                else target.with_dtype(scenario.model_dtype)
+            )
+            target = recipe.instantiate()
         if not callable(target):
             raise SourcePreparationError(
                 "Raw metadata must supply a callable or recognized constructor recipe"
@@ -561,20 +669,20 @@ def run_source_case(
             PrecisionCheck("source-audit", CheckStatus.FAILED, str(exc)),
             prepared,
         )
-    skipped = bool(metadata.get("skip_numeric_validation"))
+    skipped = bool(metadata.get("skip_numeric_validation")) or prepared.criteria is None
+    samples = []
+    if not skipped:
+        assert prepared.criteria is not None
+        samples.append(
+            SourceSample(
+                tuple(np.asarray(value) for value in prepared.arguments),
+                prepared.reference_outputs,
+                prepared.criteria,
+            )
+        )
     validation = validate_source_samples(
         model,
-        samples=(
-            []
-            if skipped
-            else [
-                SourceSample(
-                    tuple(np.asarray(value) for value in prepared.arguments),
-                    prepared.reference_outputs,
-                    prepared.criteria,
-                )
-            ]
-        ),
+        samples=samples,
         optimization=None if skipped else optimization,
     )
     return SourceCaseResult(

@@ -26,12 +26,18 @@ computation and export preserves it throughout. The bounded `source-static-v1`
 path remains internal and is an intermediate checkpoint. The shared converter
 and CPU evidence module are committed; full migration is still in progress.
 The private facade's report, naming, serialization, and CPU sample integration
-are committed at `3b3a48e0`. The integrated primary-stack regression run passes
-4,995 tests, including the committed initializer and deterministic-fixture
-repairs. It excludes the new inventory/reference modules, which separately pass
-53 tests on each supported stack and independent review after two oracle fixes.
-The complex-constant storage repair is committed at `3e904b46`; broader complex
-boundaries and recursive scopes remain in progress.
+are committed at `3b3a48e0`. The full integrated primary-stack regression run
+passes 5,363 tests, including the inventory/reference modules and the newly
+reviewed representation, discrete-comparison, loop and scenario-planning tests.
+The reference infrastructure is committed at `206277ac`. The complex-constant storage
+repair is committed at `3e904b46`. The fixed source-scenario plan, typed complex
+boundaries, exact discrete comparisons, and finite noncomplex loop repairs have
+now passed independent review. The comparison, boundary and loop repairs are
+committed at `52389e29`, `530561d1` and `1461e4b9`; the scenario-plan checkpoint
+accompanies this update. Complex loops, local promotion settings, remaining export
+options and broader operation/model coverage remain open. The scenario plan
+does not establish source-corpus acceptance, and diagnostic artifacts retain
+unverified lowering status.
 These checkpoints do not complete existing-functionality coverage.
 
 The current-state documents preserve the analysis of `main` at `fae17822` on

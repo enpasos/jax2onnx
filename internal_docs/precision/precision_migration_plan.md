@@ -9,11 +9,17 @@ it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 The shared private facade, its actual-artifact CPU integration, canonical
 initializer repair, and deterministic attention fixtures have passed independent
-review and are committed. The integrated primary-stack regression passes 4,995
-tests; it excludes the new inventory/reference modules. Those modules separately
+review and are committed. The full integrated primary-stack regression passes
+5,363 tests, including the new inventory/reference modules. Those modules separately
 pass 53 focused tests on each stack and independent review after both identified
-oracle fixes. The complex-constant storage repair is also committed; broader
-logical/physical boundaries and loop migration remain open.
+oracle fixes and are committed at `206277ac`. Complex-constant storage is
+committed at `3e904b46`. Typed logical/physical boundaries, exact discrete sample
+comparison, finite noncomplex loop repairs and the fixed source-scenario plan
+are independently accepted. The comparison, boundary and loop repairs are
+committed at `52389e29`, `530561d1` and `1461e4b9`; the scenario-plan checkpoint
+accompanies this update. Diagnostic lowering remains unverified; product admission and public
+behavior are unchanged. Complex loops, local promotion context, remaining
+options and broader operator/model coverage remain open.
 PR #275 is merged. Private source policy now preserves weak inputs, selected
 function/branch calculations, call-time x64 and matrix-precision settings, and
 isolation from cached legacy/ordinary JAX traces. Optimizer selection follows
@@ -123,6 +129,9 @@ The immediate review follow-ups have reached this checkpoint:
 | Preserve preferred FP32 matrix result | Local FP32 operand casts and FP32 MatMul preserve the original FP16 inputs for the admitted rank-2/rank-3 default-precision cases. | Other shapes, types, precision algorithms, and deployment costs need separate evidence. Public legacy behavior is unchanged. |
 | Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
+| Preserve typed representations | Reviewed logical/physical descriptors encode actual complex payloads, preserve ordinary integer/Boolean boundaries, and reject JAX input canonicalization before tracing. | The private diagnostic profile keeps lowering unverified; this does not audit all complex operators or loops. |
+| Preserve noncomplex loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; while/scan retain typed carries, static extents and correctly shaped empty results. | Complex loop formals/scanned shapes and broader recursive scope contracts still require review. |
+| Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
 
 The [accepted work plan](precision_implementation_work_plan.md) connects this
 private foundation to the existing export boundary. Its internal `source-static-v1`
@@ -175,6 +184,14 @@ metadata and deterministic factories, but build independent JAX references:
 the legacy generator rewrites dtypes and x64 settings and cannot serve as the
 source oracle. Frozen per-case comparison criteria follow strict output dtype
 and shape checks. Skipped numerical validation remains unverified.
+The initial scenario plan leaves missing, one-sided and legacy-variant-only
+criteria unresolved; it does not invent exact comparisons. Freeze reviewed
+criteria before numerical runs. Integer and Boolean outputs always require
+exact values, including mixed outputs whose floating values use tolerances.
+Named-function dtype/rank-promotion replay is C3b; complex loop representation
+is C3c; remaining facade options are C4. These and phases D/E/F remain open.
+Preexisting negative contracts remain distinct from positive capabilities that
+the migration must preserve.
 
 ## Stage 1 Inventory and freeze observable behavior
 

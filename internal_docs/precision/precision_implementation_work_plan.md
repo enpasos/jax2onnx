@@ -6,8 +6,12 @@ technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 The bounded private facade, canonical initializer repair, and deterministic
 attention fixtures are reviewed and committed. The integrated primary-stack
-regression passes; inventory/reference infrastructure has passed independent
-review, while source-corpus execution and broader migration remain open.
+regression passes; inventory/reference infrastructure is committed. A fixed
+source-scenario plan, logical/physical boundary checks, exact discrete sample
+comparison, and finite noncomplex loop repairs have passed independent review;
+the repairs are committed and the full integrated run passes all 5,363 tests.
+The scenario-plan checkpoint accompanies this update.
+Source-corpus execution and broader migration remain open.
 The completed normal `to_onnx` call will have one source-preserving contract.
 The bounded source path remains internal during migration. The committed public
 facade still has legacy behavior; no release version is assigned.
@@ -62,6 +66,10 @@ functionality beyond the existing baseline and a generic runtime capability
 database are outside it. Runtime-specific failures require a validated permitted
 alternative or a precise failed-target diagnostic; they do not require a claim
 of bitwise agreement on every provider or input.
+Record preexisting negative or unsupported contracts separately from positive
+conversion capabilities. Preserving the baseline does not require turning every
+previously rejected operation into new functionality; an existing implementation
+gap still must not be described as an ONNX impossibility.
 
 ## Coverage baseline and acceptance accounting
 
@@ -98,7 +106,7 @@ normalization, and 29 skipping numerical validation. Recorded opsets span
 full migration boundary. These are inventory counts, not source-pass counts.
 Optional MaxText/MaxDiffusion registrations are absent from this import
 environment and require separate prepared discovery before the denominator is
-closed. Phase B must commit the reproducible inventory and its provenance.
+closed. B1's committed inventory retains those unresolved discovery entries.
 
 | Migration classification | Completion meaning |
 | --- | --- |
@@ -239,6 +247,8 @@ expected outputs, and `SampleCriteria`. Exact, tolerant, and bitwise criteria
 have distinct meanings; tolerant criteria require explicit `rtol` and `atol`.
 Check output dtypes and shapes strictly. A tolerant final-output check cannot
 certify an unobserved required rounding boundary.
+Integer and Boolean outputs require exact values under every criterion;
+floating tolerances cannot excuse a changed discrete result in a mixed tuple.
 
 The initial target is the installed ONNX Runtime CPU provider, with checked
 provider selection and one thread in each pool. Select `optimization="disabled"`
@@ -293,9 +303,13 @@ planning work is separate from production-code ownership.
 | M5: private facade integration | After M2-M4 acceptance, exercise normal facade normalization, reports/warnings, names, and proto/IR/file serialization through one policy-aware facade body; full checker and save/reload evidence. Keep the bounded mode internal. | Committed | `3b3a48e0` |
 | M6: phase A acceptance | Validate and review actual facade artifacts through the CPU sample API, complete integrated checks, record remaining inventory work, and commit the checkpoint. The overall goal stays active. | Bounded integration reviewed; integrated standard regression passed | `3b3a48e0` |
 | B prerequisite: deterministic fixtures | Replace two unseeded attention input-fixture producers with isolated named-seed generators; preserve Gaussian domain, dtype/shape, causal masks, and numerical criteria without touching global RNG state. | Committed | `32554a9e` |
-| B1/B2: baseline and source oracle | Preserve raw row provenance and typed contract fingerprints; prepare independent original-JAX references without legacy coercion; reject input canonicalization before model construction. | Independently accepted; checkpoint pending | Pending |
+| B1/B2: baseline and source oracle | Preserve raw row provenance and typed contract fingerprints; prepare independent original-JAX references without legacy coercion; reject input canonicalization before model construction. | Committed | `206277ac` |
+| B3: fixed initial scenario plan | Preserve original factory configuration and typed inputs in paired x64-off/on cells; freeze provenance, criteria status, and bounded plan/prepare/product stages without a broad corpus run. | Independently accepted; included in this update | This checkpoint |
 | C1: canonical initializers | Carry SOURCE policy into builders; preserve typed payloads and exact duplicate identity, require typed floating coefficients, and validate actual function Constant payload/metadata on reuse. | Committed | `b2974c3d` |
 | C2a: complex constant storage | Pack actual initializer and Constant tensor payloads together with metadata, preserving the selected component dtype and checking cache consistency before mutation. | Committed | `3e904b46` |
+| Sample comparison: discrete outputs | Compare integer/Boolean values exactly even when floating outputs use tolerance; retain strict dtype/shape checks and artifact-bound acceptance. | Committed | `52389e29` |
+| C2b: typed representation boundary | Encode logical complex values into actual typed real/imaginary payloads; check physical boundaries exactly, reject input canonicalization before tracing, and label private diagnostic artifacts as unaudited. | Committed | `530561d1` |
+| C3a: finite noncomplex loops | Preserve original JAX fori tracing, typed while/scan carries and static extents; materialize correctly shaped zero-trip scanned outputs after body validation. | Committed | `1461e4b9` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -344,9 +358,12 @@ the full registered-case denominator.
 | --- | --- | --- |
 | B1: reproducible baseline | A compact tracked manifest plus `scripts/source_precision_inventory.py`; raw registry/example provenance and contract snapshots, name collisions, original versus added regression identities, and optional integration status. | Regeneration is deterministic; no row disappears because its display name collides or its optional environment is unavailable. Changes to types, shapes, supplied values, factory recipes, or comparison criteria are detected. |
 | B2: independent source oracle | Raw metadata preparation under explicit caller x64, model/factory dtype, input properties, concrete symbolic sizes, and matrix precision; original JAX trace/reference; frozen per-case criteria. | No legacy input/output coercion. Diagnostic probes outside audited product admission remain `audit_pending` even when they execute successfully. |
+| B3: measured source scenarios | Freeze raw factory/input recipes and both caller x64 contexts before execution; run explicit bounded stages and retain every unexecuted or unresolved cell. | Preparation, artifact creation, audited lowering, and numerical acceptance retain separate evidence. Missing comparison criteria prevent numerical acceptance. |
 | C1: canonical values and builders | Reviewed repair for initializer payload/type policy, duplicate constants, child contexts, and function capture tests; actual inline/nested relu6 regression without broadening product admission. | SOURCE preserves supplied typed payloads, including an FP64 rounding witness, NaN bits and signed zero; policy survives child/function builders. Preserve existing legacy comparisons privately. |
 | C2: logical/physical boundaries and value roles | One typed representation descriptor shared by core checks, facade reports and reference/feed adapters; ordinary integer/Boolean results and existing complex pairs; input canonicalization checks. | Identity mappings remain exact; complex64/complex128 map explicitly to FP32/FP64 with a trailing real/imaginary axis. Encode actual constant payloads as well as metadata. Explicit input requests that JAX would narrow fail before tracing. |
-| C3: recursive scopes and local configuration | Existing transformed-function capture tests, mixed-type nested-loop regression, while masking, fori captures, dynamic scan trip counts, and precision-relevant JAX configuration used by the baseline. | Floating and integer carry types, constants, local configuration, and results retain their source contracts in each nested body. Audit explicit Boolean-directed integer casts in scan and configuration-dependent trace/cache keys; unfinished migration remains open work. |
+| C3a: noncomplex loop repair | Original JAX fori tracing, mixed-type nested-loop regression, typed while/scan carries, and static/zero-trip scanned results. | Original trace dtype, shape and weak typing agree before lowering; actual artifact samples retain discrete values and output extents. This finite packet does not establish complex-loop support. |
+| C3b: local promotion context | Capture, specialize on, and replay actual dtype/rank-promotion settings in named functions; record caller settings without inventing values for older reports. | Local standard/allow scopes survive strict/raise callers; original negative behavior, cache isolation and state restoration remain intact on both stacks. |
+| C3c: complex loop representations | Audit scan/while/fori complex formals, carries and scanned outputs against the shared logical/physical descriptor, including empty results and nested functions. | Physical channel axes and component dtypes survive every loop boundary with correct actual payloads. C2b and C3a passing separately cannot close this packet. |
 | C4: remaining facade options | Dynamic batch/symbolic names, function call parameters, recording, NCHW models, normalization options, and web packaging. | Existing options preserve the same contract through logical/physical adapters and serialization; none falls back to legacy precision rules. |
 | D/E: frameworks and complete models | Linen CNN/parameterized MLP; NNX GRU, dynamic NCHW attention/residual models and decoder; Equinox inference models; GPT/ViT examples; scientific mixed-FP32/FP64 variance. | Run actual model compositions with their original contracts and independent JAX references. Structural success and CPU/browser numerical evidence remain separate. |
 
@@ -368,6 +385,47 @@ relaxed boundary checker. With x64 disabled, explicit int64, uint64 and complex1
 requests require the same canonicalization check as explicit FP64 requests.
 C3 audits concrete dtype-default and promotion settings as they affect existing
 cases; it does not require a generic framework for every JAX configuration flag.
+The recorded local dtype/rank-promotion failures are C3b work: named-function
+retracing currently loses a model-local `standard` or `allow` scope beneath an
+outer `strict` or `raise` setting. Other existing transformed scopes and dynamic
+loop contracts remain in the phase C inventory beyond the finite C3a packet.
+C3b will add optional `caller_numpy_dtype_promotion` and
+`caller_numpy_rank_promotion` report fields with actual caller values. Older
+schema-1 artifacts read missing fields as `None` (not recorded), without inferred
+defaults. Function specialization records and replays its actual local settings
+separately from the top-level caller context.
+
+The initial B3 grid retains all 1,802 rows as 3,604 provenance-distinct cells,
+one for each caller x64 setting. Both cells retain the same typed input bytes
+and original factory recipe; a requested model-dtype override is a separate,
+explicit scenario. The 63 opaque recipes remain unresolved. Seventeen raw rows
+have both general `rtol` and `atol`; the other 1,785 have unresolved criteria.
+Missing, one-sided, or legacy-variant-only criteria are not converted into an
+implicit exact requirement. Freeze reviewed family criteria and case exceptions
+before numerical runs, preserving integer/Boolean exactness and original dtype
+checks. Existing legacy tolerances are review evidence, not a coercing oracle.
+
+Default B3 invocation only writes a plan. Preparation and product-export stages
+require an explicit bounded selection; neither establishes corpus acceptance.
+The first diagnostic batch is fixed at ordinal zero for 18 registered origins:
+add, convert_element_type, sin, reshape, transpose, gather, reduce_sum,
+dot_general, conv_general_dilated, jit, pjit, lax.fori_loop, while, scan, complex,
+real, imag, and fft. Both x64 contexts produce 36 cells per stack; the other
+3,568 remain scheduled. Record environment, actual tracing settings, prepared
+input/reference fingerprints and original signatures with stage evidence.
+No numerical session is part of this first artifact-only batch.
+
+Diagnostic lowering uses the shared facade and a real recursive validator.
+Its fixed `source-diagnostic-v1` report keeps lowering `unverified` even when
+representation checks and samples pass. The strict reader rejects a diagnostic
+report claiming validated lowering. Audited product admission remains unchanged;
+successful probes do not silently broaden `source-static-v1`.
+
+Before broad phase D/F acceptance, audit required SOURCE finalization and
+function-attribute processing for swallowed errors. A required transformation
+failure must not leave a successful lowering claim merely because the artifact
+still passes the schema checker. This audit remains open alongside C4 options
+and the wider D/E/F gates.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -376,7 +434,7 @@ Checkpoint evidence on 2026-10-18:
   SOURCE regardless of legacy environment settings.
 - The integrated primary-stack standard regression run passes 4,995 tests
   (13,102 warnings, 387.20 seconds). It includes M3-M6, C1, and the deterministic
-  fixtures, and excludes the two new B1/B2 test modules still under review.
+  fixtures, and excludes the then-new B1/B2 test modules.
   Their focused checks are separate evidence; this is not the final source
   corpus or phase F acceptance run.
 - M4's dedicated evidence module passes 40 tests on each supported stack.
@@ -395,34 +453,55 @@ Checkpoint evidence on 2026-10-18:
 - The two deterministic attention fixture recipes pass three dedicated tests
   on each stack. Independent combined facade, sample, common-core and fixture
   verification passes 112 tests.
-- Package typing covers 540 files; RNG registration, global Ruff, path markers,
-  strict MkDocs, and the 61 document links pass. The M3, C1, M5/M6, and fixture
-  commits pass the actual pinned repository hooks. These checks do not certify
-  the remaining migration or phase F.
+- At the phase A checkpoint, package typing covers 540 files; RNG registration,
+  global Ruff, path markers, strict MkDocs and document links pass. The M3, C1,
+  M5/M6, and fixture commits pass the actual pinned repository hooks. These
+  checks do not certify the remaining migration or phase F.
 - B1/B2 review found two reference-preparation defects: NumPy FP64 scalars lost
   their typed identity in contract fingerprints, and inferred typed inputs could
   be narrowed by JAX before their original dtype was recorded. Both are repaired.
   The 53 focused tests pass on each supported stack and in independent primary
   review, including exact scalar bytes, pre-conversion rejection, no model
   invocation on invalid input, and caller-state restoration. Fresh read-only
-  baseline comparisons pass on both stacks; independent review confirms SHA256
+  baseline comparisons pass on both stacks; at `206277ac`, independent review
+  confirms SHA256
   `fd3a7c50b8fa75dacc0c8cb62b5f00c495e42b86a51a70bdf50c1de6e341829e`.
   The baseline retains 1,802 raw rows, 63 unresolved opaque recipes, 752 original
   handwritten-test anchors and 90 migration additions. Optional environments
   and whole-corpus source execution remain unverified. The infrastructure is
-  accepted; its checkpoint commit is pending.
+  accepted and committed at `206277ac`. Later migration-test additions require
+  an explicit baseline refresh without dropping or changing raw contracts.
 - C2a's shared complex-constant repair is accepted and committed at `3e904b46`.
   The helper/packing selection passes 99 tests and the affected generated
   complex-operation selection passes 69 tests on each supported stack.
-  Independent review passes the 93 new packing tests. C2b's logical/physical
-  boundary descriptor and input canonicalization work remain in progress.
-- A finite read-only C3 probe on both supported stacks finds the same open
-  defects: literal int32 while results widen to int64; patched fori tracing
-  changes typed int32 and Boolean carries; scan narrows int64 results and loses
-  a known static output extent when `xs=None`. Selected mixed JIT, local-x64,
-  while and captured-FP64 scan probes pass. These probes bypass audited facade
-  admission and establish no product support. Reverse scan also fails on the
-  legacy path; that is an existing implementation gap, not an ONNX impossibility.
+  Independent review passes the 93 new packing tests.
+- B3's initial plan/preparation packet passes 53 focused tests on each stack
+  and independent review. This includes 14 new plan tests and the 39 existing
+  source-preparation checks. No broad source-corpus run or B3 numerical run has
+  occurred.
+- C2b and the separate discrete-comparison repair pass the same 976-test
+  selection on each supported stack. Independent review runs all 138 new
+  representation tests and 10 real-artifact discrete sample tests. Package
+  typing covers 541 files; RNG, Ruff, pinned Black and builder policy checks
+  pass. These changes are committed at `530561d1` and `52389e29`.
+- C3a repairs the probed noncomplex while/fori/scan dtype and static-shape
+  defects and the runtime zero-trip shape defect. Independent review passes
+  its 60 new source-loop cases. Primary-stack selections pass 193 broader tests
+  and 135 new/generated tests; the older-stack selection passes 269 tests.
+  These selections overlap and have different totals; they are not summed or
+  presented as identical matrices. The repair is committed at `1461e4b9`. Complex loops,
+  further recursive scopes and local promotion settings remain open work.
+  Reverse scan is already rejected by the legacy path: record that preexisting
+  unsupported contract separately, without calling it an ONNX impossibility.
+- The full integrated primary-stack run, with no test exclusions, passes 5,363
+  tests (13,104 warnings, 502.81 seconds), including B1/B2 and these packets.
+  Global Ruff, path markers and strict MkDocs also pass. This is regression
+  evidence, not source-corpus or phase F acceptance.
+- The explicitly refreshed inventory retains all 1,802 raw rows, unchanged
+  registered contracts, 63 opaque recipes and all 752 original handwritten-test
+  anchors. It now records 186 handwritten-test files, 888 test functions and
+  136 migration additions; no original anchor was removed. Fresh read-only
+  comparisons pass on both stacks; optional integrations remain unresolved.
 
 ## Validation and final review
 
