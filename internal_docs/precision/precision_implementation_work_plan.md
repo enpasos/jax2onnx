@@ -4,7 +4,40 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
-The [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
+The [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
+`plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
+native traces and saved ONNX representation. Its exact graph of twenty nodes
+and thirteen constants retains native broadcasts, index adaptation and the existing
+FP64 cosine expansion `1 - 2*Sin(shared*0.5)^2`. It does not contain a direct Cos
+node. The original raw callback still reports **FAILED**; the separate SOURCE
+structure check is **VALIDATED**. Diagnostic schema/reload checks pass under
+`source-diagnostic-v1`, while product admission, lowering, runtime and numerical
+acceptance remain **UNVERIFIED**. The x64-off configuration conflict is unchanged.
+
+The six-file tooling/test implementation has independent semantic acceptance.
+Owner focused checks pass 249 cases on each stack, including ninety new Gather
+cases. Both existing 26-cell replays and ordinary two-cell probes preserve
+raw outcomes and historical provenance with zero ORT attempts. Criteria and
+optimization remain None; no numerical approval or historical repin occurs.
+Independent review also accepts the saved owner artifact observations on both
+stacks, without numerical acceptance. Actual MAIN integration is independently
+accepted: both stacks pass the same 249 focused cases and reproduce the bounded Gather diagnostic in the 26-cell
+replay and separate ordinary probes, with all 864 Python hashes unchanged.
+Eight other matrix cells per stack have unresolved fresh reference differences;
+Gather’s own reference and artifact remain byte-identical to the owner evidence.
+The current inventory records **214 files, 1,264 functions and 512 migration
+additions**, preserving all 752 original functions, zero removals and 1,802 raw
+rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
+442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`
+passes all seven actual repository hooks; all seven checkpoint paths and 864 Python hashes remain unchanged after commit.
+
+Public LEGACY precision policy, both double-precision options and report schema
+1 retain their meanings. The existing audited SOURCE profile is unchanged.
+Strict Where zero-sign failures remain failed, and BF16 structural evidence
+still does not establish runtime support. Coherent typed operator families,
+broader model coverage and the full B–F transition remain unfinished.
+
+The preceding [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
 has independent semantic and actual-main acceptance. The private SOURCE path
 preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
 static BOOL inputs and recursively validated pure closed JIT bodies. Actual
@@ -26,7 +59,7 @@ pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
 hashes and restored state are verified. Independent integration review accepts
 these results.
 
-The current inventory records **213 files, 1,254 functions and 502 additions**,
+That checkpoint’s inventory records **213 files, 1,254 functions and 502 additions**,
 retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
 Both inventory CLI checks pass. The fresh complete primary-stack suite passes
 **7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
@@ -39,10 +72,11 @@ CPU settings on both measured stacks; their acceptance guard still raises.
 Ordinary finite/BOOL success and BF16 structural evidence are separate. The
 original gather source now has matching complete native/activated typed traces,
 but its unchanged raw callback still rejects the false constant's broadcast
-shape. It adds no accepted artifact or ORT result and keeps its None criterion.
-A separate native gather counterpart and coherent typed operator families are
-being authored; neither is accepted or integrated here. Broader symbolic/model
-coverage and the full B–F migration remain unfinished.
+shape. That supplement added no accepted artifact or ORT result and kept its None
+criterion.
+At that checkpoint, the separate Gather counterpart was still being authored.
+Its later diagnostic result is recorded above; coherent typed operator families,
+broader symbolic/model coverage and the full B–F migration remain unfinished.
 
 The preceding [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
 has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
@@ -493,6 +527,7 @@ planning work is separate from production-code ownership.
 | Native Exp and Leading-B Mul | Preserve the native Exp call and weakness, finite static/shared-B Mul, and source-authored casts/broadcasts through named composition. | Independently accepted semantics and actual-main binding; 153 independent and 1,489 main cases per stack, including 117 new permanent cases; fixed CPU edge/finite evidence, BF16 runtime unverified | `7c68300b`; 6,933-test complete primary-stack run and all seven actual hooks pass; frozen hashes stay exact |
 | Native Where and typed JIT | Preserve original calls, static BOOL/floating selection and pure closed JIT bodies with actual typed bindings and native inline compatibility. | Independently accepted semantics and actual-main integration; 2,661 pre-repair main and 200 independent checks per stack, strict signed-zero failures retained; fresh complete primary suite passes 7,236 tests after the shared restoration repair | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
 | Shared x64 restoration | Preserve the hidden global beneath active local overrides, including entry/body exceptions, without changing effective LEGACY precision policy. | Independently accepted two-file repair and actual-main binding; 89 cases per stack, including 87 new permanent cases and both unchanged cache tests; failed first full run retained | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
+| Gather diagnostic counterpart | Bind the unchanged raw source, native trace, exact twenty-node/thirteen-constant representation and preserved raw callback failure. | Six-file tooling semantics independently accepted; owner 249 per stack including ninety new cases, 26-cell replay and ordinary two-cell diagnostics retain None criteria and zero ORT; actual MAIN 249 per stack and artifact-only replays independently accepted | `e60ba9ab`; complete primary suite passes 7,326 tests and all seven actual hooks pass; checkpoint hashes stay unchanged |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -961,7 +996,7 @@ cases include the three final AbstractRef/high-form negatives; the earlier
 runs pass 2,661 cases and observe all 49 test modules, with all 862 Python hashes
 and state restored. After the separately reviewed shared x64 repair, both fresh
 main selections pass 89 cases, including both unchanged cache tests, with hidden
-x64 True and all 863 Python hashes exact. The refreshed inventory is 213 files,
+x64 True and all 863 Python hashes exact. That checkpoint’s inventory is 213 files,
 1,254 functions and 502 additions, retaining the original 752 anchors and all raw
 contracts. The fresh complete primary-stack suite passes
 **7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
@@ -969,10 +1004,13 @@ or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
 Code commit `ae820b1a` passes all seven actual repository hooks; the tested
 checkpoint hashes remain unchanged after commit.
 
-Next, review the separately authored native gather counterpart and remaining
-coherent typed operator families. Their preparation is not product admission,
-and they are not integrated at this checkpoint. Keep the raw gather callback
-failure, strict signed-zero failures and historical criteria unchanged. Shared
+The subsequent [Gather diagnostic counterpart](poc/gather_counterpart_findings.md)
+checks one exact source and saved graph while retaining the raw callback failure,
+x64 conflict and None criteria. Independent MAIN review accepts the dual 249-case focused runs and the
+artifact-only replays; product and numerical acceptance remain open.
+Next, complete coherent typed operator families and the required product/runtime
+Gather validation. Diagnostic structure is not product admission. Keep strict
+signed-zero failures and historical criteria unchanged. Shared
 representation and validation rules guide the remaining work; individual
 allowlist additions are intermediate steps, while the full B–F contract remains
 the completion requirement. The x64 conflict, broader symbolic

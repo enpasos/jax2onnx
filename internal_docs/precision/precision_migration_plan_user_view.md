@@ -14,7 +14,21 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The [Where and JIT checkpoint](poc/where_jit_admission_findings.md) adds reviewed
+The [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
+a saved ONNX representation for one unchanged indexing-and-trigonometry example.
+It preserves the original JAX call, input values and types, and reference result.
+The example’s original graph check still fails; a separate source-structure
+check validates the specific representation. This is diagnostic progress, with
+runtime behavior and numerical accuracy still unverified.
+The diagnostic tooling is committed and independently reviewed. Both supported
+stacks pass 249 focused checks, and the fresh complete primary-stack suite
+passes 7,326 tests.
+
+Public export calls and both existing double-precision options keep their
+meanings. The diagnostic result does not establish general Gather support or
+complete model coverage.
+
+The preceding [Where and JIT checkpoint](poc/where_jit_admission_findings.md) adds reviewed
 private support for selected conditional calculations and compiled JAX bodies.
 It keeps the original JAX call, input types, constants and actual branch inputs.
 Both supported stacks pass 2,661 main checks before a separately reviewed
@@ -26,11 +40,10 @@ passes **7,236 tests**. Code commit `ae820b1a` passes all seven repository hooks
 Some strict floating-point samples still lose the sign of negative zero on the
 measured CPUs. Those samples remain failed and cannot pass sample acceptance;
 passing ordinary finite or Boolean examples does not change that result. The
-original gather example now preserves the complete native trace, but still
-fails its unchanged structural check before any runtime call. A separate gather
-counterpart and further operator families are being prepared, without accepted
-product support yet. Public calls and both existing double-precision options
-keep their behavior; complete model coverage and the final transition remain open.
+original gather example preserves the complete native trace, but still fails
+its unchanged graph check. The later diagnostic counterpart is described above;
+it adds no runtime or numerical acceptance. Further operator families and the
+final transition remain unfinished.
 
 The preceding [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
 adds reviewed private support for selected exponential and multiplication
@@ -176,7 +189,8 @@ symbolic layouts, normalization and broader model coverage require further work.
 Native sine/cosine and the newer Where/JIT binding preserve the complete native
 trace of the unchanged gather example. Its x64-on scenario still fails the raw
 structural check for a broadcast constant; x64-off retains its configuration
-conflict. Neither adds an accepted artifact or runtime result. Ordinary static matrix
+conflict. The later diagnostic counterpart validates a separate representation
+without runtime acceptance. Ordinary static matrix
 admission now has main evidence. The bounded Leading-B matrix/bias extension
 is committed at `718f448e` and preserves the five unchanged MatMul, GPT Add and
 NNX Linear sources, including their real weights, bias and configuration.
@@ -186,8 +200,9 @@ remain open. The Exp/multiplication extension now also has independent
 integration acceptance and 1,489 passing main checks per stack. Its own fixed
 CPU samples do not replace the preceding five-source observation. Bounded
 Where/JIT semantics and actual-main integration are now independently accepted
-for the private path. A separate gather counterpart and coherent operator-family
-work are next; neither is accepted or integrated at this checkpoint.
+for the private path. The later Gather diagnostic check preserves that example
+without establishing product or runtime support. Coherent operator-family work
+and complete Gather acceptance remain next steps.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

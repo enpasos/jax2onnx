@@ -7,7 +7,40 @@ existing-functionality acceptance matrix and checkpoint ledger. The final normal
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
-The [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
+The [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
+`plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
+native traces and saved ONNX representation. Its exact graph of twenty nodes
+and thirteen constants retains native broadcasts, index adaptation and the existing
+FP64 cosine expansion `1 - 2*Sin(shared*0.5)^2`. It does not contain a direct Cos
+node. The original raw callback still reports **FAILED**; the separate SOURCE
+structure check is **VALIDATED**. Diagnostic schema/reload checks pass under
+`source-diagnostic-v1`, while product admission, lowering, runtime and numerical
+acceptance remain **UNVERIFIED**. The x64-off configuration conflict is unchanged.
+
+The six-file tooling/test implementation has independent semantic acceptance.
+Owner focused checks pass 249 cases on each stack, including ninety new Gather
+cases. Both existing 26-cell replays and ordinary two-cell probes preserve
+raw outcomes and historical provenance with zero ORT attempts. Criteria and
+optimization remain None; no numerical approval or historical repin occurs.
+Independent review also accepts the saved owner artifact observations on both
+stacks, without numerical acceptance. Actual MAIN integration is independently
+accepted: both stacks pass the same 249 focused cases and reproduce the bounded Gather diagnostic in the 26-cell
+replay and separate ordinary probes, with all 864 Python hashes unchanged.
+Eight other matrix cells per stack have unresolved fresh reference differences;
+Gather’s own reference and artifact remain byte-identical to the owner evidence.
+The current inventory records **214 files, 1,264 functions and 512 migration
+additions**, preserving all 752 original functions, zero removals and 1,802 raw
+rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
+442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`
+passes all seven actual repository hooks; all seven checkpoint paths and 864 Python hashes remain unchanged after commit.
+
+Public LEGACY precision policy, both double-precision options and report schema
+1 retain their meanings. The existing audited SOURCE profile is unchanged.
+Strict Where zero-sign failures remain failed, and BF16 structural evidence
+still does not establish runtime support. Coherent typed operator families,
+broader model coverage and the full B–F transition remain unfinished.
+
+The preceding [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
 has independent semantic and actual-main acceptance. The private SOURCE path
 preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
 static BOOL inputs and recursively validated pure closed JIT bodies. Actual
@@ -29,7 +62,7 @@ pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
 hashes and restored state are verified. Independent integration review accepts
 these results.
 
-The current inventory records **213 files, 1,254 functions and 502 additions**,
+That checkpoint’s inventory records **213 files, 1,254 functions and 502 additions**,
 retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
 Both inventory CLI checks pass. The fresh complete primary-stack suite passes
 **7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
@@ -42,10 +75,11 @@ CPU settings on both measured stacks; their acceptance guard still raises.
 Ordinary finite/BOOL success and BF16 structural evidence are separate. The
 original gather source now has matching complete native/activated typed traces,
 but its unchanged raw callback still rejects the false constant's broadcast
-shape. It adds no accepted artifact or ORT result and keeps its None criterion.
-A separate native gather counterpart and coherent typed operator families are
-being authored; neither is accepted or integrated here. Broader symbolic/model
-coverage and the full B–F migration remain unfinished.
+shape. That supplement added no accepted artifact or ORT result and kept its None
+criterion.
+At that checkpoint, the separate Gather counterpart was still being authored.
+Its later diagnostic result is recorded above; coherent typed operator families,
+broader symbolic/model coverage and the full B–F migration remain unfinished.
 
 The preceding [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
 has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
@@ -497,10 +531,12 @@ all five code/inventory paths and all 860 Python hashes remain unchanged.
 The subsequent [Where/JIT checkpoint](poc/where_jit_admission_findings.md) has
 independent semantic and actual-main acceptance, including the typed native
 inline compatibility seam. The raw gather trace now matches completely, while
-its unchanged callback and x64-off conflict remain unresolved. A separate
-native gather counterpart and coherent typed operator families are being
-authored; they have no accepted integration here. Preserve every source-validation
-and completion gate while completing those shared representation rules. Continue with the remaining symbolic, layout,
+its unchanged callback and x64-off conflict remain unresolved. The subsequent
+[Gather counterpart](poc/gather_counterpart_findings.md) validates one exact
+diagnostic structure with those raw failures retained and zero ORT calls.
+Product Gather admission and coherent typed operator families remain unfinished.
+Preserve every source-validation and completion gate while completing those
+shared representation rules. Continue with the remaining symbolic, layout,
 parameter, normalization and optional-model contracts; these bounded packets do
 not close the whole inventory.
 
