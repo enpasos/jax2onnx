@@ -59,6 +59,96 @@ def _trace(fn, shape=(2, 3), dtype=np.float32):
     return jax.make_jaxpr(fn)(jax.ShapeDtypeStruct(shape, dtype))
 
 
+@pytest.mark.parametrize("dtype", [np.float16, jnp.bfloat16, np.float32, np.float64])
+def test_mul_explicit_none_and_omitted_field_preserve_native_float_results(
+    dtype: Any,
+) -> None:
+    closed = _trace(lambda x: x * x, dtype=dtype)
+    equation = closed.jaxpr.eqns[0]
+    assert equation.primitive.name == "mul"
+    for params in ({}, {"out_dtype": None}):
+        inferred, effects = equation.primitive.abstract_eval(
+            *(var.aval for var in equation.invars), **params
+        )
+        assert not effects and inferred == equation.outvars[0].aval
+        observer = DiagnosticValidator()
+        observer(closed.jaxpr.replace(eqns=[equation.replace(params=params)]), 23)
+        assert observer.scopes and observer.failure is None
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.complex64])
+def test_mul_absent_field_retains_existing_nonfloating_structures(dtype: Any) -> None:
+    closed = _trace(lambda x: x * x, dtype=dtype)
+    equation = closed.jaxpr.eqns[0].replace(params={})
+    DiagnosticValidator()(closed.jaxpr.replace(eqns=[equation]), 23)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"out_dtype": np.dtype(np.float32)},
+        {"out_dtype": np.dtype(np.float64)},
+        {"out_dtype": False},
+        {"out_dtype": [None]},
+        {"out_dtype": None, "unreviewed": None},
+    ],
+)
+def test_mul_non_none_and_unknown_parameters_stay_pending(
+    params: dict[str, Any],
+) -> None:
+    closed = _trace(lambda x: x * x)
+    equation = closed.jaxpr.eqns[0].replace(params=params)
+    with pytest.raises(SourcePrecisionError) as caught:
+        DiagnosticValidator()(closed.jaxpr.replace(eqns=[equation]), 23)
+    assert (
+        caught.value.category == "profile-exclusion" and caught.value.primitive == "mul"
+    )
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.bool_, np.complex64])
+def test_mul_explicit_none_does_not_admit_nonfloating_operands(dtype: Any) -> None:
+    closed = _trace(lambda x: x * x, dtype=dtype)
+    equation = closed.jaxpr.eqns[0].replace(
+        primitive=jax.lax.mul_p, params={"out_dtype": None}
+    )
+    with pytest.raises(SourcePrecisionError) as caught:
+        DiagnosticValidator()(closed.jaxpr.replace(eqns=[equation]), 23)
+    assert (
+        caught.value.category == "profile-exclusion" and caught.value.primitive == "mul"
+    )
+
+
+@pytest.mark.parametrize("corruption", ["dtype", "shape", "weakness"])
+def test_mul_none_keeps_original_abstract_result_checks(corruption: str) -> None:
+    closed = _trace(lambda x: x * x)
+    original = closed.jaxpr.eqns[0]
+    bad = Var(
+        ShapedArray(
+            (3, 2) if corruption == "shape" else (2, 3),
+            np.float64 if corruption == "dtype" else np.float32,
+            weak_type=corruption == "weakness",
+        )
+    )
+    equation = original.replace(params={"out_dtype": None}, outvars=[bad])
+    graph = closed.jaxpr.replace(eqns=[equation], outvars=[bad])
+    with pytest.raises(SourcePrecisionError) as caught:
+        DiagnosticValidator()(graph, 23)
+    assert caught.value.category == "lowering-defect"
+    assert "abstract result differs" in str(caught.value)
+
+
+def test_mul_explicit_none_requires_equal_float_operand_types() -> None:
+    closed = _trace(lambda x: x * x)
+    other = Var(ShapedArray((2, 3), np.float64))
+    equation = closed.jaxpr.eqns[0].replace(
+        invars=[closed.jaxpr.invars[0], other], params={"out_dtype": None}
+    )
+    graph = closed.jaxpr.replace(invars=[*closed.jaxpr.invars, other], eqns=[equation])
+    with pytest.raises(SourcePrecisionError) as caught:
+        DiagnosticValidator()(graph, 23)
+    assert caught.value.category == "profile-exclusion"
+
+
 @pytest.mark.parametrize(
     "function",
     [

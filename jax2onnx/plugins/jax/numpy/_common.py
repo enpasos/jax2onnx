@@ -6,6 +6,10 @@ from typing import Any, Callable, cast
 
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx._compat.jax import Primitive
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 
 
 BoundCallable = Callable[..., Any]
@@ -19,12 +23,18 @@ def make_jnp_primitive(name: str) -> Primitive:
 
 
 def jnp_binding_specs(
-    prim: Primitive, func_name: str, *, store_attr: str = "__orig_impl__"
+    prim: Primitive,
+    func_name: str,
+    *,
+    store_attr: str = "__orig_impl__",
+    source_native: bool = False,
 ) -> list[AssignSpec | MonkeyPatchSpec]:
     """Return patch specs that bind ``jax.numpy.func_name`` to ``prim``.
 
     The monkey-patch stores the original callable on the primitive so that
     ``def_impl`` implementations can delegate without recursion concerns.
+    Reviewed callers can opt into unchanged native calls under SOURCE; other
+    callers and LEGACY keep their custom primitive binding.
     """
 
     attr_name = f"{func_name}_p"
@@ -36,6 +46,8 @@ def jnp_binding_specs(
         setattr(prim, storage_slot, orig)
 
         def _bound(*args: Any, **kwargs: Any) -> Any:
+            if source_native and active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig(*args, **kwargs)
             return prim.bind(*args, **kwargs)
 
         return _bound

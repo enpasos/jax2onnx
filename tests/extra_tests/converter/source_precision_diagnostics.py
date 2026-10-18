@@ -58,7 +58,6 @@ _RULES: dict[str, tuple[int | None, int, frozenset[str]]] = {
         for name in (
             "add",
             "sub",
-            "mul",
             "div",
             "max",
             "min",
@@ -70,6 +69,7 @@ _RULES: dict[str, tuple[int | None, int, frozenset[str]]] = {
             "ne",
         )
     },
+    "mul": (2, 1, frozenset({"out_dtype"})),
     **{
         name: (1, 1, frozenset({"accuracy"}))
         for name in ("sin", "cos", "neg", "real", "imag")
@@ -508,6 +508,20 @@ class DiagnosticValidator:
                 name,
                 pending=True,
             )
+        if name == "mul" and "out_dtype" in eqn.params:
+            dtypes = [_typed(var.aval)[0] for var in eqn.invars]
+            if (
+                eqn.params["out_dtype"] is not None
+                or len(set(dtypes)) != 1
+                or dtypes[0] not in {"float16", "bfloat16", "float32", "float64"}
+            ):
+                self._fail(
+                    "Unreviewed Mul out_dtype or operand types",
+                    site,
+                    opset,
+                    name,
+                    pending=True,
+                )
         try:
             inferred, effects = eqn.primitive.abstract_eval(
                 *(var.aval for var in eqn.invars), **eqn.params
