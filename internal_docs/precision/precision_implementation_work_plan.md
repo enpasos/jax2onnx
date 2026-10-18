@@ -1,8 +1,9 @@
 # Source Precision Implementation Work Plan
 
 Status: accepted implementation contract, 2026-10-18. The private foundation is
-committed at `63abe1c1`. Common-pipeline integration and the CPU evidence module
-are in progress. The planned public selection is `precision="source"`; it is
+committed at `63abe1c1`. The shared private pipeline and CPU evidence module
+have passed independent review. Product profile and facade integration remain.
+The planned public selection is `precision="source"`; it is
 unavailable until milestone M5 passes review. No release version is assigned.
 
 This plan defines completion of an initial public source-precision feature for
@@ -175,10 +176,10 @@ planning work is separate from production-code ownership.
 | Checkpoint | Scope and acceptance gate | Status | Local commit |
 | --- | --- | --- | --- |
 | Foundation | Private source contexts, selected scopes, precision/captured-state fixes, optimizer eligibility, and durable regressions; evidence remains bounded as recorded in the integration findings. | Committed | `63abe1c1` |
-| M1: accepted execution plan | This finite contract, linked technical/user guidance, planned API and exclusions; documentation/link review and repository hooks. | Documentation prepared; checks and commit pending | Pending |
-| M2: common private pipeline | Common converter body, SOURCE context/recursive validator, constant binding, strict output checks, and policy-aware x64 handling; remove manual test graph assembly. Focused tests on both stacks and Astra review pass. | Implementation in progress | Pending |
+| M1: accepted execution plan | This finite contract, linked technical/user guidance, planned API and exclusions; documentation/link review and repository hooks. | Committed | `5b106e60` |
+| M2: common private pipeline | Common converter body, SOURCE context/recursive validator, constant binding, strict output checks, and policy-aware x64 handling; remove manual test graph assembly. Focused tests on both stacks and Astra review pass. | Implemented and reviewed; checkpoint commit pending | Pending |
 | M3: enforced profile and reports | Product-owned typed profile, private facade integration, input normalization, structured errors/warnings, report metadata, names and three return modes, full checker and save/reload evidence. Review passes before public selection. | Pending | Pending |
-| M4: CPU sample evidence | Artifact reader/identity, explicit samples/criteria, execution/numerical statuses, identity-aware acceptance guard, failure witnesses and accepted controls. Dedicated tests and API review pass. | Implementation in progress, parallel with M2 | Pending |
+| M4: CPU sample evidence | Artifact reader/identity, explicit samples/criteria, execution/numerical statuses, identity-aware acceptance guard, failure witnesses and accepted controls. Dedicated tests and API review pass. | Implemented and reviewed; checkpoint commit pending | Pending |
 | M5: public opt-in and migration | After M2-M4 acceptance, expose source selection, omission/conflict handling, report/evidence helpers, API/limitations/changelog, and runnable public examples. Astra review passes. | Pending | Pending |
 | M6: final acceptance | Required local validation, final independent review, accurate remaining limits, and final checkpoint; no required work for the declared profile remains. | Pending | Pending |
 
@@ -189,6 +190,21 @@ protobuf imports into converter or plugin modules. Agree the plain report
 schema before integration. M5 integrates the public surface after those reviews.
 Record actual commit IDs and evidence when gates complete; pending entries are
 not completion claims.
+
+Checkpoint evidence on 2026-10-18:
+
+- M2's focused converter/source selection passes 299 tests on each supported
+  stack. This includes the reviewed fix making optimizer failures fatal under
+  SOURCE regardless of legacy environment settings.
+- The primary-stack standard regression run passes 4,692 tests. Its collection
+  preceded the three new optimizer-failure cases and excludes the separately
+  tested M4 module. Final acceptance will run the integrated standard suite.
+- M4's dedicated evidence module passes 40 tests on each supported stack.
+  Independent Astra review accepts its bounded metadata and sample-evidence
+  contract; public-path integration remains an M5 gate.
+- Package typing and RNG registration checks, Ruff, strict MkDocs, and all 60
+  relative links in the six planning documents pass. Local commits use the
+  actual pinned repository hooks.
 
 ## Validation and final review
 

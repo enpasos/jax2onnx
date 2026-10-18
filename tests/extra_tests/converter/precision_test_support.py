@@ -15,8 +15,6 @@ import onnx
 import onnx_ir as ir
 
 from jax2onnx.converter import conversion_api
-from jax2onnx.converter.function_scope import FunctionRegistry
-from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 
@@ -142,59 +140,32 @@ def export_source_dtypes(
                 "configure JAX before creating arrays and exporting"
             )
 
-    # Unlike the public legacy entry point, this helper does not enter an x64
-    # override. False here only disables the legacy promotion/default policy;
-    # typed specs plus the source context determine the experiment's dtypes.
-    trace = conversion_api._trace_to_jaxpr(
+    model = conversion_api._convert_to_ir(
         fn=fn,
         inputs=inputs,
         input_params=None,
-        enable_double_precision=False,
-        inputs_as_nchw=None,
-        outputs_as_nchw=None,
-        input_names=None,
-        output_names=None,
-        precision_policy=PrecisionPolicy.SOURCE,
-    )
-    jaxpr = trace.jaxpr
-    _validate_trace(jaxpr, opset)
-    ctx = IRContext(
+        model_name="precision_source_dtype_experiment",
         opset=opset,
         enable_double_precision=False,
-        input_specs=trace.sds_list,
+        record_primitive_calls_file=None,
+        protective_clone=True,
+        strict_optimizer_failures=True,
         precision_policy=PrecisionPolicy.SOURCE,
         jaxpr_validator=_validate_trace,
     )
-    ctx.set_function_registry(FunctionRegistry())
-    for var, value in zip(jaxpr.constvars, trace.closed_jaxpr.consts, strict=True):
-        ctx.bind_const_for_var(var, np.asarray(value, dtype=var.aval.dtype))
-    for index, var in enumerate(jaxpr.invars):
-        ctx.add_input_for_invar(var, index)
-    conversion_api._lower_jaxpr_equations(ctx, jaxpr)
-
-    for var in jaxpr.outvars:
-        value = ctx.require_value_for_var(var)
-        expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
-        if value.dtype != expected:
-            raise RuntimeError(f"Source result type {expected} became {value.dtype}")
-        ctx.add_graph_output_value(value)
-
-    model = conversion_api._build_and_finalize_ir_model(
-        ctx,
-        model_name="precision_source_dtype_experiment",
-        protective_clone=True,
-        strict_optimizer_failures=True,
-    )
+    # The common path checked these boundary types against the source Jaxpr.
+    # Retain them through postprocessing and protobuf serialization as well.
+    input_dtypes = tuple(value.dtype for value in model.graph.inputs)
+    output_dtypes = tuple(value.dtype for value in model.graph.outputs)
     postprocess_ir_model(model, promote_to_double=False)
     proto = ir.to_proto(model)
     onnx.checker.check_model(proto, full_check=True)
-    for label, variables, values in (
-        ("input", jaxpr.invars, proto.graph.input),
-        ("output", jaxpr.outvars, proto.graph.output),
+    for label, expected_dtypes, values in (
+        ("input", input_dtypes, proto.graph.input),
+        ("output", output_dtypes, proto.graph.output),
     ):
-        for var, value in zip(variables, values, strict=True):
-            expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
-            if value.type.tensor_type.elem_type != int(expected):
+        for expected, value in zip(expected_dtypes, values, strict=True):
+            if expected is None or value.type.tensor_type.elem_type != int(expected):
                 raise RuntimeError(
                     f"Final {label} {value.name} lost source type {expected}"
                 )

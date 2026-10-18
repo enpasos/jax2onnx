@@ -539,12 +539,16 @@ def _create_ir_context(
     frozen_params: Mapping[str, object],
     record_primitive_calls_file: Optional[str],
     normalization_mode: str = "auto",
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    jaxpr_validator: Callable[[Any, int], None] | None = None,
 ) -> IRContext:
     ctx = IRContext(
         opset=opset,
         enable_double_precision=enable_double_precision,
         normalization_mode=normalization_mode,
         input_specs=input_specs,
+        precision_policy=precision_policy,
+        jaxpr_validator=jaxpr_validator,
     )
     ctx._call_input_param_names = set(frozen_params.keys())
     ctx._call_input_param_literals = dict(frozen_params)
@@ -566,7 +570,11 @@ def _bind_closed_jaxpr_constants(
     default_float: np.dtype[Any],
     enable_double_precision: bool,
 ) -> None:
-    for cv, cval in zip(jpr.constvars, consts):
+    source_precision = ctx.precision_policy is PrecisionPolicy.SOURCE
+    for cv, cval in zip(jpr.constvars, consts, strict=source_precision):
+        if source_precision:
+            ctx.bind_const_for_var(cv, np.asarray(cval, dtype=cv.aval.dtype))
+            continue
         np_c = np.asarray(cval)
         target_dtype = None
         try:
@@ -726,6 +734,14 @@ def _bind_jaxpr_outputs(
     outputs_as_nchw: Sequence[int],
     enable_double_precision: bool,
 ) -> None:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        for var in jpr.outvars:
+            value = ctx.require_value_for_var(var)
+            expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
+            if value.dtype != expected:
+                raise RuntimeError(
+                    f"Source result type {expected} became {value.dtype}"
+                )
     _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
         jpr, outputs_as_nchw=outputs_as_nchw
     )
@@ -798,6 +814,128 @@ def _lower_jaxpr_equations(ctx: IRContext, jpr: Any) -> None:
     )
 
 
+def _convert_to_ir(
+    *,
+    fn: Callable[..., Any],
+    inputs: Sequence[InputSpec],
+    input_params: Optional[Mapping[str, object]],
+    model_name: str,
+    opset: int,
+    enable_double_precision: bool,
+    record_primitive_calls_file: Optional[str],
+    protective_clone: bool = True,
+    inputs_as_nchw: Optional[Sequence[int]] = None,
+    outputs_as_nchw: Optional[Sequence[int]] = None,
+    input_names: Optional[Sequence[str]] = None,
+    output_names: Optional[Sequence[str]] = None,
+    normalization_mode: str = "auto",
+    strict_optimizer_failures: Optional[bool] = None,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    jaxpr_validator: Callable[[Any, int], None] | None = None,
+) -> ir.Model:
+    """Trace, lower, and finalize through one private conversion pipeline.
+
+    The caller owns any legacy x64 override. SOURCE retains ambient JAX
+    configuration and requires a validator for its bounded, static subset.
+    """
+    if precision_policy is PrecisionPolicy.SOURCE:
+        strict_optimizer_failures = True
+        if enable_double_precision:
+            raise ValueError("Source precision cannot use legacy double promotion")
+        if jaxpr_validator is None:
+            raise ValueError("Private source conversion requires a subset validator")
+        unsupported = {
+            "input_params": bool(input_params),
+            "inputs_as_nchw": inputs_as_nchw is not None,
+            "outputs_as_nchw": outputs_as_nchw is not None,
+            "input_names": input_names is not None,
+            "output_names": output_names is not None,
+            "record_primitive_calls_file": record_primitive_calls_file is not None,
+            "normalization_mode": normalization_mode != "auto",
+        }
+        for option, supplied in unsupported.items():
+            if supplied:
+                raise ValueError(f"Private source conversion does not support {option}")
+        for index, spec in enumerate(inputs):
+            if not isinstance(spec, jax.ShapeDtypeStruct):
+                raise ValueError("Private source conversion requires typed inputs")
+            if any(
+                isinstance(dim, bool)
+                or not isinstance(dim, (int, np.integer))
+                or dim < 0
+                for dim in spec.shape
+            ):
+                raise ValueError("Private source conversion requires static shapes")
+            if (
+                np.dtype(spec.dtype) == np.dtype(np.float64)
+                and not jax.config.x64_enabled
+            ):
+                raise ValueError(
+                    f"input {index} requests float64, but JAX x64 is disabled; "
+                    "configure JAX before creating arrays and exporting"
+                )
+
+    trace = _trace_to_jaxpr(
+        fn=fn,
+        inputs=inputs,
+        input_params=input_params,
+        enable_double_precision=enable_double_precision,
+        inputs_as_nchw=inputs_as_nchw,
+        outputs_as_nchw=outputs_as_nchw,
+        input_names=input_names,
+        output_names=output_names,
+        precision_policy=precision_policy,
+    )
+    jpr = trace.jaxpr
+    if jaxpr_validator is not None:
+        jaxpr_validator(jpr, opset)
+    ctx = _create_ir_context(
+        opset=opset,
+        enable_double_precision=enable_double_precision,
+        normalization_mode=normalization_mode,
+        input_specs=trace.sds_list,
+        frozen_params=trace.frozen_params,
+        record_primitive_calls_file=record_primitive_calls_file,
+        precision_policy=precision_policy,
+        jaxpr_validator=jaxpr_validator,
+    )
+    _bind_closed_jaxpr_constants(
+        ctx,
+        jpr,
+        trace.closed_jaxpr.consts,
+        default_float=_np_float_dtype(enable_double_precision),
+        enable_double_precision=enable_double_precision,
+    )
+    _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=trace.inputs_as_nchw)
+
+    _lower_jaxpr_equations(ctx, jpr)
+    _bind_jaxpr_outputs(
+        ctx,
+        jpr,
+        outputs_as_nchw=trace.outputs_as_nchw,
+        enable_double_precision=enable_double_precision,
+    )
+
+    model = _build_and_finalize_ir_model(
+        ctx,
+        model_name=model_name,
+        protective_clone=protective_clone,
+        strict_optimizer_failures=strict_optimizer_failures,
+    )
+    if precision_policy is PrecisionPolicy.SOURCE:
+        for label, variables, values in (
+            ("input", jpr.invars, model.graph.inputs),
+            ("output", jpr.outvars, model.graph.outputs),
+        ):
+            for var, value in zip(variables, values, strict=True):
+                expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
+                if value.dtype != expected:
+                    raise RuntimeError(
+                        f"Final {label} {value.name} lost source type {expected}"
+                    )
+    return model
+
+
 def to_onnx(
     *,
     fn: Callable[..., Any],
@@ -815,59 +953,21 @@ def to_onnx(
     normalization_mode: str = "auto",
     strict_optimizer_failures: Optional[bool] = None,
 ) -> ir.Model:
-    """
-    Build an ONNX-IR model in three phases:
-    1) Trace JAX to ClosedJaxpr with symbolic shapes.
-    2) Lower to onnx_ir (plugins; function bodies allowed).
-    3) Run a single IR-wide optimization pass (cross-node cleanups).
-    """
+    """Build an ONNX-IR model using the legacy export precision rules."""
     with _force_jax_x64(enable_double_precision):
-        default_float = _np_float_dtype(enable_double_precision)
-        trace = _trace_to_jaxpr(
+        return _convert_to_ir(
             fn=fn,
             inputs=inputs,
             input_params=input_params,
+            model_name=model_name,
+            opset=opset,
             enable_double_precision=enable_double_precision,
+            record_primitive_calls_file=record_primitive_calls_file,
+            protective_clone=protective_clone,
             inputs_as_nchw=inputs_as_nchw,
             outputs_as_nchw=outputs_as_nchw,
             input_names=input_names,
             output_names=output_names,
-        )
-        closed = trace.closed_jaxpr
-        jpr = trace.jaxpr
-        sds_list = trace.sds_list
-        frozen_params = trace.frozen_params
-        validated_inputs_as_nchw = trace.inputs_as_nchw
-        validated_outputs_as_nchw = trace.outputs_as_nchw
-
-        ctx = _create_ir_context(
-            opset=opset,
-            enable_double_precision=enable_double_precision,
             normalization_mode=normalization_mode,
-            input_specs=sds_list,
-            frozen_params=frozen_params,
-            record_primitive_calls_file=record_primitive_calls_file,
-        )
-        _bind_closed_jaxpr_constants(
-            ctx,
-            jpr,
-            closed.consts,
-            default_float=default_float,
-            enable_double_precision=enable_double_precision,
-        )
-        _bind_jaxpr_inputs(ctx, jpr, inputs_as_nchw=validated_inputs_as_nchw)
-
-        _lower_jaxpr_equations(ctx, jpr)
-        _bind_jaxpr_outputs(
-            ctx,
-            jpr,
-            outputs_as_nchw=validated_outputs_as_nchw,
-            enable_double_precision=enable_double_precision,
-        )
-
-        return _build_and_finalize_ir_model(
-            ctx,
-            model_name=model_name,
-            protective_clone=protective_clone,
             strict_optimizer_failures=strict_optimizer_failures,
         )
