@@ -50,7 +50,7 @@ from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .precision_policy import PrecisionPolicy, precision_policy_scope
 from .source_profile import SourcePrecisionError, validate_source_input_dtype
-from .source_representation import representation_for_aval
+from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
 
@@ -234,6 +234,17 @@ def _as_sds_list(
 ) -> List["jax.ShapeDtypeStruct"]:
     """Normalize user 'inputs' to ShapeDtypeStructs for abstract tracing."""
     sds_list: List[jax.ShapeDtypeStruct] = []
+    source = precision_policy is PrecisionPolicy.SOURCE
+    native_scope = (
+        validate_source_shapes(
+            [
+                tuple(spec.shape) if isinstance(spec, jax.ShapeDtypeStruct) else spec
+                for spec in inputs
+            ]
+        )
+        if source
+        else None
+    )
 
     # 1) gather string symbols
     symnames: list[str] = []
@@ -249,7 +260,11 @@ def _as_sds_list(
 
     # 2) create symbolic sizes
     name2sym: dict[str, object] = {}
-    shared_scope = jax_export.SymbolicScope() if symnames else None
+    shared_scope = (
+        native_scope
+        if native_scope is not None
+        else jax_export.SymbolicScope() if symnames else None
+    )
     for n in symnames:
         syms = jax_export.symbolic_shape(n, scope=shared_scope)
         if not syms:
@@ -289,6 +304,8 @@ def _as_sds_list(
         )
         dt = jnp.float64 if enable_double_precision else jnp.float32
         sds_list.append(jax.ShapeDtypeStruct(dims_tuple, dt))
+    if source:
+        validate_source_shapes([spec.shape for spec in sds_list])
     return sds_list
 
 
@@ -1071,7 +1088,7 @@ def _convert_to_ir(
     """Trace, lower, and finalize through one private conversion pipeline.
 
     The caller owns any legacy x64 override. SOURCE retains ambient JAX
-    configuration and requires a validator for its bounded, static subset.
+    configuration and requires a validator for its bounded audited subset.
     """
     if precision_policy is PrecisionPolicy.SOURCE:
         if inputs_as_nchw is not None and len(inputs_as_nchw) == 0:
@@ -1093,14 +1110,10 @@ def _convert_to_ir(
         for index, spec in enumerate(inputs):
             if not isinstance(spec, jax.ShapeDtypeStruct):
                 raise ValueError("Private source conversion requires typed inputs")
-            if any(
-                isinstance(dim, bool)
-                or not isinstance(dim, (int, np.integer))
-                or dim < 0
-                for dim in spec.shape
-            ):
-                raise ValueError("Private source conversion requires static shapes")
             validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+        validate_source_shapes(
+            [cast(jax.ShapeDtypeStruct, spec).shape for spec in inputs]
+        )
 
     trace = _trace_to_jaxpr(
         fn=fn,

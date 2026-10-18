@@ -624,7 +624,7 @@ def test_reloaded_layout_boundary_shape_remains_strict(
         return proto
 
     monkeypatch.setattr(onnx, "load_model", corrupt)
-    with pytest.raises(SourcePrecisionError, match="boundary dtype or static shape"):
+    with pytest.raises(SourcePrecisionError, match="boundary dtype or shape"):
         _source(
             lambda x: -x,
             [(1, 2, 3, 4)],

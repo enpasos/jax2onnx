@@ -19,6 +19,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
@@ -583,6 +584,136 @@ def _compare(
     return None if matches else f"values fail {criteria.mode} comparison"
 
 
+def _source_batch_boundaries(
+    model: onnx.ModelProto,
+) -> tuple[tuple[TensorProperties, ...], tuple[TensorProperties, ...]] | None:
+    """Check the finite audited symbolic signature against its source report."""
+    report = get_precision_report(model)
+    if report is None or report.profile != SOURCE_PRECISION_PROFILE:
+        return None
+    properties = (
+        tuple(
+            item
+            for entry in report.inputs
+            for item in (entry.supplied, entry.normalized, entry.traced, entry.exported)
+        )
+        + report.traced_outputs
+        + report.exported_outputs
+    )
+    artifact_symbolic = any(
+        dim.HasField("dim_param")
+        for value in (*model.graph.input, *model.graph.output)
+        for dim in value.type.tensor_type.shape.dim
+    )
+    if not artifact_symbolic and not any(
+        isinstance(dim, str) for item in properties for dim in item.shape
+    ):
+        return None
+    symbol: str | None = None
+    for item in properties:
+        labels = [dim for dim in item.shape if isinstance(dim, str)]
+        if labels:
+            if (
+                len(item.shape) != 2
+                or len(labels) != 1
+                or item.shape[0] != labels[0]
+                or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
+                or item.dtype not in {None, "float16", "bfloat16", "float32", "float64"}
+                or not isinstance(item.shape[1], int)
+                or isinstance(item.shape[1], bool)
+                or item.shape[1] <= 0
+                or (symbol is not None and symbol != labels[0])
+            ):
+                raise PrecisionReportError("Unsupported SOURCE symbolic batch contract")
+            symbol = labels[0]
+    inputs = tuple(entry.exported for entry in report.inputs)
+    outputs = report.exported_outputs
+    for entries, declarations in (
+        (model.graph.input, inputs),
+        (model.graph.output, outputs),
+    ):
+        if len(entries) != len(declarations):
+            raise PrecisionReportError(
+                "SOURCE report boundary count differs from artifact"
+            )
+        for value, declaration in zip(entries, declarations, strict=True):
+            tensor = value.type.tensor_type
+            shape: list[int | str] = []
+            if not tensor.HasField("shape"):
+                raise PrecisionReportError("SOURCE artifact boundary has no shape")
+            for dim in tensor.shape.dim:
+                if dim.HasField("dim_value"):
+                    shape.append(dim.dim_value)
+                elif dim.HasField("dim_param") and dim.dim_param:
+                    shape.append(dim.dim_param)
+                else:
+                    raise PrecisionReportError(
+                        "SOURCE artifact boundary has an unknown dimension"
+                    )
+            dtype = np.dtype(
+                onnx.helper.tensor_dtype_to_np_dtype(tensor.elem_type)
+            ).name
+            if (value.name, tuple(shape), dtype) != (
+                declaration.name,
+                declaration.shape,
+                declaration.dtype,
+            ):
+                raise PrecisionReportError(
+                    "SOURCE report boundary name, order, dtype or shape differs from artifact"
+                )
+    for index, entry in enumerate(report.inputs):
+        if entry.index != index or any(
+            item.shape != entry.exported.shape
+            or (item.dtype is not None and item.dtype != entry.exported.dtype)
+            for item in (entry.supplied, entry.normalized, entry.traced)
+        ):
+            raise PrecisionReportError(
+                "SOURCE input report does not preserve its declared batch contract"
+            )
+    if len(report.traced_outputs) != len(outputs) or any(
+        (traced.shape, traced.dtype) != (exported.shape, exported.dtype)
+        for traced, exported in zip(report.traced_outputs, outputs, strict=True)
+    ):
+        raise PrecisionReportError(
+            "SOURCE output report does not preserve its declared batch contract"
+        )
+    if not any(symbol in item.shape for item in inputs):
+        raise PrecisionReportError("SOURCE symbolic output has no input batch binding")
+    return inputs, outputs
+
+
+def _check_bound_sample_tensor(
+    array: np.ndarray[Any, Any],
+    declaration: TensorProperties,
+    bindings: dict[str, int],
+    *,
+    bind: bool,
+) -> None:
+    if array.dtype.name != declaration.dtype or array.ndim != len(declaration.shape):
+        raise ValueError(
+            f"{declaration.name}: requires dtype {declaration.dtype} and shape "
+            f"{declaration.shape}; received {array.dtype.name} {array.shape}"
+        )
+    for axis, (actual, expected) in enumerate(
+        zip(array.shape, declaration.shape, strict=True)
+    ):
+        if isinstance(expected, str):
+            if actual <= 0:
+                raise ValueError(
+                    f"{declaration.name}: batch {expected} must be positive"
+                )
+            if expected not in bindings and bind:
+                bindings[expected] = actual
+            if bindings.get(expected) != actual:
+                raise ValueError(
+                    f"{declaration.name}: axis {axis} must match shared batch {expected}={bindings.get(expected)}; received {actual}"
+                )
+        elif isinstance(expected, bool) or expected != actual:
+            raise ValueError(
+                f"{declaration.name}: axis {axis} requires {expected}; received {actual}"
+            )
+
+
 def validate_source_samples(
     model_or_path: ModelArtifact,
     *,
@@ -621,7 +752,8 @@ def validate_source_samples(
         )
     )
     try:
-        onnx.checker.check_model(onnx.load_model_from_string(blob), full_check=True)
+        model = onnx.load_model_from_string(blob)
+        onnx.checker.check_model(model, full_check=True)
     except Exception as exc:
         checks.append(PrecisionCheck("onnx-schema", CheckStatus.FAILED, str(exc)))
         return result()
@@ -630,6 +762,20 @@ def validate_source_samples(
             "onnx-schema", CheckStatus.VALIDATED, "ONNX schema and shape checks passed."
         )
     )
+    try:
+        batch_boundaries = _source_batch_boundaries(model)
+    except Exception as exc:
+        checks.extend(
+            (
+                PrecisionCheck("source-shape-contract", CheckStatus.FAILED, str(exc)),
+                PrecisionCheck(
+                    "numerical-acceptance",
+                    CheckStatus.UNVERIFIED,
+                    "SOURCE boundary metadata does not match the artifact.",
+                ),
+            )
+        )
+        return result()
     if optimization is None or not samples:
         reason = (
             "No CPU optimization profile selected."
@@ -642,24 +788,6 @@ def validate_source_samples(
         )
         return result()
 
-    # ORT is optional until the caller selects actual sample execution.
-    try:
-        import onnxruntime as ort  # type: ignore[import-untyped]
-    except ImportError as exc:
-        checks.append(PrecisionCheck("runtime-load", CheckStatus.FAILED, str(exc)))
-        return result()
-
-    level = (
-        ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        if optimization == "disabled"
-        else ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    )
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.inter_op_num_threads = 1
-    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    options.graph_optimization_level = level
-    target = CpuSampleTarget(ort.__version__, level.name, platform.machine(), ())
     session = None
     for index, sample in enumerate(samples):
         sample_checks: list[PrecisionCheck] = []
@@ -699,6 +827,57 @@ def validate_source_samples(
                 )
             )
             continue
+        bindings: dict[str, int] = {}
+        if batch_boundaries is not None:
+            input_contract, output_contract = batch_boundaries
+            try:
+                names = tuple(cast(str, item.name) for item in input_contract)
+                if named:
+                    if set(values) != set(names):
+                        raise ValueError(
+                            f"Sample input names {tuple(values)} do not match artifact inputs {names}"
+                        )
+                    feeds = {name: values[name] for name in names}
+                else:
+                    feeds = dict(zip(names, values.values(), strict=True))
+                for declaration, array in zip(
+                    input_contract, feeds.values(), strict=True
+                ):
+                    _check_bound_sample_tensor(array, declaration, bindings, bind=True)
+                if expected and len(expected) != len(output_contract):
+                    raise ValueError(
+                        "Reference output count differs from SOURCE declaration"
+                    )
+                for declaration, array in zip(
+                    output_contract if expected else (), expected, strict=True
+                ):
+                    _check_bound_sample_tensor(array, declaration, bindings, bind=False)
+            except Exception as exc:
+                sample_checks.extend(
+                    (
+                        PrecisionCheck(
+                            "sample-input",
+                            CheckStatus.FAILED,
+                            f"SOURCE shape contract: {exc}",
+                        ),
+                        PrecisionCheck(
+                            "numerical-acceptance",
+                            CheckStatus.UNVERIFIED,
+                            "Sample or reference violates the declared SOURCE contract; execution was not attempted.",
+                        ),
+                    )
+                )
+                evidence.append(
+                    SourceSampleEvidence(
+                        index,
+                        input_records,
+                        references,
+                        (),
+                        sample.criteria,
+                        tuple(sample_checks),
+                    )
+                )
+                continue
         if not expected:
             sample_checks.append(
                 PrecisionCheck(
@@ -720,6 +899,23 @@ def validate_source_samples(
             continue
         if session is None:
             try:
+                # Optional runtime loading follows the SOURCE input/reference
+                # gate, so invalid-only samples construct no execution session.
+                import onnxruntime as ort  # type: ignore[import-untyped]
+
+                level = (
+                    ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+                    if optimization == "disabled"
+                    else ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                )
+                options = ort.SessionOptions()
+                options.intra_op_num_threads = 1
+                options.inter_op_num_threads = 1
+                options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                options.graph_optimization_level = level
+                target = CpuSampleTarget(
+                    ort.__version__, level.name, platform.machine(), ()
+                )
                 session = ort.InferenceSession(
                     blob, options, providers=["CPUExecutionProvider"]
                 )
@@ -776,7 +972,13 @@ def validate_source_samples(
                 return result()
         try:
             names = tuple(spec.name for spec in session.get_inputs())
-            if named:
+            if batch_boundaries is not None:
+                if names != tuple(item.name for item in batch_boundaries[0]):
+                    raise ValueError(
+                        "Runtime input order differs from checked SOURCE artifact"
+                    )
+                # Reuse the already bound protobuf-ordered feeds.
+            elif named:
                 if set(values) != set(names):
                     raise ValueError(
                         f"Sample input names {tuple(values)} do not match artifact inputs {names}"
@@ -817,6 +1019,42 @@ def validate_source_samples(
                 )
             )
             continue
+        if batch_boundaries is not None:
+            try:
+                if len(outputs) != len(batch_boundaries[1]):
+                    raise ValueError(
+                        "Actual output count differs from SOURCE declaration"
+                    )
+                for declaration, array in zip(
+                    batch_boundaries[1], outputs, strict=True
+                ):
+                    _check_bound_sample_tensor(array, declaration, bindings, bind=False)
+            except Exception as exc:
+                sample_checks.extend(
+                    (
+                        PrecisionCheck(
+                            "sample-output",
+                            CheckStatus.FAILED,
+                            f"SOURCE shape contract: {exc}",
+                        ),
+                        PrecisionCheck(
+                            "numerical-acceptance",
+                            CheckStatus.UNVERIFIED,
+                            "Actual outputs violate the declared SOURCE contract.",
+                        ),
+                    )
+                )
+                evidence.append(
+                    SourceSampleEvidence(
+                        index,
+                        input_records,
+                        references,
+                        output_records,
+                        sample.criteria,
+                        tuple(sample_checks),
+                    )
+                )
+                continue
         failures = []
         if len(outputs) != len(expected):
             failures.append(

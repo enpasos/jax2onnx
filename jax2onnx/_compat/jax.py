@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable, cast
 
@@ -133,6 +134,31 @@ def dim_constant(value: int) -> Any:
     return value
 
 
+def atomic_symbolic_dimension(value: object) -> tuple[str, object]:
+    """Inspect one unconstrained JAX dimension without discarding its scope.
+
+    These private inspection seams agree on both supported JAX stacks. Unknown
+    forms fail closed; printing an expression is never proof of a variable.
+    """
+    from jax import export
+
+    if not export.is_symbolic_dim(value):
+        raise ValueError("dimension is not a native JAX symbolic variable")
+    to_var = getattr(value, "_to_var", None)
+    name = to_var() if callable(to_var) else None
+    scope = getattr(value, "scope", None)
+    constraints = getattr(scope, "_explicit_constraints", None)
+    if (
+        not isinstance(name, str)
+        or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) is None
+        or not isinstance(scope, export.SymbolicScope)
+        or not isinstance(constraints, (list, tuple))
+        or constraints
+    ):
+        raise ValueError("requires an atomic JAX variable in an unconstrained scope")
+    return name, scope
+
+
 def ensure_batching_not_mapped_attr() -> Any:
     """Expose the legacy ``batching.not_mapped`` name when JAX uses ``None``."""
 
@@ -218,6 +244,7 @@ __all__ = [
     "Tracer",
     "Var",
     "ad",
+    "atomic_symbolic_dimension",
     "batching",
     "concrete_or_error",
     "definitely_equal_shape",

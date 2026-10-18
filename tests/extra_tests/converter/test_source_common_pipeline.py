@@ -249,7 +249,7 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
         ({"inputs": [()]}, "requires typed inputs"),
         (
             {"inputs": [jax.ShapeDtypeStruct(("B",), np.float32)]},
-            "requires static shapes",
+            "rank-two",
         ),
     ],
 )

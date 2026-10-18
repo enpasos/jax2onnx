@@ -98,7 +98,12 @@ from jax2onnx.converter.source_profile import (
     validate_source_input_dtype,
     validate_source_jaxpr,
 )
-from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.converter.source_representation import (
+    normalized_shape_dimensions,
+    representation_for_aval,
+    source_shape_contract,
+    validate_source_shapes,
+)
 from jax2onnx.ir_utils import iter_ir_functions
 from jax2onnx.precision import (
     CheckStatus,
@@ -494,10 +499,9 @@ def _source_input_properties(
     typed = cast(_SupportsShapeAndDtype, value)
     shape = tuple(value) if isinstance(value, (tuple, list)) else tuple(typed.shape)
     dtype = None if shape_only else np.dtype(typed.dtype).name
-    if not all(
-        not isinstance(dim, bool) and isinstance(dim, (int, np.integer)) and dim >= 0
-        for dim in shape
-    ):
+    try:
+        normalized_shape, _ = source_shape_contract(shape)
+    except ValueError as exc:
         raise SourcePrecisionError(
             f"input shape {shape} is outside this internal audited milestone",
             phase="input",
@@ -505,12 +509,12 @@ def _source_input_properties(
             location=f"input {index}",
             requested_dtypes=() if dtype is None else (dtype,),
             opset=opset,
-            requirement="static nonnegative integer dimensions",
-            action="use a concrete static shape for the internal comparison; dynamic-shape migration remains pending",
-        )
+            requirement=str(exc),
+            action="use static inputs or the audited shared leading (B,K) batch declaration; broader symbolic migration remains pending",
+        ) from exc
     return TensorProperties(
         None,
-        tuple(int(dim) for dim in shape),
+        normalized_shape,
         dtype,
         None if shape_only else bool(getattr(value, "weak_type", False)),
     )
@@ -528,17 +532,16 @@ def _validate_source_inputs(
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
         shape = tuple(spec.shape)
-        requirement = "static nonnegative shapes and FP16/BF16/FP32/FP64 inputs"
-        action = "use typed static floating inputs for this internal audited comparison"
-        if not all(
-            not isinstance(dim, bool)
-            and isinstance(dim, (int, np.integer))
-            and dim >= 0
-            for dim in shape
-        ) or (
-            not diagnostic
-            and dtype not in {"float16", "bfloat16", "float32", "float64"}
-        ):
+        requirement = (
+            "static shapes or shared leading (B,K), and FP16/BF16/FP32/FP64 inputs"
+        )
+        action = "use typed floating inputs within the finite audited shape contract"
+        if not diagnostic and dtype not in {
+            "float16",
+            "bfloat16",
+            "float32",
+            "float64",
+        }:
             raise SourcePrecisionError(
                 f"input shape {shape} and dtype {dtype} are outside the internal milestone",
                 phase="input",
@@ -549,6 +552,20 @@ def _validate_source_inputs(
                 requirement=requirement,
                 action=action,
             )
+    try:
+        validate_source_shapes(
+            [tuple(cast(jax.ShapeDtypeStruct, spec).shape) for spec in inputs]
+        )
+    except ValueError as exc:
+        raise SourcePrecisionError(
+            str(exc),
+            phase="input",
+            category="profile-exclusion",
+            location="inputs",
+            opset=opset,
+            requirement="static shapes or one shared atomic leading batch variable in rank two",
+            action="retain one unconstrained native scope and the same batch variable; broader symbolic migration remains pending",
+        ) from exc
 
 
 @contextmanager
@@ -615,7 +632,7 @@ def _source_boundary_failure(
         expected, boundary_layout="NCHW" if nchw else None
     )
     raise SourcePrecisionError(
-        "exported boundary dtype or static shape differs from the actual source trace",
+        "exported boundary dtype or shape differs from the actual source trace",
         phase="finalization",
         category="lowering-defect",
         location=f"{label} {index}",
@@ -683,21 +700,32 @@ def _assert_source_boundaries(
             dtype = representation.ir_dtype
             shape = representation.physical_shape
             if ir_model:
-                if (
-                    value.dtype != dtype
-                    or value.shape is None
-                    or tuple(value.shape) != shape
-                ):
+                if not representation.matches_ir_value(value):
                     _source_boundary_failure(
                         label, index, expected, opset, nchw=index in layouts
                     )
             else:
                 tensor = value.type.tensor_type
+                expected_shape = normalized_shape_dimensions(shape)
+                actual_dims = tuple(tensor.shape.dim)
                 if (
                     tensor.elem_type != int(dtype)
                     or not tensor.HasField("shape")
-                    or any(not dim.HasField("dim_value") for dim in tensor.shape.dim)
-                    or tuple(dim.dim_value for dim in tensor.shape.dim) != shape
+                    or len(actual_dims) != len(expected_shape)
+                    or any(
+                        (
+                            (
+                                not dim.HasField("dim_value")
+                                or dim.dim_value != expected_dim
+                            )
+                            if isinstance(expected_dim, int)
+                            else (
+                                not dim.HasField("dim_param")
+                                or dim.dim_param != expected_dim
+                            )
+                        )
+                        for dim, expected_dim in zip(actual_dims, expected_shape)
+                    )
                 ):
                     _source_boundary_failure(
                         label, index, expected, opset, nchw=index in layouts
@@ -708,7 +736,7 @@ def _source_value_properties(value: ir.Value) -> TensorProperties:
     assert value.shape is not None and value.dtype is not None
     return TensorProperties(
         value.name,
-        tuple(_maybe_int_dim(dim) for dim in value.shape),
+        normalized_shape_dimensions(tuple(value.shape)),
         value.dtype.numpy().name,
         None,
     )
@@ -716,7 +744,10 @@ def _source_value_properties(value: ir.Value) -> TensorProperties:
 
 def _source_aval_properties(aval: Any) -> TensorProperties:
     return TensorProperties(
-        None, tuple(aval.shape), np.dtype(aval.dtype).name, bool(aval.weak_type)
+        None,
+        normalized_shape_dimensions(aval.shape),
+        np.dtype(aval.dtype).name,
+        bool(aval.weak_type),
     )
 
 

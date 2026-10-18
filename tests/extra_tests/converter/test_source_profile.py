@@ -412,7 +412,7 @@ def test_profile_rejects_selector_escape_and_non_boolean_cond_selection() -> Non
 
 def test_profile_rejects_symbolic_shapes_and_unsupported_opsets() -> None:
     graph = _graph("neg", [jax.ShapeDtypeStruct(("B",), np.float32)], [_spec((2,))])
-    with pytest.raises(SourcePrecisionError, match="static, nonnegative") as captured:
+    with pytest.raises(SourcePrecisionError, match="rank-two") as captured:
         validate_source_jaxpr(graph, 23)
     assert captured.value.location == "input 0"
     assert captured.value.requested_dtypes == ("float32",)

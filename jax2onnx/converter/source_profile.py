@@ -2,6 +2,11 @@
 
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
+The persisted identifier also covers one audited symbolic expansion: rank-two
+equal-shape floating Add with one shared atomic leading batch variable, including
+actual named Function bodies and returned aliases. Other symbolic rules remain
+separate migration work.
+
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns floating input normalization. Recursive callbacks may
 receive Boolean comparisons and uint32 bit representations as internal operands.
@@ -18,6 +23,10 @@ import jax
 import numpy as np
 
 from jax2onnx._compat.jax import Literal as JaxLiteral
+from jax2onnx.converter.source_representation import (
+    source_shape_contract,
+    validate_source_shapes,
+)
 
 
 SOURCE_STATIC_PROFILE: Final[str] = "source-static-v1"
@@ -154,7 +163,8 @@ class _Site:
 @dataclass(frozen=True)
 class _Tensor:
     dtype: str
-    shape: tuple[int, ...]
+    shape: tuple[int | str, ...]
+    symbol: tuple[str, object | None] | None = None
 
 
 def _tensor(var: Any, site: _Site) -> _Tensor:
@@ -173,17 +183,21 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         f"dtype {dtype} is outside the profile",
         "FP16/BF16/FP32/FP64 values, Boolean comparisons, or uint32 bits",
     )
+    try:
+        normalized, symbol = source_shape_contract(shape)
+    except ValueError as exc:
+        site.fail(f"shape {shape} is outside the profile", str(exc))
     site.require(
-        all(
-            not isinstance(dim, bool)
-            and isinstance(dim, (int, np.integer))
-            and dim >= 0
-            for dim in shape
-        ),
-        f"shape {shape} is outside the profile",
-        "static, nonnegative integer dimensions",
+        symbol is None or symbol[1] is not None,
+        "traced symbolic dimension has no verified native scope",
+        "an actual native JAX symbolic batch variable",
     )
-    return _Tensor(dtype, tuple(int(dim) for dim in shape))
+    site.require(
+        symbol is None or dtype in _FLOATS,
+        "symbolic nonfloating values are outside this audited batch packet",
+        "FP16/BF16/FP32/FP64 symbolic tensors",
+    )
+    return _Tensor(dtype, normalized, symbol)
 
 
 def _arity(eqn: Any, inputs: int, outputs: int, site: _Site) -> None:
@@ -214,7 +228,7 @@ def _params(
 
 
 def _same_shape(
-    actual: tuple[int, ...], expected: tuple[int, ...], site: _Site
+    actual: tuple[int | str, ...], expected: tuple[int | str, ...], site: _Site
 ) -> None:
     site.require(
         actual == expected,
@@ -265,7 +279,7 @@ def _validate_dot(
     site.require(
         rank in (2, 3)
         and len(rhs.shape) == rank
-        and all(dim > 0 for dim in (*lhs.shape, *rhs.shape))
+        and all(isinstance(dim, int) and dim > 0 for dim in (*lhs.shape, *rhs.shape))
         and eqn.params.get("dimension_numbers") == dimensions,
         "matrix dimensions are outside the profile",
         "positive static rank-2 matrices or rank-3 matrices with batch axis 0 and standard contracting axes (-1, -2)",
@@ -284,10 +298,25 @@ def _validate_equation(
     site: _Site,
     consumers: Mapping[int, list[tuple[str, int]]],
     graph_outputs: set[int],
+    formal_symbols: set[tuple[str, object | None]],
 ) -> None:
     inputs = [_tensor(var, site) for var in eqn.invars]
     outputs = [_tensor(var, site) for var in eqn.outvars]
+    site.require(
+        all(
+            value.symbol is None or value.symbol in formal_symbols
+            for value in (*inputs, *outputs)
+        ),
+        "symbolic value differs from this scope's formal batch contract",
+        "the same atomic batch variable and scope as actual formals",
+    )
     name = site.primitive
+    symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
+    site.require(
+        not symbolic or name == "add" or bool(name and name.startswith("onnx_fn::")),
+        "symbolic operation is outside this audited batch packet",
+        "equal-shape floating Add, named Function signatures, and returned aliases",
+    )
     if name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
         _arity(eqn, 1 if unary else 2, 1, site)
@@ -316,14 +345,24 @@ def _validate_equation(
             f"a {expected_dtype} result",
             category="lowering-defect",
         )
-        try:
-            shape = tuple(np.broadcast_shapes(*(value.shape for value in inputs)))
-        except ValueError:
-            site.fail(
-                "incompatible arithmetic operand shapes",
-                "broadcast-compatible shapes",
-                category="lowering-defect",
+        if symbolic:
+            site.require(
+                inputs[0].symbol is not None
+                and inputs[0].symbol == inputs[1].symbol == outputs[0].symbol
+                and inputs[0].shape == inputs[1].shape,
+                "symbolic Add operands do not share the same (B,K) shape",
+                "equal operand shapes with the same native batch variable",
             )
+            shape = inputs[0].shape
+        else:
+            try:
+                shape = tuple(np.broadcast_shapes(*(value.shape for value in inputs)))
+            except ValueError:
+                site.fail(
+                    "incompatible arithmetic operand shapes",
+                    "broadcast-compatible shapes",
+                    category="lowering-defect",
+                )
         _same_shape(outputs[0].shape, shape, site)
     elif name == "convert_element_type":
         _arity(eqn, 1, 1, site)
@@ -551,6 +590,18 @@ def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
                 "int32 appears at a scope boundary",
                 "int32 only as an internal Boolean conditional selector",
             )
+    # Function formals may correctly remap caller symbols. Validate each actual
+    # retraced scope locally while preserving identity within that scope.
+    formals = (*jaxpr.invars, *jaxpr.constvars)
+    try:
+        validate_source_shapes([tuple(var.aval.shape) for var in formals])
+    except ValueError as exc:
+        site.fail("invalid symbolic scope metadata", str(exc))
+    formal_symbols = {
+        value.symbol
+        for var in formals
+        if (value := _tensor(var, site)).symbol is not None
+    }
     for index, eqn in enumerate(jaxpr.eqns):
         variables = (*eqn.invars, *eqn.outvars)
         params = {
@@ -592,7 +643,7 @@ def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
                 "a scalar bool-to-int32 conversion in this scope",
             )
         try:
-            _validate_equation(eqn, eqn_site, consumers, graph_outputs)
+            _validate_equation(eqn, eqn_site, consumers, graph_outputs, formal_symbols)
         except SourcePrecisionError:
             raise
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
@@ -607,6 +658,11 @@ def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
             f"output {index}", opset, requested_dtypes=(str(var.aval.dtype),)
         )
         value = _tensor(var, boundary_site)
+        boundary_site.require(
+            value.symbol is None or value.symbol in formal_symbols,
+            "symbolic output differs from this scope's formal batch contract",
+            "the same atomic batch variable and scope as actual formals",
+        )
         boundary_site.require(
             value.dtype != "int32",
             "int32 appears at a scope boundary",

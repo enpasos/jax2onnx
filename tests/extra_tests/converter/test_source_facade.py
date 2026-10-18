@@ -631,7 +631,7 @@ def test_source_checks_serialized_boundary_shape_before_attaching_report(
         return proto
 
     monkeypatch.setattr(ir, "to_proto", corrupt)
-    with pytest.raises(SourcePrecisionError, match="static shape differs"):
+    with pytest.raises(SourcePrecisionError, match="boundary dtype or shape differs"):
         _source(lambda x: -x, [(2,)], return_mode="ir")
 
 
