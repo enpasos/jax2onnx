@@ -202,6 +202,7 @@ class IRContext:
             opset=opset,
             enable_double_precision=enable_double_precision,
             enable_stacktrace_metadata=bool(stacktrace_metadata),
+            precision_policy=precision_policy,
         )
         self._stacktrace_metadata_enabled: bool = bool(stacktrace_metadata)
         self._normalization_mode = normalization_mode
