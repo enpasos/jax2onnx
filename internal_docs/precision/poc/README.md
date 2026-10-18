@@ -23,8 +23,29 @@ is available. These experiments inform the
 | Native NNX Linear and reshape | Can unchanged model methods preserve native tracing and static diagnostic artifacts? | [Linear/reshape findings](native_linear_reshape_findings.md): committed native adapters, exact parameters and named aliases; 544 main checks per stack and a 6,620-test full pass. |
 | Audited ordinary matrices | Can the finite matrix representation pass actual admission and retain the fixed numerical contract? | [Admission findings](ordinary_matrix_admission_findings.md): static FP32/FP64 audit, 750 main checks per stack and fresh audited FP32 sample results; historical failures remain. |
 | Leading-B matrices and bias | Can one native symbolic batch survive MatMul, singleton Add and the original Linear bias path? | [Leading-B findings](leading_batch_matrix_bias_findings.md): reviewed finite semantics, exact raw-source provenance, repaired symbolic preparation and separately gated five-row numerics. |
+| Native Exp and Leading-B Mul | Do native weak typing and explicit broadcast survive exponential/multiplication composition? | [Pointwise findings](pointwise_mul_exp_findings.md): accepted four-path semantics and 1,489 actual-main checks per stack, with fixed finite CPU samples and separate BF16 structural limits. |
 
-The [Leading-B matrix/bias checkpoint](leading_batch_matrix_bias_findings.md)
+The [native Exp and Leading-B Mul checkpoint](pointwise_mul_exp_findings.md)
+has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
+the original SOURCE call and weak typing; the private audited profile validates
+floating Exp and finite static/shared-batch Mul composition. Source casts and
+explicit broadcasts remain visible. Main checks pass **1,489 cases per stack**,
+including all previous 990 cases, fourteen frozen review guards and 117 new
+permanent cases. The separate independent selection passes 153 cases per stack;
+these overlapping counts are not additive.
+
+The inventory now records **210 files, 1,217 functions and 465 additions**, with
+all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
+cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
+warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
+all five code/inventory paths and all 860 Python hashes remain unchanged.
+The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
+checks do not establish a working CPU kernel. Neither the five-row Leading-B
+nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
+`source-static-v1` and report schema 1 remain unchanged. Where/JIT work is a
+separate, unaccepted follow-up; broader phases D/E/F remain unfinished.
+
+The preceding [Leading-B matrix/bias checkpoint](leading_batch_matrix_bias_findings.md)
 extends the private audited path to one actual leading symbolic batch at ranks
 two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
 leading one, and the native static bias reshape. The five original MatMul,
@@ -38,7 +59,7 @@ The separately released v3 observation records ten symbolic artifacts, twenty
 sessions and forty actual runs per stack; all three approved FP32 predicates
 pass for every output; independent result review accepts these samples. Earlier
 preparation failures and a later wrapper reporting error remain recorded.
-The inventory now contains **209 files, 1,197 functions and 445 additions**,
+That checkpoint’s inventory records **209 files, 1,197 functions and 445 additions**,
 retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
 checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
 warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
@@ -143,7 +164,8 @@ primitive set at opsets 23/26, including selected Function/If cases. The finite
 shared-B extension adds equal rank-two floating inputs through Add and named
 composition. The Leading-B checkpoint adds one atomic native B at axis zero of
 rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive
-static tails.
+static tails. The Pointwise extension adds native floating Exp and equal-tail
+shared-B/static-1 Mul at those ranks, with exact source weakness.
 Broader symbolic operations, loops, scan, JIT regions, effects and unaudited
 operations remain excluded from audited admission.
 Bodies are validated recursively. Same-width BitCast requires explicit opset26;

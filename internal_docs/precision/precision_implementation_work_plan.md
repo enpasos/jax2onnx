@@ -4,7 +4,27 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
-The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+The [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
+has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
+the original SOURCE call and weak typing; the private audited profile validates
+floating Exp and finite static/shared-batch Mul composition. Source casts and
+explicit broadcasts remain visible. Main checks pass **1,489 cases per stack**,
+including all previous 990 cases, fourteen frozen review guards and 117 new
+permanent cases. The separate independent selection passes 153 cases per stack;
+these overlapping counts are not additive.
+
+The inventory now records **210 files, 1,217 functions and 465 additions**, with
+all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
+cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
+warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
+all five code/inventory paths and all 860 Python hashes remain unchanged.
+The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
+checks do not establish a working CPU kernel. Neither the five-row Leading-B
+nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
+`source-static-v1` and report schema 1 remain unchanged. Where/JIT work is a
+separate, unaccepted follow-up; broader phases D/E/F remain unfinished.
+
+The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 extends the private audited path to one actual leading symbolic batch at ranks
 two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
 leading one, and the native static bias reshape. The five original MatMul,
@@ -18,7 +38,7 @@ The separately released v3 observation records ten symbolic artifacts, twenty
 sessions and forty actual runs per stack; all three approved FP32 predicates
 pass for every output; independent result review accepts these samples. Earlier
 preparation failures and a later wrapper reporting error remain recorded.
-The inventory now contains **209 files, 1,197 functions and 445 additions**,
+That checkpoint’s inventory records **209 files, 1,197 functions and 445 additions**,
 retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
 checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
 warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
@@ -426,6 +446,7 @@ planning work is separate from production-code ownership.
 | Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path implementation and actual-main binding independently accepted; 750 main tests per stack, 24 fresh audited artifacts/48 fixed-criterion CPU runs per stack pass | `45881d8d`; numerical post-run review, 6,728-test full run and all seven actual hooks pass |
 | Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted code; main 544 passes per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | `791664f8`; full run and all actual hooks pass, with post-full header-only normalization recorded |
 | Leading-B matrices and bias | Preserve actual native B at ranks two/three, canonical FP32/FP64 MatMul, equal-tail shared-B/static-1 Add and static bias reshape across the five unchanged raw anchors. | Production/tooling and actual-main binding independently accepted; 990 main checks per stack; all 40 v3 runs per stack meet the fixed FP32 criterion with independent result acceptance; 6,816-test complete primary-stack run passes | `718f448e`; all seven actual hooks pass and frozen hashes remain unchanged |
+| Native Exp and Leading-B Mul | Preserve the native Exp call and weakness, finite static/shared-B Mul, and source-authored casts/broadcasts through named composition. | Independently accepted semantics and actual-main binding; 153 independent and 1,489 main cases per stack, including 117 new permanent cases; fixed CPU edge/finite evidence, BF16 runtime unverified | `7c68300b`; 6,933-test complete primary-stack run and all seven actual hooks pass; frozen hashes stay exact |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -867,19 +888,35 @@ main checks pass 990 cases per stack. The released v3 observation produces ten
 symbolic artifacts per stack and all forty runtime outputs pass the three fixed
 FP32 comparisons, with independent result acceptance. Both failed preparations
 and the post-return wrapper reporting error stay recorded.
-The inventory is now 209 files, 1,197 functions and 445 additions, retaining all
+That Leading-B checkpoint’s inventory is 209 files, 1,197 functions and 445 additions, retaining all
 752 original anchors and 1,802 raw contracts. Both inventory CLI checks pass;
 the complete primary-stack run passes 6,816 tests (13,130 warnings, 431.98
 seconds). Commit `718f448e` passes all seven actual hooks with the twelve
 code/inventory hashes and all 859 Python hashes unchanged.
 
-Next, integrate the separately reviewed native Exp/weakness and actual-B Mul
-packet through its own main acceptance gates, preserving historical criteria
-and failures. Where/gather stays separate because its custom Where, JIT/select
-and x64 boundaries need their own trace evidence. Broader symbolic matrices/layouts, all 22 parameterized models,
-41 normalization rows, 104 metadata-free registrations and optional
-MaxText/MaxDiffusion discovery remain part of completion. The 295/310 declaration
-count is prioritization only; five selected anchors do not close all 310 rows.
+The [native Exp/weakness and actual-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
+has now passed independent semantics and actual-main integration review. Both
+main selections pass 1,489 cases, including the earlier 990 and fourteen review
+guards; 117 cases are new permanent Pointwise regressions. The separately run
+153-case independent selection and these larger selections overlap.
+The inventory is now 210 files, 1,217 functions and 465 migration additions,
+with all 752 original anchors and all raw contracts retained. Both inventory
+CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
+warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
+all five code/inventory paths and all 860 Python hashes remain unchanged.
+
+Next, independently review and integrate the separately authored Where/JIT
+packet if its exact source/branch/dtype and version-compatibility gates pass.
+Native JAX inlining-policy enum versus older Boolean representations must be
+handled through a typed compatibility seam, without string/repr guessing.
+That follow-up remains unaccepted here. Then organize the remaining work into
+coherent operator-family batches with shared representation and validation
+rules; individual allowlist additions are intermediate steps, while the full
+B–F contract remains the completion requirement. The x64 conflict, broader symbolic
+matrices/layouts, all 22 parameterized models, 41 normalization rows,
+104 metadata-free registrations and optional MaxText/MaxDiffusion discovery
+remain part of completion. The 295/310 declaration count is prioritization
+only; selected anchors do not close all 310 rows.
 
 Checkpoint evidence on 2026-10-18:
 

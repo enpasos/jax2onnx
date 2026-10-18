@@ -14,14 +14,26 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+The [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
+adds reviewed private support for selected exponential and multiplication
+calculations, including a shared variable batch size. The source’s input types,
+weak typing, casts and explicit broadcasting are preserved. Main checks pass
+1,489 cases on each supported stack, with independent integration acceptance.
+Selected FP32/FP64 CPU samples pass their fixed criteria; this does not promise
+identical results for every value or support on every device.
+The complete primary-stack run passes **6,933 tests**. Commit `7c68300b`
+passes all seven repository hooks.
+Public calls and both existing double-precision options keep their behavior.
+Where/JIT work and broader model coverage remain separate, unfinished work.
+
+The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 adds reviewed private support for selected matrix and bias calculations with a
 shared variable batch size. It keeps the five original MatMul, GPT Add and
 Linear examples, including their real parameters and runtime inputs. Focused
 checks pass on both stacks, and integration on the local branch is independently
 accepted. Fresh artifacts also pass the selected FP32 samples at batch sizes two
 and five in both CPU settings; independent review accepts these samples.
-The complete primary-stack run passes **6,816 tests**; commit `718f448e` passes
+That checkpoint’s complete primary-stack run passes **6,816 tests**; commit `718f448e` passes
 all seven repository hooks. These five examples do not establish support for
 every symbolic shape or complete model. Public calls and defaults keep their
 existing behavior.
@@ -151,8 +163,10 @@ is committed at `718f448e` and preserves the five unchanged MatMul, GPT Add and
 NNX Linear sources, including their real weights, bias and configuration.
 Their selected FP32 CPU samples pass at batch sizes two and five in 40 runs per
 stack, with independent acceptance. Broader dynamic-shape and model requirements
-remain open. The separately reviewed Exp/Mul packet is next for integration on
-the local branch.
+remain open. The Exp/multiplication extension now also has independent
+integration acceptance and 1,489 passing main checks per stack. Its own fixed
+CPU samples do not replace the preceding five-source observation. Where/JIT is
+the next separate review; it is not yet an accepted public capability.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 
