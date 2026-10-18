@@ -9,6 +9,10 @@ from flax import nnx
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx._compat.jax import Primitive, ShapedArray
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -524,13 +528,18 @@ class LinearPlugin(PrimitiveLeafPlugin):
         LinearPlugin._ORIGINAL_LINEAR_CALL = orig_fn
         prim = LinearPlugin._PRIM
 
-        def patched(self: nnx.Linear, x: Any, *, out_sharding: Any = None) -> Any:
+        def legacy(self: nnx.Linear, x: Any, *, out_sharding: Any = None) -> Any:
             del out_sharding
             dn = (((x.ndim - 1,), (0,)), ((), ()))
             kernel = self.kernel.value
             use_bias = self.bias is not None
             bias = self.bias.value if use_bias else jnp.zeros((), dtype=x.dtype)
             return prim.bind(x, kernel, bias, use_bias=use_bias, dimension_numbers=dn)
+
+        def patched(self: nnx.Linear, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 
