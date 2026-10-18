@@ -49,7 +49,7 @@ from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .precision_policy import PrecisionPolicy, precision_policy_scope
-from .source_profile import validate_source_input_dtype
+from .source_profile import SourcePrecisionError, validate_source_input_dtype
 from .source_representation import representation_for_aval
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
@@ -399,8 +399,33 @@ def _finalize_model_value_shapes(model_proto: ir.Model) -> None:
             _normalize_value_shape(value)
 
 
+def _source_finalization_error(
+    exc: Exception,
+    *,
+    stage: str,
+    location: str,
+    opset: int | None,
+    primitive: str | None = None,
+) -> SourcePrecisionError:
+    return SourcePrecisionError(
+        f"{stage} failed after {type(exc).__name__}: {exc}",
+        phase="finalization",
+        category="lowering-defect",
+        location=location,
+        primitive=primitive,
+        opset=opset,
+        requirement="required finalization and explicit node attributes must be applied successfully",
+        action="fix the converter or plugin finalization failure before exporting this program",
+    )
+
+
 def _apply_ir_attr_overrides_to_graph(
-    gr: ir.Graph, overrides: dict[str, dict[str, object]]
+    gr: ir.Graph,
+    overrides: dict[str, dict[str, object]],
+    *,
+    precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    location: str = "graph",
+    opset: int | None = None,
 ) -> None:
     if not overrides:
         return
@@ -413,9 +438,24 @@ def _apply_ir_attr_overrides_to_graph(
         if node is None or kv is None:
             continue
         for attr_name, attr_value in kv.items():
-            attr_obj = _convert_ir_attr(attr_name, attr_value)
-            if attr_obj is not None:
-                node.attributes[attr_name] = attr_obj
+            try:
+                attr_obj = _convert_ir_attr(attr_name, attr_value)
+                if attr_obj is not None:
+                    node.attributes[attr_name] = attr_obj
+                elif precision_policy is PrecisionPolicy.SOURCE:
+                    raise ValueError(
+                        f"Explicit attribute {attr_name!r} could not be converted"
+                    )
+            except Exception as exc:
+                if precision_policy is PrecisionPolicy.SOURCE:
+                    raise _source_finalization_error(
+                        exc,
+                        stage="explicit attribute override",
+                        location=f"{location}/node {nm}/attribute {attr_name}",
+                        opset=opset,
+                        primitive=node.op_type,
+                    ) from exc
+                raise
 
 
 def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
@@ -428,8 +468,27 @@ def _fix_concat_axis_in_graph(gr: ir.Graph) -> None:
 
 
 def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
-    _apply_ir_attr_overrides_to_graph(ir_model.graph, ctx.attr_overrides)
-    _fix_concat_axis_in_graph(ir_model.graph)
+    graph_location = f"graph {ir_model.graph.name}"
+    try:
+        _apply_ir_attr_overrides_to_graph(
+            ir_model.graph,
+            ctx.attr_overrides,
+            precision_policy=ctx.precision_policy,
+            location=graph_location,
+            opset=ctx.opset,
+        )
+        _fix_concat_axis_in_graph(ir_model.graph)
+    except SourcePrecisionError:
+        raise
+    except Exception as exc:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            raise _source_finalization_error(
+                exc,
+                stage="graph postprocess",
+                location=graph_location,
+                opset=ctx.opset,
+            ) from exc
+        raise
 
     missing_overrides = object()
     for fn in iter_ir_functions(ir_model.functions):
@@ -448,10 +507,25 @@ def _apply_late_ir_attr_overrides(ir_model: ir.Model, ctx: IRContext) -> None:
                 )
             else:
                 fn_overrides = {}
-            _apply_ir_attr_overrides_to_graph(graph_obj, fn_overrides)
+            _apply_ir_attr_overrides_to_graph(
+                graph_obj,
+                fn_overrides,
+                precision_policy=ctx.precision_policy,
+                location=f"function {fn.name}",
+                opset=ctx.opset,
+            )
             _fix_concat_axis_in_graph(graph_obj)
         except Exception as exc:
             fn_name = getattr(fn, "name", "<unnamed function>")
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                if isinstance(exc, SourcePrecisionError):
+                    raise
+                raise _source_finalization_error(
+                    exc,
+                    stage="function postprocess",
+                    location=f"function {fn_name}",
+                    opset=ctx.opset,
+                ) from exc
             _log_nonfatal_stage_failure(f"function postprocess for {fn_name}", exc)
 
 
@@ -491,6 +565,13 @@ def _build_and_finalize_ir_model(
     try:
         _finalize_model_value_shapes(ir_model)
     except Exception as exc:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            raise _source_finalization_error(
+                exc,
+                stage="shape finalization",
+                location=f"model {model_name}",
+                opset=ctx.opset,
+            ) from exc
         _log_nonfatal_stage_failure("finalize_model_value_shapes", exc)
 
     return ir_model
