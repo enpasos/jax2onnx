@@ -19,6 +19,28 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+extends the private audited path to one actual leading symbolic batch at ranks
+two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
+leading one, and the native static bias reshape. The five original MatMul,
+GPT Add and NNX Linear anchors keep their callables, weights, bias and runtime
+operand ports. Production semantics, repaired tooling and actual-main binding
+have independent acceptance; main checks pass **990 cases per stack**. The
+preceding owner run passes 1,004 cases per stack, including those 990 permanent
+cases and 14 frozen review guards; these overlapping counts are not additive.
+
+The separately released v3 observation records ten symbolic artifacts, twenty
+sessions and forty actual runs per stack; all three approved FP32 predicates
+pass for every output; independent result review accepts these samples. Earlier
+preparation failures and a later wrapper reporting error remain recorded.
+The inventory now contains **209 files, 1,197 functions and 445 additions**,
+retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
+checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
+warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
+the twelve frozen code/inventory files and all 859 Python hashes are unchanged.
+Public LEGACY, `source-static-v1` and report schema 1 stay unchanged. Broader acceptance across
+the 310 symbolic rows and final phase F remain unfinished.
+
 The [implementation work plan](precision_implementation_work_plan.md) defines
 coverage of the existing functionality, completion gates, roles, and local
 commits. The completed normal `to_onnx` call has one rule: JAX determines the
@@ -69,7 +91,7 @@ records 203 files, 1,114 functions and 362 additions, retaining all original
 anchors and raw contracts. These are historical checkpoint results.
 
 The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
-record the current bounded audit: same-type FP32/FP64 ordinary dots with positive
+record the preceding static audit: same-type FP32/FP64 ordinary dots with positive
 static ranks 2–4, valid ordered paired axes and default precision now use the
 actual audited SOURCE profile. Main checks pass **750 tests per stack**.
 The separate fresh numerical packet creates 24 audited artifacts and records
@@ -78,8 +100,9 @@ zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
 remain unchanged. These results do not establish general numerical acceptance;
 strict subnormal failures and their raising gates remain.
 
-The inventory records **207 files, 1,175 functions and 423 additions**, with all
-752 original anchors, zero removals and 1,802 raw contracts/3,604 cells retained.
+That checkpoint’s inventory records **207 files, 1,175 functions and 423 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained.
 Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
 CLI comparisons and independent numerical post-run review pass. The integrated
 primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
@@ -112,7 +135,8 @@ signed-zero failures per stack remain recorded; new opset-23 FP16/FP32/FP64
 artifacts now pass those bitwise samples. Four strict subnormal witness artifacts
 per stack and 108 inherited FP32/FP64 grid mismatches remain failed. The dense
 selection has measured cost and adds no default admission. Shared-B Add remains
-finite; all 310 symbolic and seven NCHW corpus rows stay open. The B3 revision
+finite; broader acceptance across the 310 symbolic and seven NCHW corpus rows
+remains open. The B3 revision
 selects 13 unchanged rows/26 artifact-only cells, retaining four explicit SOURCE
 matrix counterparts and original callback failures. That artifact checkpoint
 adopts no numerical criterion and runs no corpus runtime checks. The new,

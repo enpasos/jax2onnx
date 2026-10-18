@@ -4,6 +4,28 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+extends the private audited path to one actual leading symbolic batch at ranks
+two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
+leading one, and the native static bias reshape. The five original MatMul,
+GPT Add and NNX Linear anchors keep their callables, weights, bias and runtime
+operand ports. Production semantics, repaired tooling and actual-main binding
+have independent acceptance; main checks pass **990 cases per stack**. The
+preceding owner run passes 1,004 cases per stack, including those 990 permanent
+cases and 14 frozen review guards; these overlapping counts are not additive.
+
+The separately released v3 observation records ten symbolic artifacts, twenty
+sessions and forty actual runs per stack; all three approved FP32 predicates
+pass for every output; independent result review accepts these samples. Earlier
+preparation failures and a later wrapper reporting error remain recorded.
+The inventory now contains **209 files, 1,197 functions and 445 additions**,
+retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
+checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
+warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
+the twelve frozen code/inventory files and all 859 Python hashes are unchanged.
+Public LEGACY, `source-static-v1` and report schema 1 stay unchanged. Broader acceptance across
+the 310 symbolic rows and final phase F remain unfinished.
+
 The bounded private facade, canonical initializer repair, and deterministic
 attention fixtures are reviewed and committed; inventory/reference infrastructure
 is committed. A fixed
@@ -43,7 +65,7 @@ typing exposed defects.
 Interrupted runs are not counted as passing.
 
 The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
-record the current bounded audit: same-type FP32/FP64 ordinary dots with positive
+record the preceding static audit: same-type FP32/FP64 ordinary dots with positive
 static ranks 2–4, valid ordered paired axes and default precision now use the
 actual audited SOURCE profile. Main checks pass **750 tests per stack**.
 The separate fresh numerical packet creates 24 audited artifacts and records
@@ -52,8 +74,9 @@ zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
 remain unchanged. These results do not establish general numerical acceptance;
 strict subnormal failures and their raising gates remain.
 
-The inventory records **207 files, 1,175 functions and 423 additions**, with all
-752 original anchors, zero removals and 1,802 raw contracts/3,604 cells retained.
+That checkpoint’s inventory records **207 files, 1,175 functions and 423 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained.
 Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
 CLI comparisons and independent numerical post-run review pass. The integrated
 primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
@@ -232,10 +255,11 @@ a genuine technical limit. Existing captured-state forms and supported
 configuration behavior require audit in later phases. New concurrent-export
 guarantees are not required beyond the existing functionality.
 
-This table records the initial phase-A scope. The later shared-B packet keeps
-the persisted identifier and report schema while adding one audited equal-shape
-Add/named-composition contract; its explicit gates below do not retroactively
-broaden the historical phase-A evidence.
+This table records the initial phase-A scope. Later static-matrix and shared-B
+packets extend finite audited contracts while keeping the persisted identifier
+and report schema. The Leading-B matrix/bias checkpoint adds the bounded
+rank-two/three contract described below. Its acceptance gates do not
+retroactively broaden historical phase-A evidence.
 
 Retain appropriate NaN, infinity, and signed-zero coverage. BF16 graph validity
 does not establish an available CPU kernel. No operation is silently widened
@@ -394,13 +418,14 @@ planning work is separate from production-code ownership.
 | Native add/min/max binding | Forward original SOURCE arguments through one private binder opt-in; preserve native promotion, weakness, errors and transforms. | Independently accepted; 366 focused/generated checks per stack, 62 new cases; integrated run and actual hooks pass; eight signed-zero target failures per stack retained | `258e90d6` |
 | Diagnostic Mul-None dependency | Admit only the observed None spelling under the existing typed floating rule; retain native abstract checks. | Separately accepted; 84 checks per stack, 18 new safeguards; integrated run and actual hooks pass; no production/profile change | `258e90d6` |
 | C4b static NCHW and shared observers | Compose root physical layout without changing canonical source values; protect observable transpose values and lexical naming. | 36 layout and 57 observer cases; ten failed-full regressions retained, final correction independently passes 238 cases per stack; fresh full run and actual hooks pass | Optimizer `f02c0b4c`; layout `7609fc2e` |
-| Shared symbolic batch | Preserve equal `(B,K)` floating Add and named composition, exact symbolic boundaries and fresh sample bindings; one artifact at B=2/5. | 697 owner and 241 independent checks per stack, all 40 new cases; full run and actual hooks pass; all 310 raw symbolic rows remain open | `80cb68b2` |
+| Shared symbolic batch | Preserve equal `(B,K)` floating Add and named composition, exact symbolic boundaries and fresh sample bindings; one artifact at B=2/5. | 697 owner and 241 independent checks per stack, all 40 new cases; full run and actual hooks pass; no raw symbolic rows closed at that checkpoint | `80cb68b2` |
 | Min/Max signed-zero lowering | Preserve typed zero-tie signs through scoped GatherElements selection at opset 23; retain baseline bytes and known target failures. | Independently accepted; 132 tests per stack including 29 new; main focused/full/inventory and actual hooks pass; no default admission | `fc3f9323` |
 | B3 revision supplement | Replay 13 unchanged rows/26 artifact-only cells; retain raw outcomes and four SOURCE matrix counterparts; propose criteria separately. | Independently accepted; main replays retain 24 artifacts/two unresolved outcomes per stack; zero ORT, no criterion adoption in this packet; integrated checks and actual hooks pass | `fc3f9323` |
 | Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Independently reviewed main evidence: 553 checks per stack; gather remains pending at configuration/custom Where; no new artifact or runtime evidence from that supplement | `d2292b89`; full run and all actual hooks pass |
 | Fixed FP32 corpus numerics | Preserve twelve original rows/24 cells, both source contexts and the preapproved three-comparison criterion on one actual output per mode. | 247 main checks per stack; 48 CPU runs per stack pass, zero pending; independent post-run review accepted; general lowering UNVERIFIED | `d2292b89`; full run and all actual hooks pass |
 | Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path implementation and actual-main binding independently accepted; 750 main tests per stack, 24 fresh audited artifacts/48 fixed-criterion CPU runs per stack pass | `45881d8d`; numerical post-run review, 6,728-test full run and all seven actual hooks pass |
 | Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted code; main 544 passes per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | `791664f8`; full run and all actual hooks pass, with post-full header-only normalization recorded |
+| Leading-B matrices and bias | Preserve actual native B at ranks two/three, canonical FP32/FP64 MatMul, equal-tail shared-B/static-1 Add and static bias reshape across the five unchanged raw anchors. | Production/tooling and actual-main binding independently accepted; 990 main checks per stack; all 40 v3 runs per stack meet the fixed FP32 criterion with independent result acceptance; 6,816-test complete primary-stack run passes | `718f448e`; all seven actual hooks pass and frozen hashes remain unchanged |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -733,9 +758,9 @@ a FAILED CPU Add load result. Commit `80cb68b2`, the complete primary-stack run
 and actual configured hooks pass their integration gates.
 
 No symbolic NCHW, broadcasting, affine expressions, other operations or control
-flow are admitted by this packet. All 310 symbolic raw rows and seven NCHW rows
-remain: the only raw symbolic declaration with two inputs of rank two and
-identical shapes includes Divide/Mean.
+flow are admitted by this packet. At that checkpoint all 310 symbolic raw rows
+and seven NCHW rows remained open: the only raw symbolic declaration with two
+inputs of rank two and identical shapes includes Divide/Mean.
 Keep existing dynamic positive witnesses and fixed sources, without a new
 profile mode, runtime Assert layer or source rewrite.
 
@@ -827,17 +852,34 @@ The ordinary-matrix packet is integrated and has fresh audited sample results;
 its numerical post-run review is accepted. Commit `45881d8d` passes the
 6,728-test full run and all seven actual hooks.
 The historical numerical CLI's bindings and every old result remain pinned.
-The native Linear/reshape prerequisite is committed at `791664f8`.
-Next, a seven-path isolated implementation carries one shared leading B through
-canonical MatMul, leading-1 Add and static bias reshape, using JNP MatMul
-ordinals 6/5, GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3 unchanged.
-The implementation remains isolated work in progress, without new corpus or
-leading-B numerical acceptance.
-One artifact at B=2/5, real scoped-symbol identity, strict sample binding,
-exact weights/bias and named composition remain acceptance gates. Corpus-helper
-expansion follows production acceptance and separate review; the approved
-leading-B numerical criterion is unchanged and does not release execution.
-The 295/310 declaration count is prioritization only, not measured coverage.
+The native Linear/reshape prerequisite remains committed at `791664f8`.
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+has independently accepted seven-path semantics for canonical MatMul, leading-1
+Add and static bias reshape. The unchanged anchors are JNP MatMul ordinals 6/5,
+GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3. The separate four-path
+repair versions exact whole-file provenance and validates concrete samples
+against the actual native symbolic trace. Its initial review exposed a hidden
+symbolic-original defect; the narrow v2 correction now passes all 1,004 owner
+cases per stack, including 990 permanent cases and 14 frozen review guards.
+The original 22 provenance failures and rejected review remain historical
+records. Final independent v2 review and actual-main binding are accepted;
+main checks pass 990 cases per stack. The released v3 observation produces ten
+symbolic artifacts per stack and all forty runtime outputs pass the three fixed
+FP32 comparisons, with independent result acceptance. Both failed preparations
+and the post-return wrapper reporting error stay recorded.
+The inventory is now 209 files, 1,197 functions and 445 additions, retaining all
+752 original anchors and 1,802 raw contracts. Both inventory CLI checks pass;
+the complete primary-stack run passes 6,816 tests (13,130 warnings, 431.98
+seconds). Commit `718f448e` passes all seven actual hooks with the twelve
+code/inventory hashes and all 859 Python hashes unchanged.
+
+Next, integrate the separately reviewed native Exp/weakness and actual-B Mul
+packet through its own main acceptance gates, preserving historical criteria
+and failures. Where/gather stays separate because its custom Where, JIT/select
+and x64 boundaries need their own trace evidence. Broader symbolic matrices/layouts, all 22 parameterized models,
+41 normalization rows, 104 metadata-free registrations and optional
+MaxText/MaxDiffusion discovery remain part of completion. The 295/310 declaration
+count is prioritization only; five selected anchors do not close all 310 rows.
 
 Checkpoint evidence on 2026-10-18:
 

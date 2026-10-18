@@ -7,6 +7,28 @@ existing-functionality acceptance matrix and checkpoint ledger. The final normal
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+extends the private audited path to one actual leading symbolic batch at ranks
+two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
+leading one, and the native static bias reshape. The five original MatMul,
+GPT Add and NNX Linear anchors keep their callables, weights, bias and runtime
+operand ports. Production semantics, repaired tooling and actual-main binding
+have independent acceptance; main checks pass **990 cases per stack**. The
+preceding owner run passes 1,004 cases per stack, including those 990 permanent
+cases and 14 frozen review guards; these overlapping counts are not additive.
+
+The separately released v3 observation records ten symbolic artifacts, twenty
+sessions and forty actual runs per stack; all three approved FP32 predicates
+pass for every output; independent result review accepts these samples. Earlier
+preparation failures and a later wrapper reporting error remain recorded.
+The inventory now contains **209 files, 1,197 functions and 445 additions**,
+retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
+checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
+warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
+the twelve frozen code/inventory files and all 859 Python hashes are unchanged.
+Public LEGACY, `source-static-v1` and report schema 1 stay unchanged. Broader acceptance across
+the 310 symbolic rows and final phase F remain unfinished.
+
 The shared private facade, typed constants, logical/physical boundaries,
 discrete comparisons and finite noncomplex loops are committed; the scenario
 plan is committed at `158ce625`. That checkpoint passed 5,363 integrated
@@ -56,7 +78,7 @@ warnings, 413.65 seconds), and all seven actual configured hooks passing. Typing
 This checkpoint changes no default operation admission or numerical criterion.
 
 The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
-record the current bounded audit: same-type FP32/FP64 ordinary dots with positive
+record the preceding static audit: same-type FP32/FP64 ordinary dots with positive
 static ranks 2–4, valid ordered paired axes and default precision now use the
 actual audited SOURCE profile. Main checks pass **750 tests per stack**.
 The separate fresh numerical packet creates 24 audited artifacts and records
@@ -65,8 +87,9 @@ zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
 remain unchanged. These results do not establish general numerical acceptance;
 strict subnormal failures and their raising gates remain.
 
-The inventory records **207 files, 1,175 functions and 423 additions**, with all
-752 original anchors, zero removals and 1,802 raw contracts/3,604 cells retained.
+That checkpoint’s inventory records **207 files, 1,175 functions and 423 additions**,
+with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
+retained.
 Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
 CLI comparisons and independent numerical post-run review pass. The integrated
 primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
@@ -211,8 +234,10 @@ lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
 two-branch conditionals. It supports opsets 23/26, names, primitive recording,
 and proto/IR/standard/web file returns through reviewed private facade integration.
 Web packaging does not establish browser execution. Selected static NCHW
-boundaries and the finite shared-B Add/named-composition extension now have
-reviewed private implementation. The persisted profile identifier is unchanged.
+boundaries and the finite shared-B Add/named-composition extension have reviewed
+private implementation. The new Leading-B matrix/bias semantics extend that
+contract at ranks two/three; final integration gates are tracked separately
+above. The persisted profile identifier is unchanged.
 Nonempty `input_params`, dynamic layouts, nondefault normalization, unlisted
 operations, effects, broader symbolic shapes, loops and JIT regions remain
 temporary audited-profile gates; named BOOL and other reviewed diagnostic paths
@@ -336,7 +361,8 @@ The shared-B packet is implemented and passes focused review: two equal `(B,K)`
 inputs, audited Add and named composition, one artifact at B=2/5. It preserves
 actual symbol scopes and checks report/artifact/input/reference/output contracts
 with fresh bindings per sample. BF16 loading remains FAILED on the measured
-CPUs. All 310 raw symbolic rows remain open. The only raw symbolic declaration
+CPUs. At that checkpoint all 310 raw symbolic rows remained open. The only raw
+symbolic declaration
 with two inputs of rank two and identical shapes includes Divide/Mean, beyond
 this packet.
 
@@ -380,15 +406,29 @@ recorded samples.
 Historical None criteria, the proposal ledger and existing `SampleCriteria`
 remain unchanged; diagnostic lowering is still UNVERIFIED.
 
-Ordinary-matrix admission and its fresh fixed-sample numerical packet now have
-actual-main evidence, while the historical numerical CLI remains strictly pinned.
+Ordinary-matrix admission and its fresh fixed-sample numerical packet retain
+actual-main evidence; the historical numerical CLI remains strictly pinned.
 The native NNX Linear/reshape prerequisite is committed at `791664f8`.
-The next seven-path implementation extends shared leading-B MatMul, leading-1
-Add and static bias reshape through the five unchanged MatMul, GPT Add and NNX
-Linear anchors. Isolated implementation is in progress; no leading-B acceptance is claimed. Its approved
-numerical criteria remain unchanged, but symbolic artifacts, strict sample
-binding and independently accepted production/tooling are still required before
-execution release. No corpus-helper expansion or leading-B acceptance is claimed.
+The [Leading-B matrix/bias findings](poc/leading_batch_matrix_bias_findings.md)
+now record independently accepted seven-path semantics and the separate four-path
+provenance/preparation repair. Final v2 tooling and actual-main integration have
+independent acceptance. The fresh v3 observation records ten symbolic artifacts
+per stack serving both B=2 and B=5, with exact native scope and sample bindings,
+actual parameters and unchanged runtime operand ports. All forty actual runs
+per stack meet the fixed three-predicate FP32 criterion, with independent result
+acceptance. Both inventory CLI checks and the 6,816-test complete primary-stack
+run pass; commit `718f448e` passes all seven actual hooks. The original
+preparation failures and post-return wrapper reporting error stay recorded
+separately.
+
+The separate native Exp/weakness and actual-B Mul composition packet has
+independent focused acceptance and awaits its own main integration. Its
+source/artifact/sample evidence and admission remain a separate checkpoint.
+Where/gather remains a separate investigation: custom Where, JIT/select tracing and the recorded x64 conflict are measured
+boundaries, not evidence that the requested behavior is impossible. Continue
+with the remaining symbolic, layout, parameter, normalization and optional-model
+contracts after these bounded packets; five selected anchors cannot close the
+whole inventory.
 
 ## Stage 1 Inventory and freeze observable behavior
 

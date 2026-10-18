@@ -13,6 +13,18 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+adds reviewed private support for selected matrix and bias calculations with a
+shared variable batch size. It keeps the five original MatMul, GPT Add and
+Linear examples, including their real parameters and runtime inputs. Focused
+checks pass on both stacks, and integration on the local branch is independently
+accepted. Fresh artifacts also pass the selected FP32 samples at batch sizes two
+and five in both CPU settings; independent review accepts these samples.
+The complete primary-stack run passes **6,816 tests**; commit `718f448e` passes
+all seven repository hooks. These five examples do not establish support for
+every symbolic shape or complete model. Public calls and defaults keep their
+existing behavior.
+
 On the local migration branch, reviewed private changes preserve typed constants,
 reports, names, file formats and selected loop calculations. New focused checks
 also cover local promotion settings, complex loop representations and failures
@@ -65,8 +77,8 @@ Add and named-function composition. The same artifact works at batch sizes two
 and five; validation rejects unequal batches even when the runtime could
 broadcast them. Focused checks pass on both stacks; the complete primary-stack
 run passes **6,391 tests**, and the code commit passed repository hooks. This
-does not complete dynamic-shape support: all 310 raw
-symbolic rows remain open, and BF16 still fails loading on the measured CPUs.
+does not complete dynamic-shape support across the 310 raw symbolic rows, and
+BF16 still fails loading on the measured CPUs.
 The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
 checkpoint. The [preceding findings](poc/minmax_and_corpus_replay_findings.md) describe a
 reviewed private Min/Max correction: new artifacts preserve required zero signs
@@ -87,8 +99,8 @@ Independent post-run review accepts these samples.
 The full primary-stack run passes **6,728 tests**; commit `45881d8d`
 passes all seven actual hooks.
 The [native Linear/reshape prerequisite](poc/native_linear_reshape_findings.md)
-remains committed at `791664f8`; symbolic matrices and full models still need
-separate implementation and acceptance.
+remains committed at `791664f8`. The finite Leading-B extension above builds on
+it; broader symbolic matrices and full models still need separate work.
 
 The [preceding numerical results](poc/native_trig_and_corpus_numerics_findings.md)
 remain scoped to their original samples and settings. Public options and

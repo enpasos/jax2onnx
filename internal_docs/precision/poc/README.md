@@ -22,6 +22,29 @@ is available. These experiments inform the
 | Native trig and fixed corpus numerics | Does native dispatch preserve the source, and do the fixed FP32 samples meet all approved comparisons? | [Trig/numerical findings](native_trig_and_corpus_numerics_findings.md): committed binding and fixed sample evidence; gather gaps and unverified general lowering remain. |
 | Native NNX Linear and reshape | Can unchanged model methods preserve native tracing and static diagnostic artifacts? | [Linear/reshape findings](native_linear_reshape_findings.md): committed native adapters, exact parameters and named aliases; 544 main checks per stack and a 6,620-test full pass. |
 | Audited ordinary matrices | Can the finite matrix representation pass actual admission and retain the fixed numerical contract? | [Admission findings](ordinary_matrix_admission_findings.md): static FP32/FP64 audit, 750 main checks per stack and fresh audited FP32 sample results; historical failures remain. |
+| Leading-B matrices and bias | Can one native symbolic batch survive MatMul, singleton Add and the original Linear bias path? | [Leading-B findings](leading_batch_matrix_bias_findings.md): reviewed finite semantics, exact raw-source provenance, repaired symbolic preparation and separately gated five-row numerics. |
+
+The [Leading-B matrix/bias checkpoint](leading_batch_matrix_bias_findings.md)
+extends the private audited path to one actual leading symbolic batch at ranks
+two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
+leading one, and the native static bias reshape. The five original MatMul,
+GPT Add and NNX Linear anchors keep their callables, weights, bias and runtime
+operand ports. Production semantics, repaired tooling and actual-main binding
+have independent acceptance; main checks pass **990 cases per stack**. The
+preceding owner run passes 1,004 cases per stack, including those 990 permanent
+cases and 14 frozen review guards; these overlapping counts are not additive.
+
+The separately released v3 observation records ten symbolic artifacts, twenty
+sessions and forty actual runs per stack; all three approved FP32 predicates
+pass for every output; independent result review accepts these samples. Earlier
+preparation failures and a later wrapper reporting error remain recorded.
+The inventory now contains **209 files, 1,197 functions and 445 additions**,
+retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
+checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
+warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
+the twelve frozen code/inventory files and all 859 Python hashes are unchanged.
+Public LEGACY, `source-static-v1` and report schema 1 stay unchanged. Broader acceptance across
+the 310 symbolic rows and final phase F remain unfinished.
 
 ## Run it
 
@@ -118,8 +141,11 @@ The private harness uses the actual tracing, IR context, plugins, optimizer,
 post-processing and serialization. It checks static floating inputs and a small
 primitive set at opsets 23/26, including selected Function/If cases. The finite
 shared-B extension adds equal rank-two floating inputs through Add and named
-composition. Broader symbolic operations, loops, scan, JIT regions, effects and
-unaudited operations remain excluded.
+composition. The Leading-B checkpoint adds one atomic native B at axis zero of
+rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive
+static tails.
+Broader symbolic operations, loops, scan, JIT regions, effects and unaudited
+operations remain excluded from audited admission.
 Bodies are validated recursively. Same-width BitCast requires explicit opset26;
 different-width bitcasts need a different representation and are rejected.
 No opset is raised automatically. These are experiment limits, not universal
@@ -131,9 +157,9 @@ The audited matrix profile retains its FP16-operands/preferred-FP32 branch for
 positive static rank-2/rank-3 standard axes. It now also admits same-type
 FP32/FP64 ordinary matrices at ranks 2–4, with one contracting/free axis per
 operand and ordered paired batches. Both branches require default precision;
-explicit algorithms, symbolic/general contractions and other pending forms stay
-excluded. The FP16 branch and its widening behavior are unchanged, with no
-native low-precision hardware or performance promise. The original D2a records
+explicit algorithms, general contractions and symbolic forms beyond the finite
+Leading-B extension stay excluded. The FP16 branch and its widening behavior
+are unchanged, with no native low-precision hardware or performance promise. The original D2a records
 remain diagnostic; new audited artifacts and their sample outcomes are recorded
 separately. Exact subnormal failures persist on the recorded CPUs.
 
@@ -152,10 +178,11 @@ defect is repaired with bounded optional-input cleanup and preserved shared uses
 see the [repair evidence](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair).
 Static NCHW boundaries and the corrected observer/naming dependency are committed
 after independent review, the passing fresh full run and actual hooks. The ten
-earlier integration failures remain recorded. Shared-B Add now has focused
-implementation evidence; all 310 raw symbolic rows and seven NCHW rows remain
-open. The finite dense Min/Max lowerer now passes independent review at opset 23
-for equal FP16/FP32/FP64 operands. New zero-sign samples pass, while strict
+earlier integration failures remain recorded. Shared-B Add and the finite
+Leading-B matrix/bias semantics have focused implementation evidence. The
+310-row symbolic inventory and all seven NCHW rows still require broader
+acceptance accounting. The finite dense Min/Max lowerer now passes independent
+review at opset 23 for equal FP16/FP32/FP64 operands. New zero-sign samples pass, while strict
 subnormal/grid failures remain and no default profile is expanded. B3 tooling
 selects 13 unchanged rows/26 artifact-only cells; side and main replays each check
 24 artifacts and retain two unresolved outcomes per stack, with zero ORT.

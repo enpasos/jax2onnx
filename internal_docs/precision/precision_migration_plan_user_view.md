@@ -14,6 +14,18 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
+The [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
+adds reviewed private support for selected matrix and bias calculations with a
+shared variable batch size. It keeps the five original MatMul, GPT Add and
+Linear examples, including their real parameters and runtime inputs. Focused
+checks pass on both stacks, and integration on the local branch is independently
+accepted. Fresh artifacts also pass the selected FP32 samples at batch sizes two
+and five in both CPU settings; independent review accepts these samples.
+The complete primary-stack run passes **6,816 tests**; commit `718f448e` passes
+all seven repository hooks. These five examples do not establish support for
+every symbolic shape or complete model. Public calls and defaults keep their
+existing behavior.
+
 Reviewed private work now covers names, reports, file formats, typed constants,
 selected noncomplex and complex loops, local promotion settings and required
 finalization failures. The new focused repairs and diagnostic tooling passed
@@ -128,16 +140,19 @@ remain failed under their original criteria; new artifacts from the bounded
 lowerer now pass those samples. Subnormal failures and a measured execution-cost
 increase remain visible. One shared batch dimension through Add and named
 composition has private implementation evidence with unchanged source and
-multiple batches. All 310 raw symbolic rows and seven NCHW rows remain open;
+multiple batches. Broader acceptance across 310 symbolic and seven NCHW rows
+remains open;
 symbolic layouts, normalization and broader model coverage require further work.
 Native sine/cosine binding now advances source tracing. The unchanged gather
 example still produces no artifact: its x64-on scenario reaches a custom-Where
 boundary, and x64-off retains its configuration conflict. Ordinary static matrix
-admission now has main evidence. The next isolated code work extends shared-batch
-matrices and bias broadcasting through unchanged MatMul, GPT Add and NNX Linear
-sources, using the committed native Linear/reshape prerequisite. It remains isolated work in progress, with no new corpus or leading-B numerical
-acceptance. Real weights, bias and configuration stay
-part of the contract; all dynamic-shape and model requirements remain visible.
+admission now has main evidence. The bounded Leading-B matrix/bias extension
+is committed at `718f448e` and preserves the five unchanged MatMul, GPT Add and
+NNX Linear sources, including their real weights, bias and configuration.
+Their selected FP32 CPU samples pass at batch sizes two and five in 40 runs per
+stack, with independent acceptance. Broader dynamic-shape and model requirements
+remain open. The separately reviewed Exp/Mul packet is next for integration on
+the local branch.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 
