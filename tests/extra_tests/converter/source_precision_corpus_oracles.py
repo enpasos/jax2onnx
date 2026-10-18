@@ -9,6 +9,7 @@ supply numerical criteria to a source scenario or execute runtime samples.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 import hashlib
 import inspect
 import json
@@ -43,6 +44,69 @@ LINEAR_SOURCE_SHA256: Final = (
     "3a3e17bd6d3ad1e259f0ebe293d8b303fec58e37569d5271515eef5b433660ba"
 )
 LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v1"
+GATHER_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/gather.py"
+GATHER_SOURCE_SHA256: Final = (
+    "2d95f90f2ecc5d7bc1bf1f25e7b2a5f6978fbcc278ebb0b5aca181b22834b80c"
+)
+GATHER_ORACLE_VERSION: Final = "gather-trig-native-where-source-counterpart-v1"
+# Complete original native traces, including index normalization and Where JIT.
+_GATHER_NATIVE_TRACE_SHA256: Final = (
+    "9a14661837181e7170fd3d2e0a780d7fd927299c4c96349ad05cb185926f3cda",
+    "44fef1e2b0e2260469c30e76bf4186b75b73a4c0f52d7de9153bbbf61e8fcac1",
+)
+_GATHER_VALUE_SHA256: Final = (
+    "924dee132820525df56cbdc03823b4622404d1d9bd32a741780427b73478efcb",
+    "709f61b4a913b4cfd4c4bd8e61a12c894f315137de193462b74e1e2645bd5bfc",
+    "61bae0409f845bbc23a7e636f8062ac26cdec8b5e538a328b0009d07f42457e9",
+)
+# Observed through the existing export path on both supported stacks. Port and
+# producer roles replace generated names; constants retain every C-order bit.
+# The native Cos branch is the existing FP64 1 - 2*sin(shared*0.5)^2 lowering.
+# This fixed structure supplies no floating-point equivalence/runtime claim.
+# ONNX types: DOUBLE=11, INT64=7, INT32=6, BOOL=9; INT attributes have type 2.
+_GATHER_GRAPH_TEMPLATE: Final[dict[str, Any]] = json.loads(
+    """{
+  "inputs": [[11,[4,3]],[7,[2]]],
+  "constants": [
+    {"dtype":7,"shape":[],"bytes":"0000000000000000"},
+    {"dtype":7,"shape":[],"bytes":"0400000000000000"},
+    {"dtype":7,"shape":[1],"bytes":"0200000000000000"},
+    {"dtype":7,"shape":[1],"bytes":"0100000000000000"},
+    {"dtype":7,"shape":[1],"bytes":"0200000000000000"},
+    {"dtype":7,"shape":[1],"bytes":"0100000000000000"},
+    {"dtype":7,"shape":[1],"bytes":"0200000000000000"},
+    {"dtype":11,"shape":[],"bytes":"0000000000000040"},
+    {"dtype":11,"shape":[],"bytes":"000000000000e03f"},
+    {"dtype":11,"shape":[],"bytes":"0000000000000040"},
+    {"dtype":11,"shape":[],"bytes":"000000000000f03f"},
+    {"dtype":11,"shape":[],"bytes":"000000000000e03f"},
+    {"dtype":11,"shape":[2,3],"bytes":"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "nodes": [
+    {"op":"Less","inputs":["input1","constant0"],"outputs":[[9,[2]]],"attributes":{}},
+    {"op":"Add","inputs":["input1","constant1"],"outputs":[[7,[2]]],"attributes":{}},
+    {"op":"Where","inputs":["node0:0","node1:0","input1"],"outputs":[[7,[2]]],"attributes":{}},
+    {"op":"Cast","inputs":["node2:0"],"outputs":[[6,[2]]],"attributes":{"to":[2,6]}},
+    {"op":"Concat","inputs":["constant2","constant3"],"outputs":[[7,[2]]],"attributes":{"axis":[2,0]}},
+    {"op":"Concat","inputs":["constant4","constant5"],"outputs":[[7,[2]]],"attributes":{"axis":[2,0]}},
+    {"op":"Reshape","inputs":["node3:0","node5:0"],"outputs":[[6,[2,1]]],"attributes":{}},
+    {"op":"Expand","inputs":["node6:0","node4:0"],"outputs":[[6,[2,1]]],"attributes":{}},
+    {"op":"Reshape","inputs":["node7:0","constant6"],"outputs":[[6,[2]]],"attributes":{}},
+    {"op":"Gather","inputs":["input0","node8:0"],"outputs":[[11,[2,3]]],"attributes":{"axis":[2,0]}},
+    {"op":"Mul","inputs":["node9:0","constant7"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Sin","inputs":["node10:0"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Mul","inputs":["node10:0","constant8"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Sin","inputs":["node12:0"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Mul","inputs":["node13:0","node13:0"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Mul","inputs":["node14:0","constant9"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Sub","inputs":["constant10","node15:0"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Add","inputs":["node11:0","node16:0"],"outputs":[[11,[2,3]]],"attributes":{}},
+    {"op":"Greater","inputs":["node17:0","constant11"],"outputs":[[9,[2,3]]],"attributes":{}},
+    {"op":"Where","inputs":["node18:0","node17:0","constant12"],"outputs":[[11,[2,3]]],"attributes":{}}
+  ],
+  "outputs": [["node19:0",[11,[2,3]]]]
+} """
+)
 
 
 def fingerprint(value: Any) -> str:
@@ -667,13 +731,310 @@ LINEAR_COUNTERPARTS: Final[tuple[LinearCounterpart, ...]] = (
 )
 
 
+@lru_cache(maxsize=1)
+def _gather_original_callables() -> tuple[Any, Any]:
+    from tests.extra_tests.converter.source_precision_support import raw_source_case
+
+    raw = raw_source_case("plugin::gather", 0)
+    return raw["callable"], raw["post_check_onnx_graph"]
+
+
+def _gather_graph_signature(model: onnx.ModelProto) -> dict[str, Any]:
+    """Record this bounded graph's ports, producer edges, types and payloads."""
+    if (
+        model.functions
+        or model.training_info
+        or model.graph.sparse_initializer
+        or model.graph.quantization_annotation
+        or [(item.domain, item.version) for item in model.opset_import] != [("", 23)]
+    ):
+        raise ValueError("Gather counterpart requires only the reviewed standard graph")
+    onnx.checker.check_model(model, full_check=True)
+    inferred = onnx.shape_inference.infer_shapes(
+        model, strict_mode=True, data_prop=True
+    )
+    graph = inferred.graph
+    names: dict[str, str] = {}
+
+    def bind(name: str, role: str) -> None:
+        if not name or name in names:
+            raise ValueError("Gather counterpart has missing or duplicate value names")
+        names[name] = role
+
+    def tensor(value: onnx.TensorProto) -> dict[str, Any]:
+        if value.external_data or value.data_location == onnx.TensorProto.EXTERNAL:
+            raise ValueError("Gather counterpart forbids external constant payloads")
+        array = onnx.numpy_helper.to_array(value)
+        return {
+            "dtype": value.data_type,
+            "shape": list(array.shape),
+            "bytes": array.tobytes(order="C").hex(),
+        }
+
+    def properties(value: onnx.ValueInfoProto) -> list[Any]:
+        if not value.type.HasField("tensor_type"):
+            raise ValueError("Gather counterpart requires tensor values")
+        typ = value.type.tensor_type
+        if any(not dim.HasField("dim_value") for dim in typ.shape.dim):
+            raise ValueError("Gather counterpart requires exact static dimensions")
+        return [typ.elem_type, [dim.dim_value for dim in typ.shape.dim]]
+
+    types = {
+        value.name: properties(value)
+        for value in (*graph.input, *graph.value_info, *graph.output)
+    }
+    inputs = []
+    for index, value in enumerate(graph.input):
+        bind(value.name, f"input{index}")
+        inputs.append(properties(value))
+    constants = []
+    for index, value in enumerate(graph.initializer):
+        bind(value.name, f"constant{index}")
+        constants.append(tensor(value))
+        types[value.name] = [value.data_type, list(value.dims)]
+    nodes = []
+    for index, node in enumerate(graph.node):
+        if node.domain or node.overload:
+            raise ValueError("Gather counterpart forbids custom operator domains")
+        if any(name not in names for name in node.input):
+            raise ValueError("Gather counterpart has an unbound producer edge")
+        attributes: dict[str, Any] = {}
+        for attribute in node.attribute:
+            if attribute.name in attributes or attribute.ref_attr_name:
+                raise ValueError(
+                    "Gather counterpart has duplicate or indirect attributes"
+                )
+            if attribute.type == onnx.AttributeProto.TENSOR:
+                payload: Any = tensor(attribute.t)
+            elif attribute.type == onnx.AttributeProto.INT:
+                payload = attribute.i
+            elif attribute.type == onnx.AttributeProto.INTS:
+                payload = list(attribute.ints)
+            else:
+                raise ValueError("Gather counterpart has an unreviewed attribute kind")
+            attributes[attribute.name] = [attribute.type, payload]
+        edges = [names[name] for name in node.input]
+        outputs = []
+        for ordinal, name in enumerate(node.output):
+            bind(name, f"node{index}:{ordinal}")
+            if name not in types:
+                raise ValueError("Gather counterpart has an untyped intermediate")
+            outputs.append(types[name])
+        nodes.append(
+            {
+                "op": node.op_type,
+                "inputs": edges,
+                "outputs": outputs,
+                "attributes": attributes,
+            }
+        )
+    return {
+        "inputs": inputs,
+        "constants": constants,
+        "nodes": nodes,
+        "outputs": [[names[value.name], properties(value)] for value in graph.output],
+    }
+
+
+@dataclass(frozen=True)
+class GatherCounterpart:
+    case: CorpusCase
+
+    @property
+    def identifier(self) -> str:
+        return f"{GATHER_ORACLE_VERSION}:{self.case.origin}:{self.case.ordinal}"
+
+    @property
+    def sha256(self) -> str:
+        return fingerprint(
+            {
+                "identifier": self.identifier,
+                "mapping": asdict(self),
+                "source_sha256": GATHER_SOURCE_SHA256,
+                "oracle_file_sha256": hashlib.sha256(
+                    Path(__file__).read_bytes()
+                ).hexdigest(),
+            }
+        )
+
+    def descriptor(self) -> dict[str, Any]:
+        return {"identifier": self.identifier, "sha256": self.sha256, **asdict(self)}
+
+    def _check_source(self, prepared: PreparedSourceCase) -> None:
+        from jax2onnx._compat.jax import native_jit_boolean_inline_hints
+        from tests.extra_tests.converter.source_precision_diagnostics import (
+            typed_trace_manifest,
+        )
+        from tests.extra_tests.converter.source_precision_support import (
+            PRESERVE_FACTORY_DTYPE,
+            SourceProvenance,
+            _properties,
+            value_evidence,
+        )
+
+        if type(self) is not GatherCounterpart or not any(
+            self is item for item in GATHER_COUNTERPARTS
+        ):
+            raise ValueError("Unreviewed Gather singleton mapping")
+        scenario = prepared.scenario
+        if (
+            type(scenario.provenance) is not SourceProvenance
+            or (scenario.provenance.origin, scenario.provenance.ordinal)
+            != (self.case.origin, self.case.ordinal)
+            or prepared.identity != ("primitives.lax", "gather", self.case.testcase)
+            or prepared.metadata.get("context") != "primitives.lax"
+            or prepared.metadata.get("component") != "gather"
+            or prepared.metadata.get("testcase") != self.case.testcase
+            or prepared.metadata.get("opset_version", 23) != 23
+            or prepared.metadata.get("run_only_f64_variant") is not True
+        ):
+            raise ValueError("Gather counterpart fixed raw row identity changed")
+        unresolved: list[str] = []
+        contract = canonical_contract(
+            {
+                key: value
+                for key, value in prepared.metadata.items()
+                if key not in {"testcase", "description", "context", "component"}
+            },
+            unresolved=unresolved,
+        )
+        if unresolved or fingerprint(contract) != self.case.contract_sha256:
+            raise ValueError("Gather counterpart raw contract changed")
+        original, callback = _gather_original_callables()
+        source = Path(inspect.getsourcefile(prepared.fn) or "").resolve()
+        if (
+            prepared.fn is not original
+            or prepared.metadata.get("callable") is not original
+            or prepared.metadata.get("post_check_onnx_graph") is not callback
+            or source != REPOSITORY_ROOT / GATHER_SOURCE_PATH
+            or hashlib.sha256(source.read_bytes()).hexdigest() != GATHER_SOURCE_SHA256
+        ):
+            raise ValueError(
+                "Gather counterpart original callable/callback/source changed"
+            )
+        settings = prepared.settings
+        if (
+            scenario.name != "raw-x64-on"
+            or scenario.caller_x64_enabled is not True
+            or scenario.model_dtype is not PRESERVE_FACTORY_DTYPE
+            or scenario.default_matmul_precision is not None
+            or np.dtype(scenario.default_input_dtype) != np.dtype(np.float32)
+            or scenario.criteria is not None
+            or scenario.require_reviewed_criteria is not True
+            or prepared.criteria is not None
+            or settings.x64_enabled is not True
+            or settings.default_matmul_precision is not None
+            or settings.numpy_dtype_promotion != "standard"
+            or settings.numpy_rank_promotion != "allow"
+            or settings.jax_platforms not in (None, "cpu")
+        ):
+            raise ValueError(
+                "Gather counterpart raw configuration/None criteria changed"
+            )
+        expected = (("float64", (4, 3)), ("int64", (2,)), ("float64", (2, 3)))
+        ports = (*prepared.traced_inputs, *prepared.traced_outputs)
+        if (
+            len(prepared.traced_inputs) != 2
+            or len(prepared.traced_outputs) != 1
+            or any(
+                (port.dtype, port.shape, port.weak_type) != (dtype, shape, False)
+                for port, (dtype, shape) in zip(ports, expected, strict=True)
+            )
+        ):
+            raise ValueError("Gather counterpart typed source ports changed")
+        if (
+            len(prepared.input_specs) != 2
+            or scenario.input_specs != prepared.input_specs
+            or tuple(_properties(spec) for spec in prepared.input_specs)
+            != prepared.traced_inputs
+            or scenario.concrete_shapes is not None
+            or len(prepared.arguments) != 2
+            or len(prepared.reference_outputs) != 1
+            or prepared.output_tree != "PyTreeDef(*)"
+            or scenario.input_values is None
+            or len(scenario.input_values) != 2
+        ):
+            raise ValueError("Gather counterpart input recipe/specification changed")
+        values = (*prepared.arguments, *prepared.reference_outputs)
+        evidence = tuple(
+            value_evidence(value, port)
+            for value, port in zip(values, ports, strict=True)
+        )
+        if (
+            evidence != (*prepared.input_evidence, *prepared.reference_evidence)
+            or tuple(item.logical_sha256 for item in evidence) != _GATHER_VALUE_SHA256
+            or any(
+                _properties(value) != port
+                for value, port in zip(values, ports, strict=True)
+            )
+            or any(
+                _properties(value) != port or value_evidence(value, port) != item
+                for value, port, item in zip(
+                    scenario.input_values, ports[:2], evidence[:2], strict=True
+                )
+            )
+        ):
+            raise ValueError(
+                "Gather counterpart actual feed/reference payload or weak type changed"
+            )
+        actual = json.loads(json.dumps(typed_trace_manifest(prepared.original_jaxpr)))
+        native_index = 0 if native_jit_boolean_inline_hints()[0] is False else 1
+        if (
+            json.loads(prepared.original_trace_json) != actual
+            or fingerprint(actual) != _GATHER_NATIVE_TRACE_SHA256[native_index]
+        ):
+            raise ValueError(
+                "Gather counterpart complete original native trace changed"
+            )
+
+    def _check_model(self, model: onnx.ModelProto) -> None:
+        if _gather_graph_signature(model) != _GATHER_GRAPH_TEMPLATE:
+            raise ValueError(
+                "Gather counterpart requires the exact reviewed native graph"
+            )
+
+    def check(
+        self, prepared: PreparedSourceCase, model: onnx.ModelProto
+    ) -> CorpusStructureEvidence:
+        callback = prepared.metadata.get("post_check_onnx_graph")
+        raw_status, raw_detail = "absent", "No original structural callback"
+        if callback is not None:
+            try:
+                passed = bool(callback(model))
+                raw_status = "passed" if passed else "failed"
+                raw_detail = "Original raw callback returned " + str(passed)
+            except Exception as exc:
+                raw_status, raw_detail = "error", f"{type(exc).__name__}: {exc}"
+        try:
+            self._check_source(prepared)
+            if raw_status != "failed":
+                raise ValueError(
+                    "Gather counterpart requires unchanged raw callback failure"
+                )
+            self._check_model(model)
+            status, detail = (
+                CheckStatus.VALIDATED,
+                "Exact original Gather/index/trig/native-Where structure checked; runtime and numerics unverified",
+            )
+        except Exception as exc:
+            status, detail = CheckStatus.FAILED, str(exc)
+        return CorpusStructureEvidence(
+            self.identifier, self.sha256, raw_status, raw_detail, status, detail
+        )
+
+
+GATHER_COUNTERPARTS: Final[tuple[GatherCounterpart, ...]] = (
+    GatherCounterpart(CORPUS_REPLAY_CASES[5]),
+)
+
+
 def counterpart_for(
     origin: str, ordinal: int, contract_sha256: str
-) -> DotCounterpart | LinearCounterpart | None:
+) -> DotCounterpart | LinearCounterpart | GatherCounterpart | None:
     return next(
         (
             item
-            for item in (*DOT_COUNTERPARTS, *LINEAR_COUNTERPARTS)
+            for item in (*DOT_COUNTERPARTS, *LINEAR_COUNTERPARTS, *GATHER_COUNTERPARTS)
             if (item.case.origin, item.case.ordinal, item.case.contract_sha256)
             == (origin, ordinal, contract_sha256)
         ),

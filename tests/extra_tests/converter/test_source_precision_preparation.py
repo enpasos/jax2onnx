@@ -250,14 +250,16 @@ def test_skipped_numerics_and_unaudited_functionality_remain_unverified() -> Non
         is unsupported.numerical_status
         is CheckStatus.UNVERIFIED
     )
-    # The recursive profile permits these internal values; the top-level
-    # floating-input admission guard must still reject this external case.
+    # The helper delegates admission to the actual SOURCE facade, whose current
+    # input profile still rejects this unchanged external uint32 case.
     integers = run_source_case(
         _metadata(lambda x: x, input_values=[np.asarray([1], np.uint32)]),
         SourceScenario("pending-integer", False, np.float32),
     )
-    assert integers.stage == "profile-admission"
-    assert integers.audit.status is CheckStatus.UNVERIFIED
+    assert integers.stage == "input" and integers.category == "migration-gap"
+    assert integers.model is integers.validation is None
+    assert integers.schema is CheckStatus.UNVERIFIED
+    assert integers.audit.status is integers.numerical_status is CheckStatus.UNVERIFIED
 
 
 def test_explicit_raw_criteria_are_frozen_without_legacy_f64_defaults() -> None:

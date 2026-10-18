@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from tests.extra_tests.converter.source_precision_corpus_oracles import (
         CorpusStructureEvidence,
         DotCounterpart,
+        GatherCounterpart,
         LinearCounterpart,
     )
 
@@ -809,7 +810,9 @@ def run_source_case(
     optimization: Literal["disabled", "all"] | None = "disabled",
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     _prepared: PreparedSourceCase | None = None,
-    _corpus_counterpart: DotCounterpart | LinearCounterpart | None = None,
+    _corpus_counterpart: (
+        DotCounterpart | LinearCounterpart | GatherCounterpart | None
+    ) = None,
 ) -> SourceCaseResult:
     prepared = _prepared
     try:
@@ -923,14 +926,7 @@ def run_source_case(
             # Keep excluded symbolic sources at the existing admission boundary.
             # Other defects retain the facade's normal owning error category.
             symbolic_excluded = exc.category == "profile-exclusion"
-    if (
-        unsupported
-        or symbolic_excluded
-        or any(
-            diagnostic_jaxpr_validator is None and not is_source_float(spec.dtype)
-            for spec in prepared.input_specs
-        )
-    ):
+    if unsupported or symbolic_excluded:
         return SourceCaseResult(
             "profile-admission",
             "migration-gap",
@@ -967,12 +963,23 @@ def run_source_case(
         else:
             from tests.extra_tests.converter.source_precision_corpus_oracles import (
                 DotCounterpart,
+                GatherCounterpart,
                 LinearCounterpart,
             )
 
-            if type(_corpus_counterpart) not in (DotCounterpart, LinearCounterpart):
+            if type(_corpus_counterpart) not in (
+                DotCounterpart,
+                LinearCounterpart,
+                GatherCounterpart,
+            ):
                 raise SourcePreparationError(
-                    "Corpus structure requires an actual reviewed DotCounterpart or LinearCounterpart"
+                    "Corpus structure requires an actual reviewed DotCounterpart, LinearCounterpart or GatherCounterpart"
+                )
+            if type(_corpus_counterpart) is GatherCounterpart and (
+                diagnostic_jaxpr_validator is None or optimization is not None
+            ):
+                raise SourcePreparationError(
+                    "Gather corpus structure requires diagnostic export with optimization=None"
                 )
             corpus_structure = _corpus_counterpart.check(prepared, model)
             raw_callback_status = corpus_structure.raw_callback_status

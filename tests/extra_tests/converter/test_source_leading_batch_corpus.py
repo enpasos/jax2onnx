@@ -362,7 +362,10 @@ def test_only_explicit_counterpart_types_can_supply_structure() -> None:
         _corpus_counterpart=Duck(),
     )
     assert result.model is None and result.audit.status is CheckStatus.FAILED
-    assert "actual reviewed DotCounterpart or LinearCounterpart" in result.audit.detail
+    assert (
+        "actual reviewed DotCounterpart, LinearCounterpart or GatherCounterpart"
+        in result.audit.detail
+    )
 
 
 def test_v2_dot_descriptors_preserve_raw_mappings_and_change_archived_fingerprints() -> (
@@ -435,6 +438,7 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
 
 
 def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
+    """Current v4 controls keep the historical test and all v1/v2/v3 rejects."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
@@ -443,10 +447,10 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
     controls = probe._corpus_product_controls(plan, registrations)
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v3"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v4"
     )
     assert probe._corpus_controls_admitted(controls)
-    for defect in ("identifier", "digest", "revision"):
+    for defect in ("identifier", "digest", "v3-digest", "v1", "v2", "v3"):
         broken = deepcopy(controls)
         if defect == "identifier":
             broken[2]["corpus_structure"][
@@ -456,8 +460,12 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
             broken[2]["corpus_structure"][
                 "counterpart_sha256"
             ] = "6a8f289e93735fe3e8f927a002c61b66fd90646df308d9133228286f12b2c5ea"
+        elif defect == "v3-digest":
+            broken[2]["corpus_structure"][
+                "counterpart_sha256"
+            ] = "7a75bc04f47a300181f7df403311378dbeb3393f2f17e4b71f5c9ba376952637"
         else:
-            broken[2]["control_revision"] = "source-static-add-ordinary-dot-v2"
+            broken[2]["control_revision"] = "source-static-add-ordinary-dot-" + defect
         assert not probe._corpus_controls_admitted(broken)
     assert (
         controls[2]["raw_callback_status"]
