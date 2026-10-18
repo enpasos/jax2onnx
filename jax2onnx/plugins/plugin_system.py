@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from itertools import count
 from pathlib import Path
 from typing import (
     Any,
@@ -131,6 +132,31 @@ ONNX_FUNCTION_PLUGIN_REGISTRY: Dict[str, "FunctionPlugin"] = {}
 
 # Store instance objects for class-based call targets
 INSTANCE_MAP2: weakref.WeakValueDictionary[int, Any] = weakref.WeakValueDictionary()
+
+# Abstract-evaluation caches can outlive a weakly stored model instance. Keep
+# primitive keys unique across object lifetimes, even when Python reuses an id.
+_FUNCTION_INSTANCE_KEY_COUNTER: Iterator[int] = count(1)
+_FUNCTION_INSTANCE_IDENTITIES: dict[int, tuple[weakref.ReferenceType[Any], int]] = {}
+
+
+def _register_function_instance(instance: Any) -> int:
+    identity = id(instance)
+    entry = _FUNCTION_INSTANCE_IDENTITIES.get(identity)
+    if entry is not None and entry[0]() is instance:
+        instance_key = entry[1]
+    else:
+        instance_key = next(_FUNCTION_INSTANCE_KEY_COUNTER)
+
+        def forget(reference: weakref.ReferenceType[Any]) -> None:
+            current = _FUNCTION_INSTANCE_IDENTITIES.get(identity)
+            if current is not None and current[0] is reference:
+                _FUNCTION_INSTANCE_IDENTITIES.pop(identity)
+
+        reference = weakref.ref(instance, forget)
+        _FUNCTION_INSTANCE_IDENTITIES[identity] = (reference, instance_key)
+    INSTANCE_MAP2[instance_key] = instance
+    return instance_key
+
 
 # Track @onnx_function hits (optional)
 _ONNX_FN_HITS: ContextVar[frozenset[str]] = ContextVar(
@@ -832,8 +858,7 @@ class FunctionPlugin(PrimitivePlugin):
                 expects_self = is_class or (params and params[0] == "self")
                 if expects_self:
                     instance = args[0]
-                    instance_key = id(instance)
-                    INSTANCE_MAP2[instance_key] = instance
+                    instance_key = _register_function_instance(instance)
                     bound_orig = original_call.__get__(instance, type(instance))
                     prev_orig_fn = self._orig_fn
                     self._orig_fn = bound_orig

@@ -32,16 +32,11 @@ from tests.extra_tests.converter.test_source_dropout_parameters import (
 
 @pytest.fixture(autouse=True)
 def _configuration() -> Iterator[None]:
-    previous = {
-        name: getattr(jax.config, name)
-        for name in (
-            "jax_enable_x64",
-            "jax_platforms",
-            "jax_default_matmul_precision",
-            "jax_numpy_dtype_promotion",
-            "jax_numpy_rank_promotion",
-        )
-    }
+    from tests.extra_tests.converter.source_precision_support import (
+        _global_source_configuration,
+    )
+
+    previous = _global_source_configuration()
     import_all_plugins()
     try:
         yield
@@ -369,25 +364,26 @@ def test_diagnostic_handshake_requires_a_callback_and_accepts_false_valued_calla
     None
 ):
     spec = jax.ShapeDtypeStruct((2,), np.float32)
-    with pytest.raises(SourcePrecisionError, match="input_params"):
-        ui._to_onnx(
-            _select,
-            [spec],
-            input_params={"flag": True},
-            precision_policy=PrecisionPolicy.SOURCE,
-        )
-    with pytest.raises(ValueError, match="does not support input_params"):
-        conversion_api._convert_to_ir(
-            fn=_select,
-            inputs=[spec],
-            input_params={"flag": True},
-            model_name="default",
-            opset=23,
-            enable_double_precision=False,
-            record_primitive_calls_file=None,
-            precision_policy=PrecisionPolicy.SOURCE,
-            jaxpr_validator=DropoutDiagnosticValidator(),
-        )
+    # The audited facade now admits named operands through its ordinary validator.
+    artifact = ui._to_onnx(
+        _select,
+        [spec],
+        input_params={"flag": True},
+        precision_policy=PrecisionPolicy.SOURCE,
+    )
+    assert get_precision_report(artifact).profile == "source-static-v1"
+    core = conversion_api._convert_to_ir(
+        fn=_select,
+        inputs=[spec],
+        input_params={"flag": True},
+        model_name="default",
+        opset=23,
+        enable_double_precision=False,
+        record_primitive_calls_file=None,
+        precision_policy=PrecisionPolicy.SOURCE,
+        jaxpr_validator=DropoutDiagnosticValidator(),
+    )
+    assert [value.name for value in core.graph.inputs] == ["in_0", "in_1"]
 
     class FalseValidator(DropoutDiagnosticValidator):
         def __bool__(self) -> bool:
@@ -400,20 +396,14 @@ def test_diagnostic_handshake_requires_a_callback_and_accepts_false_valued_calla
 @pytest.mark.parametrize(
     "declaration",
     [
-        0,
-        1.0,
         "True",
         [True],
         (True,),
-        np.ones((1,), bool),
-        np.asarray(1, np.int32),
-        jax.ShapeDtypeStruct((1,), bool),
-        jax.ShapeDtypeStruct((), np.int32),
     ],
 )
 def test_unsupported_named_declarations_fail_without_coercion(declaration: Any) -> None:
     with pytest.raises(
-        SourcePrecisionError, match="named parameter 'flag'.*scalar BOOL"
+        SourcePrecisionError, match="named parameter 'flag'.*declaration"
     ):
         _source(
             _select, [jax.ShapeDtypeStruct((2,), np.float32)], {"flag": declaration}

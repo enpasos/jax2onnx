@@ -699,6 +699,39 @@ def _source_batch_boundaries(
     return inputs, outputs
 
 
+def _source_static_input_boundaries(
+    model: onnx.ModelProto,
+) -> tuple[TensorProperties, ...] | None:
+    """Bind audited static feeds to physical artifact ports, including complex storage."""
+    report = get_precision_report(model)
+    if report is None or report.profile != SOURCE_PRECISION_PROFILE:
+        return None
+    declarations = tuple(entry.exported for entry in report.inputs)
+    if len(model.graph.input) != len(declarations):
+        raise PrecisionReportError("SOURCE input report count differs from artifact")
+    for index, (value, declaration, entry) in enumerate(
+        zip(model.graph.input, declarations, report.inputs, strict=True)
+    ):
+        tensor = value.type.tensor_type
+        if not tensor.HasField("shape") or any(
+            not dim.HasField("dim_value") for dim in tensor.shape.dim
+        ):
+            raise PrecisionReportError(
+                "SOURCE static input requires concrete artifact dimensions"
+            )
+        shape = tuple(int(dim.dim_value) for dim in tensor.shape.dim)
+        dtype = np.dtype(onnx.helper.tensor_dtype_to_np_dtype(tensor.elem_type)).name
+        if entry.index != index or (value.name, shape, dtype) != (
+            declaration.name,
+            declaration.shape,
+            declaration.dtype,
+        ):
+            raise PrecisionReportError(
+                "SOURCE exported input report name, order, dtype or shape differs from artifact"
+            )
+    return declarations
+
+
 def _check_bound_sample_tensor(
     array: np.ndarray[Any, Any],
     declaration: TensorProperties,
@@ -781,6 +814,9 @@ def validate_source_samples(
     )
     try:
         batch_boundaries = _source_batch_boundaries(model)
+        static_inputs = (
+            _source_static_input_boundaries(model) if batch_boundaries is None else None
+        )
     except Exception as exc:
         checks.extend(
             (
@@ -845,8 +881,13 @@ def validate_source_samples(
             )
             continue
         bindings: dict[str, int] = {}
-        if batch_boundaries is not None:
-            input_contract, output_contract = batch_boundaries
+        input_contract = (
+            batch_boundaries[0] if batch_boundaries is not None else static_inputs
+        )
+        if input_contract is not None:
+            output_contract = (
+                batch_boundaries[1] if batch_boundaries is not None else ()
+            )
             try:
                 names = tuple(cast(str, item.name) for item in input_contract)
                 if named:
@@ -861,12 +902,22 @@ def validate_source_samples(
                     input_contract, feeds.values(), strict=True
                 ):
                     _check_bound_sample_tensor(array, declaration, bindings, bind=True)
-                if expected and len(expected) != len(output_contract):
+                if (
+                    batch_boundaries is not None
+                    and expected
+                    and len(expected) != len(output_contract)
+                ):
                     raise ValueError(
                         "Reference output count differs from SOURCE declaration"
                     )
                 for declaration, array in zip(
-                    output_contract if expected else (), expected, strict=True
+                    (
+                        output_contract
+                        if expected and batch_boundaries is not None
+                        else ()
+                    ),
+                    expected if batch_boundaries is not None else (),
+                    strict=True,
                 ):
                     _check_bound_sample_tensor(array, declaration, bindings, bind=False)
             except Exception as exc:
@@ -989,8 +1040,8 @@ def validate_source_samples(
                 return result()
         try:
             names = tuple(spec.name for spec in session.get_inputs())
-            if batch_boundaries is not None:
-                if names != tuple(item.name for item in batch_boundaries[0]):
+            if input_contract is not None:
+                if names != tuple(item.name for item in input_contract):
                     raise ValueError(
                         "Runtime input order differs from checked SOURCE artifact"
                     )

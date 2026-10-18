@@ -86,6 +86,7 @@ from jax2onnx.converter.conversion_api import (
     ShapeTupleSpec,
     _TraceResult,
     _source_input_values,
+    _source_named_input_spec,
     _convert_to_ir,
     _force_jax_x64,
     _to_ir_dtype_from_np,
@@ -1161,7 +1162,6 @@ def _to_onnx(
     if source:
         for option, supplied_option in (
             ("enable_double_precision", enable_double_precision),
-            ("input_params", bool(input_params) and not diagnostic),
             ("normalization_mode", normalized_normalization_mode != "auto"),
         ):
             if supplied_option:
@@ -1213,6 +1213,15 @@ def _to_onnx(
                 )
             param_map[key] = value
 
+    if source:
+        named_specs = [
+            _source_named_input_spec(name, value, opset=opset)
+            for name, value in param_map.items()
+        ]
+        _validate_source_inputs(
+            [*normalized_inputs, *named_specs], opset, diagnostic=diagnostic
+        )
+
     if normalized_input_names is not None:
         collisions = sorted(set(normalized_input_names).intersection(param_map.keys()))
         if collisions:
@@ -1240,7 +1249,6 @@ def _to_onnx(
                 else validate_source_jaxpr
             ),
             "trace_observer": observe_trace,
-            "allow_source_runtime_parameters": diagnostic,
         }
     config_scope = nullcontext() if source else _temporary_x64(enable_double_precision)
     warning_scope = (
@@ -1316,6 +1324,17 @@ def _to_onnx(
     named_supplied: dict[str, TensorProperties] = {}
     if source:
         assert trace_result is not None
+        expected_roles = [
+            *((index, None) for index in range(len(normalized_inputs))),
+            *((None, name) for name in param_map),
+        ]
+        if [
+            (binding.positional_index, binding.keyword_name)
+            for binding in trace_result.source_inputs
+        ] != expected_roles:
+            raise RuntimeError(
+                "SOURCE input roles/names/order differ from the real call bindings"
+            )
         source_values = _source_input_values(
             trace_result, result.graph.inputs, require_internal_names=True
         )
@@ -1334,9 +1353,9 @@ def _to_onnx(
                 final_input_names.append(name)
                 named_supplied[name] = TensorProperties(
                     name,
-                    tuple(binding.spec.shape),
+                    normalized_shape_dimensions(binding.spec.shape),
                     np.dtype(binding.spec.dtype).name,
-                    bool(getattr(param_map[name], "weak_type", False)),
+                    bool(binding.spec.weak_type),
                 )
         _separate_source_output_aliases(
             result, final_input_names, normalized_output_names

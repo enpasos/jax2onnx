@@ -706,7 +706,6 @@ def test_source_reports_actual_matrix_widening_without_runtime_claim(
 @pytest.mark.parametrize(
     "options",
     [
-        {"input_params": {"flag": True}},
         {"normalization_mode": "prefer_native"},
     ],
 )
@@ -719,6 +718,27 @@ def test_source_deferred_options_are_explicit_internal_migration_gaps(
         _source(lambda x: -x, [()], **options)
     assert captured.value.category == "profile-exclusion"
     assert "broader existing functionality" in captured.value.action
+
+
+def test_source_named_keyword_uses_real_python_binding_and_typed_port() -> None:
+    called = []
+
+    def unary(x: Any) -> Any:
+        called.append(True)
+        return -x
+
+    with pytest.raises(TypeError, match="unexpected keyword.*flag"):
+        _source(unary, [()], input_params={"flag": True})
+    assert not called
+    artifact = _source(
+        lambda x, *, offset: x + offset,
+        [()],
+        input_params={"offset": np.float32(2)},
+    )
+    report = get_precision_report(artifact)
+    assert report is not None
+    assert [entry.exported.name for entry in report.inputs] == ["in_0", "offset"]
+    assert [entry.traced.dtype for entry in report.inputs] == ["float32", "float32"]
 
 
 @pytest.mark.parametrize("nested", [False, True])

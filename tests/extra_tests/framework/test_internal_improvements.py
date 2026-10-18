@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+import gc
 import sys
 from types import SimpleNamespace
 from typing import Any
+import weakref
 
 from flax import nnx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import onnx_ir as ir
+import pytest
 
 import jax2onnx
+import jax2onnx.plugins.plugin_system as plugin_system
 from jax2onnx.converter.conversion_api import _to_ir_dtype_from_np, to_onnx
 from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.optimizer_graph_utils import (
@@ -342,13 +347,15 @@ def test_function_plugin_abstract_eval_uses_requested_instance() -> None:
             if isinstance(p, FunctionPlugin) and p.target is TinySliceBlock
         )
         spec = jax.ShapeDtypeStruct(sample.shape, sample.dtype)
+        key_a = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_a)
+        key_b = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_b)
         # The plugin was last called on block_b. Tracing a previously captured
         # call for block_a must still infer block_a's output shape.
         shape_a = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a)), spec
+            lambda x: plugin.primitive.bind(x, instance_key=key_a), spec
         )
         shape_b = jax.eval_shape(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b)), spec
+            lambda x: plugin.primitive.bind(x, instance_key=key_b), spec
         )
 
     assert shape_a.shape == (1,)
@@ -379,12 +386,199 @@ def test_function_plugin_batching_uses_requested_instance() -> None:
         )
         # Batch an earlier call after another instance updated the plugin's
         # most recent callable. Each captured key must keep its own weights.
-        batched_a = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_a))
-        )(sample)
-        batched_b = jax.vmap(
-            lambda x: plugin.primitive.bind(x, instance_key=id(block_b))
-        )(sample)
+        key_a = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_a)
+        key_b = next(k for k, inst in INSTANCE_MAP2.items() if inst is block_b)
+        batched_a = jax.vmap(lambda x: plugin.primitive.bind(x, instance_key=key_a))(
+            sample
+        )
+        batched_b = jax.vmap(lambda x: plugin.primitive.bind(x, instance_key=key_b))(
+            sample
+        )
 
     np.testing.assert_allclose(np.asarray(batched_a), np.asarray(sample) * 2.0)
     np.testing.assert_allclose(np.asarray(batched_b), np.asarray(sample) * 5.0)
+
+
+def test_function_plugin_recycled_address_uses_new_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WidthDriven:
+        def __init__(self, width: int) -> None:
+            self.width = width
+
+        def __call__(self, x: jax.Array) -> jax.Array:
+            return jnp.zeros((*x.shape[:-1], self.width), dtype=x.dtype)
+
+    plugin = FunctionPlugin("onnx_fn::test.RecycledAddress", WidthDriven)
+    wrapped = plugin._make_patch_fn(plugin.primitive, is_class=True)(
+        WidthDriven.__call__
+    )
+    spec = jax.ShapeDtypeStruct((3, 257, 768), jnp.float32)
+    new_instance = WidthDriven(3072)
+    expected = jax.eval_shape(new_instance, spec)
+    assert expected.shape == (3, 257, 3072)
+    current_instance = WidthDriven(192)
+    old_ref = weakref.ref(current_instance)
+    reused_address = id(current_instance)
+    actual_id = id
+
+    def controlled_id(value: object) -> int:
+        if isinstance(value, WidthDriven) and value.width != 64:
+            return reused_address
+        return actual_id(value)
+
+    monkeypatch.setattr(plugin_system, "id", controlled_id, raising=False)
+    first = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    old_key = first.eqns[0].params["instance_key"]
+    assert first.out_avals[0].shape == (3, 257, 192)
+    assert INSTANCE_MAP2[old_key] is current_instance
+
+    # Move the existing last-bound fallback off the old instance before GC.
+    current_instance = WidthDriven(64)
+    intervening = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    assert intervening.out_avals[0].shape == (3, 257, 64)
+    gc.collect()
+    assert old_ref() is None
+    assert old_key not in INSTANCE_MAP2
+
+    # Exercise the normal wrapper with a simulated recycled address. Never
+    # reinject an old private token: registration must distinguish lifetimes.
+    current_instance = new_instance
+    actual = jax.make_jaxpr(lambda x: wrapped(current_instance, x))(spec)
+    assert actual.out_avals[0].shape == expected.shape
+    new_key = actual.eqns[0].params["instance_key"]
+    assert new_key != old_key
+    assert INSTANCE_MAP2[new_key] is new_instance
+
+
+def test_function_plugin_live_instance_reuses_key_and_abstract_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SliceBlock:
+        def __call__(self, x: jax.Array) -> jax.Array:
+            return x[:2]
+
+    plugin = FunctionPlugin("onnx_fn::test.StableLifetime", SliceBlock)
+    wrapped = plugin._make_patch_fn(plugin.primitive, is_class=True)(
+        SliceBlock.__call__
+    )
+    original_abstract_eval = plugin.primitive.abstract_eval
+    calls = []
+
+    def observe(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs["instance_key"])
+        return original_abstract_eval(*args, **kwargs)
+
+    monkeypatch.setattr(plugin.primitive, "abstract_eval", observe)
+    block = SliceBlock()
+    spec = jax.ShapeDtypeStruct((4,), jnp.float32)
+    first = jax.make_jaxpr(lambda x: wrapped(block, x))(spec)
+    second = jax.make_jaxpr(lambda x: wrapped(block, x))(spec)
+    first_key = first.eqns[0].params["instance_key"]
+    assert first_key == second.eqns[0].params["instance_key"]
+    assert plugin_system._register_function_instance(block) == first_key
+    assert calls == [first_key]
+    assert first.out_avals[0].shape == second.out_avals[0].shape == (2,)
+    assert INSTANCE_MAP2[first_key] is block
+
+
+def test_function_instance_keys_distinguish_equal_unhashable_objects() -> None:
+    comparisons = []
+
+    class EqualBlock:
+        __hash__ = None
+
+        def __eq__(self, other: object) -> bool:
+            comparisons.append(other)
+            return isinstance(other, EqualBlock)
+
+    first = EqualBlock()
+    second = EqualBlock()
+    assert first == second
+    comparisons.clear()
+    first_key = plugin_system._register_function_instance(first)
+    second_key = plugin_system._register_function_instance(second)
+    assert isinstance(first_key, int) and isinstance(second_key, int)
+    assert second_key > first_key
+    assert plugin_system._register_function_instance(first) == first_key
+    assert plugin_system._register_function_instance(second) == second_key
+    assert INSTANCE_MAP2[first_key] is first
+    assert INSTANCE_MAP2[second_key] is second
+    assert comparisons == []
+
+
+def test_function_instance_keys_support_frozen_modules_without_hashing() -> None:
+    class FrozenBlock(eqx.Module):
+        width: int
+
+        def __hash__(self) -> int:
+            raise AssertionError("instance registration must not hash modules")
+
+    first = FrozenBlock(2)
+    second = FrozenBlock(2)
+    assert first == second
+    before = (vars(first).copy(), vars(second).copy())
+    first_key = plugin_system._register_function_instance(first)
+    second_key = plugin_system._register_function_instance(second)
+    assert second_key > first_key
+    assert plugin_system._register_function_instance(first) == first_key
+    assert INSTANCE_MAP2[first_key] is first
+    assert INSTANCE_MAP2[second_key] is second
+    assert (vars(first), vars(second)) == before
+
+
+def test_function_instance_registration_does_not_retain_objects() -> None:
+    class Block:
+        pass
+
+    block = Block()
+    identity = id(block)
+    reference = weakref.ref(block)
+    key = plugin_system._register_function_instance(block)
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[identity][0]() is block
+    del block
+    gc.collect()
+    assert reference() is None
+    assert key not in INSTANCE_MAP2
+    assert identity not in plugin_system._FUNCTION_INSTANCE_IDENTITIES
+
+
+def test_function_instance_stale_callback_preserves_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Block:
+        pass
+
+    old = Block()
+    new = Block()
+    reused_address = id(old)
+    actual_id = id
+    monkeypatch.setattr(
+        plugin_system,
+        "id",
+        lambda obj: reused_address if isinstance(obj, Block) else actual_id(obj),
+        raising=False,
+    )
+    old_key = plugin_system._register_function_instance(old)
+    old_entry = plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address]
+    old_reference = old_entry[0]
+    stale_callback = old_reference.__callback__
+    assert stale_callback is not None
+    # The existing entry is live but belongs to a different object. It must
+    # never be accepted merely because the synthetic address matches.
+    new_key = plugin_system._register_function_instance(new)
+    successor = plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address]
+    assert old_reference() is old
+    assert new_key > old_key
+    assert successor[0]() is new
+    assert INSTANCE_MAP2[old_key] is old
+    assert INSTANCE_MAP2[new_key] is new
+    del old
+    gc.collect()
+    assert old_reference() is None
+    assert old_key not in INSTANCE_MAP2
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address] is successor
+    stale_callback(old_reference)
+    assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address] is successor
+    assert plugin_system._register_function_instance(new) == new_key
+    assert INSTANCE_MAP2[new_key] is new

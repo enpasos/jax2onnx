@@ -244,7 +244,6 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
     [
         ({"enable_double_precision": True}, "legacy double promotion"),
         ({"jaxpr_validator": None}, "requires a subset validator"),
-        ({"input_params": {"scale": 2}}, "does not support input_params"),
         ({"normalization_mode": "prefer_native"}, "does not support normalization"),
         ({"inputs": [()]}, "requires typed inputs"),
         (
@@ -265,6 +264,32 @@ def test_common_source_path_rejects_unaudited_options_before_tracing(
     with pytest.raises(ValueError, match=message):
         _source_convert(model, **options)
     assert not called
+
+
+def test_common_source_named_keyword_keeps_python_errors_and_real_operands() -> None:
+    from jax2onnx.converter.source_profile import validate_source_jaxpr
+
+    called = []
+
+    def unary(x: Any) -> Any:
+        called.append(True)
+        return x
+
+    with pytest.raises(TypeError, match="unexpected keyword.*scale"):
+        _source_convert(unary, input_params={"scale": 2})
+    assert not called
+    traces = []
+    model = _source_convert(
+        lambda x, *, scale: x + scale,
+        input_params={"scale": np.float32(2)},
+        jaxpr_validator=validate_source_jaxpr,
+        trace_observer=traces.append,
+    )
+    assert len(traces) == 1 and traces[0].frozen_params == {}
+    assert traces[0].source_inputs[1].keyword_name == "scale"
+    assert traces[0].source_inputs[1].var is traces[0].jaxpr.invars[1]
+    assert len(model.graph.inputs) == 2
+    assert all(value.dtype == ir.DataType.FLOAT for value in model.graph.inputs)
 
 
 def test_common_source_path_rejects_disabled_x64_before_tracing() -> None:

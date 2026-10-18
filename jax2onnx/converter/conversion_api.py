@@ -100,23 +100,24 @@ def _source_named_input_spec(
 ) -> jax.ShapeDtypeStruct:
     if not isinstance(name, str) or not name:
         raise ValueError("SOURCE input_params names must be nonempty strings")
-    if isinstance(value, bool):
-        return jax.ShapeDtypeStruct((), np.bool_)
     if isinstance(value, (jax.ShapeDtypeStruct, jax.Array, np.ndarray, np.generic)):
-        dtype = np.dtype(value.dtype)
-        shape = tuple(value.shape)
-        if dtype == np.dtype(np.bool_) and shape == ():
-            return jax.ShapeDtypeStruct(
-                shape, dtype, weak_type=bool(getattr(value, "weak_type", False))
-            )
+        return jax.ShapeDtypeStruct(
+            tuple(value.shape),
+            value.dtype,
+            weak_type=bool(getattr(value, "weak_type", False)),
+        )
+    if type(value) in (bool, int, float, complex):
+        # Let JAX derive Python scalar dtype/weakness under the caller's settings.
+        # NumPy conversion here would invent a strong platform-default dtype.
+        return cast(jax.ShapeDtypeStruct, jax.eval_shape(lambda scalar: scalar, value))
     raise SourcePrecisionError(
-        f"named parameter {name!r} requires a typed scalar BOOL declaration",
+        f"named parameter {name!r} requires a tensor or Python scalar declaration",
         phase="input",
         category="profile-exclusion",
         location=f"input_params[{name!r}]",
         opset=opset,
-        requirement="Python/NumPy bool, scalar BOOL array, or scalar BOOL ShapeDtypeStruct",
-        action="use a scalar BOOL runtime declaration or bind intended fixed configuration with a closure or partial",
+        requirement="a typed array/ShapeDtypeStruct or a native Python numeric scalar",
+        action="declare a runtime tensor or bind intended fixed configuration with a closure or partial",
     )
 
 
@@ -962,17 +963,23 @@ def _trace_to_jaxpr(
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     opset: int = 23,
 ) -> _TraceResult:
-    sds_list = _as_sds_list(
-        inputs, enable_double_precision, precision_policy=precision_policy
-    )
     source = precision_policy is PrecisionPolicy.SOURCE
-    positional_count = len(sds_list)
+    positional_count = len(inputs)
     named_params = dict(input_params or {}) if source else {}
+    declarations = list(inputs)
     if source:
-        sds_list.extend(
+        declarations.extend(
             _source_named_input_spec(name, value, opset=opset)
             for name, value in named_params.items()
         )
+        for index, spec in enumerate(declarations):
+            assert isinstance(spec, jax.ShapeDtypeStruct)
+            validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+    # Normalize the entire call together so named and positional B declarations
+    # share the actual native scope, rather than just its printed spelling.
+    sds_list = _as_sds_list(
+        declarations, enable_double_precision, precision_policy=precision_policy
+    )
     frozen_params: Dict[str, object] = {} if source else dict(input_params or {})
 
     def _wrapped(*xs: Any) -> Any:
@@ -987,7 +994,7 @@ def _trace_to_jaxpr(
         except jax.errors.TracerBoolConversionError as exc:
             if source and named_params:
                 exc.add_note(
-                    "SOURCE named runtime BOOLs are real traced operands. For pure Python-if "
+                    "SOURCE named runtime arguments are real traced operands. For pure Python-if "
                     "source, prepare an external jax.lax.cond adapter whose concrete True/False "
                     "branches invoke the complete unchanged original callable; bind intended "
                     "fixed configuration with a closure or functools.partial instead."
@@ -1076,7 +1083,6 @@ def _convert_to_ir(
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     jaxpr_validator: Callable[[Any, int], None] | None = None,
     trace_observer: Callable[[_TraceResult], None] | None = None,
-    allow_source_runtime_parameters: bool = False,
 ) -> ir.Model:
     """Trace, lower, and finalize through one private conversion pipeline.
 
@@ -1094,7 +1100,6 @@ def _convert_to_ir(
         if jaxpr_validator is None:
             raise ValueError("Private source conversion requires a subset validator")
         unsupported = {
-            "input_params": bool(input_params) and not allow_source_runtime_parameters,
             "normalization_mode": normalization_mode != "auto",
         }
         for option, supplied in unsupported.items():

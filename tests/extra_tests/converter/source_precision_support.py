@@ -89,6 +89,8 @@ class SourceScenario:
     criteria: SampleCriteria | None = None
     provenance: SourceProvenance | None = None
     require_reviewed_criteria: bool = False
+    input_params: Mapping[str, Any] | None = None
+    parameter_values: Mapping[str, Any] | None = None
 
     @property
     def cell_identity(self) -> tuple[str, int, str] | None:
@@ -169,6 +171,16 @@ class PreparedSourceCase:
     input_evidence: tuple[SourceValueEvidence, ...]
     reference_evidence: tuple[SourceValueEvidence, ...]
     original_jaxpr: Any = field(repr=False, compare=False)
+    named_specs: Mapping[str, jax.ShapeDtypeStruct] = field(default_factory=dict)
+    named_arguments: Mapping[str, jax.Array] = field(default_factory=dict)
+
+    @property
+    def all_input_specs(self) -> tuple[jax.ShapeDtypeStruct, ...]:
+        return (*self.input_specs, *self.named_specs.values())
+
+    @property
+    def all_arguments(self) -> tuple[jax.Array, ...]:
+        return (*self.arguments, *self.named_arguments.values())
 
 
 @dataclass(frozen=True)
@@ -621,6 +633,39 @@ def prepare_source_case(
         # Reject contradictory source inputs before invoking a constructor or
         # original callable, so failed preparation cannot mutate model state.
         specs, arguments = _input_data(metadata, scenario, identity)
+        params = dict(
+            metadata.get("input_params") or {}
+            if scenario.input_params is None
+            else scenario.input_params
+        )
+        names = tuple(params)
+        declarations = [
+            conversion_api._source_named_input_spec(
+                name, value, opset=int(metadata.get("opset_version", 23))
+            )
+            for name, value in params.items()
+        ]
+        all_specs = tuple(
+            conversion_api._as_sds_list(
+                [*specs, *declarations], False, precision_policy=PrecisionPolicy.SOURCE
+            )
+        )
+        positional_count = len(specs)
+        specs = all_specs[:positional_count]
+        named_specs = dict(zip(names, all_specs[positional_count:], strict=True))
+        supplied_params = (
+            params if scenario.parameter_values is None else scenario.parameter_values
+        )
+        if tuple(supplied_params) != names:
+            raise SourcePreparationError(
+                "Named sample keys/order differ from runtime declarations"
+            )
+        named_arguments = {
+            name: _argument(supplied_params[name], spec)
+            for name, spec in named_specs.items()
+        }
+        all_arguments = (*arguments, *named_arguments.values())
+
         target = metadata.get("callable")
         if target is not None and getattr(target, "__jax2onnx_factory__", False):
             recipe = (
@@ -633,22 +678,24 @@ def prepare_source_case(
             raise SourcePreparationError(
                 "Raw metadata must supply a callable or recognized constructor recipe"
             )
-        params = dict(metadata.get("input_params") or {})
 
         def original(*values: Any) -> Any:
-            return target(*values, **params)
+            return target(
+                *values[:positional_count],
+                **dict(zip(names, values[positional_count:], strict=True)),
+            )
 
-        closed = jax.make_jaxpr(original)(*specs)
+        closed = jax.make_jaxpr(original)(*all_specs)
         validate_source_shapes(
-            [tuple(spec.shape) for spec in specs]
+            [tuple(spec.shape) for spec in all_specs]
             + [tuple(var.aval.shape) for var in closed.jaxpr.outvars]
         )
         bindings: dict[str, int] = {}
-        for spec, argument in zip(specs, arguments, strict=True):
+        for spec, argument in zip(all_specs, all_arguments, strict=True):
             _bind_source_shape(
                 tuple(argument.shape), tuple(spec.shape), bindings, bind=True
             )
-        reference = jax.device_get(original(*arguments))
+        reference = jax.device_get(original(*all_arguments))
         outputs, tree = jax.tree_util.tree_flatten(reference)
         snapshots = []
         for value in outputs:
@@ -693,13 +740,15 @@ def prepare_source_case(
             ),
             tuple(
                 value_evidence(value, properties)
-                for value, properties in zip(arguments, traced_inputs, strict=True)
+                for value, properties in zip(all_arguments, traced_inputs, strict=True)
             ),
             tuple(
                 value_evidence(value, properties)
                 for value, properties in zip(snapshots, traced_outputs, strict=True)
             ),
             closed,
+            named_specs,
+            named_arguments,
         )
 
 
@@ -711,6 +760,7 @@ def _export_prepared(
     model = user_interface._to_onnx(
         fn=prepared.fn,
         inputs=prepared.input_specs,
+        input_params=prepared.named_specs,
         model_name="source_migration_oracle",
         opset=int(prepared.metadata.get("opset_version", 23)),
         input_names=prepared.metadata.get("input_names"),
@@ -823,18 +873,52 @@ def run_source_case(
                 "Prepared evidence belongs to another scenario"
             )
         body = getattr(prepared.original_jaxpr, "jaxpr", prepared.original_jaxpr)
-        if _prepared is not None and any(
-            any(not isinstance(dim, Integral) for dim in item.shape)
-            for item in (
-                *prepared.input_specs,
-                *prepared.traced_inputs,
-                *prepared.traced_outputs,
-                *(var.aval for var in (*body.invars, *body.constvars, *body.outvars)),
+        if tuple(prepared.named_specs) != tuple(prepared.named_arguments):
+            raise SourcePreparationError("Prepared named bindings changed names/order")
+        actual_params = (
+            metadata.get("input_params") or {}
+            if scenario.input_params is None
+            else scenario.input_params
+        )
+        if tuple(actual_params) != tuple(prepared.named_specs):
+            raise SourcePreparationError("Prepared named bindings differ from metadata")
+        supplied_params = (
+            actual_params
+            if scenario.parameter_values is None
+            else scenario.parameter_values
+        )
+        if tuple(supplied_params) != tuple(prepared.named_specs):
+            raise SourcePreparationError(
+                "Named sample keys/order differ from declarations"
             )
-        ):
+        with source_configuration(scenario):
+            current_specs = [
+                conversion_api._source_named_input_spec(
+                    name, value, opset=int(metadata.get("opset_version", 23))
+                )
+                for name, value in actual_params.items()
+            ]
+            validate_source_shapes(
+                [spec.shape for spec in (*prepared.all_input_specs, *current_specs)]
+            )
+            for index, (name, spec) in enumerate(prepared.named_specs.items()):
+                if _properties(current_specs[index]) != _properties(spec):
+                    raise SourcePreparationError(
+                        "Named declaration differs from original binding"
+                    )
+                argument = _argument(supplied_params[name], spec)
+                properties = prepared.traced_inputs[len(prepared.input_specs) + index]
+                if (
+                    value_evidence(argument, properties)
+                    != prepared.input_evidence[len(prepared.input_specs) + index]
+                ):
+                    raise SourcePreparationError(
+                        "Named metadata payload differs from original evidence"
+                    )
+        if _prepared is not None:
             if not (
-                len(prepared.input_specs)
-                == len(prepared.arguments)
+                len(prepared.all_input_specs)
+                == len(prepared.all_arguments)
                 == len(prepared.traced_inputs)
                 == len(body.invars)
                 and len(prepared.traced_outputs)
@@ -842,10 +926,10 @@ def run_source_case(
                 == len(body.outvars)
             ):
                 raise SourcePreparationError(
-                    "Prepared symbolic input/reference counts differ from the original trace"
+                    "Prepared input/reference counts differ from the original trace"
                 )
             validate_source_shapes(
-                [tuple(spec.shape) for spec in prepared.input_specs]
+                [tuple(spec.shape) for spec in prepared.all_input_specs]
                 + [
                     tuple(var.aval.shape)
                     for var in (*body.invars, *body.constvars, *body.outvars)
@@ -853,8 +937,8 @@ def run_source_case(
             )
             prepared_bindings: dict[str, int] = {}
             for spec, argument, properties, var in zip(
-                prepared.input_specs,
-                prepared.arguments,
+                prepared.all_input_specs,
+                prepared.all_arguments,
                 prepared.traced_inputs,
                 body.invars,
                 strict=True,
@@ -866,7 +950,7 @@ def run_source_case(
                     or bool(getattr(argument, "weak_type", False)) != spec.weak_type
                 ):
                     raise SourcePreparationError(
-                        "Prepared symbolic input dtype/weakness differs from its original declaration"
+                        "Prepared input dtype/weakness differs from its original declaration"
                     )
                 _bind_source_shape(
                     tuple(argument.shape),
@@ -886,11 +970,37 @@ def run_source_case(
                     or array.dtype.name != properties.dtype
                 ):
                     raise SourcePreparationError(
-                        "Prepared symbolic reference dtype differs from the original trace"
+                        "Prepared reference dtype differs from the original trace"
                     )
                 _bind_source_shape(
                     array.shape, properties.shape, prepared_bindings, bind=False
                 )
+        if len(prepared.all_arguments) != len(prepared.input_evidence):
+            raise SourcePreparationError("Prepared input evidence arity changed")
+        if (
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(
+                    prepared.all_arguments, prepared.traced_inputs, strict=True
+                )
+            )
+            != prepared.input_evidence
+        ):
+            raise SourcePreparationError(
+                "Prepared input payload differs from original evidence"
+            )
+        if (
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(
+                    prepared.reference_outputs, prepared.traced_outputs, strict=True
+                )
+            )
+            != prepared.reference_evidence
+        ):
+            raise SourcePreparationError(
+                "Prepared reference payload differs from original evidence"
+            )
     except Exception as exc:
         return SourceCaseResult(
             "source-preparation",
@@ -900,7 +1010,6 @@ def run_source_case(
     unsupported = [
         name
         for name in (
-            "input_params",
             "inputs_as_nchw",
             "outputs_as_nchw",
             "record_primitive_calls_file",
@@ -913,7 +1022,7 @@ def run_source_case(
         unsupported.append("export_mode")
     symbolic = any(
         any(not isinstance(dim, Integral) for dim in spec.shape)
-        for spec in prepared.input_specs
+        for spec in prepared.all_input_specs
     )
     symbolic_excluded = False
     if symbolic:
@@ -1045,7 +1154,9 @@ def run_source_case(
     if not skipped:
         assert prepared.criteria is not None
         bindings: dict[str, int] = {}
-        for spec, value in zip(prepared.input_specs, prepared.arguments, strict=True):
+        for spec, value in zip(
+            prepared.all_input_specs, prepared.all_arguments, strict=True
+        ):
             _bind_source_shape(
                 tuple(value.shape), tuple(spec.shape), bindings, bind=True
             )
@@ -1061,12 +1172,15 @@ def run_source_case(
 
         samples.append(
             SourceSample(
-                tuple(
-                    encode(value, _properties(spec))
-                    for spec, value in zip(
-                        prepared.input_specs, prepared.arguments, strict=True
+                {
+                    port.name: encode(value, _properties(spec))
+                    for port, spec, value in zip(
+                        model.graph.input,
+                        prepared.all_input_specs,
+                        prepared.all_arguments,
+                        strict=True,
                     )
-                ),
+                },
                 tuple(
                     encode(value, properties)
                     for properties, value in zip(
