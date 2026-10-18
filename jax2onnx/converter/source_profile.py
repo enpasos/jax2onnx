@@ -22,7 +22,10 @@ from jax2onnx._compat.jax import Literal as JaxLiteral
 
 SOURCE_STATIC_PROFILE: Final[str] = "source-static-v1"
 SourcePrecisionCategory = Literal[
-    "profile-exclusion", "representation-limit", "lowering-defect"
+    "profile-exclusion",
+    "representation-limit",
+    "lowering-defect",
+    "configuration-conflict",
 ]
 _FLOATS: Final[frozenset[str]] = frozenset(
     {"float16", "bfloat16", "float32", "float64"}
@@ -77,6 +80,29 @@ class SourcePrecisionError(ValueError):
             opset=self.opset,
             requirement=self.requirement,
             action=self.action,
+        )
+
+
+def validate_source_input_dtype(dtype: Any, *, index: int, opset: int) -> None:
+    """Reject declared dtypes that JAX would change under the caller's settings."""
+    declared = np.dtype(dtype)
+    canonical = np.dtype(jax.dtypes.canonicalize_dtype(declared))
+    if canonical != declared:
+        configuration = (
+            "JAX x64 is disabled"
+            if not jax.config.x64_enabled
+            else "the caller's JAX configuration changes the dtype"
+        )
+        raise SourcePrecisionError(
+            f"input requests {declared.name}, but {configuration}; JAX would "
+            f"canonicalize it to {canonical.name}",
+            phase="configuration",
+            category="configuration-conflict",
+            location=f"input {index}",
+            requested_dtypes=(declared.name,),
+            opset=opset,
+            requirement="the declared input dtype must survive JAX canonicalization unchanged",
+            action="configure JAX x64 before preparing 64-bit inputs, or explicitly choose the canonical dtype",
         )
 
 

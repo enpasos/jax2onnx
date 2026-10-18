@@ -10,6 +10,7 @@ import numpy.typing as npt
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.ir_utils import ir_dtype_to_numpy, tensor_attr, tensor_to_numpy
 from jax2onnx.plugins._ir_shapes import (
     DimValue,
@@ -170,8 +171,10 @@ def pack_native_complex(
             raise ValueError(
                 "Cannot pack a cached native complex value from a nonconstant op"
             )
-        packed_array = np.stack((array.real, array.imag), axis=-1).astype(
-            base_dtype.numpy(), copy=False
+        packed_array = (
+            representation_for_aval(array)
+            .encode_array(array)
+            .astype(base_dtype.numpy(), copy=False)
         )
         packed_storage = ir.tensor(packed_array)
         tensor.const_value = packed_storage

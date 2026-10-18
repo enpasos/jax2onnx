@@ -30,6 +30,7 @@ import onnx_ir as ir
 PRECISION_METADATA_KEY = "jax2onnx.precision"
 PRECISION_SCHEMA_VERSION = 1
 SOURCE_PRECISION_PROFILE = "source-static-v1"
+SOURCE_DIAGNOSTIC_PROFILE = "source-diagnostic-v1"
 
 
 class CheckStatus(str, Enum):
@@ -113,7 +114,7 @@ class PrecisionReport:
             raise PrecisionReportError(
                 f"Unsupported precision schema version: {self.schema_version!r}"
             )
-        if self.profile != SOURCE_PRECISION_PROFILE:
+        if self.profile not in {SOURCE_PRECISION_PROFILE, SOURCE_DIAGNOSTIC_PROFILE}:
             raise PrecisionReportError(
                 f"Unsupported precision profile: {self.profile!r}"
             )
@@ -126,6 +127,13 @@ class PrecisionReport:
             "checks",
         ):
             object.__setattr__(self, name, tuple(getattr(self, name)))
+        if self.profile == SOURCE_DIAGNOSTIC_PROFILE and any(
+            check.category == "lowering" and check.status is CheckStatus.VALIDATED
+            for check in self.checks
+        ):
+            raise PrecisionReportError(
+                "Diagnostic precision reports cannot claim validated lowering"
+            )
 
 
 def precision_report_to_json(report: PrecisionReport) -> str:

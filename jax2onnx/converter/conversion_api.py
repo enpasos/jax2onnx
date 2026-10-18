@@ -49,6 +49,8 @@ from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .precision_policy import PrecisionPolicy, precision_policy_scope
+from .source_profile import validate_source_input_dtype
+from .source_representation import representation_for_aval
 from . import lowering_dispatch as _lowering_dispatch
 from .typing_support import IRBuilderAPI, LoweringContextProtocol
 
@@ -737,10 +739,11 @@ def _bind_jaxpr_outputs(
     if ctx.precision_policy is PrecisionPolicy.SOURCE:
         for var in jpr.outvars:
             value = ctx.require_value_for_var(var)
-            expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
-            if value.dtype != expected:
+            representation = representation_for_aval(var.aval)
+            if not representation.matches_ir_value(value):
                 raise RuntimeError(
-                    f"Source result type {expected} became {value.dtype}"
+                    f"Source result type {representation.ir_dtype} became {value.dtype}; "
+                    f"required shape {representation.physical_shape}, received {value.shape}"
                 )
     _LayoutAdapter(ctx, enable_double_precision=enable_double_precision).bind_outputs(
         jpr, outputs_as_nchw=outputs_as_nchw
@@ -869,14 +872,7 @@ def _convert_to_ir(
                 for dim in spec.shape
             ):
                 raise ValueError("Private source conversion requires static shapes")
-            if (
-                np.dtype(spec.dtype) == np.dtype(np.float64)
-                and not jax.config.x64_enabled
-            ):
-                raise ValueError(
-                    f"input {index} requests float64, but JAX x64 is disabled; "
-                    "configure JAX before creating arrays and exporting"
-                )
+            validate_source_input_dtype(spec.dtype, index=index, opset=opset)
 
     trace = _trace_to_jaxpr(
         fn=fn,
@@ -933,10 +929,11 @@ def _convert_to_ir(
             ("output", jpr.outvars, model.graph.outputs),
         ):
             for var, value in zip(variables, values, strict=True):
-                expected = ir.DataType.from_numpy(np.dtype(var.aval.dtype))
-                if value.dtype != expected:
+                representation = representation_for_aval(var.aval)
+                if not representation.matches_ir_value(value):
                     raise RuntimeError(
-                        f"Final {label} {value.name} lost source type {expected}"
+                        f"Final {label} {value.name} lost source type {representation.ir_dtype} "
+                        f"or shape {representation.physical_shape}"
                     )
     return model
 

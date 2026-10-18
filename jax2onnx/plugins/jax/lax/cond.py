@@ -12,6 +12,8 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     lower_jaxpr_eqns,
     make_subgraph_context,
@@ -39,6 +41,12 @@ def _extract_branches(
     true_jaxpr, true_consts = _unwrap_closed_jaxpr(true_closed)
     false_jaxpr, false_consts = _unwrap_closed_jaxpr(false_closed)
     return (true_jaxpr, true_consts), (false_jaxpr, false_consts)
+
+
+def _shape_for_aval(ctx: LoweringContextProtocol, aval: Any) -> tuple[Any, ...]:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        return representation_for_aval(aval).physical_shape
+    return tuple(getattr(aval, "shape", ()) or ())
 
 
 @register_native_primitive(
@@ -239,9 +247,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             for v in operand_vars
         ]
         for var, val in zip(operand_vars, branch_input_vals):
-            _stamp_type_and_shape(
-                val, tuple(getattr(getattr(var, "aval", None), "shape", ()))
-            )
+            _stamp_type_and_shape(val, _shape_for_aval(ctx, var.aval))
             _ensure_value_metadata(ctx, val)
 
         (true_jaxpr, true_consts), (false_jaxpr, false_consts) = _extract_branches(
@@ -278,7 +284,9 @@ class CondPlugin(PrimitiveLeafPlugin):
         for var, out_val in zip(eqn.outvars, if_outputs):
             aval = getattr(var, "aval", None)
             dtype_enum = None
-            if aval is not None:
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                dtype_enum = representation_for_aval(aval).ir_dtype
+            elif aval is not None:
                 aval_dtype = getattr(aval, "dtype", None)
                 if aval_dtype is not None:
                     try:
@@ -287,7 +295,7 @@ class CondPlugin(PrimitiveLeafPlugin):
                         dtype_enum = None
             if dtype_enum is not None:
                 out_val.type = ir.TensorType(dtype_enum)
-            _stamp_type_and_shape(out_val, tuple(getattr(aval, "shape", ()) or ()))
+            _stamp_type_and_shape(out_val, _shape_for_aval(ctx, aval))
             _ensure_value_metadata(ctx, out_val)
             ctx.bind_value_for_var(var, out_val)
 
@@ -319,9 +327,7 @@ class CondPlugin(PrimitiveLeafPlugin):
             orig_type = getattr(outer_val, "type", None)
             if orig_type is not None:
                 capture.type = orig_type
-            _stamp_type_and_shape(
-                capture, tuple(getattr(getattr(inner_var, "aval", None), "shape", ()))
-            )
+            _stamp_type_and_shape(capture, _shape_for_aval(branch_ctx, inner_var.aval))
             _ensure_value_metadata(branch_ctx, capture)
             branch_ctx.bind_value_for_var(inner_var, capture)
             branch_inputs.append(capture)
@@ -341,7 +347,7 @@ class CondPlugin(PrimitiveLeafPlugin):
                 if orig_type is not None:
                     val.type = orig_type
             branch_outputs.append(val)
-            _stamp_type_and_shape(val, tuple(getattr(out_var.aval, "shape", ())))
+            _stamp_type_and_shape(val, _shape_for_aval(branch_ctx, out_var.aval))
             _ensure_value_metadata(branch_ctx, val)
 
         branch_ctx.builder.outputs = branch_outputs

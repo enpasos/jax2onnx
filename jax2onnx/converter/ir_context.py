@@ -32,6 +32,7 @@ from .ir_constants import ConstantFolder
 from .lower_dimexpr import LowerDimExpr
 from .typing_support import ConverterContext, SymbolicDimOrigin
 from .precision_policy import PrecisionPolicy
+from .source_representation import representation_for_aval
 from jax2onnx._compat.jax import JaxprEqn
 from jax2onnx.utils.debug import RecordedPrimitiveCallLog
 from jax.extend import core as jcore_ext
@@ -566,7 +567,11 @@ class IRContext:
         self._const_folder.register_const(var, array)
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
-        if self._function_mode:
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            aval = _maybe_aval(var)
+            representation = representation_for_aval(array if aval is None else aval)
+            array = representation.encode_array(array)
+        elif self._function_mode:
             aval = _maybe_aval(var)
             aval_np_dtype = _maybe_dtype(aval)
             if (
@@ -691,6 +696,10 @@ class IRContext:
         aval_dtype = _maybe_dtype(aval)
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            representation = representation_for_aval(aval)
+            aval_dtype = representation.physical_dtype
+            shp = representation.physical_shape
         promote_flag = self.builder.enable_double_precision
         if (
             self._function_mode
@@ -741,7 +750,13 @@ class IRContext:
         if np.issubdtype(arr.dtype, np.floating):
             tgt = literal_dtype or np.dtype(self._default_float_dtype)
             arr = arr.astype(tgt, copy=False)
-        elif np.issubdtype(arr.dtype, np.integer) and literal_dtype is not None:
+        elif (
+            np.issubdtype(arr.dtype, np.integer)
+            or (
+                self.precision_policy is PrecisionPolicy.SOURCE
+                and np.issubdtype(arr.dtype, np.complexfloating)
+            )
+        ) and literal_dtype is not None:
             arr = arr.astype(literal_dtype, copy=False)
         return self.bind_const_for_var(var, arr)
 
@@ -797,11 +812,14 @@ class IRContext:
                 var, prefer_np_dtype=prefer_np_dtype
             )
         source_type = None
+        source_shape = None
         if self.precision_policy is PrecisionPolicy.SOURCE:
-            source_dtype = _maybe_dtype(_maybe_aval(var))
-            if source_dtype is None:
+            source_aval = _maybe_aval(var)
+            if source_aval is None or _maybe_dtype(source_aval) is None:
                 raise TypeError("Source output aval missing dtype")
-            source_type = ir.TensorType(_dtype_to_ir(source_dtype, False))
+            representation = representation_for_aval(source_aval)
+            source_type = ir.TensorType(representation.ir_dtype)
+            source_shape = _to_ir_shape(representation.physical_shape)
         value = self.lookup_value_for_var(var)
         if value is not None:
             if (
@@ -812,12 +830,15 @@ class IRContext:
             ):
                 if source_type is not None:
                     value.type = source_type
+                    value.shape = source_shape
                 return value
             output_name = name_hint or self.fresh_name("v")
             if output_name == value.name:
                 output_name = self.fresh_name(output_name)
             output = ir.Value(
-                name=output_name, type=source_type or value.type, shape=value.shape
+                name=output_name,
+                type=source_type or value.type,
+                shape=source_shape if source_shape is not None else value.shape,
             )
             self.bind_value_for_var(var, output)
             return output
@@ -849,6 +870,10 @@ class IRContext:
         shape_tuple = _maybe_shape(aval)
         if shape_tuple is None:
             raise TypeError("Aval missing shape")
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            representation = representation_for_aval(aval)
+            aval_dtype = representation.physical_dtype
+            shape_tuple = representation.physical_shape
         v = ir.Value(
             name=name_hint or self.fresh_name("v"),
             type=ir.TensorType(_dtype_to_ir(aval_dtype, promote_flag)),
@@ -880,6 +905,15 @@ class IRContext:
     def add_outputs_from_vars(self, outvars: Sequence[Any]) -> None:
         for var in outvars:
             v = self.require_value_for_var(var)
+            if self.precision_policy is PrecisionPolicy.SOURCE:
+                representation = representation_for_aval(var.aval)
+                if not representation.matches_ir_value(v):
+                    raise RuntimeError(
+                        f"Source result requires {representation.ir_dtype} "
+                        f"{representation.physical_shape}; received {v.dtype} {v.shape}"
+                    )
+                self.builder.outputs.append(v)
+                continue
             target_enum: Optional[ir.DataType] = None
             aval = _maybe_aval(var)
             np_dtype = _maybe_dtype(aval)

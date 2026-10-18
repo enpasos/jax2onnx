@@ -94,8 +94,10 @@ from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
+    validate_source_input_dtype,
     validate_source_jaxpr,
 )
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.ir_utils import iter_ir_functions
 from jax2onnx.precision import (
     CheckStatus,
@@ -103,6 +105,8 @@ from jax2onnx.precision import (
     PrecisionInputSummary,
     PrecisionReport,
     PrecisionWarning,
+    SOURCE_DIAGNOSTIC_PROFILE,
+    SOURCE_PRECISION_PROFILE,
     TensorProperties,
     attach_precision_report,
     get_precision_report,
@@ -506,7 +510,14 @@ def _source_input_properties(
     )
 
 
-def _validate_source_inputs(inputs: Sequence[InputSpec], opset: int) -> None:
+def _validate_source_inputs(
+    inputs: Sequence[InputSpec], opset: int, *, diagnostic: bool = False
+) -> None:
+    for index, spec in enumerate(inputs):
+        assert isinstance(spec, jax.ShapeDtypeStruct)
+        validate_source_input_dtype(spec.dtype, index=index, opset=opset)
+    if opset not in (23, 26):
+        _source_migration_gap(f"opset={opset}", opset)
     for index, spec in enumerate(inputs):
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
@@ -518,7 +529,10 @@ def _validate_source_inputs(inputs: Sequence[InputSpec], opset: int) -> None:
             and isinstance(dim, (int, np.integer))
             and dim >= 0
             for dim in shape
-        ) or dtype not in {"float16", "bfloat16", "float32", "float64"}:
+        ) or (
+            not diagnostic
+            and dtype not in {"float16", "bfloat16", "float32", "float64"}
+        ):
             raise SourcePrecisionError(
                 f"input shape {shape} and dtype {dtype} are outside the internal milestone",
                 phase="input",
@@ -528,17 +542,6 @@ def _validate_source_inputs(inputs: Sequence[InputSpec], opset: int) -> None:
                 opset=opset,
                 requirement=requirement,
                 action=action,
-            )
-        if dtype == "float64" and not jax.config.x64_enabled:
-            raise SourcePrecisionError(
-                "float64 input requested while JAX x64 is disabled",
-                phase="input",
-                category="profile-exclusion",
-                location=f"input {index}",
-                requested_dtypes=(dtype,),
-                opset=opset,
-                requirement="JAX x64 enabled before preparing and tracing FP64 inputs",
-                action="configure JAX x64 before creating FP64 arrays and exporting, or explicitly choose FP32 inputs",
             )
 
 
@@ -600,6 +603,7 @@ def _separate_source_output_aliases(
 
 
 def _source_boundary_failure(label: str, index: int, expected: Any, opset: int) -> None:
+    representation = representation_for_aval(expected)
     raise SourcePrecisionError(
         "exported boundary dtype or static shape differs from the actual source trace",
         phase="finalization",
@@ -607,7 +611,11 @@ def _source_boundary_failure(label: str, index: int, expected: Any, opset: int) 
         location=f"{label} {index}",
         requested_dtypes=(np.dtype(expected.dtype).name,),
         opset=opset,
-        requirement=f"dtype {expected.dtype} and shape {tuple(expected.shape)}",
+        requirement=(
+            f"logical dtype {expected.dtype} and shape {tuple(expected.shape)} "
+            f"represented by dtype {representation.physical_dtype} and shape "
+            f"{representation.physical_shape}"
+        ),
         action="report this exporter defect with the model and input specifications",
     )
 
@@ -638,8 +646,9 @@ def _assert_source_boundaries(
             )
         for index, (var, value) in enumerate(zip(variables, values, strict=True)):
             expected = var.aval
-            dtype = ir.DataType.from_numpy(np.dtype(expected.dtype))
-            shape = tuple(expected.shape)
+            representation = representation_for_aval(expected)
+            dtype = representation.ir_dtype
+            shape = representation.physical_shape
             if ir_model:
                 if (
                     value.dtype != dtype
@@ -706,7 +715,22 @@ def _build_source_report(
     caller_x64: bool,
     caller_precision: str | None,
     opset: int,
+    diagnostic: bool,
 ) -> PrecisionReport:
+    representations = []
+    for role, variables in (
+        ("input", trace.jaxpr.invars),
+        ("output", trace.jaxpr.outvars),
+    ):
+        for index, var in enumerate(variables):
+            representation = representation_for_aval(var.aval)
+            if representation.encoding == "complex-real-pair":
+                representations.append(
+                    f"{role} {index}: {representation.logical_dtype} "
+                    f"{representation.logical_shape} represented by "
+                    f"{representation.physical_dtype} {representation.physical_shape} "
+                    "real/imaginary channels"
+                )
     return PrecisionReport(
         exporter_version=model.producer_version or "unknown",
         jax_version=jax.__version__,
@@ -738,17 +762,22 @@ def _build_source_report(
             _source_value_properties(value) for value in model.graph.outputs
         ),
         warnings=tuple(captured),
-        adaptations=_source_adaptations(model),
+        adaptations=(*_source_adaptations(model), *representations),
+        profile=SOURCE_DIAGNOSTIC_PROFILE if diagnostic else SOURCE_PRECISION_PROFILE,
         checks=(
             PrecisionCheck(
                 "representation",
                 CheckStatus.VALIDATED,
-                "Full ONNX checker passed; final boundary dtypes and static shapes match this source trace.",
+                "Full ONNX checker passed; final boundaries match the declared logical-to-physical representation of this source trace.",
             ),
             PrecisionCheck(
                 "lowering",
-                CheckStatus.VALIDATED,
-                "Private audited profile, strict optimizer, and source result dtype checks passed; no runtime or numerical claim.",
+                CheckStatus.UNVERIFIED if diagnostic else CheckStatus.VALIDATED,
+                (
+                    "Diagnostic callback and strict representation checks passed; lowering audit_pending."
+                    if diagnostic
+                    else "Private audited profile, strict optimizer, and source result dtype checks passed; no runtime or numerical claim."
+                ),
             ),
             PrecisionCheck(
                 "runtime-execution",
@@ -983,9 +1012,15 @@ def _to_onnx(
     export_mode: ExportMode = "standard",
     normalization_mode: NormalizationMode = "auto",
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
 ) -> Union[onnx.ModelProto, ir.Model, str]:
     """One facade pipeline; SOURCE is a private, bounded migration experiment."""
     source = precision_policy is PrecisionPolicy.SOURCE
+    diagnostic = diagnostic_jaxpr_validator is not None
+    if diagnostic and not source:
+        raise ValueError("Diagnostic validation requires the private SOURCE policy")
+    if diagnostic and not callable(diagnostic_jaxpr_validator):
+        raise TypeError("diagnostic_jaxpr_validator must be callable")
     caller_x64 = bool(jax.config.x64_enabled)
     caller_precision = jax.config.jax_default_matmul_precision
     captured_warnings: list[PrecisionWarning] = []
@@ -1028,9 +1063,7 @@ def _to_onnx(
             if supplied_option:
                 _source_migration_gap(option, opset)
         for item in inputs:
-            if not isinstance(
-                item, (jax.ShapeDtypeStruct, jax.Array, np.ndarray, tuple, list)
-            ):
+            if not isinstance(item, (_SupportsShapeAndDtype, tuple, list)):
                 _source_migration_gap(
                     f"array-like input type {type(item).__name__}", opset
                 )
@@ -1053,7 +1086,7 @@ def _to_onnx(
             inputs, precision_policy=precision_policy
         )
     if source:
-        _validate_source_inputs(normalized_inputs, opset)
+        _validate_source_inputs(normalized_inputs, opset, diagnostic=diagnostic)
 
     normalized_input_names = _normalize_io_names(input_names, kind="input_names")
     normalized_output_names = _normalize_io_names(output_names, kind="output_names")
@@ -1097,7 +1130,11 @@ def _to_onnx(
     if source:
         policy_options = {
             "precision_policy": precision_policy,
-            "jaxpr_validator": validate_source_jaxpr,
+            "jaxpr_validator": (
+                diagnostic_jaxpr_validator
+                if diagnostic_jaxpr_validator is not None
+                else validate_source_jaxpr
+            ),
             "trace_observer": observe_trace,
         }
     config_scope = nullcontext() if source else _temporary_x64(enable_double_precision)
@@ -1197,6 +1234,7 @@ def _to_onnx(
                 str(caller_precision) if caller_precision is not None else None
             ),
             opset=opset,
+            diagnostic=diagnostic,
         )
         attach_precision_report(result, report)
         attach_precision_report(model_proto, report)
