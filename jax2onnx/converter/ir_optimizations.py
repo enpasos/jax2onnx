@@ -879,13 +879,13 @@ def _collect_transpose_elementwise_chain(
         producer = producer_in_graph(graph, val)
         if producer is None:
             return None
-        if producer.op_type == "Transpose":
+        if _is_standard_onnx_node(producer, "Transpose"):
             if source_transpose is None:
                 source_transpose = producer
             elif source_transpose is not producer:
                 return None
             continue
-        if not _is_elementwise_node(producer):
+        if producer.domain != "" or not _is_elementwise_node(producer):
             return None
         if producer not in allowed_nodes:
             allowed_nodes.add(producer)
@@ -924,10 +924,10 @@ def _collect_transpose_elementwise_forest(
         producer = producer_in_graph(graph, val)
         if producer is None:
             return None
-        if producer.op_type == "Transpose":
+        if _is_standard_onnx_node(producer, "Transpose"):
             transpose_nodes.add(producer)
             continue
-        if not _is_elementwise_node(producer):
+        if producer.domain != "" or not _is_elementwise_node(producer):
             return None
         if producer not in elementwise_nodes:
             elementwise_nodes.add(producer)
@@ -1104,6 +1104,17 @@ def remove_redundant_transpose_reduce_ir(graph: ir.Graph) -> None:
             break
 
 
+def _transpose_value_has_observer(
+    graph: ir.Graph, value: ir.Value, allowed_users: set[ir.Node]
+) -> bool:
+    """Protect original-layout outputs, captures and uses outside a matched region."""
+    return (
+        value.is_graph_output()
+        or any(user not in allowed_users for user in consumers_in_graph(graph, value))
+        or _nested_graph_references_value(list(graph), value)
+    )
+
+
 def _collect_add_transpose_forest(
     graph: ir.Graph, start: ir.Node
 ) -> Optional[Tuple[List[ir.Node], List[int], List[int], Set[ir.Node], Set[ir.Node]]]:
@@ -1112,7 +1123,7 @@ def _collect_add_transpose_forest(
     Transpose(perm_fwd) and external outputs are wrapped by one
     Transpose(perm_inv). Returns None when the pattern does not match.
     """
-    if start.op_type != "Add":
+    if not _is_standard_onnx_node(start, "Add"):
         return None
 
     perm_fwd: Optional[List[int]] = None
@@ -1127,7 +1138,7 @@ def _collect_add_transpose_forest(
         node = queue.pop(0)
         if node in add_set:
             continue
-        if node.op_type != "Add":
+        if not _is_standard_onnx_node(node, "Add"):
             return None
 
         ins = _node_inputs(node)
@@ -1138,13 +1149,13 @@ def _collect_add_transpose_forest(
         transpose_input_count = 0
         for iv in ins:
             prod = producer_in_graph(graph, iv)
-            if prod is not None and prod.op_type == "Add":
+            if prod is not None and _is_standard_onnx_node(prod, "Add"):
                 add_input_count += 1
                 if prod not in add_set:
                     # Keep traversal strictly forward from the selected root.
                     return None
                 continue
-            if prod is None or prod.op_type != "Transpose":
+            if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                 return None
             perm = _transpose_perm(prod)
             if perm is None:
@@ -1168,11 +1179,11 @@ def _collect_add_transpose_forest(
             return None
         consumers = consumers_in_graph(graph, out)
         for consumer in consumers:
-            if consumer.op_type == "Add":
+            if _is_standard_onnx_node(consumer, "Add"):
                 if consumer not in add_set:
                     queue.append(consumer)
                 continue
-            if consumer.op_type != "Transpose":
+            if not _is_standard_onnx_node(consumer, "Transpose"):
                 return None
             perm = _transpose_perm(consumer)
             if perm is None:
@@ -1211,20 +1222,33 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
         changed = False
         nodes = list(graph)
         for start in nodes:
-            if start.op_type != "Add":
+            if not _is_standard_onnx_node(start, "Add"):
                 continue
 
             match = _collect_add_transpose_forest(graph, start)
             if match is None:
                 continue
             add_nodes, perm_fwd, _perm_inv, input_transposes, output_transposes = match
+            allowed_users = set(add_nodes) | output_transposes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in add_nodes
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in output_transposes
+                for value in node.outputs
+            ):
+                continue
 
             # Rewrite Add inputs from Transpose(perm_fwd)(x) to x.
             for add_node in add_nodes:
                 ins = _node_inputs(add_node)
                 for idx, iv in enumerate(ins):
                     prod = producer_in_graph(graph, iv)
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         continue
                     perm = _transpose_perm(prod)
                     if perm is None or perm != perm_fwd:
@@ -1252,9 +1276,7 @@ def remove_redundant_transpose_add_forests_ir(graph: ir.Graph) -> None:
                 if t_out is None:
                     removable_inputs.append(in_transpose)
                     continue
-                if consumers_in_graph(graph, t_out):
-                    continue
-                if t_out.is_graph_output():
+                if _transpose_value_has_observer(graph, t_out, set()):
                     continue
                 removable_inputs.append(in_transpose)
             if removable_inputs:
@@ -1288,7 +1310,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         # Pass -1: collapse Add chains surrounded by transposes (NHWC <-> NCHW)
         visited_adds: Set[ir.Node] = set()
         for start in nodes:
-            if start.op_type != "Add":
+            if not _is_standard_onnx_node(start, "Add"):
                 continue
             if start in visited_adds:
                 continue
@@ -1301,7 +1323,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             prev: Optional[ir.Node] = None
             cur: Optional[ir.Node] = start
             while cur is not None:
-                if cur.op_type != "Add":
+                if not _is_standard_onnx_node(cur, "Add"):
                     ok = False
                     break
                 ins = _node_inputs(cur)
@@ -1319,7 +1341,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     if prod is not None and prod is prev:
                         has_prev_input = True
                         continue
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(prod)
@@ -1349,13 +1371,17 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     ok = False
                     break
                 consumers = consumers_in_graph(graph, out)
-                add_consumers = [c for c in consumers if c.op_type == "Add"]
-                other_consumers = [c for c in consumers if c.op_type != "Add"]
+                add_consumers = [
+                    c for c in consumers if _is_standard_onnx_node(c, "Add")
+                ]
+                other_consumers = [
+                    c for c in consumers if not _is_standard_onnx_node(c, "Add")
+                ]
                 if len(add_consumers) > 1:
                     ok = False
                     break
                 for consumer in other_consumers:
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(consumer)
@@ -1386,12 +1412,33 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             ):
                 continue
 
+            inverse_nodes = {
+                consumer
+                for node in add_chain
+                for value in node.outputs
+                for consumer in consumers_in_graph(graph, value)
+                if _is_standard_onnx_node(consumer, "Transpose")
+            }
+            allowed_users = set(add_chain) | inverse_nodes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in add_chain
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in inverse_nodes
+                for value in node.outputs
+            ):
+                continue
+
             # Rewrite: move Add chain to pre-transpose layout (NCHW).
             for node in add_chain:
                 ins = _node_inputs(node)
                 for idx, iv in enumerate(ins):
                     prod = producer_in_graph(graph, iv)
-                    if prod is None or prod.op_type != "Transpose":
+                    if prod is None or not _is_standard_onnx_node(prod, "Transpose"):
                         continue
                     perm = _transpose_perm(prod)
                     if perm is None or perm != perm_fwd:
@@ -1409,7 +1456,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 if out is None:
                     continue
                 for consumer in consumers_in_graph(graph, out):
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         continue
                     perm = _transpose_perm(consumer)
                     if perm is None or perm != perm_inv:
@@ -1432,7 +1479,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         # Pass -0.5: fold inverse transpose around elementwise DAG with
         # multiple transpose inputs (e.g., scale + residual add).
         for t2_node in nodes:
-            if t2_node.op_type != "Transpose":
+            if not _is_standard_onnx_node(t2_node, "Transpose"):
                 continue
             t2_in = _first_input(t2_node)
             if not isinstance(t2_in, ir.Value):
@@ -1468,7 +1515,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 for consumer in consumers_in_graph(graph, out):
                     if consumer in elem_nodes:
                         continue
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         ok = False
                         break
                     perm = _transpose_perm(consumer)
@@ -1481,6 +1528,19 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             if not ok:
                 continue
             if t2_node not in output_transposes:
+                continue
+            allowed_users = elem_nodes | output_transposes
+            if any(
+                _transpose_value_has_observer(graph, value, allowed_users)
+                for node in elem_nodes
+                for value in node.outputs
+            ):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for node in output_transposes
+                for value in node.outputs
+            ):
                 continue
 
             # Rewrite: replace transpose outputs feeding elementwise nodes with
@@ -1518,7 +1578,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 t_out = _node_output(t_node)
                 if t_out is None:
                     continue
-                if not consumers_in_graph(graph, t_out):
+                if not _transpose_value_has_observer(graph, t_out, set()):
                     graph.remove(t_node)
 
             changed = True
@@ -1527,7 +1587,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             continue
         # Pass 0: fold inverse transpose pairs around elementwise-only chains
         for t2_node in nodes:
-            if t2_node.op_type != "Transpose":
+            if not _is_standard_onnx_node(t2_node, "Transpose"):
                 continue
             t2_in = _first_input(t2_node)
             if not isinstance(t2_in, ir.Value):
@@ -1543,6 +1603,11 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 continue
             perm1 = _transpose_perm(T1)
             if perm1 is None or not _is_inverse_perm(perm1, perm2):
+                continue
+            if any(
+                _nested_graph_references_value(nodes, value)
+                for value in t2_node.outputs
+            ):
                 continue
             t1_out = _node_output(T1)
             if t1_out is None:
@@ -1570,6 +1635,12 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     break
             if not ok:
                 continue
+            if any(
+                _transpose_value_has_observer(graph, value, elem_nodes | {t2_node})
+                for node in elem_nodes
+                for value in node.outputs
+            ):
+                continue
             t1_in = _first_input(T1)
             if t1_in is None:
                 continue
@@ -1588,7 +1659,12 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 t2_out, new_src, replace_graph_outputs=True
             )
-            graph.remove([T1, t2_node])
+            graph.remove(t2_node)
+            if all(
+                not _transpose_value_has_observer(graph, value, set())
+                for value in T1.outputs
+            ):
+                graph.remove(T1)
             changed = True
             break
         if changed:
@@ -1596,7 +1672,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
         i = 0
         while i < len(nodes):
             n = nodes[i]
-            if n.op_type != "Transpose":
+            if not _is_standard_onnx_node(n, "Transpose"):
                 i += 1
                 continue
             T1 = n
@@ -1616,7 +1692,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 while steps < 8:
                     steps += 1
                     m = cur
-                    if m.op_type in ALLOWED_ELEMWISE:
+                    if m.domain == "" and m.op_type in ALLOWED_ELEMWISE:
                         chain_nodes.append(m)
                         allowed_nodes.append(m)
                         cur_val = _node_output(m)
@@ -1625,7 +1701,7 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                             break
                         cur = next_nodes[0]
                         continue
-                    if m.op_type == "Transpose":
+                    if _is_standard_onnx_node(m, "Transpose"):
                         chain_nodes.append(m)
                         T2 = m
                     break
@@ -1635,6 +1711,19 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 perm1 = _transpose_perm(T1)
                 perm2 = _transpose_perm(T2)
                 if perm1 is None or perm2 is None or not _is_inverse_perm(perm1, perm2):
+                    i += 1
+                    continue
+                if any(
+                    _transpose_value_has_observer(
+                        graph, value, set(allowed_nodes) | {T2}
+                    )
+                    for node in allowed_nodes
+                    for value in node.outputs
+                ):
+                    i += 1
+                    continue
+                old_out = _node_output(T2)
+                if old_out is None or _nested_graph_references_value(nodes, old_out):
                     i += 1
                     continue
                 if TRN_DEBUG:
@@ -1656,18 +1745,23 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                     if t1_out is None:
                         i += 1
                         continue
-                    ir.convenience.replace_all_uses_with(
-                        t1_out, t1_in, replace_graph_outputs=True
-                    )
+                    for node in allowed_nodes:
+                        for index, value in enumerate(node.inputs):
+                            if value is t1_out:
+                                node.replace_input_with(index, t1_in)
+                        _refresh_elementwise_output_shape(node)
                     new_src = _node_output(last_allowed) or t1_in
                 else:
                     new_src = t1_in
-                old_out = _node_output(T2)
-                assert old_out is not None
                 ir.convenience.replace_all_uses_with(
                     old_out, new_src, replace_graph_outputs=True
                 )
-                graph.remove([T1, T2])
+                graph.remove(T2)
+                if all(
+                    not _transpose_value_has_observer(graph, value, set())
+                    for value in T1.outputs
+                ):
+                    graph.remove(T1)
                 changed = True
                 break
 
@@ -1686,11 +1780,16 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                 # Find direct Transpose consumers that cancel with T1
                 removed_any = False
                 for consumer in consumers:
-                    if consumer.op_type != "Transpose":
+                    if not _is_standard_onnx_node(consumer, "Transpose"):
                         continue
                     T2 = consumer
                     perm2 = _transpose_perm(T2)
                     if perm2 is None or not _is_inverse_perm(perm1, perm2):
+                        continue
+                    old_out = _node_output(T2)
+                    if old_out is None or _nested_graph_references_value(
+                        nodes, old_out
+                    ):
                         continue
                     # Found a direct T2 that cancels with T1
                     if TRN_DEBUG:
@@ -1706,8 +1805,6 @@ def remove_redundant_transpose_pairs_ir(graph: ir.Graph) -> None:
                             perm2,
                         )
                     # Rewire T2's consumers to use T1's input directly
-                    old_out = _node_output(T2)
-                    assert old_out is not None
                     ir.convenience.replace_all_uses_with(
                         old_out, t1_in, replace_graph_outputs=True
                     )
@@ -2400,8 +2497,8 @@ def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
     """
     Remove Transpose nodes whose outputs are not consumed and are not graph outputs.
 
-    This pass uses name-based consumer discovery to stay robust even when IR-level
-    consumer links are stale.
+    Preserve native uses and nested observations first; retain name-based
+    consumer discovery for graphs whose IR-level links are stale.
     """
     while True:
         nodes = list(graph)
@@ -2421,6 +2518,9 @@ def remove_orphan_transposes_ir(graph: ir.Graph) -> None:
 
             is_live = False
             for out in outputs:
+                if _transpose_value_has_observer(graph, out, set()):
+                    is_live = True
+                    break
                 out_name = _v_name(out)
                 if out_name is None:
                     continue
@@ -2492,8 +2592,88 @@ def prune_unused_graph_inputs_ir(graph: ir.Graph) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _snapshot_lexical_name_references(
+    graph: ir.Graph,
+    ancestors: dict[str, ir.Value | None],
+    references: dict[ir.Value, ir.Value],
+    non_references: set[ir.Value],
+) -> None:
+    """Remember proven lexical aliases that native naming sees as new values."""
+    initial_values = (*graph.inputs, *graph.initializers.values())
+    local_names = {
+        value.name
+        for value in (*initial_values, *(v for node in graph for v in node.outputs))
+        if value.name
+    }
+    visible = {
+        name: value for name, value in ancestors.items() if name not in local_names
+    }
+
+    def define(value: ir.Value) -> None:
+        name = value.name
+        if not name:
+            return
+        if name in visible and visible[name] is not value:
+            visible[name] = None
+        else:
+            visible[name] = value
+
+    def exclude(value: ir.Value) -> None:
+        if value in references:
+            raise ValueError(f"Ambiguous nested lexical reference {value.name!r}")
+        non_references.add(value)
+
+    def remember(value: ir.Value | None) -> None:
+        if value is None or value.producer() is not None:
+            return
+        name = value.name
+        if not name or name in local_names:
+            exclude(value)
+            return
+        definition = ancestors.get(name)
+        if name in ancestors and definition is None:
+            raise ValueError(f"Ambiguous nested lexical reference {name!r}")
+        if definition is None or definition is value:
+            exclude(value)
+            return
+        if value in non_references or (
+            value in references and references[value] is not definition
+        ):
+            raise ValueError(f"Ambiguous nested lexical reference {name!r}")
+        references[value] = definition
+
+    for value in initial_values:
+        exclude(value)
+        define(value)
+    for node in graph:
+        for input_value in node.inputs:
+            remember(input_value)
+        for attr in node.attributes.values():
+            if attr.type is IRAttrType.GRAPH:
+                _snapshot_lexical_name_references(
+                    attr.as_graph(), visible, references, non_references
+                )
+            elif attr.type is IRAttrType.GRAPHS:
+                for child in attr.as_graphs():
+                    _snapshot_lexical_name_references(
+                        child, visible, references, non_references
+                    )
+        # A node's results are not visible inside its own Graph attributes.
+        for value in node.outputs:
+            define(value)
+
+
 def _run_name_fix_pass(model: ir.Model) -> None:
+    references: dict[ir.Value, ir.Value] = {}
+    non_references: set[ir.Value] = set()
+    _snapshot_lexical_name_references(model.graph, {}, references, non_references)
+    for function in iter_ir_functions(model.functions):
+        _snapshot_lexical_name_references(
+            function.graph, {}, references, non_references
+        )
     common_passes.NameFixPass()(model)
+    for reference, definition in references.items():
+        reference.name = definition.name
 
 
 def _run_common_subexpression_elimination_pass(model: ir.Model) -> None:
