@@ -48,6 +48,14 @@ the live-observer correction passes 238 owner and independent checks per stack.
 Its root-owned inventory records 200 files, 1,074 functions and 322 additions,
 retaining all 752 original anchors and 1,802 raw contracts. The fresh complete
 primary-stack run passes **6,351 tests**, with 13,110 warnings in 466.07 seconds.
+That checkpoint is recorded at `d1dd3162`. The
+[shared-batch checkpoint](poc/symbolic_batch_and_minmax_findings.md) implements
+audited Add and named composition for two equal `(B,K)` inputs, with one artifact
+checked at B=2/5 and strict per-sample symbol binding. Owner checks pass 697 per
+stack and independent checks 241, including all 40 new cases. Commit `80cb68b2`
+passed all actual configured hooks; the complete primary-stack run passes
+**6,391 tests** (13,110 warnings, 444.36 seconds). Its inventory records 201 files, 1,093 functions
+and 341 additions, preserving every raw contract and original anchor.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
@@ -63,8 +71,13 @@ not establish browser, stochastic or model-wide numerical acceptance. Static
 NCHW boundary handling and its shared observer/naming dependency have passed
 independent review. They do not establish whole-model layout support.
 Native add/min/max binding preserves JAX promotion; eight signed-zero target
-observations per stack remain FAILED. The next accepted symbolic direction is
-a shared named batch dimension through a bounded Add composition, not yet implemented.
+observations per stack remain FAILED. Shared-B Add is now a finite private
+implementation; all 310 symbolic corpus rows still require their actual replay.
+The sparse Min/Max edge/cost questions are answered, but the later GatherElements
+lowerer candidate has no production release or broader admission. The next
+accepted tooling packet selects 13 unchanged raw rows/26 artifact-only cells per
+stack, with four explicit SOURCE matrix structural counterparts and a numerical
+criterion proposal ledger; runtime execution and criterion adoption are not released.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one

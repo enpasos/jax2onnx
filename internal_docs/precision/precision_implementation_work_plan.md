@@ -28,8 +28,13 @@ repair is committed at `f02c0b4c` and C4b static layout at `7609fc2e`. All passe
 independent review and actual configured hooks. After ten regressions in the
 initial full run, the corrected complete primary-stack run passes **6,351 tests**
 (13,110 warnings, 466.07 seconds).
-The [checkpoint findings](poc/layout_and_native_binary_findings.md) retain these
-distinctions. An earlier failed preflight exposed raw metadata
+The [layout/binary findings](poc/layout_and_native_binary_findings.md) retain
+those distinctions. Shared-B packet `80cb68b2` has 697 owner and 241 independent
+focused passes per stack, including 40 new cases. Its complete primary-stack run
+passes **6,391 tests** (13,110 warnings, 444.36 seconds), and actual configured
+hooks pass. The [new findings](poc/symbolic_batch_and_minmax_findings.md)
+record the bounded implementation, completed Min/Max feasibility and the next
+accepted artifact-only corpus tooling plan. An earlier failed preflight exposed raw metadata
 mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
@@ -198,6 +203,11 @@ a genuine technical limit. Existing captured-state forms and supported
 configuration behavior require audit in later phases. New concurrent-export
 guarantees are not required beyond the existing functionality.
 
+This table records the initial phase-A scope. The later shared-B packet keeps
+the persisted identifier and report schema while adding one audited equal-shape
+Add/named-composition contract; its explicit gates below do not retroactively
+broaden the historical phase-A evidence.
+
 Retain appropriate NaN, infinity, and signed-zero coverage. BF16 graph validity
 does not establish an available CPU kernel. No operation is silently widened
 to a global minimum precision. The existing matrix adapter widens its own
@@ -355,6 +365,8 @@ planning work is separate from production-code ownership.
 | Native add/min/max binding | Forward original SOURCE arguments through one private binder opt-in; preserve native promotion, weakness, errors and transforms. | Independently accepted; 366 focused/generated checks per stack, 62 new cases; integrated run and actual hooks pass; eight signed-zero target failures per stack retained | `258e90d6` |
 | Diagnostic Mul-None dependency | Admit only the observed None spelling under the existing typed floating rule; retain native abstract checks. | Separately accepted; 84 checks per stack, 18 new safeguards; integrated run and actual hooks pass; no production/profile change | `258e90d6` |
 | C4b static NCHW and shared observers | Compose root physical layout without changing canonical source values; protect observable transpose values and lexical naming. | 36 layout and 57 observer cases; ten failed-full regressions retained, final correction independently passes 238 cases per stack; fresh full run and actual hooks pass | Optimizer `f02c0b4c`; layout `7609fc2e` |
+| Shared symbolic batch | Preserve equal `(B,K)` floating Add and named composition, exact symbolic boundaries and fresh sample bindings; one artifact at B=2/5. | 697 owner and 241 independent checks per stack, all 40 new cases; full run and actual hooks pass; all 310 raw symbolic rows remain open | `80cb68b2` |
+| Next B3 revision supplement | Replay 13 exact unchanged rows/26 artifact-only cells per stack; preserve raw outcomes and four explicit SOURCE matrix counterparts; propose criteria separately. | Accepted tooling plan only; no run total, runtime release or criterion adoption | Planned |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -673,15 +685,54 @@ actual min/max gradients now validate four CPU samples each per stack. Eight
 signed-zero observations per stack remain FAILED, with exact target/payload
 bounds. No default-profile or whole-family admission follows.
 
-After the C4b integration gate, the sole next production packet is two `(B,K)` inputs
-sharing one named positive batch dimension, an audited Add and named composition,
-one artifact and at least two concrete batches. Real sample symbol binding,
-normalized reports/IR dimensions and correctly remapped child symbols are
-required; unrelated caller scopes cannot be merged. This is planned only. Keep
-all 310 raw symbolic rows and existing dynamic positive witnesses, without a
-new profile mode, runtime Assert layer or source rewrite.
+The shared-B packet is now implemented and has passed focused independent
+review. Two `(B,K)` floating inputs share one positive atomic batch dimension
+through audited Add and named composition; one unchanged artifact validates
+B=2/5. Native/string declarations retain actual scope provenance, and named
+formals remap correctly without merging unrelated scopes. Strict normalized
+IR/proto/file/report signatures preserve dtype, weakness, order and aliases.
+The sample layer binds inputs before session creation and each run, then checks
+reference/actual outputs against the same fresh binding. It rejects B=1/B=5
+broadcasting even though raw ORT executes it. BF16 checker/report success retains
+a FAILED CPU Add load result. Commit `80cb68b2`, the complete primary-stack run
+and actual configured hooks pass their integration gates.
 
-Min/Max zero-sign representations remain feasibility work. The small standard
+No symbolic NCHW, broadcasting, affine expressions, other operations or control
+flow are admitted by this packet. All 310 symbolic raw rows and seven NCHW rows
+remain: the only raw symbolic declaration with two inputs of rank two and
+identical shapes includes Divide/Mean.
+Keep existing dynamic positive witnesses and fixed sources, without a new
+profile mode, runtime Assert layer or source rewrite.
+
+After this checkpoint, the accepted next packet is tooling for 13 exact raw
+rows/26 artifact-only cells per stack: five dot, three matmul, four Add and one
+FP64 gather row. Bind origin, ordinal, raw contract and actual typed equation
+parameters. Exactly four dot rows receive explicit SOURCE MatMul counterparts
+that preserve input/axis/no-bias/no-unused-input guarantees; execute and retain
+the original Gemm callback failure separately. Keep other callbacks unchanged,
+callback absence explicit, and the gather-off configuration conflict. Create a
+new revision supplement; never reset failed histories or overwrite original
+36-cell/two-dot evidence. The new selection leaves 3,578 cells unselected.
+
+The same tooling packet produces a criterion proposal ledger only. Preserve
+original unresolved criteria and record reference-first legacy versus
+actual-first SOURCE allclose, FP32/FP64 variant thresholds, dtype conversions
+and forced harness float32 matrix-precision settings. x64-on does not turn the
+twelve strong-FP32 rows into FP64; gather needs its own audit. No numerical
+execution, criterion adoption or public SampleCriteria change is released.
+Review any proposed conjunction before outcomes. Ownership is limited to a
+fixed corpus-oracle helper/test, the private source-support seam and maintained
+probe tooling; numerical lowerers, metadata, profiles and diagnostic families
+are outside the packet.
+
+Min/Max sparse scalar/empty/output-only and the single FP16 cost comparison are
+complete feasibility evidence: 72 exact edges and 12 scoped grid checks per
+stack. Six raw rank-zero failures remain, with the rank-one adapter demonstrated
+only in PoCs; inherited FP32/FP64 non-NaN mismatches remain failed. Dense costs
+1.242–1.542× baseline and sparse/dense 0.963–1.220× on that one workload, with no
+consistent sparse benefit; logical buffer sizes are not allocator measurements.
+A later GatherElements lowerer candidate is recommended for bounded integration
+and semantic/resource-cost review, without a production release. The small standard
 Add/Neg/Where construction has a semantic argument but fails strict CPU checks
 and changes other measured results. Gather alternatives have material or
 unverified cost and are not selected for an unconditional rollout. Current export
@@ -893,17 +944,31 @@ Checkpoint evidence on 2026-10-18:
   Ten collection-only controls and one injected-name check remain qualified.
   Root typing passes 541 files plus RNG, and global Ruff passes. File-hash prefixes
   are not commit IDs.
-- The fresh complete primary-stack run passes **6,351 tests**, with 13,110 warnings
+- The layout/binary complete primary-stack run passes **6,351 tests**, with 13,110 warnings
   in 466.07 seconds and exit status zero. The log is
   `/tmp/jax2onnx-precision-live-observer-full-py312.log`; all 17 code/inventory hashes
   in `/tmp/jax2onnx-precision-live-observer-full-freeze.sha256` match before and after
   commits. Optimizer `f02c0b4c`, binder/Mul-None `258e90d6` and static NCHW `7609fc2e`
   each passed all actual configured hooks, without bypasses or formatter upgrades.
-- The root-owned inventory refresh records 200 files, 1,074 functions and 322
+- The layout/binary inventory refresh records 200 files, 1,074 functions and 322
   migration additions; both CLI comparisons pass. All 752 original anchors and
   1,802 raw contracts remain unchanged. The historical B3 batch and two-cell
   supplement, all-22 three-checked/19-pending results, and failed matrix,
   linspace and FP16 rounding criteria are unchanged. No row closes automatically.
+- The shared-B packet adds 40 cases in 19 test functions. On the final eleven
+  frozen paths, owner checks pass 697 each stack (8 warnings, 46.54/48.84 seconds);
+  independent checks pass 241 each (16.44/18.51 seconds), including all new cases
+  and four updated obsolete guards. Earlier 315/693/695 and fixture failures
+  are preparation history. Before/after hashes match; counts overlap.
+- Root final typing passes 541 files plus RNG, global Ruff passes, and both
+  inventory CLI comparisons pass. Manual accounting now records 201 files,
+  1,093 functions and 341 migration additions, with no raw/anchor changes or
+  removals. The complete primary-stack run passes **6,391 tests**, with 13,110
+  warnings in 444.36 seconds and exit status zero; log
+  `/tmp/jax2onnx-symbolic-batch-root-full-py312.log`. Commit `80cb68b2` passed all
+  seven actual configured hooks, recorded in
+  `/tmp/jax2onnx-symbolic-batch-code-commit.log`. All twelve hashes in the root
+  full freeze match after commit; the historical 6,351-test result is unchanged.
 
 ## Validation and final review
 

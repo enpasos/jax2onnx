@@ -17,6 +17,7 @@ is available. These experiments inform the
 | Recording, packaging and array creation | Do shared export options and native promotion preserve the source contract? | [Option and array findings](option_and_array_creation_findings.md): committed C4a/C4c and D1a/D1b checks, real named BOOL operands, native sequence binding and explicit target failures. |
 | Ordinary matrices and Dropout cleanup | Do bounded matrix contracts and the shared optional-input rewrite preserve actual values? | [Matrix and optimizer findings](matrix_and_optimizer_findings.md): committed D2a and shared repair, exact subnormal failures, corrected witness provenance and separate corpus evidence. |
 | Static layouts and native binary binding | Can external storage and native promotion preserve unchanged source computations? | [Layout and binary findings](layout_and_native_binary_findings.md): committed binder/Mul and C4b/observer repairs, passing 6,351-test integration after ten retained regressions, signed-zero failures and future symbolic work. |
+| Shared symbolic batch and Min/Max feasibility | Can one artifact preserve a shared batch contract, and what does the finite selection audit establish? | [Shared-batch findings](symbolic_batch_and_minmax_findings.md): focused Add/named-composition acceptance, strict sample binding, retained BF16/subnormal failures, measured selection costs and planned artifact-only corpus tooling. |
 
 ## Run it
 
@@ -46,9 +47,13 @@ Supplemental experiments in this folder still need an explicit test invocation.
 See [recorded validation](source_integration_findings.md#recorded-validation)
 for historical integration results and the
 [preceding committed checkpoint](matrix_and_optimizer_findings.md#validation-and-provenance)
-for the historical 6,183-test run. The [latest checkpoint](layout_and_native_binary_findings.md)
+for the historical 6,183-test run. The [layout/binary checkpoint](layout_and_native_binary_findings.md)
 records the passing 6,351-test run and three commits with actual hooks, retaining
 the earlier failed full run and separate future work.
+The [shared-batch checkpoint](symbolic_batch_and_minmax_findings.md) has 697 owner
+and 241 independent focused checks per stack. Commit `80cb68b2` passed actual
+hooks and the complete primary-stack run passes 6,391 tests. Min/Max PoCs and
+future corpus-tooling plans remain distinct.
 
 ## Observable source behavior
 
@@ -94,8 +99,10 @@ graph. See the recorded numerical evidence before choosing a runtime profile.
 
 The private harness uses the actual tracing, IR context, plugins, optimizer,
 post-processing and serialization. It checks static floating inputs and a small
-primitive set at opsets 23/26, including selected Function/If cases. It rejects
-loops, scan, JIT regions, effects, symbolic shapes and unaudited operations.
+primitive set at opsets 23/26, including selected Function/If cases. The finite
+shared-B extension adds equal rank-two floating inputs through Add and named
+composition. Broader symbolic operations, loops, scan, JIT regions, effects and
+unaudited operations remain excluded.
 Bodies are validated recursively. Same-width BitCast requires explicit opset26;
 different-width bitcasts need a different representation and are rejected.
 No opset is raised automatically. These are experiment limits, not universal
@@ -127,9 +134,12 @@ defect is repaired with bounded optional-input cleanup and preserved shared uses
 see the [repair evidence](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair).
 Static NCHW boundaries and the corrected observer/naming dependency are committed
 after independent review, the passing fresh full run and actual hooks. The ten
-earlier integration failures remain recorded. Symbolic batch support is the next
-production packet; broader layout coverage and Min/Max numerical feasibility
-remain separate. The
+earlier integration failures remain recorded. Shared-B Add now has focused
+implementation evidence; all 310 raw symbolic rows and seven NCHW rows remain
+open. Min/Max sparse edge/cost feasibility is complete, with a later dense
+candidate still requiring exporter and cost acceptance. The next tooling packet
+plans 13 unchanged rows/26 artifact-only cells per stack; no numerical execution
+or criterion adoption is released. The
 [next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.

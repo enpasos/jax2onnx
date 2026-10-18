@@ -49,8 +49,8 @@ matching results. Static NCHW input/output boundaries and corrected shared
 optimizer fixes have passed independent review and are committed. Native
 add/min/max binding has passed independent review, preserving JAX promotion
 and weak inputs. Its recorded signed-zero samples still fail strict CPU
-comparison. The [new findings](poc/layout_and_native_binary_findings.md) separate
-these outcomes from future symbolic work and complete-model acceptance.
+comparison. The [layout/binary findings](poc/layout_and_native_binary_findings.md)
+retain those outcomes separately from complete-model acceptance.
 
 The earlier Dropout/D2a complete run passed **6,183 tests**. The next full run
 failed ten regressions; their narrow repair passes the unchanged failing cases
@@ -59,6 +59,17 @@ and related checks on both stacks. The fresh complete primary-stack run passes
 all original contracts and test anchors. The
 [work plan](precision_implementation_work_plan.md) tracks the remaining operators,
 options and full-model validation. The migration is not complete.
+
+The committed private implementation lets two inputs share one named batch size for
+Add and named-function composition. The same artifact works at batch sizes two
+and five; validation rejects unequal batches even when the runtime could
+broadcast them. Focused checks pass on both stacks; the complete primary-stack
+run passes **6,391 tests**, and the code commit passed repository hooks. This
+does not complete dynamic-shape support: all 310 raw
+symbolic rows remain open, and BF16 still fails loading on the measured CPUs.
+The [new findings](poc/symbolic_batch_and_minmax_findings.md) also separate Min/Max
+feasibility and measured costs from implementation, and the proposed corpus
+artifact checks from numerical acceptance. No new public precision choice is added.
 
 ## Choosing the Export Setting
 

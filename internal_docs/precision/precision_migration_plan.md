@@ -22,7 +22,7 @@ matrix lowering is committed at `2011b140`. All passed actual repository hooks.
 The historical Dropout/D2a complete primary-stack run passed **6,183 tests**;
 required typing covers 541 files, with RNG registration and global Ruff passing.
 That inventory recorded 197 handwritten-test files, 1,023 functions and 271
-migration additions. The current root-owned refresh records 200 files, 1,074
+migration additions. The layout/binary refresh records 200 files, 1,074
 functions and 322 additions, retaining all 752 original anchors and 1,802 raw
 contracts. Native add/min/max binding and the separate Mul-None diagnostic
 dependency are independently accepted. Static layouts and their corrected shared
@@ -38,6 +38,17 @@ validation against the unchanged legacy structural callback. The
 [option and array-creation findings](poc/option_and_array_creation_findings.md)
 and [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md)
 record bounded acceptance and remaining target failures.
+
+Shared-B implementation `80cb68b2` passes 697 owner and 241 independent checks per
+stack, including 40 new cases. It admits equal rank-two floating Add and named
+composition, checks one artifact at B=2/5, and enforces shared sample bindings
+before runtime execution. The complete primary-stack run passes **6,391 tests**
+(13,110 warnings, 444.36 seconds), and all actual configured hooks passed. The inventory
+refresh records 201 files, 1,093 functions and 341 additions, retaining all raw
+contracts and original anchors. The
+[new findings](poc/symbolic_batch_and_minmax_findings.md) separate this bounded
+implementation from completed Min/Max feasibility and the next artifact-only
+corpus tooling packet.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -168,9 +179,13 @@ profile admits static floating kernels, the bounded preferred-FP32 matrix
 lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
 two-branch conditionals. It supports opsets 23/26, names, primitive recording,
 and proto/IR/standard/web file returns through reviewed private facade integration.
-Web packaging does not establish browser execution. Nonempty `input_params`,
-NCHW options, nondefault normalization, unlisted operations,
-effects, symbolic shapes, loops, and JIT regions are temporary internal gates.
+Web packaging does not establish browser execution. Selected static NCHW
+boundaries and the finite shared-B Add/named-composition extension now have
+reviewed private implementation. The persisted profile identifier is unchanged.
+Nonempty `input_params`, dynamic layouts, nondefault normalization, unlisted
+operations, effects, broader symbolic shapes, loops and JIT regions remain
+temporary audited-profile gates; named BOOL and other reviewed diagnostic paths
+do not silently broaden that admission.
 Where the existing converter supports them, they remain required migration work.
 
 The implementation follows these acceptance requirements:
@@ -285,15 +300,29 @@ other callers and LEGACY unchanged. Selected gradient/vmap samples pass, while
 eight signed-zero CPU observations per stack remain FAILED. The separate
 Mul-None diagnostic correction changes no production lowerer or profile.
 
-The next accepted symbolic packet is two equal-shaped inputs sharing one named
-batch dimension, one audited Add and a named composition, with one artifact
-checked at two concrete batches. It is unimplemented; all 310 symbolic raw rows
-remain. This is the sole next production packet. Min/Max numerical representations
-remain feasibility only: semantic justification does not establish strict CPU
-success, and the cheap Where candidate also changes measured baseline results.
-Current export has no runtime-target argument; the existing sample validator and
-raising acceptance guard provide that separate evidence gate. No costly rollout,
-new public mode or broad admission is selected.
+The shared-B packet is implemented and passes focused review: two equal `(B,K)`
+inputs, audited Add and named composition, one artifact at B=2/5. It preserves
+actual symbol scopes and checks report/artifact/input/reference/output contracts
+with fresh bindings per sample. BF16 loading remains FAILED on the measured
+CPUs. All 310 raw symbolic rows remain open. The only raw symbolic declaration
+with two inputs of rank two and identical shapes includes Divide/Mean, beyond
+this packet.
+
+The next accepted tooling packet selects 13 unchanged raw rows/26 artifact-only
+cells per stack. Four exact dot rows receive checked SOURCE MatMul counterparts
+while retaining their original Gemm callback failure/history. A criterion
+proposal ledger records comparator orientation, variant thresholds and actual
+harness settings; it adopts no criteria and enables no runtime stage. The
+original 36-cell batch, two-dot supplement, all-22 results and seven NCHW rows
+remain unchanged. Actual source/trace/signature evidence is required for progress.
+
+Min/Max sparse edge/output-only and one FP16 cost comparison are complete
+feasibility evidence. The later GatherElements candidate still needs exporter
+integration and semantic/resource-cost review; no production release follows.
+The cheap Where candidate fails strict CPU checks and changes baseline results;
+inherited FP32/FP64 subnormal mismatches remain failed. Current export has no
+runtime-target argument; existing sample evidence and its raising guard remain
+the separate acceptance gate. No costly rollout, new mode or broad admission is selected.
 
 ## Stage 1 Inventory and freeze observable behavior
 
@@ -412,7 +441,8 @@ conversion. The added arithmetic paths include Div, BroadcastInDim, both square-
 plugins, and bounded matrix products. Source lowering keeps separate arithmetic
 operations instead of unvalidated Mean, LpNormalization, ReduceSumSquare, and
 ReduceL2 fusions. A recursive validator checks both branches and actual retraced
-function bodies before lowering. Loops, `scan`, JIT regions, symbolic shapes,
+function bodies before lowering. The later shared-B Add/named-composition packet
+adds its finite symbolic contract. Loops, `scan`, JIT regions, broader symbolic shapes,
 effects, and other unaudited operations remain outside the experiment, without
 implying that ONNX cannot support them. This advances Stage 3; it does not
 complete the stage, establish general numerical equivalence, or make a public

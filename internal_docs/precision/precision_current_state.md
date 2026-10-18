@@ -120,11 +120,30 @@ use links caused all ten failures, reproduced unchanged on both stacks. Final
 `0f8b60c5` bytes use current local consumers while retaining output/nested guards;
 owner and independent checks pass the same 238 cases per stack. These prefixes
 are file hashes, not commits. Root typing (541 files plus RNG) and global Ruff pass.
-The current inventory records 200 files, 1,074 functions and 322 additions, retaining
+That checkpoint's inventory records 200 files, 1,074 functions and 322 additions, retaining
 all 752 original anchors, all 1,802 raw contracts and optional entries. Fresh
 CLI comparisons pass on both stacks. The fresh complete primary-stack run passes
 **6,351 tests** (13,110 warnings, 466.07 seconds). All three new code commits passed
 actual configured hooks; all 17 frozen code/inventory hashes remain unchanged.
+The `d1dd3162` documentation checkpoint records those results. Shared-B
+implementation `80cb68b2` preserves two equal floating `(B,K)` inputs through audited Add
+and named composition. One artifact passes native eager/JIT samples at B=2/5;
+the evidence layer rejects inconsistent bindings before session creation/run,
+even where raw ORT would broadcast. Strict IR/proto/file/report signatures,
+native symbol scopes, source weakness and contextual cache behavior are covered.
+BF16 checker/report success retains a FAILED CPU Add load result. Other symbolic
+operations/layouts and all 310 raw symbolic rows remain open.
+
+The [new findings](poc/symbolic_batch_and_minmax_findings.md) record 697 owner and
+241 independent checks per stack, including all 40 new cases. Root typing
+(541 files plus RNG), global Ruff and both inventory CLI comparisons pass. The
+new inventory records 201 files, 1,093 functions and 341 additions, with all 752
+original anchors and 1,802 raw contracts unchanged. The complete primary-stack
+run passes **6,391 tests** (13,110 warnings, 444.36 seconds); `80cb68b2` passed all
+seven actual configured hooks. All twelve tested code/inventory hashes remain
+unchanged after commit. Public LEGACY, the private profile identifier and report
+schema remain unchanged. Min/Max selection remains feasibility work; the next
+accepted corpus packet is artifact-only, with criteria proposed before adoption.
 The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 

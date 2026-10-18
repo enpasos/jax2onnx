@@ -34,6 +34,14 @@ commits passed actual repository hooks. The refreshed inventory
 retains every original contract and test anchor; these results do not complete
 source coverage.
 
+The committed private shared-batch implementation has passed focused review on both
+stacks: one Add/named-function artifact runs with batch sizes two and five, and
+validation rejects inconsistent batches. Its complete primary-stack run passes
+**6,391 tests**, and the code commit passed actual repository hooks.
+The [new findings](poc/symbolic_batch_and_minmax_findings.md) keep that evidence
+separate from raw-model acceptance, Min/Max feasibility and the next planned
+artifact-only corpus replay. No new runtime criteria have been adopted.
+
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
 outcomes. No runtime or numerical acceptance was claimed. The
@@ -103,10 +111,12 @@ matrix scenarios now passes schema checking but still fails the existing
 structural callback; it establishes no new corpus acceptance. Static NCHW
 input/output boundaries and the shared optimizer/naming dependency have passed
 independent review. Eight min/max signed-zero observations per
-stack remain failed under their original criteria. The next accepted symbolic
-direction is one shared batch dimension through a bounded Add composition,
-using unchanged source and multiple concrete batches; it is not implemented.
-Symbolic layouts, normalization and broader model coverage remain separate work.
+stack remain failed under their original criteria. One shared batch dimension
+through Add and named composition now has private implementation evidence with
+unchanged source and multiple batches. All 310 raw symbolic rows remain open;
+symbolic layouts, normalization and broader model coverage require further work.
+The finite Min/Max selection audit establishes feasible alternatives and costs,
+not a released lowerer or successful whole-family numerical contract.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 
@@ -169,8 +179,9 @@ is planned work; it is not available through the current bounded private profile
 
 ## Implementation coverage and reports
 
-The internal `source-static-v1` profile exercises a small set of static
-calculations first. It is an implementation checkpoint, not the public feature
+The internal `source-static-v1` identifier is retained for the small audited
+scope, now including the finite shared-batch Add extension. It is an
+implementation checkpoint, not the public feature
 scope. The completed transition must cover the existing operators, frameworks,
 functions, branches, loops, JIT regions, dynamic shapes, parameters, layouts,
 normalization choices, and artifact formats. Each keeps the same precision rule.
