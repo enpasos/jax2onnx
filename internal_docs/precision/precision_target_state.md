@@ -1,10 +1,10 @@
 # Computation Precision Target State
 
-Status: normative semantic design, 2026-10-18. The
+Status: normative semantic design, 2026-10-18. The normal export API applies
+this contract consistently across the existing functionality. The
 [implementation work plan](precision_implementation_work_plan.md) defines the
-bounded initial `source-static-v1` profile and planned `precision="source"`
-selection. Public availability requires its M5 gate; no release is assigned.
-The wider contract below also guides support beyond that initial profile.
+coverage and final transition gates. Its bounded source profile is internal
+intermediate work; the public transition is not complete and no release is assigned.
 
 For model preparation and expected export behavior, read the
 [user view](precision_target_state_user_view.md). All companion documents are
@@ -17,6 +17,13 @@ specifications supplied to export and the active JAX configuration determine
 how those rules apply during tracing. The exporter implements the resulting
 contract within the capabilities of the selected ONNX version and deployment
 target, and identifies unsupported cases.
+
+There is one public precision contract. Callers do not select an operator
+profile or combine source and legacy arithmetic policies. Existing conversion
+operations, scopes, layouts, parameter handling, and artifact formats retain
+their capabilities under this contract. An unaudited lowering or unfinished
+migration is open work; a genuine technical limit has a specific explanation
+and evidence.
 
 ## Where precision is configured
 
@@ -43,8 +50,9 @@ computation JAX traces, including any conversions chosen by the model.
 The export call's implementation choices must preserve that computation's
 contract. Naming, layout, and artifact options can change the interface or
 packaging while preserving precision. Declared deployment requirements may
-constrain capability checks and implementation selection; how those requirements
-are supplied is a public interface decision. Runtime session settings are
+constrain capability checks and implementation selection. Export reports
+representation and lowering evidence; separate validation records the selected
+execution settings, reference samples, and numerical criteria. Runtime session settings are
 configured separately. An ONNX opset declaration does not configure a provider
 or its arithmetic settings.
 

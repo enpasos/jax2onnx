@@ -1,29 +1,35 @@
 # Source Precision Implementation Work Plan
 
-Status: accepted implementation contract, 2026-10-18. The private foundation is
-committed at `63abe1c1`. The shared private pipeline and CPU evidence module
-have passed independent review. Product profile and facade integration remain.
-The planned public selection is `precision="source"`; it is
-unavailable until milestone M5 passes review. No release version is assigned.
+Status: accepted implementation contract, 2026-10-18. Completion means consistent
+source-precision behavior across the existing functionality, with genuine
+technical limits stated explicitly. The private foundation, shared converter,
+and CPU evidence module are committed and reviewed. Full coverage remains open.
+The bounded private facade, canonical initializer repair, and deterministic
+attention fixtures are reviewed; their local checkpoint commits are pending.
+The completed normal `to_onnx` call will have one source-preserving contract.
+The bounded source path remains internal during migration. The committed public
+facade still has legacy behavior; no release version is assigned.
 
-This plan defines completion of an initial public source-precision feature for
-static numerical kernels. The [target contract](precision_target_state.md)
-describes the wider semantic design. The [migration plan](precision_migration_plan.md)
-retains implementation history, and its [user view](precision_migration_plan_user_view.md)
-explains the transition. Additional operators, execution targets, and export
-options have separate future gates.
+The [target contract](precision_target_state.md) defines the numerical semantics.
+The [migration plan](precision_migration_plan.md) retains implementation history,
+and its [user view](precision_migration_plan_user_view.md) explains adoption.
+The bounded `source-static-v1` work is phase A of this plan. Completing that
+phase does not complete the migration or its persistent goal.
 
 ## Completion contract
 
-Completion requires all of the following:
+Overall completion requires all of the following:
 
-1. `to_onnx(..., precision="source")` uses the existing trace, lowering,
+1. Normal `to_onnx(...)` preserves the source precision contract throughout the existing trace, lowering,
    optimization, finalization, naming, and serialization pipeline. Tests and
-   examples call that pipeline rather than maintaining another exporter.
-2. The `source-static-v1` profile is enforced for typed equations and their
-   precision-relevant parameters, recursively through admitted functions and
-   both conditional branches. Unsupported inputs/options fail before tracing;
-   unsupported traced operations fail before their lowering.
+   examples call that pipeline rather than maintaining another exporter. There
+   is no permanent public precision/profile selection and no primitive-specific
+   fallback to legacy precision rules.
+2. Every existing registered primitive/framework interception, metadata testcase,
+   supported scope, and export option is accounted for in a reproducible baseline
+   inventory. Source behavior is implemented wherever the requested contract can
+   be represented. Typed operations, precision parameters, and nested bodies are
+   checked; a primitive-name allowlist is not the completion criterion.
 3. Input properties, constants, deliberate conversions, precision parameters,
    and mixed results retain the traced source contract. Local implementation
    adaptations preserve canonical values, other consumers, and direct outputs.
@@ -36,20 +42,95 @@ Completion requires all of the following:
 6. A public CPU sample-validation helper produces evidence tied to the exact
    artifact, samples, criteria, and execution settings. Its acceptance guard
    rejects failed, unverified, or mismatched evidence.
-7. Public API documentation, limitations, migration examples, changelog, focused
-   dual-stack tests, full primary-stack tests, typing, lint, actual pre-commit
-   hooks, and strict documentation checks pass. Independent review accepts the
-   supported behavior and its stated limits.
-8. Important accepted checkpoints are committed locally with their evidence.
+7. The inventory has no unresolved migration gaps, unaudited cases, temporary
+   profile exclusions, or unexplained source-test skips. Remaining limitations
+   identify a concrete representation, tracing, or execution constraint and its
+   evidence; a missing implementation is not a technical impossibility.
+8. Public API documentation, limitations, migration examples, changelog, complete
+   source/legacy regression checks on both supported stacks, typing, lint, actual
+   pre-commit hooks, and strict documentation checks pass. Independent review
+   accepts the complete inventory and representative end-to-end results.
+9. Important accepted checkpoints are committed locally with their evidence.
    Completion does not imply a push, merge, publication, or deployment.
 
-A private prototype or a plan update alone cannot complete this contract.
-Automatic repair of known runtime rounding failures, all-plugin coverage,
-loops/JIT, CUDA support, and a general capability database are outside it.
+A private prototype, bounded-profile release, or plan update cannot complete
+this contract. Existing loops/JIT, symbolic shapes, layout bridges, parameters,
+framework plugins, and serialization modes are part of the migration. New
+functionality beyond the existing baseline and a generic runtime capability
+database are outside it. Runtime-specific failures require a validated permitted
+alternative or a precise failed-target diagnostic; they do not require a claim
+of bitwise agreement on every provider or input.
 
-## Initial source-static-v1 profile
+## Coverage baseline and acceptance accounting
 
-The profile identifier records support scope; it is not another caller option.
+Freeze the initial inventory against `ccc861b0`, then record any intentional
+baseline additions during implementation. Reconcile live `PLUGIN_REGISTRY` and
+`EXAMPLE_REGISTRY` metadata with statically discovered plugin registrations and
+the generated `tests/primitives` and `tests/examples` collections. Missing
+optional dependencies or unprepared MaxText/MaxDiffusion checkouts must not
+silently remove entries from the denominator. Use the existing preparation
+wrapper when regenerating coverage documentation.
+
+An inventory row identifies a primitive or framework entry, metadata testcase,
+source module, dtype/shape/precision-parameter contract, opset, test selector,
+and applicable scope or facade option. Record the existing baseline outcome and
+the source migration outcome separately. Count test variants and registered
+entries separately; many passing variants do not cover a missing operator.
+Freeze actual contract fields, including original input/output types and shapes,
+factory configuration, supplied-value fingerprints, and numerical criteria;
+unchanged names or presence bits cannot certify an unchanged capability.
+Keep original regression identities separate from migration tests added after
+the baseline revision. Opaque recipes remain visible and require review.
+
+The initial live inventory finds 605 registry names, including 104 without
+metadata; 501 metadata entries and 110 example entries produce 1,802 raw
+testcase rows and 1,768 unique `(context, component, testcase)` display names.
+Legacy parameter expansion produces 3,195 raw variants and 3,119 unique named IDs.
+Preserve all 1,802 rows using registration/example key, source module, and
+testcase ordinal. Name collisions are not proven aliases: some distinct rows
+currently overwrite the same generated test name. Deduplicate only after
+proving equivalence and retaining every original provenance record. There are 310 symbolic
+rows, 22 using `input_params`, seven using NCHW options, 41 with nondefault
+normalization, and 29 skipping numerical validation. Recorded opsets span
+9, 16, 18, 19, 21, 22, 23, 24, and 27; phase A's 23/26 restriction is not the
+full migration boundary. These are inventory counts, not source-pass counts.
+Optional MaxText/MaxDiffusion registrations are absent from this import
+environment and require separate prepared discovery before the denominator is
+closed. Phase B must commit the reproducible inventory and its provenance.
+
+| Migration classification | Completion meaning |
+| --- | --- |
+| Source implementation validated | Tracing/representation/lowering checks pass with referenced tests; runtime/numerical evidence retains its separate scope. |
+| Genuine representation or tracing limit | A specific unsupported semantic requirement is identified, with a schema/configuration explanation or minimal reproduction and assessment of available standard alternatives. |
+| Known runtime limitation | The source artifact is valid, but the named runtime/version/provider/settings fail loading or the stated numerical criterion. Other targets remain separately assessed. |
+| Runtime unverified | No execution evidence for that target. This does not prevent a valid source export and does not establish deployment readiness. |
+| Implementation gap or unaudited case | Work remains. A temporary profile exclusion, missing test, skipped collection, or unfinished lowering cannot close the row. |
+
+The final gate requires zero unresolved rows in the last category. It does not
+require a Cartesian product of every dtype, shape, opset, and runtime. Cover the
+existing tested contracts, precision-sensitive variants exposed by the audit,
+and representative compositions. Integer/Boolean data, indices and shape values,
+and the existing complex representations are part of this denominator.
+
+Existing metadata identities, deterministic inputs, callable factories, and
+structural assertions are reusable. Their legacy precision oracles are not
+automatically reusable: `tests/t_generator.py` currently widens floating inputs
+and expected dtypes for its double variants, and `allclose` coerces comparison
+types. A source test lane must prepare model/input dtypes and JAX settings
+explicitly, retain deliberate casts and weak metadata, compare strict output
+types/shapes, and derive source references without legacy widening. Existing
+fixed numerical criteria remain explicit; skipped numerical checks count as
+unverified evidence, not a successful comparison.
+
+Keep historical legacy fixtures only for comparison. Moving an existing
+positive FP64 case to a private legacy suite does not preserve its capability
+in the new exporter. Add its source counterpart with explicit JAX/model/input
+configuration, and explain any deliberately changed arithmetic.
+
+## Phase A: source-static-v1 integration checkpoint
+
+This profile bounds the first integration checkpoint, not the overall goal.
+Its identifier records intermediate support scope; it is not another caller option.
 Eligibility depends on typed operations and attributes, rather than primitive
 names alone. Static graph validity and audited lowering rules do not establish
 numerical acceptance for every composition or execution target.
@@ -67,12 +148,14 @@ numerical acceptance for every composition or execution target.
 | Export boundary | `proto`, `ir`, and standard `file` return modes; model name and custom input/output names. |
 | JAX configuration | Caller x64 and default matrix precision, including supported model-local scopes captured by named-function tracing. Explicit unsupported matrix algorithms fail. |
 
-The source path rejects symbolic dimensions, effects, loops/scan/JIT regions,
+During phase A, the source path rejects symbolic dimensions, effects, loops/scan/JIT regions,
 unlisted operations or precision parameters, nonempty `input_params`, nonempty
 NCHW input/output options, `export_mode="web"`, and nondefault normalization
 selection. Empty/omitted parameter and layout options retain their ordinary
-meaning. Other captured object forms, concurrent exports, and arbitrary JAX
-configuration overrides are not part of this support claim.
+meaning. These are temporary migration exclusions unless the inventory records
+a genuine technical limit. Existing captured-state forms and supported
+configuration behavior require audit in later phases. New concurrent-export
+guarantees are not required beyond the existing functionality.
 
 Retain appropriate NaN, infinity, and signed-zero coverage. BF16 graph validity
 does not establish an available CPU kernel. No operation is silently widened
@@ -80,26 +163,42 @@ to a global minimum precision. The existing matrix adapter widens its own
 operands under its documented contract; its memory and performance costs are
 separate from correctness evidence.
 
-## Planned public selection and diagnostics
+## One public contract and explicit transition
 
-The selected spelling is `to_onnx(..., precision="source")`. It becomes available
-only at M5. An internal omission sentinel distinguishes an omitted legacy flag
-from an explicitly supplied Boolean.
+The final normal call is `to_onnx(fn, inputs=..., ...)`. JAX model/configuration
+and the export's tracing inputs determine the computation; every lowering and
+boundary preserves it. No public `precision="source"`, `precision="legacy"`,
+or subset selector is introduced. During development the source policy and
+legacy reference route remain private. The current public behavior changes only
+at the completed, reviewed transition in phase F.
 
-| Selection | Required behavior |
+Retain an omission sentinel temporarily for the old `enable_double_precision`
+argument solely to produce a useful migration error. Neither explicit Boolean
+continues to select a second numerical policy in the completed interface.
+
+| Call at the completed transition | Required behavior |
 | --- | --- |
-| Precision and legacy flag omitted | Preserve the existing legacy default. |
-| Precision omitted, legacy flag explicitly `False` or `True` | Preserve the corresponding legacy behavior. |
-| `precision="source"`, legacy flag omitted | Preserve caller JAX configuration, source tracing properties, and the supported source contract; default shape-only inputs to FP32. |
-| Source plus either explicit legacy Boolean | Reject before tracing, including explicit `False`; explain that the legacy argument must be omitted. |
-| Unknown precision value | Reject before tracing. |
+| Old precision argument omitted | Preserve caller JAX configuration, input properties, and the traced source contract throughout; shape-only inputs default to FP32. |
+| Explicit `enable_double_precision=False` | Fail before tracing with instructions to remove the flag and choose JAX/model/input dtypes explicitly. Export no longer disables caller x64. |
+| Explicit `enable_double_precision=True` | Fail before tracing with the FP64 migration recipe: configure JAX x64 before model/array creation, then request the required model/parameter/input computation types. |
+
+This is an explicit default/API transition and needs release notes and runnable
+migration examples. It is distinct from preserving existing export capabilities.
+FP64 scientific computation, low-precision models, mixed regions, existing
+operators, and export options remain required. Blanket legacy widening has no
+universally equivalent source-preserving replacement: a hardcoded FP32 cast
+continues to mean FP32 and requires an intentional model change if FP64 is
+wanted. Do not hide that difference behind another exporter mode. An earlier
+release may announce deprecation, but final completion cannot leave two public
+precision contracts. A supported previous release remains a reproducible
+historical reference, not a fallback inside the new exporter.
 
 Existing `proto`, `ir`, and `file` return types remain intact. A versioned JSON
 `PrecisionReport` is stored under model metadata key `jax2onnx.precision` and
-obtained through the planned `jax2onnx.precision.get_precision_report(model_or_path)`
+obtained through `jax2onnx.precision.get_precision_report(model_or_path)`
 reader. Version 1 records:
 
-- the `source-static-v1` profile, exporter/JAX versions, opset, caller x64, and
+- the implemented support profile, exporter/JAX versions, opset, caller x64, and
   default matrix precision;
 - supplied, normalized, traced, and exported input properties, plus traced and
   exported outputs; properties include name, shape, dtype, and weak typing;
@@ -114,6 +213,15 @@ Verify boundary types after facade postprocessing and naming, and run the full
 ONNX checker on the serialized equivalent even when returning IR. Metadata must
 survive file save/reload.
 
+The completed contract uses a general source profile rather than asking callers
+to choose an operator subset. Evolve the report's profile identifier while
+retaining readers for earlier `source-static-v1` artifacts. Complete existing
+facade options and validation conveniences under the same source semantics;
+`allclose` must use the same single source contract, not apply legacy x64/matrix
+overrides or hide dtype mismatches. Its old flag needs the same explicit
+migration handling. Browser validation distinguishes CPU/browser
+agreement from a JAX source-reference check.
+
 Structured failures identify option/input validation, JAX configuration or
 tracing, profile exclusion, ONNX representation/lowering, runtime execution, or
 numerical comparison. Include the available graph or function/branch location,
@@ -123,7 +231,7 @@ represent the operation. Preserve trace warnings alongside observed types.
 
 ## CPU sample evidence boundary
 
-The planned `jax2onnx.precision.validate_source_samples(...)` helper is separate
+The committed `jax2onnx.precision.validate_source_samples(...)` helper is separate
 from export. Each `SourceSample` supplies concrete positional or named inputs,
 expected outputs, and `SampleCriteria`. Exact, tolerant, and bitwise criteria
 have distinct meanings; tolerant criteria require explicit `rtol` and `atol`.
@@ -178,33 +286,119 @@ planning work is separate from production-code ownership.
 | Foundation | Private source contexts, selected scopes, precision/captured-state fixes, optimizer eligibility, and durable regressions; evidence remains bounded as recorded in the integration findings. | Committed | `63abe1c1` |
 | M1: accepted execution plan | This finite contract, linked technical/user guidance, planned API and exclusions; documentation/link review and repository hooks. | Committed | `5b106e60` |
 | M2: common private pipeline | Common converter body, SOURCE context/recursive validator, constant binding, strict output checks, and policy-aware x64 handling; remove manual test graph assembly. Focused tests on both stacks and Astra review pass. | Committed | `5a1858a3` |
-| M3: enforced profile and reports | Product-owned typed profile, private facade integration, input normalization, structured errors/warnings, report metadata, names and three return modes, full checker and save/reload evidence. Review passes before public selection. | Pending | Pending |
-| M4: CPU sample evidence | Artifact reader/identity, explicit samples/criteria, execution/numerical statuses, identity-aware acceptance guard, failure witnesses and accepted controls. Dedicated tests and API review pass. | Implemented and reviewed; checkpoint commit pending | Pending |
-| M5: public opt-in and migration | After M2-M4 acceptance, expose source selection, omission/conflict handling, report/evidence helpers, API/limitations/changelog, and runnable public examples. Astra review passes. | Pending | Pending |
-| M6: final acceptance | Required local validation, final independent review, accurate remaining limits, and final checkpoint; no required work for the declared profile remains. | Pending | Pending |
+| M3: enforced internal profile | Product-owned typed intermediate profile and structured contextual errors; validate shapes, parameters, value roles, and nested scopes. Positive and rejection tests pass on both stacks, with independent review. | Committed | `dab1bde4` |
+| M4: CPU sample evidence | Artifact reader/identity, explicit samples/criteria, execution/numerical statuses, identity-aware acceptance guard, failure witnesses and accepted controls. Dedicated tests and API review pass. | Committed | `ccc861b0` |
+| M5: private facade integration | After M2-M4 acceptance, exercise normal facade normalization, reports/warnings, names, and proto/IR/file serialization through one policy-aware facade body; full checker and save/reload evidence. Keep the bounded mode internal. | Committed | `3b3a48e0` |
+| M6: phase A acceptance | Validate and review actual facade artifacts through the CPU sample API, complete integrated checks, record remaining inventory work, and commit the checkpoint. The overall goal stays active. | Bounded integration reviewed; integrated standard regression passed | `3b3a48e0` |
+| B prerequisite: deterministic fixtures | Replace two unseeded attention input-fixture producers with isolated named-seed generators; preserve Gaussian domain, dtype/shape, causal masks, and numerical criteria without touching global RNG state. | Committed | `32554a9e` |
+| C1: canonical initializers | Carry SOURCE policy into builders; preserve typed payloads and exact duplicate identity, require typed floating coefficients, and validate actual function Constant payload/metadata on reuse. | Committed | `b2974c3d` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
-owns source profile/facade changes and tests. M4 proceeds independently in
+owns the source profile and its tests. M4 proceeds independently in
 `jax2onnx/precision.py` and dedicated evidence tests; it must not introduce ONNX
 protobuf imports into converter or plugin modules. Agree the plain report
-schema before integration. M5 integrates the public surface after those reviews.
+schema before integration. M5 integrates the private facade path after those reviews.
 Record actual commit IDs and evidence when gates complete; pending entries are
 not completion claims.
+
+## Full migration phases and review gates
+
+Each phase is implemented in reviewable local commits paired with relevant
+tests and documentation. GPT-6.1 Sol Ultra implements; GPT-6 Astra Ultra reviews
+the acceptance evidence. Work may overlap where files and dependencies permit.
+
+| Phase | Concrete work | Required exit evidence |
+| --- | --- | --- |
+| B: inventory and source test lane | Freeze/reconcile the baseline; add policy-aware source materialization, strict type/shape checks, independent JAX references, and separately counted numerical evidence to the metadata test infrastructure. | Every baseline entry has an owner/status/test selector; missing optional imports are visible; representative legacy/source cases prove the new oracle does not reproduce legacy coercion. |
+| C: values, scopes, and export options | Audit canonical values/constants and floating/integer/Boolean/complex roles; migrate named functions, `cond`, while/fori/scan, JIT/pjit/custom-call bodies, symbolic dimensions, NCHW bridges, `input_params`, names, recording, and proto/IR/standard/web file paths. | Relevant existing framework/converter/control-flow/boundary regressions run under SOURCE; nested mixed-type state, captured flags, dynamic shapes and serialization preserve their source contract. Temporary exclusions are removed as each area passes. |
+| D: numerical and framework coverage | Migrate remaining elementwise/transcendental, indexing/scatter, reduction/window, matrix/convolution, linear algebra, random, complex, and framework-specific lowerings. Audit high-level patches/abstract evaluation as well as emitted IR. Validate or disable numerical rewrites by source contract. | Every existing plugin/parameter family is implemented or has a reviewed genuine-limit record. Matrix operand/result/accumulation/algorithm requirements and normalization statistics/casts have independent adversarial evidence. |
+| E: complete-model and target evidence | Run the reconciled metadata/examples corpus through SOURCE; cover representative existing Flax NNX/Linen, Equinox, attention/CNN, nested-control-flow, symbolic-shape, and scientific workloads. Exercise exact versus minimum rules, low-precision work, selective FP32 and scientific FP64. | Model-level artifact/report checks and applicable numerical criteria pass; schema/lowering defects, unavailable kernels, numerical failures and unverified targets remain distinct. No model is waived merely because its operators pass individually. |
+| F: single-contract transition and final acceptance | Reconcile inventory counts and exceptions; make normal export and validation consistently source-preserving; implement actionable old-flag migration errors; complete API/coverage/limitations/changelog and both-stack regression checks; perform independent final review. | Zero unresolved migration/unaudited rows or unexplained skips; genuine limits have evidence and actionable diagnostics; no public partial-profile or legacy fallback remains; all required local checks pass at the final reviewed commit. Only this gate completes the goal. |
+
+Start B immediately alongside phase A. Its first commits are the inventory and
+the source test/reference lane. C can then proceed in separate commits for
+canonical value roles, inline/named scopes, loops/scan, and facade/dynamic
+boundaries. D can run in parallel by disjoint plugin groups after agreeing shared
+dtype/adaptation helpers; shared helper changes have one owner. Framework
+normalization and attention depend on the corresponding matrix/reduction work.
+E starts as groups become available and finishes only after the complete
+inventory is accounted for. F is an integrated gate, not a replacement for
+focused acceptance at each checkpoint.
+
+Use the existing tests as concrete coverage anchors: `tests/primitives`,
+`tests/examples`, converter tests, `tests/extra_tests/loop`,
+`tests/extra_tests/scan`, return-mode/layout/parameter tests, normalization
+policy tests, and the source precision regressions. Record exact selectors and
+case counts in the inventory as it is generated. Do not declare all variants
+supported from a source-code search for a precision flag.
+
+The following packets make the broad phases dispatchable. Each inventory row
+records its concrete selectors and evidence; the table is not a substitute for
+the full registered-case denominator.
+
+| Packet | Implementation and regression anchors | Acceptance boundary |
+| --- | --- | --- |
+| B1: reproducible baseline | A compact tracked manifest plus `scripts/source_precision_inventory.py`; raw registry/example provenance and contract snapshots, name collisions, original versus added regression identities, and optional integration status. | Regeneration is deterministic; no row disappears because its display name collides or its optional environment is unavailable. Changes to types, shapes, supplied values, factory recipes, or comparison criteria are detected. |
+| B2: independent source oracle | Raw metadata preparation under explicit caller x64, model/factory dtype, input properties, concrete symbolic sizes, and matrix precision; original JAX trace/reference; frozen per-case criteria. | No legacy input/output coercion. Diagnostic probes outside audited product admission remain `audit_pending` even when they execute successfully. |
+| C1: canonical values and builders | Reviewed repair for initializer payload/type policy, duplicate constants, child contexts, and function capture tests; actual inline/nested relu6 regression without broadening product admission. | SOURCE preserves supplied typed payloads, including an FP64 rounding witness, NaN bits and signed zero; policy survives child/function builders. Preserve existing legacy comparisons privately. |
+| C2: logical/physical boundaries and value roles | One typed representation descriptor shared by core checks, facade reports and reference/feed adapters; ordinary integer/Boolean results and existing complex pairs; input canonicalization checks. | Identity mappings remain exact; complex64/complex128 map explicitly to FP32/FP64 with a trailing real/imaginary axis. Encode actual constant payloads as well as metadata. Explicit input requests that JAX would narrow fail before tracing. |
+| C3: recursive scopes and local configuration | Existing transformed-function capture tests, mixed-type nested-loop regression, while masking, fori captures, dynamic scan trip counts, and precision-relevant JAX configuration used by the baseline. | Floating and integer carry types, constants, local configuration, and results retain their source contracts in each nested body. Audit explicit Boolean-directed integer casts in scan and configuration-dependent trace/cache keys; unfinished migration remains open work. |
+| C4: remaining facade options | Dynamic batch/symbolic names, function call parameters, recording, NCHW models, normalization options, and web packaging. | Existing options preserve the same contract through logical/physical adapters and serialization; none falls back to legacy precision rules. |
+| D/E: frameworks and complete models | Linen CNN/parameterized MLP; NNX GRU, dynamic NCHW attention/residual models and decoder; Equinox inference models; GPT/ViT examples; scientific mixed-FP32/FP64 variance. | Run actual model compositions with their original contracts and independent JAX references. Structural success and CPU/browser numerical evidence remain separate. |
+
+B2 may use a recursive structural diagnostic validator in test tooling to
+discover gaps outside the internal product profile. It cannot replace product
+admission with a no-op or turn an unaudited operation into validated support.
+Missing implementation and failed source preparation remain explicit pending
+rows. Numerical skips retain their existing reason and an unverified outcome.
+Browser comparisons use a JAX reference, not Python ONNX Runtime as an implicit
+source oracle. Optional model configuration filters are recorded and reconciled
+before final acceptance; unavailable local environments are not passing tests.
+
+C2 derives the physical representation from the logical JAX aval and the chosen
+adapter, never from a coincidental trailing dimension of size two. Check direct
+passthrough, captured constants, mixed tuples, real/imaginary channels and signed
+zero, and named functions against independent JAX references. Existing complex
+constant metadata/payload inconsistencies must be repaired, not hidden by a
+relaxed boundary checker. With x64 disabled, explicit int64, uint64 and complex128
+requests require the same canonicalization check as explicit FP64 requests.
+C3 audits concrete dtype-default and promotion settings as they affect existing
+cases; it does not require a generic framework for every JAX configuration flag.
 
 Checkpoint evidence on 2026-10-18:
 
 - M2's focused converter/source selection passes 299 tests on each supported
   stack. This includes the reviewed fix making optimizer failures fatal under
   SOURCE regardless of legacy environment settings.
-- The primary-stack standard regression run passes 4,692 tests. Its collection
-  preceded the three new optimizer-failure cases and excludes the separately
-  tested M4 module. Final acceptance will run the integrated standard suite.
+- The integrated primary-stack standard regression run passes 4,995 tests
+  (13,102 warnings, 387.20 seconds). It includes M3-M6, C1, and the deterministic
+  fixtures, and excludes the two new B1/B2 test modules still under review.
+  Their focused checks are separate evidence; this is not the final source
+  corpus or phase F acceptance run.
 - M4's dedicated evidence module passes 40 tests on each supported stack.
   Independent Astra review accepts its bounded metadata and sample-evidence
-  contract; public-path integration remains an M5 gate.
-- Package typing and RNG registration checks, Ruff, strict MkDocs, and all 60
-  relative links in the six planning documents pass. Local commits use the
-  actual pinned repository hooks.
+  contract. The public single-contract transition remains phase F.
+- M3's internal profile passes 41 tests on each supported stack. Independent
+  review and a primary-stack rerun accept its bounded typed admission rules.
+- M5's reviewed fixes preserve enclosing function/branch diagnostics and accept
+  empty layout selections. The affected selection passes 246 tests on each
+  supported stack. Fourteen actual-facade CPU cases cover accepted controls and
+  known numerical witnesses through IR/proto/file artifacts.
+- C1's initializer and existing builder selection passes 162 tests on each
+  supported stack and in independent primary-stack review. Actual inline/nested
+  relu6 samples preserve FP16/FP32/FP64 results under both CPU optimization modes;
+  BF16 artifact validity remains separate from its observed unavailable CPU kernel.
+- The two deterministic attention fixture recipes pass three dedicated tests
+  on each stack. Independent combined facade, sample, common-core and fixture
+  verification passes 112 tests. B1/B2 inventory/oracle review remains pending.
+- Package typing covers 540 files; RNG registration, global Ruff, path markers,
+  strict MkDocs, and the 61 document links pass. The M3, C1, M5/M6, and fixture
+  commits pass the actual pinned repository hooks. These checks do not certify
+  the remaining migration or phase F.
+- B1/B2 review found two reference-preparation defects: NumPy FP64 scalars lost
+  their typed identity in contract fingerprints, and inferred typed inputs could
+  be narrowed by JAX before their original dtype was recorded. Both require
+  regression-tested corrections before inventory/oracle acceptance and commit.
 
 ## Validation and final review
 
@@ -214,8 +408,11 @@ isolation, both ambient x64 states, weak/strong inputs and captured values,
 mixed results, source casts/constants, nested scopes, omitted/conflicting
 options, supported artifacts, and meaningful rejection diagnostics.
 
-Run the full standard suite on the primary stack and affected source, facade,
-compatibility, and framework suites on Python 3.11/JAX 0.10.2. Use bounded workers
+Phase A uses the full standard suite on the primary stack and affected source,
+facade, compatibility, and framework suites on Python 3.11/JAX 0.10.2. Overall
+phase F runs the integrated source/legacy suites on both supported stacks,
+including the reconciled generated corpus. Record genuine environment-specific
+limits explicitly rather than silently shrinking collection. Use bounded workers
 and restore modified JAX configuration in fixtures. Complete typing, Ruff,
 actual repository pre-commit hooks, strict documentation build, and relative
 link checks. Respect formatter versions in the hooks; changing their pins is
@@ -228,5 +425,6 @@ and latency/memory assessment separate from numerical acceptance.
 
 Final review assesses code, tests, diagnostics, documentation, and evidence
 together. Starting a full test run or committing intermediate work does not
-complete the feature. The accepted initial scope can finish while documented
-broader target work remains deferred.
+complete the feature. Phase A may finish while the overall goal remains active.
+Completion requires phase F's full existing-functionality accounting and its
+reviewed technical-limit register.

@@ -1,16 +1,22 @@
 # Computation Precision Target Behavior for Users
 
-Status: intended semantic behavior, 2026-10-18. The
-[implementation work plan](precision_implementation_work_plan.md) defines the
-bounded initial `source-static-v1` profile and planned `precision="source"`
-selection. Public availability requires its M5 gate; no release is assigned.
-The behavior below also guides support beyond that initial profile.
+Status: intended semantic behavior, 2026-10-18. The normal export API follows
+the same precision rule throughout its existing functionality. The
+[implementation work plan](precision_implementation_work_plan.md) defines full
+coverage and transition gates. Bounded source experiments remain internal;
+the public transition is not complete and no release is assigned.
 
 The JAX model defines how each calculation chooses its computation and
 accumulation precision, including deliberate conversions and output dtypes.
 The export call supplies the inputs and their tracing properties and selects
 the ONNX representation. Export preserves the resulting computation
 within the capabilities of the selected ONNX version and execution target.
+
+Use the ordinary `to_onnx` call. There is no separate source/legacy precision
+mode or operator profile to choose. Existing supported operations, functions,
+loops, dynamic shapes, layout options, parameters, and output formats follow
+the same rule. A technical limit is explained for the affected operation and
+target; incomplete implementation is not presented as such a limit.
 
 A model may keep calculations in FP16 or BF16, use wider arithmetic for selected
 sensitive steps, or require FP64 for scientific calculations. These choices
@@ -88,9 +94,10 @@ cannot recover that request from an already reduced value or graph.
 The export report distinguishes the types and precision-relevant input
 properties you supplied, those used for tracing, and the exported types. A
 warning about FP64 truncation identifies a JAX configuration problem; it does
-not mean that ONNX lacks the requested type. The initial interface selects this
-contract with `precision="source"`, once the
-[implementation gates](precision_implementation_work_plan.md) have passed.
+not mean that ONNX lacks the requested type. The ordinary export call applies
+this contract once the [implementation gates](precision_implementation_work_plan.md)
+have passed. The [migration guide](precision_migration_plan_user_view.md)
+explains the explicit transition from the existing precision argument.
 
 Selecting an ONNX implementation must preserve the model's numerical contract.
 For example, choosing a native operator requires suitable computation and
