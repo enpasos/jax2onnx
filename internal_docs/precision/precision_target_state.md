@@ -1,7 +1,10 @@
 # Computation Precision Target State
 
-Status: proposed semantic contract, 2026-10-18. The public selection and release
-of this behavior are not specified here.
+Status: normative semantic design, 2026-10-18. The
+[implementation work plan](precision_implementation_work_plan.md) defines the
+bounded initial `source-static-v1` profile and planned `precision="source"`
+selection. Public availability requires its M5 gate; no release is assigned.
+The wider contract below also guides support beyond that initial profile.
 
 For model preparation and expected export behavior, read the
 [user view](precision_target_state_user_view.md). All companion documents are

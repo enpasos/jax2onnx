@@ -1,7 +1,9 @@
 # Computation Precision Migration Plan: User View
 
-Status: proposed transition, 2026-10-18. PR #275's bounded repair is merged. The
-proposed behavior has no public export mode. The local branch now preserves
+Status: accepted initial transition plan, 2026-10-18. PR #275's bounded repair is
+merged. The planned public choice is `precision="source"`; it is unavailable
+until milestone M5 of the [implementation work plan](precision_implementation_work_plan.md).
+The local branch now preserves
 weak inputs and selected calculations through real functions and branches
 using a private policy. Local JAX settings and successive export modes now have
 regression coverage. Bounded matrix and selected-FP64 normalization cases also
@@ -11,9 +13,8 @@ No release or deadline is promised.
 
 The latest local step preserves promotion metadata in stored model state and
 configuration when sharing named functions. It also makes optional exporter
-optimizations respect the source calculation. The next step is a bounded
-private integration with the common export path, followed by validation of its
-chosen interface and execution conditions.
+optimizations respect the source calculation. Integration with the common
+export path and a separate CPU sample-validation API are now in progress.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -42,8 +43,9 @@ transition explicit:
 | Local JAX x64 and matrix-precision settings survive named-function boundaries, and cached conditionals no longer mix successive source and legacy exports. | Keep the contextual and sequential-export regressions in the regular suite as supported cases expand. |
 
 The calling experiment also makes omitted/false/true legacy settings,
-source-preserving calls, warnings, and conflicts directly comparable. Its
-argument names are private discussion tools. Positive results cover selected
+source-preserving calls, warnings, and conflicts directly comparable. The
+accepted plan uses its `precision="source"` spelling for the future public
+option. Positive results cover selected
 CPU samples, including audited named functions and two-branch conditionals.
 Loops, JIT regions, general deployment diagnostics, and broader operation
 coverage remain open. BF16 model validity alone does
@@ -52,35 +54,64 @@ settings and refuses to accept a failed or untested numerical sample. The known
 FP16 square/sum result remains a failure on the recorded runtimes. Passing the
 tests includes recognizing that failure; it is not a deployment certificate.
 
-The next work is to validate the integrated changes, retain the successful
-cases in the regular test suite, and resolve or explicitly exclude the remaining
-rounding failure for each claimed target. Wider operator coverage and a public
-calling convention follow those checks. Further broad planning is unnecessary
-for these concrete steps.
+The next work validates the integrated changes, enforces the finite initial
+scope, and connects export reports to CPU sample evidence. Runtime failures
+remain visible under their recorded criteria. Wider operator coverage and
+automatic rounding repairs are separate future work.
 
-After the documented supported cases have been validated, users could explicitly
-choose the new behavior. Its argument names have not been decided. Any later
+After the documented supported cases have been validated, users can explicitly
+choose the new behavior with `precision="source"`. Any later
 change to the default would need separate release notes, migration examples,
 and compatibility guidance. There is no need to rewrite a working export call
 because this proposal exists.
 
-## Understand the proposed call choices
+## Understand the planned call choices
 
-The eventual public syntax is undecided. The intended transition distinguishes
-these behaviors:
+The accepted public selection is `to_onnx(..., precision="source")`, available
+only after the implementation gates pass. It distinguishes these behaviors:
 
 | Choice | Effect |
 | --- | --- |
 | Keep the old argument omitted or explicitly `False` | Retain today's x64 override and input defaults. Whether the argument was supplied remains distinguishable. |
 | Keep the old argument explicitly `True` | Retain today's x64 override, shape-only FP64 input default, and legacy precision rules. |
-| Explicitly choose the proposed source contract | Use your active JAX configuration, preserve typed inputs and the traced computation, and use the proposed FP32 fallback for shape-only inputs. |
+| Pass `precision="source"` and omit the old argument | Use your active JAX configuration, preserve typed inputs and the traced computation, and use FP32 for shape-only inputs. |
 | Combine source selection with either explicit old Boolean | Receive a conflict error before your model is traced. |
 
-The internal wrapper uses `precision="source"`; that spelling is not a public
-`to_onnx` argument. The FP32 shape-only fallback is part of the proposed
-behavior, not a global minimum or a conclusion that the PoC has settled the
-public API. A later default switch would require a separate compatibility
-decision.
+An internal omission marker distinguishes a missing old argument from an
+explicit `False`; both explicit Boolean values conflict with source selection.
+FP32 is only the shape-only input default, not a minimum computation precision.
+A later default switch requires a separate compatibility decision.
+
+## Initial supported scope and reports
+
+The first version targets static numerical kernels using the `source-static-v1`
+profile: supported floating arithmetic, broadcasts, conversions, sums,
+comparisons, named functions, and two-branch conditionals. A bounded matrix
+case preserves FP16 operands with a requested FP32 result. FP32-to-UINT32
+bitcast requires explicitly selected opset 26; other admitted operations use
+opset 23 or 26. The work plan lists exact types, shapes, and parameter limits.
+
+Typed FP16, BF16, FP32, and FP64 inputs retain their source choices. The initial
+interface supports normal proto, IR, and file returns and custom names. It
+rejects symbolic shapes, loops/JIT, unlisted operations, nonempty `input_params`,
+NCHW layout options, web serialization, and nondefault normalization selection.
+These exclusions are support boundaries, not claims that ONNX cannot implement
+the corresponding computations. BF16 export does not establish a CPU kernel.
+
+The planned `get_precision_report(model_or_path)` reads a versioned report from
+model metadata without changing the existing return types. It shows supplied,
+normalized, traced, and exported types/properties, tracing settings, warnings,
+and the scope of completed checks. Execution and numerical acceptance remain
+unverified when only an artifact has been exported.
+
+The separate `validate_source_samples` helper checks concrete inputs and
+independent expected outputs on ONNX Runtime CPU with an explicitly chosen
+optimization setting. Its report records the artifact, samples, criteria, and
+actual runtime settings. `require_sample_acceptance()` rejects failed or
+unverified evidence and verifies artifact identity. Passing checks cover those
+samples only; a generous output tolerance cannot establish an unobserved
+intermediate rounding requirement. The known failing samples remain failures
+on the recorded targets.
 
 ## Prepare a useful comparison
 

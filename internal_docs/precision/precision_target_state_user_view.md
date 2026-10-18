@@ -1,7 +1,10 @@
 # Computation Precision Target Behavior for Users
 
-Status: proposed behavior, 2026-10-18. The public selection and release of this
-behavior have not been specified.
+Status: intended semantic behavior, 2026-10-18. The
+[implementation work plan](precision_implementation_work_plan.md) defines the
+bounded initial `source-static-v1` profile and planned `precision="source"`
+selection. Public availability requires its M5 gate; no release is assigned.
+The behavior below also guides support beyond that initial profile.
 
 The JAX model defines how each calculation chooses its computation and
 accumulation precision, including deliberate conversions and output dtypes.
@@ -85,8 +88,9 @@ cannot recover that request from an already reduced value or graph.
 The export report distinguishes the types and precision-relevant input
 properties you supplied, those used for tracing, and the exported types. A
 warning about FP64 truncation identifies a JAX configuration problem; it does
-not mean that ONNX lacks the requested type. The public argument name used to
-select this contract is a separate interface decision.
+not mean that ONNX lacks the requested type. The initial interface selects this
+contract with `precision="source"`, once the
+[implementation gates](precision_implementation_work_plan.md) have passed.
 
 Selecting an ONNX implementation must preserve the model's numerical contract.
 For example, choosing a native operator requires suitable computation and

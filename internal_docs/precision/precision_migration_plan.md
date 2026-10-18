@@ -1,6 +1,10 @@
 # Computation Precision Migration Plan
 
-Status: proposed migration with bounded local implementation, 2026-10-18.
+Status: accepted initial implementation plan with bounded local implementation,
+2026-10-18. The [implementation work plan](precision_implementation_work_plan.md)
+defines the finite `source-static-v1` completion contract and checkpoint ledger.
+The planned public choice is `precision="source"`; it remains unavailable until
+milestone M5. Common-pipeline integration and CPU sample evidence are in progress.
 PR #275 is merged. Private source policy now preserves weak inputs, selected
 function/branch calculations, call-time x64 and matrix-precision settings, and
 isolation from cached legacy/ordinary JAX traces. Optimizer selection follows
@@ -74,9 +78,9 @@ those rules is distinct from the proposed source-dtype contract.
 | --- | --- | --- |
 | 1. Inventory | Public-call comparison and numerical counterexamples cover selected paths on both stacks. | Complete the operation and configuration inventory; retain known failures separately from compatibility expectations. |
 | 2. Legacy repair | PR #275 is merged and its selected consumers are covered. | Audit remaining consumer gaps without reinterpreting the legacy flag. |
-| 3. Internal source path | Weak input metadata, bounded preferred-FP32 matrix results, and model-chosen FP64 normalization work have source-export evidence. Unvalidated algebraic fusions are disabled under SOURCE. | Define the admitted numerical subset and target exclusions; broader operators/algorithms and automatic FP16 rounding repair remain open. |
+| 3. Internal source path | Weak input metadata, bounded preferred-FP32 matrix results, and model-chosen FP64 normalization work have source-export evidence. Unvalidated algebraic fusions are disabled under SOURCE. | Enforce the accepted `source-static-v1` subset and its exclusions through the common pipeline; broader operators/algorithms and automatic FP16 rounding repair remain separate work. |
 | 4. Scopes and artifacts | Selected functions/branches, call-time x64 and matrix-precision settings, and source/legacy cache isolation have durable regressions in the normal CI collection. | Validate every scope combination and public boundary option admitted by the initial source interface; defer others explicitly. |
-| 5. Public transition | The UX candidate distinguishes omitted and explicit legacy options and rejects conflicts. | Finalize and publish an interface only after the supported subset meets its earlier gates. |
+| 5. Public transition | The accepted plan selects `precision="source"`, omission-aware legacy conflicts, metadata reports, and a separate CPU sample API. | Expose the interface only after the supported subset meets the implementation work plan's M2-M4 gates. |
 
 Review exposed two function-context defects and one arithmetic-fusion defect.
 They are repaired privately and have regressions; see the
@@ -103,8 +107,16 @@ The immediate review follow-ups have reached this checkpoint:
 | Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
 | Enforce sample acceptance | The private CPU gate rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite, model-wide capability database, or public target interface. |
 
-The next bounded implementation should connect this private foundation to the
-existing export boundary while retaining explicit scope limits:
+The [accepted work plan](precision_implementation_work_plan.md) connects this
+private foundation to the existing export boundary. Its `source-static-v1`
+profile admits static floating kernels, the bounded preferred-FP32 matrix
+lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
+two-branch conditionals. It supports opsets 23/26, names, and proto/IR/standard
+file returns. Nonempty `input_params`, NCHW options, web serialization, and
+nondefault normalization selection are initially rejected alongside unlisted
+operations, effects, symbolic shapes, loops, and JIT regions.
+
+The implementation follows these acceptance requirements:
 
 1. **Record and enforce the initial subset.** List operations/parameters, dtypes,
    shapes, scope combinations, tracing settings, opsets, and claimed execution
@@ -114,16 +126,18 @@ existing export boundary while retaining explicit scope limits:
    recorded exact-sample requirements. A sample-only guard must not become a
    claim that every input or every accepted graph was validated.
 2. **Exercise the shared export boundary privately.** Integrate source policy
-   with input/output names, layout bridges, parameter materialization, and the
-   return formats selected for the initial subset. Test the actual common path
+   with input/output names and the return formats selected for the initial
+   subset. Reject the deferred layout and parameter options. Test the actual common path
    beside legacy, including failure restoration and saved artifacts. Deferred
    boundary options and scopes must fail explicitly. Avoid a second independently
    maintained product export pipeline.
-3. **Connect validation evidence to the proposed caller experience.** Keep
+3. **Connect validation evidence to the selected caller experience.** Keep
    successful artifact creation separate from target execution and numerical
-   acceptance. Define how an application supplies or obtains the required
-   evidence and how known failures block a target-ready claim. The existing
-   CPU sample helper is a test tool, not the final deployment API.
+   acceptance. Carry a versioned metadata report accessible through
+   `get_precision_report`; provide `validate_source_samples` and its acceptance
+   guard for evidence tied to an artifact, supplied samples, criteria, and CPU
+   settings. Known failures remain failed. The private CPU helper remains test
+   infrastructure until the product implementation passes its gate.
 
 Public selection follows these gates. Loops, `scan`, JIT regions, and unused
 export options may remain deferred if the initial interface enforces those
@@ -431,35 +445,32 @@ artifact satisfying that target; unverified deployment support is not reported
 as validated. Completing this bounded gate does not claim universal scope or
 public-option coverage.
 
-## Stage 5 Choose and document the public transition
+## Stage 5 Implement and document the selected public transition
 
-Status: private UX exercised; no public selection finalized.
+Status: selection accepted; public availability pending M5 of the
+[implementation work plan](precision_implementation_work_plan.md).
 
-Prototype calling conventions and diagnostics privately during Stage 3, including
-omitted versus explicitly supplied legacy options. Use those experiments to
-check whether users can predict input, traced, and exported output types before
-committing to an interface.
-
-Only after the previous gates pass, finalize and publish how callers opt into
-the source-dtype contract. A distinct, explicit export-mode selection is a
-possible transition; this plan reserves no parameter name. Keep the existing
-boolean's behavior available during the transition and define incompatible
-option combinations as errors before tracing.
-
-The private candidate tests this compatibility table:
+Implement `to_onnx(..., precision="source")` after common-path, profile/report,
+and CPU evidence reviews pass. Preserve omitted versus explicitly supplied
+legacy flags with an internal sentinel. The selected compatibility table is:
 
 | Selection | Required transition behavior |
 | --- | --- |
 | Legacy argument omitted | Keep the existing default, including temporary x64 disabling and shape-only FP32 input. |
 | Explicit legacy `False` | Preserve the same current behavior while recording that the choice was explicit. |
 | Explicit legacy `True` | Preserve the x64 override, shape-only FP64 input default, and legacy lowering/promotion rules. |
-| Explicit source selection | Use caller JAX configuration, proposed shape-only FP32 input default, and preserved typed inputs; suppress legacy graph widening. |
+| `precision="source"` | Use caller JAX configuration, shape-only FP32 input default, and preserved typed inputs; suppress legacy graph widening. |
 | Source selection plus either explicit legacy Boolean | Reject before tracing, explaining which argument to omit. |
 
-The experiment uses `precision="source"` only as a private spelling. Its
-successful calls validate the comparison harness and bounded examples, not a
-general public mode. Keep the proposed FP32 input fallback distinct from the
-still-open selection syntax and release decision.
+The private experiment supplies evidence for this selection; it does not make
+the public option available. Preserve existing return types and store the
+versioned export report under metadata key `jax2onnx.precision`.
+`get_precision_report(model_or_path)` exposes supplied/normalized/traced/exported
+properties, warnings, settings, and scoped checks. Export leaves runtime and
+numerical checks unverified. The separate CPU `validate_source_samples` API
+records actual target settings and independent reference comparisons; its
+acceptance guard certifies only the bound artifact and samples. Full interface
+details and external-data identity requirements are in the work plan.
 
 Document the supported deployment conditions and the distinction between valid
 ONNX export and validated execution. The public transition must explain target
@@ -494,7 +505,9 @@ for dtype-faithful export.
 ## Release validation and rollback
 
 Use the following matrix to guide meaningful coverage rather than multiplying
-every case indiscriminately:
+every case indiscriminately. For the initial release, the work plan's admitted
+profile and explicit rejection tests define the required scope; broader entries
+such as loops and layout bridges remain future work.
 
 | Dimension | Required evidence |
 | --- | --- |

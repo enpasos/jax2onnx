@@ -1,7 +1,7 @@
 # Computation Precision
 
 These documents describe current precision behavior, the proposed target, and
-the proposed transition. Each topic has a user view focused on model preparation,
+the accepted initial implementation plan. Each topic has a user view focused on model preparation,
 export options, and observable results, plus a technical view for implementation
 work.
 
@@ -19,13 +19,20 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
+The [implementation work plan](precision_implementation_work_plan.md) defines
+the finite `source-static-v1` profile, completion gates, roles, and local commit
+ledger. The selected future public call is `to_onnx(..., precision="source")`;
+it remains unavailable until milestone M5. Common-pipeline integration and CPU
+sample evidence are currently in progress.
+
 The current-state documents preserve the analysis of `main` at `fae17822` on
 2026-10-17, including the merged fix from
 [PR #275](https://github.com/enpasos/jax2onnx/pull/275), and separately identify
 the newer local branch experiment. That experiment changes private converter
 code; the public API and legacy defaults remain unchanged.
-The target and migration documents are proposals, not descriptions of an
-available new export mode. Read down either column for a complete account.
+The target documents describe the wider semantic design. The work plan defines
+the accepted initial implementation, not an already available new export mode.
+Read down either column for the related analysis and migration guidance.
 
 ## What the experiments establish
 
@@ -39,15 +46,18 @@ migration gates:
 | Public legacy matrix export loses the preferred FP32 result; the private source path now preserves it for bounded FP16 matrix cases. | Preserve input, result and algorithm requirements separately; wider operands have costs that remain unmeasured. |
 | A valid source-PoC graph runs on CPU but misses required FP16 intermediate rounding, even with optional runtime optimization disabled. | Runtime execution and numerical acceptance are separate gates. A known numerical failure cannot be certified by matching tensor types. |
 | FP32 squares with an FP64 variance sum now work through the source pipeline as well as the independent control. | Selected serialized inline/function/conditional samples establish end-to-end feasibility; broader normalization remains unverified. |
-| The calling experiment preserves actual legacy calls and exposes source-call differences, conflicts, and tracing warnings. | Use the experiment to refine the transition; its `precision="source"` spelling is private. |
+| The calling experiment preserves actual legacy calls and exposes source-call differences, conflicts, and tracing warnings. | The accepted plan selects `precision="source"` for the future public opt-in; the current experiment remains private until the public gate passes. |
 | The private source path now preserves JAX `weak_type`: weak scalar plus explicit FP16 `1` returns FP16 `2048`; a strong input with the same shape and dtype returns FP32 or FP64 `2049`. | Keep supplied, normalized, and traced properties visible. Legacy normalization retains its observed compatibility rules. |
 | Source policy reaches selected functions and conditionals, preserves call-time x64 and matrix settings, and isolates cached JAX traces from legacy export. | Durable regressions now belong to regular CI collection. Other settings, scope combinations and export boundaries still need evidence. |
 | A private CPU sample gate rejects failed and unverified results. | The known FP16 rounding failure cannot pass sample acceptance. This is not yet a public target interface or model-wide capability check. |
 
 The proposed source contract uses FP32 for shape-only inputs. This is an input
 default, independent of computation precision. Typed inputs and the caller's
-JAX configuration instantiate the model's rules. The public selection and
-release of that behavior remain undecided.
+JAX configuration instantiate the model's rules. The accepted plan selects an
+explicit source option while retaining legacy defaults. Public availability
+depends on its gates; no release is assigned. Existing return types will carry
+a metadata report, with a separate CPU sample-validation API for scoped
+execution and numerical evidence.
 
 The [private integration findings](poc/source_integration_findings.md),
 [numerical findings](poc/numerical_contract_findings.md), and
