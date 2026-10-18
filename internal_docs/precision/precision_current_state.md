@@ -17,6 +17,22 @@ function keys. The [follow-up findings](poc/source_integration_findings.md#follo
 record the repaired cases and further runtime failures. They do not change the
 public baseline analyzed below.
 
+The branch now has committed shared-facade report, naming, serialization and
+CPU-sample integration (`3b3a48e0`), the separate report/evidence module
+(`ccc861b0`), and exact typed initializer handling (`b2974c3d`). The integrated
+primary-stack regression passes 4,995 tests. It excludes the new inventory and
+original-JAX reference modules, whose review found typed-scalar fingerprint loss
+and input narrowing during preparation. Both defects are repaired; the modules
+pass 53 focused tests on each stack and independent review, without establishing
+source coverage of the full inventory. The shared complex-constant storage
+repair is committed at `3e904b46`; its 99 helper/packing and 69 affected generated
+tests pass on both stacks. Logical/physical boundary work is in progress.
+A narrow read-only probe on both
+stacks also identifies int32/int64 and Boolean carry defects in while/fori/scan,
+plus loss of a static scan output extent. Selected mixed JIT and loop probes
+pass, without establishing audited support for those families. The
+[work plan](precision_implementation_work_plan.md) records the remaining gates.
+
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are
 listed in the [precision overview](README.md).
@@ -29,7 +45,7 @@ behavior is not one uniform dtype contract. The proposed
 [migration plan](precision_migration_plan.md) describe how to resolve this.
 The merged fix repairs selected consumer type mismatches within the existing
 policy; it does not implement that broader target.
-The local experiments now include private core changes. Their successful
+The local experiments and committed private integration include core changes. Their successful
 samples, known gaps, and separate feasibility controls are summarized below;
 they do not establish a released source mode.
 

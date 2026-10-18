@@ -19,9 +19,13 @@ configuration when sharing named functions. It also makes optional exporter
 optimizations respect the source calculation. The shared private conversion
 pipeline and separate CPU sample-validation API are committed; integration with
 all existing export options and calculations remains required work.
-The private facade now has reviewed naming, report, file-format and CPU sample
-integration, with local checkpoint commits and the integrated full-suite result
-still pending. This remains internal work, not a new public precision choice.
+The private facade's naming, report, file-format and CPU sample integration is
+reviewed and committed. The integrated primary-stack regression passes 4,995
+tests. The new inventory/reference modules separately pass 53 focused tests on
+each stack and independent review; the full source corpus still needs execution
+and reconciliation. Complex-constant storage is repaired, while broader complex
+boundaries and loops remain in progress. This remains internal work, not a new
+public precision choice.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),

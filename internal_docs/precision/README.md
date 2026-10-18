@@ -25,10 +25,14 @@ commits. The completed normal `to_onnx` call has one rule: JAX determines the
 computation and export preserves it throughout. The bounded `source-static-v1`
 path remains internal and is an intermediate checkpoint. The shared converter
 and CPU evidence module are committed; full migration is still in progress.
-The private facade now has reviewed report, naming, serialization, and CPU
-sample integration. Its checkpoint commit and integrated full-suite result are
-pending. Reviewed initializer and deterministic-fixture repairs prepare the
-broader migration; they do not complete existing-functionality coverage.
+The private facade's report, naming, serialization, and CPU sample integration
+are committed at `3b3a48e0`. The integrated primary-stack regression run passes
+4,995 tests, including the committed initializer and deterministic-fixture
+repairs. It excludes the new inventory/reference modules, which separately pass
+53 tests on each supported stack and independent review after two oracle fixes.
+The complex-constant storage repair is committed at `3e904b46`; broader complex
+boundaries and recursive scopes remain in progress.
+These checkpoints do not complete existing-functionality coverage.
 
 The current-state documents preserve the analysis of `main` at `fae17822` on
 2026-10-17, including the merged fix from

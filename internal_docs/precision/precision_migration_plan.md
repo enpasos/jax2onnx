@@ -9,7 +9,11 @@ it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 The shared private facade, its actual-artifact CPU integration, canonical
 initializer repair, and deterministic attention fixtures have passed independent
-review. Their checkpoint commits and integrated full-suite acceptance are pending.
+review and are committed. The integrated primary-stack regression passes 4,995
+tests; it excludes the new inventory/reference modules. Those modules separately
+pass 53 focused tests on each stack and independent review after both identified
+oracle fixes. The complex-constant storage repair is also committed; broader
+logical/physical boundaries and loop migration remain open.
 PR #275 is merged. Private source policy now preserves weak inputs, selected
 function/branch calculations, call-time x64 and matrix-precision settings, and
 isolation from cached legacy/ordinary JAX traces. Optimizer selection follows
@@ -91,7 +95,7 @@ FP32 cast, so equivalent old numbers or unchanged call syntax are not promised.
 | 1. Inventory | Public-call comparisons, numerical counterexamples, and a registry inventory cover both stacks and identify 1,802 raw metadata rows. | Freeze reproducible row provenance, extra regression/boundary cases, optional integrations, and source scenarios; retain name collisions and known failures explicitly. |
 | 2. Legacy repair | PR #275 is merged and its selected consumers are covered. | Audit remaining consumer gaps without reinterpreting the legacy flag. |
 | 3. Internal source path | Weak input metadata, bounded preferred-FP32 matrix results, and model-chosen FP64 normalization work have source-export evidence. Unvalidated algebraic fusions are disabled under SOURCE. | Use the internal profile as a safe starting point; migrate every existing operator family and distinguish unfinished work from demonstrated representation or runtime limits. |
-| 4. Scopes and artifacts | Selected functions/branches, local precision settings and cache isolation have durable regressions. The reviewed private facade preserves names, reports and proto/IR/file serialization; actual artifacts reach the CPU sample gate. | Complete integrated checkpoint checks, then preserve all existing scopes, dynamic shapes, parameters, layout options, normalization choices, and artifact formats under the same contract. |
+| 4. Scopes and artifacts | Selected functions/branches, local precision settings and cache isolation have durable regressions. The committed private facade preserves names, reports and proto/IR/file serialization; actual artifacts reach the CPU sample gate and integrated regression checks pass. | Preserve all existing scopes, dynamic shapes, parameters, layout options, normalization choices, and artifact formats under the same contract. |
 | 5. Public transition | One normal export contract, explicit legacy-argument migration errors, metadata reports, and separate sample evidence are selected. | Complete phases B-F of the work plan before changing normal public behavior; the internal phase A does not complete the goal. |
 
 Review exposed two function-context defects and one arithmetic-fusion defect.
@@ -478,8 +482,9 @@ the full existing-functionality scope and boundary matrix in phases C-F.
 Status: final single-contract architecture accepted; public cutover pending
 phase F of the [implementation work plan](precision_implementation_work_plan.md).
 M5 integrates the shared facade privately and does not change public behavior.
-Its implementation and focused evidence are reviewed; the local checkpoint and
-integrated full-suite result are pending.
+Its implementation and focused evidence are reviewed and committed at
+`3b3a48e0`; the integrated primary-stack regression passes. This checkpoint does
+not establish the full source-coverage matrix required for public cutover.
 
 Make the normal `to_onnx(...)` call preserve the source contract only after the
 full existing-functionality gates pass. Do not expose a public precision mode

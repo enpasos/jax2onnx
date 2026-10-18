@@ -5,7 +5,9 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 The bounded private facade, canonical initializer repair, and deterministic
-attention fixtures are reviewed; their local checkpoint commits are pending.
+attention fixtures are reviewed and committed. The integrated primary-stack
+regression passes; inventory/reference infrastructure has passed independent
+review, while source-corpus execution and broader migration remain open.
 The completed normal `to_onnx` call will have one source-preserving contract.
 The bounded source path remains internal during migration. The committed public
 facade still has legacy behavior; no release version is assigned.
@@ -291,7 +293,9 @@ planning work is separate from production-code ownership.
 | M5: private facade integration | After M2-M4 acceptance, exercise normal facade normalization, reports/warnings, names, and proto/IR/file serialization through one policy-aware facade body; full checker and save/reload evidence. Keep the bounded mode internal. | Committed | `3b3a48e0` |
 | M6: phase A acceptance | Validate and review actual facade artifacts through the CPU sample API, complete integrated checks, record remaining inventory work, and commit the checkpoint. The overall goal stays active. | Bounded integration reviewed; integrated standard regression passed | `3b3a48e0` |
 | B prerequisite: deterministic fixtures | Replace two unseeded attention input-fixture producers with isolated named-seed generators; preserve Gaussian domain, dtype/shape, causal masks, and numerical criteria without touching global RNG state. | Committed | `32554a9e` |
+| B1/B2: baseline and source oracle | Preserve raw row provenance and typed contract fingerprints; prepare independent original-JAX references without legacy coercion; reject input canonicalization before model construction. | Independently accepted; checkpoint pending | Pending |
 | C1: canonical initializers | Carry SOURCE policy into builders; preserve typed payloads and exact duplicate identity, require typed floating coefficients, and validate actual function Constant payload/metadata on reuse. | Committed | `b2974c3d` |
+| C2a: complex constant storage | Pack actual initializer and Constant tensor payloads together with metadata, preserving the selected component dtype and checking cache consistency before mutation. | Committed | `3e904b46` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -390,15 +394,35 @@ Checkpoint evidence on 2026-10-18:
   BF16 artifact validity remains separate from its observed unavailable CPU kernel.
 - The two deterministic attention fixture recipes pass three dedicated tests
   on each stack. Independent combined facade, sample, common-core and fixture
-  verification passes 112 tests. B1/B2 inventory/oracle review remains pending.
+  verification passes 112 tests.
 - Package typing covers 540 files; RNG registration, global Ruff, path markers,
   strict MkDocs, and the 61 document links pass. The M3, C1, M5/M6, and fixture
   commits pass the actual pinned repository hooks. These checks do not certify
   the remaining migration or phase F.
 - B1/B2 review found two reference-preparation defects: NumPy FP64 scalars lost
   their typed identity in contract fingerprints, and inferred typed inputs could
-  be narrowed by JAX before their original dtype was recorded. Both require
-  regression-tested corrections before inventory/oracle acceptance and commit.
+  be narrowed by JAX before their original dtype was recorded. Both are repaired.
+  The 53 focused tests pass on each supported stack and in independent primary
+  review, including exact scalar bytes, pre-conversion rejection, no model
+  invocation on invalid input, and caller-state restoration. Fresh read-only
+  baseline comparisons pass on both stacks; independent review confirms SHA256
+  `fd3a7c50b8fa75dacc0c8cb62b5f00c495e42b86a51a70bdf50c1de6e341829e`.
+  The baseline retains 1,802 raw rows, 63 unresolved opaque recipes, 752 original
+  handwritten-test anchors and 90 migration additions. Optional environments
+  and whole-corpus source execution remain unverified. The infrastructure is
+  accepted; its checkpoint commit is pending.
+- C2a's shared complex-constant repair is accepted and committed at `3e904b46`.
+  The helper/packing selection passes 99 tests and the affected generated
+  complex-operation selection passes 69 tests on each supported stack.
+  Independent review passes the 93 new packing tests. C2b's logical/physical
+  boundary descriptor and input canonicalization work remain in progress.
+- A finite read-only C3 probe on both supported stacks finds the same open
+  defects: literal int32 while results widen to int64; patched fori tracing
+  changes typed int32 and Boolean carries; scan narrows int64 results and loses
+  a known static output extent when `xs=None`. Selected mixed JIT, local-x64,
+  while and captured-FP64 scan probes pass. These probes bypass audited facade
+  admission and establish no product support. Reverse scan also fails on the
+  legacy path; that is an existing implementation gap, not an ONNX impossibility.
 
 ## Validation and final review
 

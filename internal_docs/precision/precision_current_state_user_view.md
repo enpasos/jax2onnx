@@ -13,6 +13,18 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
+On the local migration branch, the shared private export path now carries
+reports through names and file formats, and its artifacts reach the separate
+CPU sample-validation helper. Exact typed constants are also preserved in that
+path. These reviewed changes are committed, and the integrated primary-stack
+regression passes 4,995 tests. The new inventory/reference tests are excluded
+from that run; after two preparation fixes they separately pass 53 tests on each
+stack and independent review. Complex-constant storage is also repaired and
+committed. Complex-number boundaries and broader loop behavior remain implementation work;
+focused probes already identify changed integer/Boolean carries and a lost
+static scan dimension. The [work plan](precision_implementation_work_plan.md)
+tracks those gaps. Public calls still use the behavior described below.
+
 ## Choosing the Export Setting
 
 `to_onnx` currently exposes `enable_double_precision=False` by default. During
@@ -64,7 +76,8 @@ function variant handles mixed and structured results and distinguishes weak
 and strong input signatures. It also retains local JAX x64 and matrix-precision
 settings across a named function. Sequential source and legacy exports now
 have regression checks around cached conditionals and ordinary JAX execution.
-These selected serialized CPU cases are evidence for a future supported subset.
+These selected serialized CPU cases are an intermediate step toward the complete
+migration.
 The local follow-up also preserves weak typing in stored model parameters and
 nested configuration values when reusing a named function. Optional exporter
 optimizations now respect the selected source calculation too. These repairs
