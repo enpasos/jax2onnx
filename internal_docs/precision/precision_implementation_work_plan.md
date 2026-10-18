@@ -42,20 +42,26 @@ mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
 
-The [native Linear/reshape findings](poc/native_linear_reshape_findings.md)
-record the adapter checkpoint `791664f8`: unchanged NNX Linear sources retain their
-native computation, exact parameters and real named-function aliases in static
-diagnostic exports. Main checks pass **544 tests per stack**, including all 41
-new cases, on the independently accepted code. The five effective/global JAX
-settings, patched callables and policy restore. No new SOURCE runtime,
-audited admission or symbolic-artifact claim follows from these results.
-The manual inventory records **206 files, 1,159 functions and 407 additions**,
-with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
-retained. Typing (542 files plus RNG), global Ruff and both inventory CLI
-comparisons pass. The complete primary-stack run passes **6,620 tests**
-(13,120 warnings, 452.13 seconds). All seven actual hooks pass on retry after
-an AST-identical test-header correction; the findings preserve that byte lineage.
-The code is committed at `791664f8`.
+The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
+record the current bounded audit: same-type FP32/FP64 ordinary dots with positive
+static ranks 2–4, valid ordered paired axes and default precision now use the
+actual audited SOURCE profile. Main checks pass **750 tests per stack**.
+The separate fresh numerical packet creates 24 audited artifacts and records
+48 CPU runs per stack; all three unchanged FP32 sample predicates pass with
+zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
+remain unchanged. These results do not establish general numerical acceptance;
+strict subnormal failures and their raising gates remain.
+
+The inventory records **207 files, 1,175 functions and 423 additions**, with all
+752 original anchors, zero removals and 1,802 raw contracts/3,604 cells retained.
+Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
+CLI comparisons and independent numerical post-run review pass. The integrated
+primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
+Commit `45881d8d` passes all seven actual hooks on the first attempt, with the
+24 frozen source hashes unchanged. The preceding
+[Linear/reshape checkpoint](poc/native_linear_reshape_findings.md), `791664f8`,
+retains its 6,620-test full pass and unchanged native adapter prerequisite.
+Public LEGACY, the private profile identifier and report schema are unchanged.
 
 The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
 `d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
@@ -393,7 +399,7 @@ planning work is separate from production-code ownership.
 | B3 revision supplement | Replay 13 unchanged rows/26 artifact-only cells; retain raw outcomes and four SOURCE matrix counterparts; propose criteria separately. | Independently accepted; main replays retain 24 artifacts/two unresolved outcomes per stack; zero ORT, no criterion adoption in this packet; integrated checks and actual hooks pass | `fc3f9323` |
 | Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Independently reviewed main evidence: 553 checks per stack; gather remains pending at configuration/custom Where; no new artifact or runtime evidence from that supplement | `d2292b89`; full run and all actual hooks pass |
 | Fixed FP32 corpus numerics | Preserve twelve original rows/24 cells, both source contexts and the preapproved three-comparison criterion on one actual output per mode. | 247 main checks per stack; 48 CPU runs per stack pass, zero pending; independent post-run review accepted; general lowering UNVERIFIED | `d2292b89`; full run and all actual hooks pass |
-| Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path isolated implementation independently accepted, including its comment-only header delta; fresh audited numerical observations remain pending | Not integrated into main; current main admission unchanged |
+| Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path implementation and actual-main binding independently accepted; 750 main tests per stack, 24 fresh audited artifacts/48 fixed-criterion CPU runs per stack pass | `45881d8d`; numerical post-run review, 6,728-test full run and all seven actual hooks pass |
 | Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted code; main 544 passes per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | `791664f8`; full run and all actual hooks pass, with post-full header-only normalization recorded |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
@@ -817,22 +823,21 @@ The secondary v2 driver succeeds. Custom Where's independently checked
 structural rule and DOUBLE cosine's half-angle numerical audit remain work;
 neither is admitted by forwarding native calls.
 
-Next, integrate the independently accepted ordinary-matrix admission packet's
-six owned paths, including the precise obsolete guard. Root will create separate
-fresh audited numerical observations while retaining the historical numerical
-CLI's strict bindings and every old result; no fresh audited packet has run yet.
-The three-path NNX Linear/reshape prerequisite is committed at `791664f8`:
-544 focused tests pass per stack, including 41 new cases; the full run and
-actual hooks pass with the comment-only normalization recorded in the findings.
-It changes no shared binder, profile or corpus rule. Then extend the
-shared leading-B matrix/bias-broadcast contract through the five original rows:
-JNP MatMul ordinals 6/5, GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3.
-Native symbolic traces and B=2/5 references are feasible on both stacks, with
-exact frozen parameters; that trace audit is not artifact or numerical
-acceptance. The biased native NNX path also needs a substantive static bias
-reshape audit. One artifact across two batches, strict symbol bindings and
-actual named composition remain gates. The 295/310 leading-B declaration count
-is prioritization only, not an admission or coverage result.
+The ordinary-matrix packet is integrated and has fresh audited sample results;
+its numerical post-run review is accepted. Commit `45881d8d` passes the
+6,728-test full run and all seven actual hooks.
+The historical numerical CLI's bindings and every old result remain pinned.
+The native Linear/reshape prerequisite is committed at `791664f8`.
+Next, a seven-path isolated implementation carries one shared leading B through
+canonical MatMul, leading-1 Add and static bias reshape, using JNP MatMul
+ordinals 6/5, GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3 unchanged.
+The implementation remains isolated work in progress, without new corpus or
+leading-B numerical acceptance.
+One artifact at B=2/5, real scoped-symbol identity, strict sample binding,
+exact weights/bias and named composition remain acceptance gates. Corpus-helper
+expansion follows production acceptance and separate review; the approved
+leading-B numerical criterion is unchanged and does not release execution.
+The 295/310 declaration count is prioritization only, not measured coverage.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -1089,7 +1094,7 @@ Checkpoint evidence on 2026-10-18:
   all seven invariants and all three approved comparisons per observation;
   independent post-run review accepts these recorded samples. General lowering
   stays UNVERIFIED, and old criteria/failures remain unchanged.
-- The current manual inventory records **205 files, 1,146 functions and 394
+- That checkpoint's manual inventory records **205 files, 1,146 functions and 394
   additions**, all 752 original anchors with zero removals, and the unchanged
   1,802 rows/3,604 cells. Inventory SHA256:
   `7c24e8fb261f5f53920f8e1f81c7dd4c66b25325a45a2a3ec005b4abddea9041`.
@@ -1116,14 +1121,14 @@ Checkpoint evidence on 2026-10-18:
   `/tmp/jax2onnx-trig-numerics-code-checkpoint.json`; the original failed run
   and earlier accepted numerical observations remain unchanged.
 
-The [Linear/reshape findings](poc/native_linear_reshape_findings.md) retain the
-current 544-case main checks per stack, state/import/hash verification and
-preparation failures. The manual inventory is now 206/1,159/407 with the original
-anchors/raw contracts intact. Both inventory CLI comparisons pass. The full run
-passes 6,620 tests, with 13,120 warnings in 452.13 seconds; all seven hooks pass
-on retry and code is committed at `791664f8`. The findings retain the initial
-path-marker failure, exact comment-only correction and pre/post-header freezes.
-These results do not complete migration.
+The [ordinary-matrix findings](poc/ordinary_matrix_admission_findings.md) record
+750 actual-main checks per stack and separately released fresh audited sample
+results. The inventory is 207/1,175/423 with every original anchor/raw contract
+retained; both CLI comparisons and independent numerical post-run review pass.
+The full run passes 6,728 tests (13,120 warnings, 370.40 seconds), and commit
+`45881d8d` passes all seven actual hooks. The preceding
+[Linear/reshape findings](poc/native_linear_reshape_findings.md) preserve their
+6,620-test full pass, header-only lineage and commit `791664f8`.
 
 ## Validation and final review
 

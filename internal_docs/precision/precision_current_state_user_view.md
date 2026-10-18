@@ -41,7 +41,7 @@ calculation. Selected exact sequence comparisons, BF16 execution and dynamic
 three checked artifacts and 19 pending cases per stack, with no runtime or
 numerical acceptance.
 
-Private diagnostics now also cover selected FP32/FP64 matrix calculations, and
+The earlier private diagnostics cover selected FP32/FP64 matrix calculations, and
 a shared Dropout cleanup defect is repaired. The
 [matrix findings](poc/matrix_and_optimizer_findings.md) retain exact failures for
 selected very small values; matching graph types alone does not establish
@@ -77,16 +77,18 @@ Both stacks pass 323 focused checks; the complete primary-stack run passes
 without running them, so that historical checkpoint establishes no corpus
 numerical acceptance.
 
-The [new Linear/reshape findings](poc/native_linear_reshape_findings.md) show
-that two unchanged NNX Linear sources, with and without bias, now keep their
-native computation through the private SOURCE adapter. Static exports preserve
-weights, bias and named-function results. Main focused checks pass 544 tests on
-each stack. The complete primary-stack run passes **6,620 tests**; both inventory
-comparisons and all seven hooks pass. Commit `791664f8` includes only a
-comment-header correction after that run, as recorded in the findings.
-These are diagnostic artifacts, with no new SOURCE runtime or
-whole-model numerical acceptance. Symbolic batch tracing is a separate control,
-not an accepted symbolic export.
+The [ordinary-matrix findings](poc/ordinary_matrix_admission_findings.md) now
+establish audited export for a bounded set of ordinary FP32/FP64 matrices.
+Both stacks pass 750 main checks. Fresh artifacts also pass the unchanged
+numerical criteria on the selected FP32 inputs in both CPU settings; the older
+diagnostic records are preserved. Very small-value exact failures remain, so
+these samples do not certify every matrix input or target.
+Independent post-run review accepts these samples.
+The full primary-stack run passes **6,728 tests**; commit `45881d8d`
+passes all seven actual hooks.
+The [native Linear/reshape prerequisite](poc/native_linear_reshape_findings.md)
+remains committed at `791664f8`; symbolic matrices and full models still need
+separate implementation and acceptance.
 
 The [preceding numerical results](poc/native_trig_and_corpus_numerics_findings.md)
 remain scoped to their original samples and settings. Public options and

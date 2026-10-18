@@ -20,7 +20,8 @@ is available. These experiments inform the
 | Shared symbolic batch and Min/Max feasibility | Can one artifact preserve a shared batch contract, and what does the finite selection audit establish? | [Shared-batch findings](symbolic_batch_and_minmax_findings.md): focused Add/named-composition acceptance, strict sample binding, retained BF16/subnormal failures, measured selection costs and planned artifact-only corpus tooling. |
 | Min/Max lowering and corpus replay | Does the finite zero-sign representation survive real export, and how far do unchanged raw scenarios progress? | [Checkpoint findings](minmax_and_corpus_replay_findings.md): committed lowerer and repaired B3 tooling, retained target failures/cost and artifact-only outcomes; 6,466-test integrated run and actual hooks pass. |
 | Native trig and fixed corpus numerics | Does native dispatch preserve the source, and do the fixed FP32 samples meet all approved comparisons? | [Trig/numerical findings](native_trig_and_corpus_numerics_findings.md): committed binding and fixed sample evidence; gather gaps and unverified general lowering remain. |
-| Native NNX Linear and reshape | Can unchanged model methods preserve native tracing and static diagnostic artifacts? | [Current findings](native_linear_reshape_findings.md): exact parameters, bias/no-bias and named aliases; 544 main checks per stack, with full integration gates pending. |
+| Native NNX Linear and reshape | Can unchanged model methods preserve native tracing and static diagnostic artifacts? | [Linear/reshape findings](native_linear_reshape_findings.md): committed native adapters, exact parameters and named aliases; 544 main checks per stack and a 6,620-test full pass. |
+| Audited ordinary matrices | Can the finite matrix representation pass actual admission and retain the fixed numerical contract? | [Admission findings](ordinary_matrix_admission_findings.md): static FP32/FP64 audit, 750 main checks per stack and fresh audited FP32 sample results; historical failures remain. |
 
 ## Run it
 
@@ -61,13 +62,15 @@ B3 after independent review, 323 focused passes per stack, both main replays and
 inventory comparisons, a 6,466-test full run and all seven actual hooks.
 The [trig/numerical checkpoint](native_trig_and_corpus_numerics_findings.md),
 `d2292b89`, retains its 6,579-test full pass and scoped numerical observations.
-The [Linear/reshape checkpoint](native_linear_reshape_findings.md), `791664f8`, passes
-544 main checks per stack on the independently accepted code, including 41 new
-cases. Static diagnostic artifacts preserve real model parameters and named
-aliases; there is no new SOURCE runtime or audited admission. The full primary
-run passes **6,620 tests**; both inventory CLI comparisons and all seven actual
-hooks pass. The findings retain the post-full, AST-identical test-header repair
-and the initial hook failure.
+The preceding [Linear/reshape checkpoint](native_linear_reshape_findings.md),
+`791664f8`, retains its 6,620-test full pass and native adapter prerequisite.
+The [ordinary-matrix audit](ordinary_matrix_admission_findings.md) now admits
+bounded static FP32/FP64 dots through the real SOURCE profile. Main checks pass
+750 cases per stack; 24 fresh audited artifacts and 48 CPU runs per stack pass
+the unchanged selected FP32 criteria. Strict subnormal failures remain.
+Independent post-run review accepts these samples.
+The full primary-stack run passes **6,728 tests**; commit `45881d8d`
+passes all seven actual hooks.
 
 ## Observable source behavior
 
@@ -124,14 +127,15 @@ ONNX support classifications. Separate diagnostic regressions now cover finite
 noncomplex/complex loops and JIT cases without broadening this product profile;
 the [work plan](../precision_implementation_work_plan.md) records their exact gates.
 
-The audited matrix profile is limited to positive static rank-2/rank-3 standard
-matrix axes, FP16 operands, an explicitly preferred FP32 result and default precision.
-Explicit algorithms and other combinations are rejected. The wider computation
-has no measured latency/memory advantage and does not promise a native
-low-precision hardware algorithm. Numerical coverage is for selected samples.
-The separate D2a diagnostic packet adds bounded ordinary FP32/FP64 rank-2–4 matrices, preserving paired-batch order
-and native matmul binding without changing audited admission. Exact subnormal
-samples still fail on the recorded CPUs; broader matrix contracts remain open.
+The audited matrix profile retains its FP16-operands/preferred-FP32 branch for
+positive static rank-2/rank-3 standard axes. It now also admits same-type
+FP32/FP64 ordinary matrices at ranks 2–4, with one contracting/free axis per
+operand and ordered paired batches. Both branches require default precision;
+explicit algorithms, symbolic/general contractions and other pending forms stay
+excluded. The FP16 branch and its widening behavior are unchanged, with no
+native low-precision hardware or performance promise. The original D2a records
+remain diagnostic; new audited artifacts and their sample outcomes are recorded
+separately. Exact subnormal failures persist on the recorded CPUs.
 
 BF16 structural validity does not establish runtime kernels. Function coverage
 does not establish all nested combinations or every JAX setting. Names/layouts,

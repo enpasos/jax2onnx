@@ -45,13 +45,14 @@ artifact-only corpus tooling. Both stacks pass 323 focused checks; the complete
 primary-stack run passes **6,466 tests**, and all actual hooks pass. This
 checkpoint changes no default operation admission or numerical criteria.
 
-The [current Linear/reshape findings](poc/native_linear_reshape_findings.md)
-record the next adapter step on unchanged models: native computation, weights,
-bias and named-function aliases survive static diagnostic export. Both stacks
-pass 544 main focused checks. The complete primary-stack run passes **6,620 tests**;
-both inventory comparisons and all seven hooks pass at commit `791664f8`, after
-the documented comment-header correction. No new SOURCE runtime, general model
-or symbolic-export acceptance is claimed. The [preceding numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md)
+The [ordinary-matrix findings](poc/ordinary_matrix_admission_findings.md) record
+the bounded implementation: static FP32/FP64 matrices reach
+audited SOURCE export. Both stacks pass 750 main checks; fresh artifacts pass
+the fixed FP32 samples in 48 CPU runs per stack. Old diagnostic records and
+exact subnormal failures remain intact. Independent post-run review accepts
+these samples. The full primary-stack run passes **6,728 tests**; commit `45881d8d`
+passes all seven actual hooks. Broader matrix, symbolic and
+model acceptance remain separate work. The [preceding numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md)
 retains its scoped sample results, original criteria and failures.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
@@ -131,14 +132,12 @@ multiple batches. All 310 raw symbolic rows and seven NCHW rows remain open;
 symbolic layouts, normalization and broader model coverage require further work.
 Native sine/cosine binding now advances source tracing. The unchanged gather
 example still produces no artifact: its x64-on scenario reaches a custom-Where
-boundary, and x64-off retains its configuration conflict. The next work admits
-the reviewed ordinary matrix forms, then extends shared-batch matrices and bias
-broadcasting through unchanged MatMul, GPT Add and NNX Linear sources. A bounded
-native Linear/reshape adapter is independently accepted and applied to main,
-with focused checks passing; its full integration gate remains pending. These
-plans preserve real model weights, bias and configuration; they do
-not replace the original sources with simpler examples or close all dynamic
-shape/model requirements.
+boundary, and x64-off retains its configuration conflict. Ordinary static matrix
+admission now has main evidence. The next isolated code work extends shared-batch
+matrices and bias broadcasting through unchanged MatMul, GPT Add and NNX Linear
+sources, using the committed native Linear/reshape prerequisite. It remains isolated work in progress, with no new corpus or leading-B numerical
+acceptance. Real weights, bias and configuration stay
+part of the contract; all dynamic-shape and model requirements remain visible.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

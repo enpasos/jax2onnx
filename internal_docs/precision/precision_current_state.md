@@ -172,20 +172,26 @@ RNG), global Ruff and both inventory CLI comparisons pass. The inventory records
 203 files, 1,114 functions and 362 additions, retaining all 752 original anchors
 and 1,802 raw contracts. Those historical results are unchanged.
 
-The [native Linear/reshape findings](poc/native_linear_reshape_findings.md)
-record the adapter checkpoint `791664f8`: unchanged NNX Linear sources retain their
-native computation, exact parameters and real named-function aliases in static
-diagnostic exports. Main checks pass **544 tests per stack**, including all 41
-new cases, on the independently accepted code. The five effective/global JAX
-settings, patched callables and policy restore. No new SOURCE runtime,
-audited admission or symbolic-artifact claim follows from these results.
-The manual inventory records **206 files, 1,159 functions and 407 additions**,
-with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
-retained. Typing (542 files plus RNG), global Ruff and both inventory CLI
-comparisons pass. The complete primary-stack run passes **6,620 tests**
-(13,120 warnings, 452.13 seconds). All seven actual hooks pass on retry after
-an AST-identical test-header correction; the findings preserve that byte lineage.
-The code is committed at `791664f8`.
+The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
+record the current bounded audit: same-type FP32/FP64 ordinary dots with positive
+static ranks 2–4, valid ordered paired axes and default precision now use the
+actual audited SOURCE profile. Main checks pass **750 tests per stack**.
+The separate fresh numerical packet creates 24 audited artifacts and records
+48 CPU runs per stack; all three unchanged FP32 sample predicates pass with
+zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
+remain unchanged. These results do not establish general numerical acceptance;
+strict subnormal failures and their raising gates remain.
+
+The inventory records **207 files, 1,175 functions and 423 additions**, with all
+752 original anchors, zero removals and 1,802 raw contracts/3,604 cells retained.
+Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
+CLI comparisons and independent numerical post-run review pass. The integrated
+primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
+Commit `45881d8d` passes all seven actual hooks on the first attempt, with the
+24 frozen source hashes unchanged. The preceding
+[Linear/reshape checkpoint](poc/native_linear_reshape_findings.md), `791664f8`,
+retains its 6,620-test full pass and unchanged native adapter prerequisite.
+Public LEGACY, the private profile identifier and report schema are unchanged.
 
 The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
 `d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
