@@ -18,11 +18,12 @@ import onnx_ir as ir
 from numpy.typing import ArrayLike
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
-from jax2onnx.ir_utils import const_value_to_numpy
+from jax2onnx.ir_utils import const_value_to_numpy, numpy_dtype_to_ir
 from jax2onnx.plugins.jax._autodiff_utils import register_jvp_rule
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
@@ -30,7 +31,6 @@ from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
 )
-
 
 _WHERE_PRIM: Final = make_jnp_primitive("jax.numpy.where")
 
@@ -282,6 +282,9 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         cond: object,
         x: object,
         y: object,
+        *,
+        source_dtype: np.dtype[Any] | None = None,
+        source_weak_type: bool = False,
         **_: object,
     ) -> ShapedArray:
         if not isinstance(cond, ShapedArray):
@@ -290,9 +293,13 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             raise TypeError("jnp.where expects ShapedArray inputs")
         if not isinstance(y, ShapedArray):
             raise TypeError("jnp.where expects ShapedArray inputs")
-        promoted = np.promote_types(x.dtype, y.dtype)
+        promoted = (
+            source_dtype
+            if source_dtype is not None
+            else np.promote_types(x.dtype, y.dtype)
+        )
         out_shape = jnp.broadcast_shapes(cond.shape, x.shape, y.shape)
-        return ShapedArray(out_shape, promoted)
+        return ShapedArray(out_shape, promoted, weak_type=source_weak_type)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         cond_var, x_var, y_var = eqn.invars
@@ -303,7 +310,12 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         )
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("where_x"))
         y_val = ctx.get_value_for_var(y_var, name_hint=ctx.fresh_name("where_y"))
-        out_spec = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+        source = ctx.precision_policy is PrecisionPolicy.SOURCE
+        out_spec = (
+            ctx.allocate_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+            if source
+            else ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("where_out"))
+        )
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for where lowering")
@@ -319,12 +331,17 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
             _stamp_type_and_shape(cond_val, tuple(getattr(cond_var.aval, "shape", ())))
             _ensure_value_metadata(ctx, cond_val)
 
-        target_dtype = np.promote_types(
-            np.dtype(getattr(x_var.aval, "dtype", np.float32)),
-            np.dtype(getattr(y_var.aval, "dtype", np.float32)),
+        target_dtype = (
+            np.dtype(out_var.aval.dtype)
+            if source
+            else np.promote_types(
+                np.dtype(getattr(x_var.aval, "dtype", np.float32)),
+                np.dtype(getattr(y_var.aval, "dtype", np.float32)),
+            )
         )
         if (
-            not ctx.builder.enable_double_precision
+            not source
+            and not ctx.builder.enable_double_precision
             and np.issubdtype(target_dtype, np.floating)
             and target_dtype == np.float64
         ):
@@ -335,18 +352,52 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
 
             if not _is_value_double(x_val) and not _is_value_double(y_val):
                 target_dtype = np.dtype(np.float32)
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        dtype_enum = (
+            numpy_dtype_to_ir(target_dtype)
+            if source
+            else _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        )
 
         x_cast = self._maybe_cast(ctx, x_val, x_var, target_dtype, "x")
         y_cast = self._maybe_cast(ctx, y_val, y_var, target_dtype, "y")
 
         out_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
-        result = builder.Where(
-            cond_val,
-            x_cast,
-            y_cast,
-            _outputs=[out_name],
-        )
+        if source and dtype_enum == ir.DataType.BOOL:
+            cond_shape = tuple(cond_var.aval.shape)
+            inverted = builder.op(
+                "Not",
+                [cond_val],
+                output=ir.val(
+                    ctx.fresh_name("where_not"),
+                    dtype=ir.DataType.BOOL,
+                    shape=cond_shape,
+                ),
+            )
+            selected_true = builder.op(
+                "And",
+                [cond_val, x_cast],
+                output=ir.val(
+                    ctx.fresh_name("where_true"),
+                    dtype=ir.DataType.BOOL,
+                    shape=jnp.broadcast_shapes(cond_shape, tuple(x_var.aval.shape)),
+                ),
+            )
+            selected_false = builder.op(
+                "And",
+                [inverted, y_cast],
+                output=ir.val(
+                    ctx.fresh_name("where_false"),
+                    dtype=ir.DataType.BOOL,
+                    shape=jnp.broadcast_shapes(cond_shape, tuple(y_var.aval.shape)),
+                ),
+            )
+            result = builder.op("Or", [selected_true, selected_false], output=out_spec)
+        else:
+            result = (
+                builder.op("Where", [cond_val, x_cast, y_cast], output=out_spec)
+                if source
+                else builder.Where(cond_val, x_cast, y_cast, _outputs=[out_name])
+            )
         result.type = ir.TensorType(dtype_enum)
         _stamp_type_and_shape(result, tuple(getattr(out_var.aval, "shape", ())))
         _ensure_value_metadata(ctx, result)
@@ -363,15 +414,19 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
         target_dtype: np.dtype[Any],
         tag: str,
     ) -> ir.Value:
+        source = ctx.precision_policy is PrecisionPolicy.SOURCE
+        dtype_enum = (
+            numpy_dtype_to_ir(target_dtype)
+            if source
+            else _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
+        )
         current_dtype = np.dtype(getattr(var.aval, "dtype", target_dtype))
         if current_dtype == target_dtype:
-            dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
             value_enum = getattr(getattr(value, "type", None), "dtype", None)
             if value_enum == dtype_enum:
                 return value
 
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
-        if value.const_value is not None:
+        if not source and value.const_value is not None:
             arr = const_value_to_numpy(value)
             if arr is not None and arr.dtype != target_dtype:
                 arr = arr.astype(target_dtype, copy=False)
@@ -379,7 +434,6 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                 value.type = ir.TensorType(dtype_enum)
                 return value
 
-        dtype_enum = _dtype_to_ir(target_dtype, ctx.builder.enable_double_precision)
         builder = getattr(ctx, "builder", None)
         if builder is None:
             raise AttributeError("IR build context missing builder for where lowering")
@@ -416,6 +470,17 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                     raise NotImplementedError(
                         "jnp.where with fewer than three arguments is not supported"
                     )
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    dtype, weak_type = jax.dtypes.result_type(
+                        x, y, return_weak_type_flag=True
+                    )
+                    return cls._PRIM.bind(
+                        condition,
+                        x,
+                        y,
+                        source_dtype=np.dtype(dtype),
+                        source_weak_type=weak_type,
+                    )
                 return cls._PRIM.bind(condition, x, y)
 
             return _patched
@@ -438,6 +503,9 @@ def _where_impl(
     condition: ArrayLike,
     x: ArrayLike | None = None,
     y: ArrayLike | None = None,
+    *,
+    source_dtype: np.dtype[Any] | None = None,
+    source_weak_type: bool = False,
 ) -> jax.Array:
     if x is None or y is None:
         raise NotImplementedError(
