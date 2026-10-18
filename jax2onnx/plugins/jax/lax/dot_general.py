@@ -281,7 +281,7 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         )
 
     def _lower_source(self, ctx: NativeLoweringContext, eqn: Any) -> None:
-        """Bounded FP16 matrix operands with a preferred FP32 result.
+        """Ordinary FP32/FP64 matrices and FP16 with a preferred FP32 result.
 
         JAX's preferred element type specifies the result and hints at the
         accumulator; an explicit precision algorithm is a separate contract.
@@ -294,6 +294,22 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
         params = eqn.params
+        unknown = set(params) - {
+            "dimension_numbers",
+            "precision",
+            "preferred_element_type",
+            "out_sharding",
+        }
+        if unknown:
+            raise NotImplementedError(
+                "SOURCE dot_general: unreviewed semantic parameters "
+                f"{sorted(unknown)} are outside the audited private subset"
+            )
+        if params.get("out_sharding") is not None:
+            raise NotImplementedError(
+                "SOURCE dot_general: non-None out_sharding is outside the audited "
+                "private subset; only unspecified placement is covered"
+            )
         precision = params.get("precision")
         default_pair = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
         if precision is not None and precision != default_pair:
@@ -306,6 +322,13 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         dtypes = tuple(np.dtype(var.aval.dtype) for var in (*eqn.invars, out_var))
         preferred = params.get("preferred_element_type")
         if (
+            dtypes[0] in (np.dtype(np.float32), np.dtype(np.float64))
+            and dtypes[0] == dtypes[1] == dtypes[2]
+            and (preferred is None or np.dtype(preferred) == dtypes[2])
+        ):
+            self._lower_source_ordinary(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
+            return
+        if (
             dtypes != (np.dtype(np.float16), np.dtype(np.float16), np.dtype(np.float32))
             or preferred is None
             or np.dtype(preferred) != np.dtype(np.float32)
@@ -313,8 +336,8 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             raise NotImplementedError(
                 "SOURCE dot_general: operand/result types "
                 f"{dtypes} and preferred_element_type={preferred} are outside "
-                "the audited private subset; FP16 operands with an explicitly "
-                "preferred FP32 result are covered"
+                "the audited private subset; same-type FP32/FP64 matrices or "
+                "FP16 operands with an explicitly preferred FP32 result are covered"
             )
 
         lhs_shape = tuple(lhs_var.aval.shape)
@@ -354,6 +377,118 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         lhs = widen_operand(lhs_var, "dot_lhs_float32")
         rhs = widen_operand(rhs_var, "dot_rhs_float32")
         output = ctx.allocate_value_for_var(out_var, name_hint="dot_float32")
+        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
+        ctx.bind_value_for_var(out_var, result)
+
+    def _lower_source_ordinary(
+        self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
+    ) -> None:
+        """Normalize one free/contracting axis per operand into MatMul order."""
+        lhs_var, rhs_var = eqn.invars
+        out_var = eqn.outvars[0]
+        lhs_shape, rhs_shape = (tuple(var.aval.shape) for var in eqn.invars)
+        rank = len(lhs_shape)
+        dimensions = eqn.params["dimension_numbers"]
+        if (
+            rank not in (2, 3, 4)
+            or len(rhs_shape) != rank
+            or any(
+                isinstance(dim, (bool, np.bool_))
+                or not isinstance(dim, (int, np.integer))
+                or dim <= 0
+                for dim in (*lhs_shape, *rhs_shape)
+            )
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: shapes "
+                f"{lhs_shape}, {rhs_shape} are outside the audited private subset; "
+                "ordinary matrices require equal positive static ranks 2 through 4"
+            )
+        try:
+            (lhs_contract, rhs_contract), (lhs_batch, rhs_batch) = dimensions
+            axes = tuple(
+                tuple(group)
+                for group in (lhs_contract, rhs_contract, lhs_batch, rhs_batch)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("SOURCE dot_general: malformed dimension_numbers") from exc
+        lhs_contract, rhs_contract, lhs_batch, rhs_batch = axes
+        if any(
+            isinstance(axis, (bool, np.bool_))
+            or not isinstance(axis, (int, np.integer))
+            or not 0 <= axis < rank
+            for group in axes
+            for axis in group
+        ) or any(
+            len(set(contract + batch)) != len(contract + batch)
+            for contract, batch in (
+                (lhs_contract, lhs_batch),
+                (rhs_contract, rhs_batch),
+            )
+        ):
+            raise ValueError("SOURCE dot_general: invalid or overlapping matrix axes")
+        if (
+            len(lhs_contract) != 1
+            or len(rhs_contract) != 1
+            or len(lhs_batch) != rank - 2
+            or len(rhs_batch) != rank - 2
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: dimension_numbers "
+                f"{dimensions} are outside the audited private subset; one "
+                "contracting and one free axis per operand are covered"
+            )
+        lhs_free = tuple(i for i in range(rank) if i not in lhs_contract + lhs_batch)
+        rhs_free = tuple(i for i in range(rank) if i not in rhs_contract + rhs_batch)
+        if lhs_shape[lhs_contract[0]] != rhs_shape[rhs_contract[0]] or any(
+            lhs_shape[left] != rhs_shape[right]
+            for left, right in zip(lhs_batch, rhs_batch, strict=True)
+        ):
+            raise ValueError("SOURCE dot_general: paired matrix dimensions differ")
+        output_shape = tuple(lhs_shape[axis] for axis in lhs_batch) + (
+            lhs_shape[lhs_free[0]],
+            rhs_shape[rhs_free[0]],
+        )
+        if tuple(out_var.aval.shape) != output_shape:
+            raise ValueError(
+                "SOURCE dot_general: matrix result differs from source aval"
+            )
+
+        lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
+        output = ctx.allocate_value_for_var(out_var, name_hint="dot_matrix")
+        for value, shape in (
+            (lhs, lhs_shape),
+            (rhs, rhs_shape),
+            (output, output_shape),
+        ):
+            if (
+                _value_ir_dtype(value) != dtype
+                or value.shape is None
+                or tuple(value.shape) != shape
+            ):
+                raise ValueError(
+                    "SOURCE dot_general: physical matrix dtype/shape differs from aval"
+                )
+
+        def normalize(
+            value: ir.Value, shape: tuple[Any, ...], permutation: tuple[int, ...]
+        ) -> ir.Value:
+            if permutation == tuple(range(rank)):
+                return value
+            transposed = ir.Value(
+                name=ctx.fresh_name("dot_matrix_transpose"),
+                type=ir.TensorType(dtype),
+                shape=ir.Shape(tuple(shape[axis] for axis in permutation)),
+            )
+            return ctx.builder.op(
+                "Transpose",
+                [value],
+                {"perm": ir.Attr("perm", ir.AttributeType.INTS, permutation)},
+                output=transposed,
+            )
+
+        lhs = normalize(lhs, lhs_shape, lhs_batch + lhs_free + lhs_contract)
+        rhs = normalize(rhs, rhs_shape, rhs_batch + rhs_contract + rhs_free)
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(out_var, result)
 

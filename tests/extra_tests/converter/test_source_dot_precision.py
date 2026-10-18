@@ -286,7 +286,6 @@ def test_source_dot_respects_traced_default_matmul_precision() -> None:
         (jnp.float16, None),
         (jnp.float16, jnp.float16),
         (jnp.float16, jnp.float64),
-        (jnp.float32, jnp.float32),
         (jnp.bfloat16, jnp.float32),
     ],
 )

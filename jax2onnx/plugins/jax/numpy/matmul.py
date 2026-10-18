@@ -34,6 +34,10 @@ from jax2onnx.plugins.jax._autodiff_utils import register_jvp_via_jax_jvp
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.plugins.jax._batching_utils import broadcast_batcher_compat
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.ir_utils import numpy_dtype_to_ir
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
@@ -397,7 +401,7 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.matmul not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 a: ArrayLike,
                 b: ArrayLike,
                 *,
@@ -418,6 +422,11 @@ class JnpMatmulPlugin(PrimitiveLeafPlugin):
                     if out_sharding is not None:
                         params["out_sharding"] = out_sharding
                 return cls._PRIM.bind(a, b, **params)
+
+            def _patched(*args: Any, **kwargs: Any) -> ArrayLike:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 
