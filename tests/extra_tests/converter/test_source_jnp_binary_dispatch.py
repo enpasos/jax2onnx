@@ -314,7 +314,7 @@ def test_native_error_is_propagated_once_without_retry(monkeypatch: Any) -> None
     assert actual.value is failure and calls == [((1,), {"keyword": 2})]
 
 
-def test_only_the_three_reviewed_callers_opt_in() -> None:
+def test_only_the_five_reviewed_callers_opt_in() -> None:
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
     for path in directory.glob("*.py"):
@@ -331,7 +331,7 @@ def test_only_the_three_reviewed_callers_opt_in() -> None:
                             and keyword.value.value is True
                         )
                         selected.append(path.stem)
-    assert sorted(selected) == sorted(_GROUP)
+    assert sorted(selected) == ["add", "cos", "maximum", "minimum", "sin"]
 
 
 def _values(case: str) -> tuple[Any, ...]:
@@ -634,8 +634,8 @@ def test_nonselected_binder_and_existing_profile_exclusions_remain() -> None:
     weak = jnp.asarray(1.0)
     for policy in (PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE):
         with precision_policy_scope(policy), _activate_plugin_worlds():
-            trace = jax.make_jaxpr(lambda x: jnp.sin(x))(_spec(weak))
-        assert _leaves(trace)[0][0] == "jax.numpy.sin"
+            trace = jax.make_jaxpr(lambda x: jnp.exp(x))(_spec(weak))
+        assert _leaves(trace)[0][0] == "jax.numpy.exp"
         assert _signature(_body(trace).outvars) == (("float32", (), False),)
     for name in ("minimum", "maximum"):
         with pytest.raises(SourcePrecisionError) as failure:

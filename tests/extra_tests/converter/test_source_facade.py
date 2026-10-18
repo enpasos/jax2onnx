@@ -739,11 +739,11 @@ def test_source_function_failure_names_actual_function_and_preserves_branch_deta
             "NamedDiagnosticLeaf"
         )
     assert "/branch " in error.location
-    assert error.primitive in {"sin", "jax.numpy.sin"}
+    assert error.primitive == "sin"
     assert error.category == "profile-exclusion"
     assert error.phase == "profile-validation"
     assert error.requested_dtypes == ("float32", "float32")
-    assert error.precision_params == {}
+    assert error.precision_params == {"accuracy": "None"}
     assert error.opset == 23
     assert error.requirement and error.action
     assert isinstance(error.__cause__, SourcePrecisionError)
