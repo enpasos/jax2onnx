@@ -48,8 +48,8 @@ selected very small values; matching graph types alone does not establish
 matching results. Static NCHW input/output boundaries and corrected shared
 optimizer fixes have passed independent review and are committed. Native
 add/min/max binding has passed independent review, preserving JAX promotion
-and weak inputs. Its recorded signed-zero samples still fail strict CPU
-comparison. The [layout/binary findings](poc/layout_and_native_binary_findings.md)
+and weak inputs. Its historical signed-zero failures remain recorded in the
+[layout/binary findings](poc/layout_and_native_binary_findings.md), which
 retain those outcomes separately from complete-model acceptance.
 
 The earlier Dropout/D2a complete run passed **6,183 tests**. The next full run
@@ -67,9 +67,16 @@ broadcast them. Focused checks pass on both stacks; the complete primary-stack
 run passes **6,391 tests**, and the code commit passed repository hooks. This
 does not complete dynamic-shape support: all 310 raw
 symbolic rows remain open, and BF16 still fails loading on the measured CPUs.
-The [new findings](poc/symbolic_batch_and_minmax_findings.md) also separate Min/Max
-feasibility and measured costs from implementation, and the proposed corpus
-artifact checks from numerical acceptance. No new public precision choice is added.
+The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
+checkpoint. The [next findings](poc/minmax_and_corpus_replay_findings.md) describe a
+reviewed private Min/Max correction: new artifacts preserve required zero signs
+on the measured CPUs, while subnormal failures and added execution cost remain.
+The repaired raw-corpus replay is committed with that correction at `fc3f9323`.
+Both stacks pass 323 focused checks; the complete primary-stack run passes
+**6,466 tests**, and actual repository hooks pass. The replay checks artifacts
+without running them, so it establishes no corpus numerical acceptance. A
+separate numerical comparison plan is approved but has not run. Public options
+and defaults remain unchanged; no new precision choice is added.
 
 ## Choosing the Export Setting
 

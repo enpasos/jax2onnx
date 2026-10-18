@@ -32,9 +32,12 @@ The [layout/binary findings](poc/layout_and_native_binary_findings.md) retain
 those distinctions. Shared-B packet `80cb68b2` has 697 owner and 241 independent
 focused passes per stack, including 40 new cases. Its complete primary-stack run
 passes **6,391 tests** (13,110 warnings, 444.36 seconds), and actual configured
-hooks pass. The [new findings](poc/symbolic_batch_and_minmax_findings.md)
-record the bounded implementation, completed Min/Max feasibility and the next
-accepted artifact-only corpus tooling plan. An earlier failed preflight exposed raw metadata
+hooks pass. The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md)
+retain that checkpoint. The [next findings](poc/minmax_and_corpus_replay_findings.md)
+record their joint commit `fc3f9323`: 323 main focused passes per stack, both
+26-cell artifact replays and inventory comparisons, and **6,466 full-suite passes**
+(13,110 warnings, 413.65 seconds). Typing (542 files plus RNG), global Ruff and all
+seven actual configured hooks pass. An earlier failed preflight exposed raw metadata
 mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
@@ -366,7 +369,9 @@ planning work is separate from production-code ownership.
 | Diagnostic Mul-None dependency | Admit only the observed None spelling under the existing typed floating rule; retain native abstract checks. | Separately accepted; 84 checks per stack, 18 new safeguards; integrated run and actual hooks pass; no production/profile change | `258e90d6` |
 | C4b static NCHW and shared observers | Compose root physical layout without changing canonical source values; protect observable transpose values and lexical naming. | 36 layout and 57 observer cases; ten failed-full regressions retained, final correction independently passes 238 cases per stack; fresh full run and actual hooks pass | Optimizer `f02c0b4c`; layout `7609fc2e` |
 | Shared symbolic batch | Preserve equal `(B,K)` floating Add and named composition, exact symbolic boundaries and fresh sample bindings; one artifact at B=2/5. | 697 owner and 241 independent checks per stack, all 40 new cases; full run and actual hooks pass; all 310 raw symbolic rows remain open | `80cb68b2` |
-| Next B3 revision supplement | Replay 13 exact unchanged rows/26 artifact-only cells per stack; preserve raw outcomes and four explicit SOURCE matrix counterparts; propose criteria separately. | Accepted tooling plan only; no run total, runtime release or criterion adoption | Planned |
+| Min/Max signed-zero lowering | Preserve typed zero-tie signs through scoped GatherElements selection at opset 23; retain baseline bytes and known target failures. | Independently accepted; 132 tests per stack including 29 new; main focused/full/inventory and actual hooks pass; no default admission | `fc3f9323` |
+| B3 revision supplement | Replay 13 unchanged rows/26 artifact-only cells; retain raw outcomes and four SOURCE matrix counterparts; propose criteria separately. | Independently accepted; main replays retain 24 artifacts/two unresolved outcomes per stack; zero ORT, no criterion adoption in this packet; integrated checks and actual hooks pass | `fc3f9323` |
+| Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Separate side implementation in progress; excluded from this checkpoint; later Where and DOUBLE-cosine boundaries remain | Planned |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -681,9 +686,10 @@ in the [new findings](poc/layout_and_native_binary_findings.md).
 The native add/min/max packet forwards original arguments through one opt-in
 shared helper, preserving all other 46 callers and LEGACY registration paths.
 The separate diagnostic Mul-None rule retains exact native abstract evaluation;
-actual min/max gradients now validate four CPU samples each per stack. Eight
-signed-zero observations per stack remain FAILED, with exact target/payload
-bounds. No default-profile or whole-family admission follows.
+actual min/max gradients validate four CPU samples each per stack. The eight
+historical signed-zero failures per stack retain their exact target/payload
+bounds; new artifacts from the later lowerer pass those samples. No default-profile
+or whole-family admission follows.
 
 The shared-B packet is now implemented and has passed focused independent
 review. Two `(B,K)` floating inputs share one positive atomic batch dimension
@@ -704,26 +710,46 @@ identical shapes includes Divide/Mean.
 Keep existing dynamic positive witnesses and fixed sources, without a new
 profile mode, runtime Assert layer or source rewrite.
 
-After this checkpoint, the accepted next packet is tooling for 13 exact raw
-rows/26 artifact-only cells per stack: five dot, three matmul, four Add and one
+The independently accepted B3 tooling revision covers 13 exact raw rows/26 artifact-only
+cells: five dot, three matmul, four Add and one
 FP64 gather row. Bind origin, ordinal, raw contract and actual typed equation
 parameters. Exactly four dot rows receive explicit SOURCE MatMul counterparts
 that preserve input/axis/no-bias/no-unused-input guarantees; execute and retain
 the original Gemm callback failure separately. Keep other callbacks unchanged,
 callback absence explicit, and the gather-off configuration conflict. Create a
 new revision supplement; never reset failed histories or overwrite original
-36-cell/two-dot evidence. The new selection leaves 3,578 cells unselected.
+36-cell/two-dot evidence. The new selection leaves 3,578 cells unselected. A separate
+negative reproduction exposed a preparation-path alias defect and overwrote its
+own snapshot; earlier valid distinct-path owner records remain intact. The old
+188-test code freeze is superseded for final acceptance. The repaired owner selection passes
+191 tests per stack. Independent review retains its prior 188-case coverage and
+passes all three new alias controls per stack on the final bytes. Fresh side
+replays check 24 artifacts per stack, retaining gather-off's configuration conflict
+and gather-on's custom-sine diagnostic gap. Distinct preparation/supplement paths
+and their hashes are verified; all 26 lowering/runtime/numerical gates stay
+unverified, with zero ORT. Main replays match all twelve invariants and six prior
+comparisons per stack; preparation hashes match. Integrated checks and actual
+hooks pass at `fc3f9323`.
 
 The same tooling packet produces a criterion proposal ledger only. Preserve
 original unresolved criteria and record reference-first legacy versus
 actual-first SOURCE allclose, FP32/FP64 variant thresholds, dtype conversions
 and forced harness float32 matrix-precision settings. x64-on does not turn the
-twelve strong-FP32 rows into FP64; gather needs its own audit. No numerical
-execution, criterion adoption or public SampleCriteria change is released.
-Review any proposed conjunction before outcomes. Ownership is limited to a
+twelve strong-FP32 rows into FP64; gather needs its own audit. This artifact
+checkpoint releases no numerical execution, criterion adoption or public
+SampleCriteria change. Ownership is limited to a
 fixed corpus-oracle helper/test, the private source-support seam and maintained
 probe tooling; numerical lowerers, metadata, profiles and diagnostic families
 are outside the packet.
+
+A separate numerical counterpart now has an approved mapping:
+`source-corpus-fp32-conjunction-v1`, twelve unchanged strong-FP32 rows/24 cells
+per stack, CPU optimization disabled/all. Require exact dtype/shape and all
+three predeclared tolerance comparisons against raw-source and separately
+labelled historical-harness references. Preserve the historical None criteria,
+proposal ledger and current SampleCriteria behavior. Numerical implementation
+may proceed separately; actual corpus execution awaits its frozen-code
+independent review. No numerical results or row closure are inferred.
 
 Min/Max sparse scalar/empty/output-only and the single FP16 cost comparison are
 complete feasibility evidence: 72 exact edges and 12 scoped grid checks per
@@ -731,16 +757,27 @@ stack. Six raw rank-zero failures remain, with the rank-one adapter demonstrated
 only in PoCs; inherited FP32/FP64 non-NaN mismatches remain failed. Dense costs
 1.242–1.542× baseline and sparse/dense 0.963–1.220× on that one workload, with no
 consistent sparse benefit; logical buffer sizes are not allocator measurements.
-A later GatherElements lowerer candidate is recommended for bounded integration
-and semantic/resource-cost review, without a production release. The small standard
-Add/Neg/Where construction has a semantic argument but fails strict CPU checks
-and changes other measured results. Gather alternatives have material or
-unverified cost and are not selected for an unconditional rollout. Current export
+The finite GatherElements lowerer is now implemented and independently accepted:
+equal canonical FP16/FP32/FP64 at opset 23, fresh scoped values/constants, no
+floating casts and exact zero signs on actual facade artifacts. Owner and
+independent selections each pass 132 tests per stack, including 29 new cases;
+these overlapping counts are not additive. Actual source graphs have 15 total
+nodes for Min and 12 for Max, with one Min or Max operator, so the prior finite
+cost comparison applies without a new benchmark.
+Four strict subnormal witness artifacts per stack remain FAILED, as do each
+FP32/FP64 grid's 108 inherited non-NaN mismatches. Other dtypes/opsets retain their
+existing paths; default admission is unchanged. Main integration and all actual
+configured hooks pass at `fc3f9323`.
+
+The small Add/Neg/Where candidate remains failed on measured CPU cases. Export
 has no runtime-target argument: `validate_source_samples` and the raising
 `require_sample_acceptance` guard establish separate artifact-bound evidence.
-Preserve failed samples and criteria; ordinary tolerances do not waive required
-sign/rounding behavior. No Min/Max production packet, new target API, admission
-or expensive rollout is approved.
+No criterion, source cast, public precision mode or family-wide admission changes.
+The next accepted binder plan covers only native sine/cosine opt-ins, a focused
+module and two obsolete guards in the old binary tests. Native diagnostic trig
+rules already cover the observed typed form; custom Where and DOUBLE cosine's
+half-angle numerical audit remain separate work. Its side implementation is
+separate from this checkpoint and has no integration acceptance yet.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -969,6 +1006,25 @@ Checkpoint evidence on 2026-10-18:
   seven actual configured hooks, recorded in
   `/tmp/jax2onnx-symbolic-batch-code-commit.log`. All twelve hashes in the root
   full freeze match after commit; the historical 6,351-test result is unchanged.
+
+- The Min/Max side candidate passes 132 owner and 132 independent tests per stack
+  on the same four frozen files. Independent times are 40.45/39.36 seconds;
+  source/import hashes and recorded numerical payloads match. These are focused
+  acceptance results, not a new integrated total. B3's repaired side packet is
+  independently accepted. Root package typing passes 542 files plus RNG and
+  global Ruff passes. Manual inventory now records 203 files, 1,114 functions and
+  362 additions, retaining all 752 anchors, 1,802 raw contracts/3,604 cells and
+  optional entries, with no removals. Both actual inventory CLI comparisons pass.
+- Main combined focused checks pass **323 tests per stack** (86.81/41.90 seconds).
+  Both 26-cell replays retain 24 checked artifacts/two unresolved outcomes, all
+  twelve invariants and six prior comparisons, matching preparation hashes and
+  zero ORT. The complete primary-stack run passes **6,466 tests**, with 13,110
+  warnings in 413.65 seconds and exit status zero; log
+  `/tmp/jax2onnx-corpus-minmax-main-full-py312.log`. Commit `fc3f9323` passed all
+  seven actual configured hooks, recorded in
+  `/tmp/jax2onnx-corpus-minmax-main-code-commit.log`; all nine frozen
+  code/test/inventory hashes match after commit. The earlier 6,391-test result
+  and inventory 201/1,093/341 remain historical facts.
 
 ## Validation and final review
 

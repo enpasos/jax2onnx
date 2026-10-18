@@ -46,9 +46,14 @@ before runtime execution. The complete primary-stack run passes **6,391 tests**
 (13,110 warnings, 444.36 seconds), and all actual configured hooks passed. The inventory
 refresh records 201 files, 1,093 functions and 341 additions, retaining all raw
 contracts and original anchors. The
-[new findings](poc/symbolic_batch_and_minmax_findings.md) separate this bounded
-implementation from completed Min/Max feasibility and the next artifact-only
-corpus tooling packet.
+[shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain this
+completed checkpoint. The [latest findings](poc/minmax_and_corpus_replay_findings.md)
+record Min/Max and repaired B3 tooling at `fc3f9323`: 323 focused checks per stack,
+both main replays and inventory comparisons, **6,466 full-suite passes** (13,110
+warnings, 413.65 seconds), and all seven actual configured hooks passing. Typing
+(542 files plus RNG) and global Ruff pass. The inventory now records 203 files,
+1,114 functions and 362 additions, with no original anchor or raw contract loss.
+This checkpoint changes no default operation admission or numerical criterion.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -296,9 +301,10 @@ normalization and raw-metadata replay remain separate work. No whole-model layou
 row closes.
 
 The native add/min/max group uses one opt-in at the existing binder, leaving
-other callers and LEGACY unchanged. Selected gradient/vmap samples pass, while
-eight signed-zero CPU observations per stack remain FAILED. The separate
-Mul-None diagnostic correction changes no production lowerer or profile.
+other callers and LEGACY unchanged. Selected gradient/vmap samples pass. Its
+eight historical signed-zero CPU failures per stack remain recorded; the later
+finite lowerer now passes those samples on new artifacts. The separate Mul-None
+diagnostic correction changes no production lowerer or profile.
 
 The shared-B packet is implemented and passes focused review: two equal `(B,K)`
 inputs, audited Add and named composition, one artifact at B=2/5. It preserves
@@ -308,21 +314,41 @@ CPUs. All 310 raw symbolic rows remain open. The only raw symbolic declaration
 with two inputs of rank two and identical shapes includes Divide/Mean, beyond
 this packet.
 
-The next accepted tooling packet selects 13 unchanged raw rows/26 artifact-only
-cells per stack. Four exact dot rows receive checked SOURCE MatMul counterparts
-while retaining their original Gemm callback failure/history. A criterion
-proposal ledger records comparator orientation, variant thresholds and actual
-harness settings; it adopts no criteria and enables no runtime stage. The
-original 36-cell batch, two-dot supplement, all-22 results and seven NCHW rows
-remain unchanged. Actual source/trace/signature evidence is required for progress.
+The B3 tooling revision selects 13 unchanged raw rows/26 artifact-only cells.
+Four exact dot rows have explicit SOURCE MatMul counterparts while original Gemm
+callback failures/history are retained. The repaired preparation-path guard and
+fresh side evidence have independent acceptance; main replays match: 24 artifacts are checked and
+two outcomes remain unresolved per stack, with zero ORT. The proposal ledger records
+comparator orientation, variant thresholds and harness settings; it adopts no
+criteria and enables no runtime stage. All 26 cells keep lowering/runtime/numerics
+unverified. The original 36-cell batch, two-dot supplement, all-22 results and
+seven NCHW rows remain unchanged.
 
-Min/Max sparse edge/output-only and one FP16 cost comparison are complete
-feasibility evidence. The later GatherElements candidate still needs exporter
-integration and semantic/resource-cost review; no production release follows.
-The cheap Where candidate fails strict CPU checks and changes baseline results;
-inherited FP32/FP64 subnormal mismatches remain failed. Current export has no
-runtime-target argument; existing sample evidence and its raising guard remain
-the separate acceptance gate. No costly rollout, new mode or broad admission is selected.
+The bounded GatherElements Min/Max lowerer now has independent acceptance and
+132 focused passes per stack. At opset 23 it preserves equal FP16/FP32/FP64 types,
+canonical values and scoped constants; zero signs pass on new artifacts. Four
+strict subnormal artifacts per stack and 108 inherited FP32/FP64 grid mismatches
+remain failed. Its source graphs have 15 total nodes for Min and 12 for Max,
+with one Min or Max operator. The finite cost remains 1.242–1.542× baseline on
+one FP16 Min broadcast workload, not a general bound. Integrated checks and
+actual hooks pass at `fc3f9323`; default admission stays unchanged. Export has no
+runtime-target argument; sample evidence and its raising guard remain separate.
+
+The accepted next binder plan is two native SOURCE opt-ins for `jnp.sin` and
+`jnp.cos`, focused tests and two obsolete test-guard updates. It is being
+implemented separately and is excluded from this checkpoint. Their observed
+native diagnostic forms already exist; the
+unchanged gather pipeline is expected to reach the later custom-Where diagnostic
+boundary. DOUBLE cosine's existing half-angle arithmetic remains unaudited.
+No source rewrite, diagnostic-table expansion or criterion change is inferred.
+
+Separately, `source-corpus-fp32-conjunction-v1` is approved for twelve unchanged
+strong-FP32 rows/24 cells. It requires exact dtype/shape plus all three
+predeclared tolerance comparisons against the raw-source and separately labelled
+historical-harness references. Historical None criteria and the proposal ledger
+stay unchanged; no public `SampleCriteria` change is needed. Actual execution
+awaits independent review of the numerical implementation freeze, and is not
+part of `fc3f9323`. No numerical outcomes are claimed yet.
 
 ## Stage 1 Inventory and freeze observable behavior
 

@@ -38,9 +38,14 @@ The committed private shared-batch implementation has passed focused review on b
 stacks: one Add/named-function artifact runs with batch sizes two and five, and
 validation rejects inconsistent batches. Its complete primary-stack run passes
 **6,391 tests**, and the code commit passed actual repository hooks.
-The [new findings](poc/symbolic_batch_and_minmax_findings.md) keep that evidence
-separate from raw-model acceptance, Min/Max feasibility and the next planned
-artifact-only corpus replay. No new runtime criteria have been adopted.
+The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
+evidence. The [latest checkpoint](poc/minmax_and_corpus_replay_findings.md),
+`fc3f9323`, commits the private Min/Max zero-sign correction and repaired
+artifact-only corpus tooling. Both stacks pass 323 focused checks; the complete
+primary-stack run passes **6,466 tests**, and all actual hooks pass. This
+checkpoint changes no default operation admission or numerical criteria. A
+separate fixed numerical comparison plan is approved; execution awaits its
+implementation freeze and independent review.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -110,13 +115,15 @@ failures for selected subnormal values. A separate recheck of two original
 matrix scenarios now passes schema checking but still fails the existing
 structural callback; it establishes no new corpus acceptance. Static NCHW
 input/output boundaries and the shared optimizer/naming dependency have passed
-independent review. Eight min/max signed-zero observations per
-stack remain failed under their original criteria. One shared batch dimension
-through Add and named composition now has private implementation evidence with
-unchanged source and multiple batches. All 310 raw symbolic rows remain open;
+independent review. Eight historical min/max signed-zero observations per stack
+remain failed under their original criteria; new artifacts from the bounded
+lowerer now pass those samples. Subnormal failures and a measured execution-cost
+increase remain visible. One shared batch dimension through Add and named
+composition has private implementation evidence with unchanged source and
+multiple batches. All 310 raw symbolic rows and seven NCHW rows remain open;
 symbolic layouts, normalization and broader model coverage require further work.
-The finite Min/Max selection audit establishes feasible alternatives and costs,
-not a released lowerer or successful whole-family numerical contract.
+The next accepted native sine/cosine binding plan advances source tracing; it
+does not by itself complete the unchanged gather model or its numerical audit.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

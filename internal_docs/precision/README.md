@@ -55,7 +55,18 @@ checked at B=2/5 and strict per-sample symbol binding. Owner checks pass 697 per
 stack and independent checks 241, including all 40 new cases. Commit `80cb68b2`
 passed all actual configured hooks; the complete primary-stack run passes
 **6,391 tests** (13,110 warnings, 444.36 seconds). Its inventory records 201 files, 1,093 functions
-and 341 additions, preserving every raw contract and original anchor.
+and 341 additions, preserving every raw contract and original anchor. These
+historical results remain unchanged.
+
+The [Min/Max and corpus-replay findings](poc/minmax_and_corpus_replay_findings.md)
+record checkpoint `fc3f9323`, with independently accepted signed-zero lowering
+and repaired B3 tooling. Main focused checks pass 323 tests per stack; both
+26-cell replays check 24 artifacts and retain two unresolved outcomes, with zero
+ORT. The complete primary-stack run passes **6,466 tests** (13,110 warnings,
+413.65 seconds), and all seven actual configured hooks pass. Typing (542 files
+plus RNG), global Ruff and both inventory CLI comparisons pass. The inventory
+records 203 files, 1,114 functions and 362 additions, retaining all original
+anchors and raw contracts.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
@@ -70,14 +81,18 @@ Selected subnormal matrix samples still fail exact comparison. These changes do
 not establish browser, stochastic or model-wide numerical acceptance. Static
 NCHW boundary handling and its shared observer/naming dependency have passed
 independent review. They do not establish whole-model layout support.
-Native add/min/max binding preserves JAX promotion; eight signed-zero target
-observations per stack remain FAILED. Shared-B Add is now a finite private
-implementation; all 310 symbolic corpus rows still require their actual replay.
-The sparse Min/Max edge/cost questions are answered, but the later GatherElements
-lowerer candidate has no production release or broader admission. The next
-accepted tooling packet selects 13 unchanged raw rows/26 artifact-only cells per
-stack, with four explicit SOURCE matrix structural counterparts and a numerical
-criterion proposal ledger; runtime execution and criterion adoption are not released.
+Native add/min/max binding preserves JAX promotion. The eight historical
+signed-zero failures per stack remain recorded; new opset-23 FP16/FP32/FP64
+artifacts now pass those bitwise samples. Four strict subnormal witness artifacts
+per stack and 108 inherited FP32/FP64 grid mismatches remain failed. The dense
+selection has measured cost and adds no default admission. Shared-B Add remains
+finite; all 310 symbolic and seven NCHW corpus rows stay open. The B3 revision
+selects 13 unchanged rows/26 artifact-only cells, retaining four explicit SOURCE
+matrix counterparts and original callback failures. This artifact checkpoint
+adopts no numerical criterion and runs no corpus runtime checks. A separate
+12-row/24-cell FP32 numerical counterpart now has an approved criterion plan;
+execution awaits its implementation freeze and independent review. Native
+sine/cosine binding is being implemented separately from this checkpoint.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one

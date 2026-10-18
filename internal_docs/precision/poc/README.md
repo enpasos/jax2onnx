@@ -18,6 +18,7 @@ is available. These experiments inform the
 | Ordinary matrices and Dropout cleanup | Do bounded matrix contracts and the shared optional-input rewrite preserve actual values? | [Matrix and optimizer findings](matrix_and_optimizer_findings.md): committed D2a and shared repair, exact subnormal failures, corrected witness provenance and separate corpus evidence. |
 | Static layouts and native binary binding | Can external storage and native promotion preserve unchanged source computations? | [Layout and binary findings](layout_and_native_binary_findings.md): committed binder/Mul and C4b/observer repairs, passing 6,351-test integration after ten retained regressions, signed-zero failures and future symbolic work. |
 | Shared symbolic batch and Min/Max feasibility | Can one artifact preserve a shared batch contract, and what does the finite selection audit establish? | [Shared-batch findings](symbolic_batch_and_minmax_findings.md): focused Add/named-composition acceptance, strict sample binding, retained BF16/subnormal failures, measured selection costs and planned artifact-only corpus tooling. |
+| Min/Max lowering and corpus replay | Does the finite zero-sign representation survive real export, and how far do unchanged raw scenarios progress? | [Checkpoint findings](minmax_and_corpus_replay_findings.md): committed lowerer and repaired B3 tooling, retained target failures/cost and artifact-only outcomes; 6,466-test integrated run and actual hooks pass. |
 
 ## Run it
 
@@ -52,8 +53,10 @@ records the passing 6,351-test run and three commits with actual hooks, retainin
 the earlier failed full run and separate future work.
 The [shared-batch checkpoint](symbolic_batch_and_minmax_findings.md) has 697 owner
 and 241 independent focused checks per stack. Commit `80cb68b2` passed actual
-hooks and the complete primary-stack run passes 6,391 tests. Min/Max PoCs and
-future corpus-tooling plans remain distinct.
+hooks and that complete primary-stack run passed 6,391 tests. The latest
+[checkpoint](minmax_and_corpus_replay_findings.md), `fc3f9323`, commits Min/Max and
+B3 after independent review, 323 focused passes per stack, both main replays and
+inventory comparisons, a 6,466-test full run and all seven actual hooks.
 
 ## Observable source behavior
 
@@ -136,10 +139,14 @@ Static NCHW boundaries and the corrected observer/naming dependency are committe
 after independent review, the passing fresh full run and actual hooks. The ten
 earlier integration failures remain recorded. Shared-B Add now has focused
 implementation evidence; all 310 raw symbolic rows and seven NCHW rows remain
-open. Min/Max sparse edge/cost feasibility is complete, with a later dense
-candidate still requiring exporter and cost acceptance. The next tooling packet
-plans 13 unchanged rows/26 artifact-only cells per stack; no numerical execution
-or criterion adoption is released. The
+open. The finite dense Min/Max lowerer now passes independent review at opset 23
+for equal FP16/FP32/FP64 operands. New zero-sign samples pass, while strict
+subnormal/grid failures remain and no default profile is expanded. B3 tooling
+selects 13 unchanged rows/26 artifact-only cells; side and main replays each check
+24 artifacts and retain two unresolved outcomes per stack, with zero ORT.
+This checkpoint adopts no numerical criterion. A separate approved FP32
+numerical-counterpart plan awaits implementation freeze and independent review
+before execution. The
 [next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.

@@ -101,13 +101,14 @@ Native SOURCE `matmul` binding retains JAX promotion and precision parameters.
 The [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md) record
 the exclusions, preserved operands and failed exact subnormal samples.
 A separate two-cell corpus supplement now passes schema checking but fails the
-unchanged Gemm/zero-bias structural callback; no B3 artifact or row is accepted.
+unchanged Gemm/zero-bias structural callback; that supplement accepts no artifact
+or row.
 Static NCHW boundaries are committed at `7609fc2e`, with their corrected shared
 observer/naming dependency at `f02c0b4c` and native binary/Mul-None at `258e90d6`.
 The [new findings](poc/layout_and_native_binary_findings.md) distinguish that
 scope from the independently accepted native add/min/max binder and separate
 Mul-None diagnostic repair. The binder passes 366 independent tests per stack;
-eight signed-zero target samples per stack remain FAILED. Broader options and
+its eight historical signed-zero failures per stack remain recorded. Broader options and
 models remain open.
 
 The historical Dropout/D2a complete primary-stack run passed **6,183 tests** (13,110 warnings,
@@ -142,8 +143,35 @@ original anchors and 1,802 raw contracts unchanged. The complete primary-stack
 run passes **6,391 tests** (13,110 warnings, 444.36 seconds); `80cb68b2` passed all
 seven actual configured hooks. All twelve tested code/inventory hashes remain
 unchanged after commit. Public LEGACY, the private profile identifier and report
-schema remain unchanged. Min/Max selection remains feasibility work; the next
-accepted corpus packet is artifact-only, with criteria proposed before adoption.
+schema remain unchanged. These are the preceding checkpoint results.
+
+The [latest checkpoint findings](poc/minmax_and_corpus_replay_findings.md) record an
+independently accepted SOURCE Min/Max lowerer for equal FP16/FP32/FP64 at opset 23.
+Owner and independent selections each pass the same 132 tests per stack,
+including 29 new cases. New zero-sign artifacts pass bitwise native eager/JIT
+samples; the old eight failed observations per stack remain history. Four
+subnormal witness artifacts per stack and each FP32/FP64 grid's 108 inherited
+non-NaN mismatches remain FAILED. Actual graphs have 15 total nodes for Min and
+12 for Max, with one Min or Max operator and no new floating Cast; the earlier
+one-workload cost evidence remains scoped.
+
+The repaired B3 revision has independent acceptance for 13 unchanged rows/26
+artifact-only cells. Fresh side and main replays each check 24 artifacts per
+stack, retaining gather-off's configuration conflict and gather-on's custom-sine
+diagnostic gap. All 26 lowering/runtime/numerical gates remain unverified, with
+zero ORT. A separate negative reproduction overwrote its own preparation
+snapshot; earlier valid distinct-path records remain intact. The repaired guard
+and fresh preparation hashes are verified. This packet changes no default
+admission or numerical criterion.
+
+Commit `fc3f9323` combines both reviewed packets and the manual inventory. Main
+focused checks pass 323 per stack; the full primary-stack run passes **6,466 tests**
+(13,110 warnings, 413.65 seconds). All seven actual configured hooks pass, and all
+nine frozen code/test/inventory hashes match after commit. Typing (542 files plus
+RNG), global Ruff and both inventory CLI comparisons pass. The inventory records
+203 files, 1,114 functions and 362 additions, retaining all 752 original anchors
+and 1,802 raw contracts. A separate 12-row/24-cell FP32 numerical criterion plan
+is approved; execution awaits its implementation freeze and independent review.
 The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 
