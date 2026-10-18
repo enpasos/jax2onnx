@@ -8,8 +8,10 @@ carriers, the static bias reshape, actual named Function bodies and returned
 aliases. Other symbolic rules remain separate work.
 
 These checks describe an export representation, not runtime numerical evidence.
-The top-level facade owns typed floating and static Boolean input normalization.
-Recursive callbacks may receive Boolean comparisons and uint32 bit representations.
+The top-level facade owns typed input normalization and x64 conflicts. Ordinary
+Boolean/integer/floating values share the finite leading-batch proof. Static
+complex values use declared real/imaginary storage; complex arithmetic, conversion
+and symbolic complex scopes remain separate work.
 Function bodies are checked when their lowering retraces them with this callback.
 """
 
@@ -47,7 +49,12 @@ SourcePrecisionCategory = Literal[
 _FLOATS: Final[frozenset[str]] = frozenset(
     {"float16", "bfloat16", "float32", "float64"}
 )
-_VALUE_DTYPES: Final[frozenset[str]] = _FLOATS | {"bool", "uint32", "int32"}
+_INTEGERS: Final[frozenset[str]] = frozenset(
+    {"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"}
+)
+_REAL_VALUES: Final[frozenset[str]] = _FLOATS | _INTEGERS | {"bool"}
+_COMPLEX: Final[frozenset[str]] = frozenset({"complex64", "complex128"})
+_VALUE_DTYPES: Final[frozenset[str]] = _REAL_VALUES | _COMPLEX
 _PLACEMENT_PARAMS: Final[frozenset[str]] = frozenset({"sharding", "out_sharding"})
 
 
@@ -196,7 +203,7 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
     site.require(
         dtype in _VALUE_DTYPES,
         f"dtype {dtype} is outside the profile",
-        "FP16/BF16/FP32/FP64 values, Boolean comparisons, or uint32 bits",
+        "ordinary Boolean, integer, floating, or static complex64/complex128 values",
     )
     site.require(
         type(weak_type) is bool,
@@ -214,9 +221,9 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         "an actual native JAX symbolic batch variable",
     )
     site.require(
-        symbol is None or dtype in _FLOATS,
-        "symbolic nonfloating values are outside this audited batch packet",
-        "FP16/BF16/FP32/FP64 symbolic tensors",
+        symbol is None or dtype in _REAL_VALUES,
+        "symbolic complex values are outside this audited batch packet",
+        "Boolean, integer, or floating symbolic tensors within the shared finite shape proof",
     )
     return _Tensor(dtype, normalized, symbol)
 
@@ -576,6 +583,157 @@ def _signature(variables: Sequence[Any], site: _Site) -> tuple[Any, ...]:
     return tuple((_tensor(var, site), var.aval.weak_type) for var in variables)
 
 
+def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) -> None:
+    """Reuse the same actual-B/equal-tail proof across typed pointwise families."""
+    symbolic_inputs = [value for value in inputs if value.symbol is not None]
+    if symbolic_inputs:
+        batch = symbolic_inputs[0]
+        site.require(
+            all(
+                value.shape == batch.shape
+                and value.symbol == batch.symbol
+                or value.symbol is None
+                and value.shape == (1, *batch.shape[1:])
+                for value in inputs
+            )
+            and result.symbol == batch.symbol,
+            "pointwise operands do not share the same leading-batch shape",
+            "equal rank-two/rank-three tails with the same native B or a literal leading extent 1",
+        )
+        shape = batch.shape
+    else:
+        site.require(
+            result.symbol is None,
+            "pointwise result invents a symbolic batch",
+            "a symbolic operand providing the actual native batch scope",
+            category="lowering-defect",
+        )
+        try:
+            shape = tuple(np.broadcast_shapes(*(value.shape for value in inputs)))
+        except ValueError:
+            site.fail(
+                "incompatible pointwise operand shapes",
+                "broadcast-compatible shapes",
+                category="lowering-defect",
+            )
+    _same_shape(result.shape, shape, site)
+
+
+def _validate_predicate(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 2, 1, site)
+    site.require(
+        not eqn.params,
+        "comparison has unaudited parameters",
+        "native comparison without parameters or placement",
+    )
+    lhs, rhs = inputs
+    result = outputs[0]
+    site.require(
+        lhs.dtype in _REAL_VALUES and rhs.dtype in _REAL_VALUES,
+        "complex comparison remains outside the audited predicate family",
+        "native real/discrete comparisons; complex comparison requires its own lowering proof",
+    )
+    site.require(
+        lhs.dtype == rhs.dtype
+        and result.dtype == "bool"
+        and eqn.outvars[0].aval.weak_type
+        == all(var.aval.weak_type for var in eqn.invars),
+        "comparison result dtype or weakness differs from its native operands",
+        "equal post-promotion operand dtypes and the native weak Boolean result",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, result, site)
+
+
+def _validate_bitwise(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1 if site.primitive == "not" else 2, 1, site)
+    site.require(
+        not eqn.params,
+        "bitwise operation has unaudited parameters",
+        "native Boolean/integer bitwise operations without parameters or placement",
+    )
+    site.require(
+        all(value.dtype in _INTEGERS | {"bool"} for value in inputs),
+        "noninteger bitwise operands are outside the profile",
+        "Boolean or integer bitwise operands",
+    )
+    result = outputs[0]
+    site.require(
+        all(value.dtype == result.dtype for value in inputs)
+        and eqn.outvars[0].aval.weak_type
+        == all(var.aval.weak_type for var in eqn.invars),
+        "bitwise dtype or weakness differs from its native operands",
+        "one common exact dtype and the native result weakness",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, result, site)
+
+
+def _validate_conversion(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1, 1, site)
+    _params(eqn, {"new_dtype", "weak_type"}, site, required={"new_dtype", "weak_type"})
+    source, target = inputs[0], outputs[0]
+    site.require(
+        all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+        "conversion placement is outside the profile",
+        "an explicit ordinary conversion with unspecified placement",
+    )
+    site.require(
+        source.dtype in _REAL_VALUES and target.dtype in _REAL_VALUES,
+        "complex conversion is outside this audited family",
+        "explicit Boolean/integer/floating conversions; complex conversions remain separate migration work",
+    )
+    site.require(
+        isinstance(eqn.params["new_dtype"], np.dtype)
+        and eqn.params["new_dtype"] == np.dtype(target.dtype)
+        and type(eqn.params["weak_type"]) is bool
+        and target.symbol == source.symbol
+        and eqn.outvars[0].aval.weak_type is eqn.params["weak_type"],
+        "cast attribute, scope or weakness disagrees with its traced result",
+        "the actual new_dtype and native Boolean weak_type, unchanged shape and symbolic scope",
+        category="lowering-defect",
+    )
+    _same_shape(target.shape, source.shape, site)
+
+
+def _validate_complex_foundation(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    construction = site.primitive == "complex"
+    _arity(eqn, 2 if construction else 1, 1, site)
+    site.require(
+        not eqn.params,
+        "complex foundation has unaudited parameters",
+        "native complex construction/extraction without parameters or placement",
+    )
+    target = outputs[0]
+    if construction:
+        dtype = {"float32": "complex64", "float64": "complex128"}.get(inputs[0].dtype)
+        valid = (
+            dtype is not None
+            and inputs[0].dtype == inputs[1].dtype
+            and target.dtype == dtype
+        )
+    else:
+        dtype = {"complex64": "float32", "complex128": "float64"}.get(inputs[0].dtype)
+        valid = dtype is not None and target.dtype == dtype
+    site.require(
+        valid
+        and eqn.outvars[0].aval.weak_type
+        == all(var.aval.weak_type for var in eqn.invars),
+        "complex component dtype or weakness disagrees with its operands",
+        "complex64/FP32 or complex128/FP64 components with native weakness and no implicit promotion",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, target, site)
+
+
 def _validate_select(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -588,9 +746,9 @@ def _validate_select(
     condition, false_arm, true_arm = inputs
     result = outputs[0]
     site.require(
-        condition.dtype == "bool" and false_arm.dtype in _FLOATS | {"bool"},
+        condition.dtype == "bool" and false_arm.dtype in _REAL_VALUES,
         "selection operand types are outside the profile",
-        "one Boolean selector and two floating or Boolean cases",
+        "one Boolean selector and two ordinary same-dtype real/discrete cases",
     )
     site.require(
         false_arm.dtype == true_arm.dtype == result.dtype
@@ -607,9 +765,10 @@ def _validate_select(
         site.require(
             condition.shape == ()
             and condition.symbol is None
-            and result.dtype in _FLOATS,
+            or condition.shape == result.shape
+            and condition.symbol == result.symbol,
             "symbolic selection is outside the bounded selector family",
-            "a static scalar Boolean and equal native leading-batch floating arms",
+            "a scalar Boolean or same-scope runtime mask and equal native leading-batch arms",
         )
 
 
@@ -759,8 +918,6 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
 def _validate_equation(
     eqn: Any,
     site: _Site,
-    consumers: Mapping[int, list[tuple[str, int]]],
-    graph_outputs: set[int],
     formal_symbols: set[tuple[str, object | None]],
     ancestors: frozenset[int],
 ) -> None:
@@ -778,40 +935,45 @@ def _validate_equation(
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
         not symbolic
-        or name in {"add", "mul", "exp", "dot_general", "jit", "select_n"}
+        or name
+        in {
+            "add",
+            "mul",
+            "exp",
+            "dot_general",
+            "jit",
+            "select_n",
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge",
+            "and",
+            "or",
+            "xor",
+            "not",
+            "convert_element_type",
+            "broadcast_in_dim",
+            "cond",
+        }
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
-        "shared leading-batch Add/Mul/Exp/MatMul, named Function signatures, and returned aliases",
+        "shared leading-batch operations, exact two-branch conditionals, named Function signatures, and returned aliases",
     )
     if name == "jit":
         _validate_jit(eqn, site, ancestors)
     elif name == "select_n":
         _validate_select(eqn, inputs, outputs, site)
-    elif name == "ne":
-        _arity(eqn, 2, 1, site)
-        _params(eqn, set(), site)
-        _float_values(inputs, site)
-        site.require(
-            not eqn.params
-            and inputs[0].dtype == inputs[1].dtype
-            and inputs[1].shape == ()
-            and isinstance(eqn.invars[1], JaxLiteral)
-            and eqn.invars[1].val == 0,
-            "numeric condition is outside the native Where family",
-            "a static floating condition compared with a same-dtype scalar zero literal",
-        )
-        site.require(
-            outputs[0].dtype == "bool"
-            and bool(eqn.outvars[0].aval.weak_type)
-            == all(bool(var.aval.weak_type) for var in eqn.invars),
-            "numeric condition result dtype or weakness differs from native Ne",
-            "the native Boolean comparison result",
-            category="lowering-defect",
-        )
-        _same_shape(outputs[0].shape, inputs[0].shape, site)
+    elif name in {"eq", "ne", "lt", "le", "gt", "ge"}:
+        _validate_predicate(eqn, inputs, outputs, site)
+    elif name in {"and", "or", "xor", "not"}:
+        _validate_bitwise(eqn, inputs, outputs, site)
+    elif name in {"real", "imag", "complex"}:
+        _validate_complex_foundation(eqn, inputs, outputs, site)
     elif name == "exp":
         _validate_exp(eqn, inputs, outputs, site)
-    elif name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
+    elif name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
         _arity(eqn, 1 if unary else 2, 1, site)
         allowed_params = (
@@ -838,7 +1000,7 @@ def _validate_equation(
             "equal operand dtypes",
             category="lowering-defect",
         )
-        expected_dtype = "bool" if name == "gt" else inputs[0].dtype
+        expected_dtype = inputs[0].dtype
         site.require(
             outputs[0].dtype == expected_dtype,
             "inconsistent arithmetic result dtype",
@@ -846,85 +1008,16 @@ def _validate_equation(
             category="lowering-defect",
         )
         if symbolic:
-            operation = "Add" if name == "add" else "Mul"
-            symbolic_inputs = [value for value in inputs if value.symbol is not None]
             site.require(
-                bool(symbolic_inputs),
-                f"symbolic {operation} operands do not provide a native batch variable",
-                "at least one operand with the declared native B",
-                category="lowering-defect",
-            )
-            batch = symbolic_inputs[0]
-            site.require(
-                all(
-                    value.shape == batch.shape
-                    and value.symbol == batch.symbol
-                    or value.symbol is None
-                    and value.shape == (1, *batch.shape[1:])
-                    for value in inputs
-                )
-                and outputs[0].symbol == batch.symbol,
-                f"symbolic {operation} operands do not share the same leading-batch shape",
-                "equal rank-two/rank-three tails with the same native B or a literal leading extent 1",
-            )
-            site.require(
-                bool(eqn.outvars[0].aval.weak_type)
-                == all(bool(var.aval.weak_type) for var in eqn.invars),
-                f"symbolic {operation} result weakness differs from its native operands",
+                eqn.outvars[0].aval.weak_type
+                == all(var.aval.weak_type for var in eqn.invars),
+                "symbolic pointwise result weakness differs from its native operands",
                 "the native floating pointwise weak-type rule",
                 category="lowering-defect",
             )
-            shape = batch.shape
-        else:
-            try:
-                shape = tuple(np.broadcast_shapes(*(value.shape for value in inputs)))
-            except ValueError:
-                site.fail(
-                    "incompatible arithmetic operand shapes",
-                    "broadcast-compatible shapes",
-                    category="lowering-defect",
-                )
-        _same_shape(outputs[0].shape, shape, site)
+        _pointwise_shape(inputs, outputs[0], site)
     elif name == "convert_element_type":
-        _arity(eqn, 1, 1, site)
-        _params(eqn, {"new_dtype", "weak_type"}, site, required={"new_dtype"})
-        source, target = inputs[0], outputs[0]
-        site.require(
-            np.dtype(eqn.params.get("new_dtype")) == np.dtype(target.dtype),
-            "cast attribute disagrees with its result dtype",
-            "new_dtype matching the traced result",
-            category="lowering-defect",
-        )
-        if "weak_type" in eqn.params:
-            site.require(
-                type(eqn.params["weak_type"]) is bool
-                and bool(eqn.outvars[0].aval.weak_type) == eqn.params["weak_type"],
-                "cast weak_type disagrees with its result",
-                "a Boolean weak_type matching the traced result",
-                category="lowering-defect",
-            )
-        _same_shape(target.shape, source.shape, site)
-        if source.dtype == target.dtype == "bool":
-            site.require(
-                set(eqn.params)
-                <= {"new_dtype", "weak_type", "sharding", "out_sharding"}
-                and "weak_type" in eqn.params
-                and all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
-                "Boolean conversion attributes or placement are outside the profile",
-                "an explicit same-Boolean conversion with native weakness and unspecified placement",
-            )
-        elif source.dtype == "bool" and target.dtype == "int32":
-            uses = consumers.get(id(eqn.outvars[0]), [])
-            site.require(
-                source.shape == ()
-                and bool(uses)
-                and all(use == ("cond", 0) for use in uses)
-                and id(eqn.outvars[0]) not in graph_outputs,
-                "Boolean-to-int32 conversion is not a conditional selector",
-                "a scalar Boolean converted solely for two-branch cond selection",
-            )
-        else:
-            _float_values((source, target), site)
+        _validate_conversion(eqn, inputs, outputs, site)
     elif name == "broadcast_in_dim":
         _arity(eqn, 1, 1, site)
         _params(
@@ -934,21 +1027,23 @@ def _validate_equation(
             required={"shape", "broadcast_dimensions"},
         )
         source, target = inputs[0], outputs[0]
-        if source.dtype == target.dtype == "bool":
-            site.require(
-                all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
-                "Boolean broadcast placement is outside the profile",
-                "an unplaced static Boolean broadcast",
-            )
-            site.require(
-                bool(eqn.invars[0].aval.weak_type)
-                == bool(eqn.outvars[0].aval.weak_type),
-                "Boolean broadcast changes native weakness",
-                "the original Boolean weakness",
-                category="lowering-defect",
-            )
-        else:
-            _float_values((*inputs, *outputs), site)
+        site.require(
+            source.dtype in _REAL_VALUES and target.dtype in _REAL_VALUES,
+            "complex broadcast remains outside this audited family",
+            "ordinary Boolean/integer/floating broadcasts",
+        )
+        site.require(
+            all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+            "broadcast placement is outside the profile",
+            "an explicit unplaced broadcast",
+        )
+        site.require(
+            eqn.invars[0].aval.weak_type == eqn.outvars[0].aval.weak_type,
+            "broadcast changes native weakness",
+            "the original operand weakness",
+            category="lowering-defect",
+        )
+        declared_shape, declared_symbol = source_shape_contract(eqn.params["shape"])
         dimensions = eqn.params.get("broadcast_dimensions", ())
         site.require(
             len(dimensions) == len(source.shape)
@@ -964,7 +1059,9 @@ def _validate_equation(
             category="lowering-defect",
         )
         site.require(
-            tuple(eqn.params.get("shape", ())) == target.shape
+            declared_shape == target.shape
+            and declared_symbol == target.symbol
+            and (source.symbol is None or source.symbol == target.symbol)
             and source.dtype == target.dtype
             and all(
                 size in (1, target.shape[axis])
@@ -1052,11 +1149,6 @@ def _validate_equation(
                 "conditional literal selector is outside the profile",
                 "a Boolean selector represented as 0 or 1",
             )
-        site.require(
-            all(value.dtype != "int32" for value in (*inputs[1:], *outputs)),
-            "int32 escapes the conditional selector role",
-            "floating, Boolean, or uint32 branch operands/results",
-        )
         branches = eqn.params.get("branches", ())
         site.require(
             len(branches) == 2,
@@ -1081,11 +1173,8 @@ def _validate_equation(
             except SourcePrecisionError as exc:
                 raise exc.with_context(f"{site.location}/branch {index}") from exc
     elif name is not None and name.startswith("onnx_fn::"):
-        site.require(
-            all(value.dtype != "int32" for value in (*inputs, *outputs)),
-            "int32 crosses a function boundary outside its selector role",
-            "floating, Boolean, or uint32 function operands/results",
-        )
+        # The existing Function lowerer validates each actual retraced body.
+        pass
     else:
         site.fail(
             "primitive is outside the profile",
@@ -1176,12 +1265,8 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
         "effects are outside the profile",
         "a pure, effect-free traced function",
     )
-    graph_outputs = {id(var) for var in jaxpr.outvars}
-    consumers: dict[int, list[tuple[str, int]]] = {}
     selector_producers: set[int] = set()
     for eqn in jaxpr.eqns:
-        for index, var in enumerate(eqn.invars):
-            consumers.setdefault(id(var), []).append((eqn.primitive.name, index))
         if (
             eqn.primitive.name == "convert_element_type"
             and len(eqn.invars) == len(eqn.outvars) == 1
@@ -1198,12 +1283,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
                 opset,
                 requested_dtypes=(str(var.aval.dtype),),
             )
-            value = _tensor(var, boundary_site)
-            boundary_site.require(
-                value.dtype != "int32",
-                "int32 appears at a scope boundary",
-                "int32 only as an internal Boolean conditional selector",
-            )
+            _tensor(var, boundary_site)
     # Function formals may correctly remap caller symbols. Validate each actual
     # retraced scope locally while preserving identity within that scope.
     formals = (*jaxpr.invars, *jaxpr.constvars)
@@ -1257,9 +1337,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
                 "a scalar bool-to-int32 conversion in this scope",
             )
         try:
-            _validate_equation(
-                eqn, eqn_site, consumers, graph_outputs, formal_symbols, ancestors
-            )
+            _validate_equation(eqn, eqn_site, formal_symbols, ancestors)
         except SourcePrecisionError:
             raise
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
@@ -1278,9 +1356,4 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             value.symbol is None or value.symbol in formal_symbols,
             "symbolic output differs from this scope's formal batch contract",
             "the same atomic batch variable and scope as actual formals",
-        )
-        boundary_site.require(
-            value.dtype != "int32",
-            "int32 appears at a scope boundary",
-            "int32 only as an internal Boolean conditional selector",
         )

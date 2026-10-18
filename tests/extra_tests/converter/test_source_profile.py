@@ -373,7 +373,7 @@ def test_profile_rejects_current_functionality_outside_the_finite_milestone(
                 "convert_element_type",
                 [_spec()],
                 [_spec((), np.float16)],
-                {"new_dtype": np.float64},
+                {"new_dtype": np.dtype(np.float64), "weak_type": False},
             ),
             "cast attribute",
         ),
@@ -400,14 +400,18 @@ def test_profile_distinguishes_inconsistent_traced_metadata(
     assert captured.value.category == "lowering-defect"
 
 
-def test_profile_rejects_selector_escape_and_non_boolean_cond_selection() -> None:
+def test_profile_accepts_integer_data_and_requires_boolean_cond_origin() -> None:
     graph = _graph(
         "convert_element_type",
         [_spec((), np.bool_)],
         [_spec((), np.int32)],
-        {"new_dtype": np.int32, "weak_type": False},
+        {"new_dtype": np.dtype(np.int32), "weak_type": False},
     )
-    with pytest.raises(SourcePrecisionError, match="not a conditional selector"):
+    # Ordinary integer data may be returned. Explicit placement remains a
+    # negative control, and cond still requires its own Boolean-origin proof.
+    validate_source_jaxpr(graph, 23)
+    graph.eqns[0].params["sharding"] = object()
+    with pytest.raises(SourcePrecisionError, match="placement"):
         validate_source_jaxpr(graph, 23)
     malformed = _graph("cond", [_spec(), _spec()], [_spec()], {"branches": ()})
     with pytest.raises(

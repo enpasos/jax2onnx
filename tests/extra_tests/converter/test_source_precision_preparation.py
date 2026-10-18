@@ -250,16 +250,24 @@ def test_skipped_numerics_and_unaudited_functionality_remain_unverified() -> Non
         is unsupported.numerical_status
         is CheckStatus.UNVERIFIED
     )
-    # The helper delegates admission to the actual SOURCE facade, whose current
-    # input profile still rejects this unchanged external uint32 case.
+    # The helper delegates admission to the actual SOURCE facade. This exact
+    # original uint32 identity is now ordinary typed data with actual evidence.
     integers = run_source_case(
         _metadata(lambda x: x, input_values=[np.asarray([1], np.uint32)]),
         SourceScenario("pending-integer", False, np.float32),
     )
-    assert integers.stage == "input" and integers.category == "migration-gap"
-    assert integers.model is integers.validation is None
-    assert integers.schema is CheckStatus.UNVERIFIED
-    assert integers.audit.status is integers.numerical_status is CheckStatus.UNVERIFIED
+    assert (
+        integers.stage == "runtime-checked" and integers.category == "runtime-evidence"
+    )
+    assert integers.schema is CheckStatus.VALIDATED
+    assert integers.audit.status is integers.numerical_status is CheckStatus.VALIDATED
+    assert integers.prepared.traced_inputs[0].dtype == "uint32"
+    assert integers.prepared.reference_outputs[0].dtype == np.dtype(np.uint32)
+    assert (
+        integers.prepared.reference_outputs[0].tobytes()
+        == np.asarray([1], np.uint32).tobytes()
+    )
+    integers.validation.require_sample_acceptance()
 
 
 def test_explicit_raw_criteria_are_frozen_without_legacy_f64_defaults() -> None:

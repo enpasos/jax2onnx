@@ -639,11 +639,10 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
     assert active_precision_policy() is PrecisionPolicy.LEGACY
 
 
-def test_symbolic_non_add_and_control_scopes_remain_explicit_exclusions() -> None:
+def test_symbolic_subtract_and_reduce_sum_remain_explicit_exclusions() -> None:
     for fn in (
         lambda x, y: jax.lax.sub(x, y),
         lambda x, y: jax.lax.reduce_sum(x, axes=(0,)),
-        lambda x, y: jax.lax.cond(np.bool_(True), lambda: _add(x, y), lambda: x),
     ):
         with pytest.raises(
             SourcePrecisionError, match="symbolic operation is outside"
@@ -652,8 +651,22 @@ def test_symbolic_non_add_and_control_scopes_remain_explicit_exclusions() -> Non
         assert error.value.phase == "profile-validation"
 
 
+def test_symbolic_constant_cond_accepts_original_batch_scope() -> None:
+    def fn(x: Any, y: Any) -> Any:
+        return jax.lax.cond(np.bool_(True), lambda: _add(x, y), lambda: x)
+
+    # Retain the original constant-True conditional and both B-shaped operands.
+    # Native eager/JIT references for B=2/5 precede the common SOURCE export.
+    samples = _samples(fn)
+    model = _source(fn)
+    _check_samples(model, samples)
+
+
 def test_symbolic_add_operand_broadcast_remains_an_explicit_exclusion() -> None:
-    with pytest.raises(SourcePrecisionError, match="symbolic Add operands") as error:
+    with pytest.raises(
+        SourcePrecisionError,
+        match="pointwise operands do not share the same leading-batch shape",
+    ) as error:
         _source(inputs=[("B", 3), ("B", 1)])
     assert error.value.category == "profile-exclusion"
 
@@ -728,16 +741,38 @@ def test_direct_core_checks_mixed_scope_and_finite_contract() -> None:
 
 
 @pytest.mark.parametrize("dtype", [np.bool_, np.uint32])
-def test_direct_core_symbolic_nonfloating_alias_is_not_admitted(dtype: Any) -> None:
-    with pytest.raises(SourcePrecisionError, match="symbolic nonfloating values"):
-        conversion_api._convert_to_ir(
-            fn=lambda x: x,
-            inputs=[jax.ShapeDtypeStruct(("B", 3), dtype)],
-            input_params=None,
-            model_name="batch",
-            opset=23,
-            enable_double_precision=False,
-            record_primitive_calls_file=None,
-            precision_policy=PrecisionPolicy.SOURCE,
-            jaxpr_validator=validate_source_jaxpr,
+def test_direct_core_symbolic_typed_alias_accepts_original_contract(dtype: Any) -> None:
+    def fn(x: Any) -> Any:
+        return x
+
+    samples = []
+    for batch in (2, 5):
+        payload = np.asarray(
+            [False, True, True] if dtype is np.bool_ else [0, 2**31, 2**32 - 1],
+            dtype,
         )
+        values = (np.resize(payload, (batch, 3)),)
+        samples.append(
+            SourceSample(values, _reference(fn, values), SampleCriteria("bitwise"))
+        )
+    # Retain the original direct-core entry point and every original option.
+    model = conversion_api._convert_to_ir(
+        fn=fn,
+        inputs=[jax.ShapeDtypeStruct(("B", 3), dtype)],
+        input_params=None,
+        model_name="batch",
+        opset=23,
+        enable_double_precision=False,
+        record_primitive_calls_file=None,
+        precision_policy=PrecisionPolicy.SOURCE,
+        jaxpr_validator=validate_source_jaxpr,
+    )
+    expected_dtype = ir.DataType.BOOL if dtype is np.bool_ else ir.DataType.UINT32
+    for value in (*model.graph.inputs, *model.graph.outputs):
+        assert value.dtype == expected_dtype
+        assert normalized_shape_dimensions(value.shape) == ("B", 3)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    # The core result has no facade report. The exact same identity callable and
+    # signature use the established facade/sample API for runtime acceptance.
+    artifact = _source(fn, inputs=[jax.ShapeDtypeStruct(("B", 3), dtype)])
+    _check_samples(artifact, samples)

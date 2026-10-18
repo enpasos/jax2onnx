@@ -618,7 +618,23 @@ def _source_batch_boundaries(
                 or len(labels) != 1
                 or item.shape[0] != labels[0]
                 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
-                or item.dtype not in {None, "float16", "bfloat16", "float32", "float64"}
+                or item.dtype
+                not in {
+                    None,
+                    "bool",
+                    "int8",
+                    "int16",
+                    "int32",
+                    "int64",
+                    "uint8",
+                    "uint16",
+                    "uint32",
+                    "uint64",
+                    "float16",
+                    "bfloat16",
+                    "float32",
+                    "float64",
+                }
                 or any(
                     not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0
                     for dim in item.shape[1:]

@@ -270,12 +270,25 @@ def test_original_errors_are_preserved(case: str) -> None:
     assert str(source_error.value) == str(native_error.value)
 
 
-@pytest.mark.parametrize("dtype", [np.int32, np.complex64])
-def test_integer_and_complex_where_remain_excluded(dtype: Any) -> None:
+def test_integer_where_accepts_original_int32_signature() -> None:
+    values = np.asarray([2147483646, 2147483647], np.int32)
+    feeds = [(np.asarray(mask), values) for mask in ([False, True], [True, False])]
+    _, proto, _, references = _artifact(
+        lambda c, x: jnp.where(c, x, x),
+        [jax.ShapeDtypeStruct((2,), bool), jax.ShapeDtypeStruct((2,), np.int32)],
+        feeds=feeds,
+    )
+    _accept(proto, feeds, references, _BITWISE)
+
+
+def test_complex_where_remains_excluded() -> None:
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(
             lambda c, x: jnp.where(c, x, x),
-            [jax.ShapeDtypeStruct((2,), bool), jax.ShapeDtypeStruct((2,), dtype)],
+            [
+                jax.ShapeDtypeStruct((2,), bool),
+                jax.ShapeDtypeStruct((2,), np.complex64),
+            ],
             precision_policy=PrecisionPolicy.SOURCE,
         )
     assert error.value.category == "profile-exclusion"
@@ -480,33 +493,66 @@ def test_select_native_type_shape_weakness_and_schema_are_strict(mutation: str) 
             "convert_element_type",
             {"new_dtype": np.dtype(np.bool_), "weak_type": False, "sharding": object()},
         ),
-        (
-            "convert_element_type",
-            {"new_dtype": np.dtype(np.float32), "weak_type": False},
-        ),
     ],
 )
 def test_boolean_support_does_not_widen_conversion_or_placement(
     name: str, params: Any
 ) -> None:
-    output = (
-        (np.float32, (), False)
-        if params.get("new_dtype") == np.dtype(np.float32)
-        else (bool, (2,) if name == "broadcast_in_dim" else (), False)
-    )
+    output = (bool, (2,) if name == "broadcast_in_dim" else (), False)
     graph = _leaf_graph(name, [(bool, (), False)], output, params)
     with pytest.raises(SourcePrecisionError):
         validate_source_jaxpr(graph, 23)
 
 
-def test_symbolic_boolean_boundary_stays_excluded() -> None:
+def test_boolean_to_float_accepts_original_explicit_conversion() -> None:
+    graph = _leaf_graph(
+        "convert_element_type",
+        [(bool, (), False)],
+        (np.float32, (), False),
+        {"new_dtype": np.dtype(np.float32), "weak_type": False},
+    )
+    validate_source_jaxpr(graph, 23)
+    feeds = [(np.asarray(value),) for value in (False, True)]
+    _, proto, _, references = _artifact(
+        lambda c: jax.lax.convert_element_type(c, np.float32),
+        [jax.ShapeDtypeStruct((), bool)],
+        feeds=feeds,
+    )
+    _accept(proto, feeds, references, _BITWISE)
+
+
+def test_boolean_to_complex_conversion_remains_excluded() -> None:
+    graph = _leaf_graph(
+        "convert_element_type",
+        [(bool, (), False)],
+        (np.complex64, (), False),
+        {"new_dtype": np.dtype(np.complex64), "weak_type": False},
+    )
+    with pytest.raises(SourcePrecisionError):
+        validate_source_jaxpr(graph, 23)
+
+
+def test_symbolic_boolean_boundary_accepts_original_same_batch_scope() -> None:
+    from jax import export
+
+    (batch,) = export.symbolic_shape("B")
+    feeds = [(np.arange(size * 3).reshape(size, 3) % 2 == 0,) for size in (2, 5)]
+    _, proto, _, references = _artifact(
+        lambda c: c,
+        [jax.ShapeDtypeStruct((batch, 3), bool)],
+        feeds=feeds,
+    )
+    _accept(proto, feeds, references, _BITWISE)
+
+
+def test_symbolic_complex_boundary_remains_excluded() -> None:
     from jax import export
 
     (batch,) = export.symbolic_shape("B")
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(
             lambda c: c,
-            [jax.ShapeDtypeStruct((batch, 3), bool)],
+            [jax.ShapeDtypeStruct((batch, 3), np.complex64)],
             precision_policy=PrecisionPolicy.SOURCE,
         )
     assert error.value.phase == "input" and error.value.category == "profile-exclusion"

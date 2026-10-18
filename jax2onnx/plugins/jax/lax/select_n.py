@@ -206,6 +206,34 @@ class SelectNPlugin(PrimitiveLeafPlugin):
                 ctx.bind_value_for_var(out_var, result)
                 return
 
+            if (
+                source
+                and np.issubdtype(out_var.aval.dtype, np.integer)
+                and np.dtype(out_var.aval.dtype) != np.dtype(np.int64)
+            ):
+                # CPU Where has integer kernel gaps. Integer Cast preserves
+                # narrower values exactly and maps UINT64 modulo 2**64 into
+                # INT64; the inverse Cast recovers every selected bit. Keep
+                # canonical arms and all their sibling consumers untouched.
+                true_carrier = builder.op(
+                    "Cast", [true_val], {"to": int(ir.DataType.INT64.value)}
+                )
+                false_carrier = builder.op(
+                    "Cast", [false_val], {"to": int(ir.DataType.INT64.value)}
+                )
+                _ensure_tensor_metadata(true_carrier, out_shape, ir.DataType.INT64)
+                _ensure_tensor_metadata(false_carrier, out_shape, ir.DataType.INT64)
+                selected = builder.op("Where", [cond_val, true_carrier, false_carrier])
+                _ensure_tensor_metadata(selected, out_shape, ir.DataType.INT64)
+                result_dtype = true_val.dtype
+                assert result_dtype is not None
+                result = builder.op(
+                    "Cast", [selected], {"to": int(result_dtype.value)}, output=out_spec
+                )
+                _ensure_tensor_metadata(result, out_shape, result_dtype)
+                ctx.bind_value_for_var(out_var, result)
+                return
+
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
             where_out = cast(
                 ir.Value,

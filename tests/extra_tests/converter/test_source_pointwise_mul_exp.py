@@ -287,7 +287,7 @@ def test_native_exp_keyword_errors_match_the_unpatched_original(keyword: str) ->
 
 @pytest.mark.parametrize("x64", [False, True])
 @pytest.mark.parametrize("dtype", [np.int32, np.bool_, np.complex64])
-def test_native_promotion_remains_traceable_without_admitting_integer_or_complex_boundaries(
+def test_native_exp_promotion_and_typed_boundary_admission(
     x64: bool, dtype: Any
 ) -> None:
     with jax.enable_x64(x64):
@@ -308,9 +308,13 @@ def test_native_promotion_remains_traceable_without_admitting_integer_or_complex
                 _reference(jax.jit(model), values)[0].tobytes() == compiled[0].tobytes()
             )
         before = _globals(), _settings()
-        with pytest.raises(SourcePrecisionError) as caught:
-            ui._to_onnx(model, specs, precision_policy=PrecisionPolicy.SOURCE)
-        assert caught.value.category == "profile-exclusion"
+        if np.issubdtype(dtype, np.complexfloating):
+            with pytest.raises(SourcePrecisionError) as caught:
+                ui._to_onnx(model, specs, precision_policy=PrecisionPolicy.SOURCE)
+            assert caught.value.category == "profile-exclusion"
+        else:
+            _, proto, _, references = _artifact(model, specs, feeds=[values])
+            _accept(proto, [values], references, _FINITE[eager[0].dtype.name])
         assert (_globals(), _settings()) == before
 
 

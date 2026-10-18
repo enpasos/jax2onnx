@@ -532,14 +532,24 @@ def _validate_source_inputs(
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
         shape = tuple(spec.shape)
-        requirement = "FP16/BF16/FP32/FP64 static or shared leading-batch inputs, or static Boolean inputs"
-        action = "use typed floating or static Boolean inputs within the finite audited shape contract"
+        requirement = "ordinary Boolean/integer/floating static or shared leading-batch inputs, or static complex64/complex128 inputs"
+        action = "use typed inputs within the finite audited shape contract; symbolic complex shapes remain pending"
         if not diagnostic and dtype not in {
             "float16",
             "bfloat16",
             "float32",
             "float64",
             "bool",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "complex64",
+            "complex128",
         }:
             raise SourcePrecisionError(
                 f"input shape {shape} and dtype {dtype} are outside the internal milestone",
@@ -553,18 +563,18 @@ def _validate_source_inputs(
             )
         if (
             not diagnostic
-            and dtype == "bool"
+            and dtype in {"complex64", "complex128"}
             and source_shape_contract(shape)[1] is not None
         ):
             raise SourcePrecisionError(
-                "symbolic Boolean inputs are outside the internal milestone",
+                "symbolic complex inputs are outside the internal milestone",
                 phase="input",
                 category="profile-exclusion",
                 location=f"input {index}",
                 requested_dtypes=(dtype,),
                 opset=opset,
-                requirement="static Boolean input shapes",
-                action="use a static runtime mask; symbolic Boolean migration remains pending",
+                requirement="static complex input shapes",
+                action="use static complex values; symbolic complex migration remains pending",
             )
     try:
         validate_source_shapes(

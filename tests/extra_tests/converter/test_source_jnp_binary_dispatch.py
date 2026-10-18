@@ -314,7 +314,7 @@ def test_native_error_is_propagated_once_without_retry(monkeypatch: Any) -> None
     assert actual.value is failure and calls == [((1,), {"keyword": 2})]
 
 
-def test_only_the_six_reviewed_callers_opt_in() -> None:
+def test_only_the_sixteen_reviewed_callers_opt_in() -> None:
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
     for path in directory.glob("*.py"):
@@ -331,7 +331,26 @@ def test_only_the_six_reviewed_callers_opt_in() -> None:
                             and keyword.value.value is True
                         )
                         selected.append(path.stem)
-    assert sorted(selected) == ["add", "cos", "exp", "maximum", "minimum", "sin"]
+    assert sorted(selected) == sorted(
+        [
+            "add",
+            "cos",
+            "exp",
+            "maximum",
+            "minimum",
+            "sin",
+            "equal",
+            "greater",
+            "greater_equal",
+            "less",
+            "less_equal",
+            "bitwise_and",
+            "bitwise_or",
+            "bitwise_xor",
+            "bitwise_not",
+            "invert",
+        ]
+    )
 
 
 def _values(case: str) -> tuple[Any, ...]:
