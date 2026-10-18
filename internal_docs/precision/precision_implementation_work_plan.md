@@ -4,7 +4,47 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
-The [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
+The [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
+has independent semantic and actual-main acceptance. The private SOURCE path
+preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
+static BOOL inputs and recursively validated pure closed JIT bodies. Actual
+constants, formal bindings, weak types and native symbol scopes are checked
+before lowering; version-sensitive inline hints use the compatibility layer.
+Public LEGACY precision policy, `source-static-v1` and report schema 1 remain
+unchanged.
+
+Before the shared x64 restoration repair, both actual-main selections pass
+**2,661 cases**, including the complete prior
+2,658 and 1,489 selections. Each records 7,983 passing test phases and all 49
+observed test modules: 44 from MAIN and five frozen external files. All 862
+Python hashes, settings, original callables and policy are preserved. The
+independent selection passes 200 cases per stack; the packet adds 216 permanent
+cases. These overlapping counts are not additive. The separately reviewed
+shared x64 repair preserves the hidden global beneath caller-local overrides
+and adds 87 permanent cases. Both post-repair main selections
+pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
+hashes and restored state are verified. Independent integration review accepts
+these results.
+
+The current inventory records **213 files, 1,254 functions and 502 additions**,
+retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
+Both inventory CLI checks pass. The fresh complete primary-stack suite passes
+**7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
+or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
+Code commit `ae820b1a` passes all seven actual repository hooks; the tested
+checkpoint hashes remain unchanged after commit.
+
+Strict Where negative-zero samples remain **FAILED** for FP16/FP32/FP64 in both
+CPU settings on both measured stacks; their acceptance guard still raises.
+Ordinary finite/BOOL success and BF16 structural evidence are separate. The
+original gather source now has matching complete native/activated typed traces,
+but its unchanged raw callback still rejects the false constant's broadcast
+shape. It adds no accepted artifact or ORT result and keeps its None criterion.
+A separate native gather counterpart and coherent typed operator families are
+being authored; neither is accepted or integrated here. Broader symbolic/model
+coverage and the full B–F migration remain unfinished.
+
+The preceding [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
 has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
 the original SOURCE call and weak typing; the private audited profile validates
 floating Exp and finite static/shared-batch Mul composition. Source casts and
@@ -13,7 +53,7 @@ including all previous 990 cases, fourteen frozen review guards and 117 new
 permanent cases. The separate independent selection passes 153 cases per stack;
 these overlapping counts are not additive.
 
-The inventory now records **210 files, 1,217 functions and 465 additions**, with
+That checkpoint’s inventory records **210 files, 1,217 functions and 465 additions**, with
 all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
 cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
 warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
@@ -21,8 +61,9 @@ all five code/inventory paths and all 860 Python hashes remain unchanged.
 The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
 checks do not establish a working CPU kernel. Neither the five-row Leading-B
 nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
-`source-static-v1` and report schema 1 remain unchanged. Where/JIT work is a
-separate, unaccepted follow-up; broader phases D/E/F remain unfinished.
+`source-static-v1` and report schema 1 remain unchanged. Where/JIT was still
+pending at that checkpoint; its bounded follow-up is recorded above. Broader
+phases D/E/F remain unfinished.
 
 The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 extends the private audited path to one actual leading symbolic batch at ranks
@@ -265,7 +306,9 @@ numerical acceptance for every composition or execution target.
 | Export boundary | Initially `proto`, `ir`, and standard `file` returns, model name and custom input/output names; C4a now adds private primitive recording and web-file packaging through the same owners. Browser execution is a separate gate. |
 | JAX configuration | Caller x64 and default matrix precision, including supported model-local scopes captured by named-function tracing. Explicit unsupported matrix algorithms fail. |
 
-During phase A, the source path rejects symbolic dimensions, effects, loops/scan/JIT regions,
+At the initial phase-A checkpoint, the source path rejected symbolic dimensions,
+effects and loops/scan/JIT regions. Later reviewed finite symbolic and pure-JIT
+contracts are recorded in the checkpoint ledger. The initial exclusions also covered
 unlisted operations or precision parameters, nonempty `input_params`, nonempty
 NCHW input/output options, and nondefault normalization
 selection. Empty/omitted parameter and layout options retain their ordinary
@@ -277,8 +320,9 @@ guarantees are not required beyond the existing functionality.
 
 This table records the initial phase-A scope. Later static-matrix and shared-B
 packets extend finite audited contracts while keeping the persisted identifier
-and report schema. The Leading-B matrix/bias checkpoint adds the bounded
-rank-two/three contract described below. Its acceptance gates do not
+and report schema. The Leading-B matrix/bias and Exp/Mul checkpoints add bounded rank-two/three
+contracts; the later Where/JIT checkpoint adds static BOOL dependencies and pure
+closed JIT bodies. Their acceptance gates do not
 retroactively broaden historical phase-A evidence.
 
 Retain appropriate NaN, infinity, and signed-zero coverage. BF16 graph validity
@@ -447,6 +491,8 @@ planning work is separate from production-code ownership.
 | Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted code; main 544 passes per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | `791664f8`; full run and all actual hooks pass, with post-full header-only normalization recorded |
 | Leading-B matrices and bias | Preserve actual native B at ranks two/three, canonical FP32/FP64 MatMul, equal-tail shared-B/static-1 Add and static bias reshape across the five unchanged raw anchors. | Production/tooling and actual-main binding independently accepted; 990 main checks per stack; all 40 v3 runs per stack meet the fixed FP32 criterion with independent result acceptance; 6,816-test complete primary-stack run passes | `718f448e`; all seven actual hooks pass and frozen hashes remain unchanged |
 | Native Exp and Leading-B Mul | Preserve the native Exp call and weakness, finite static/shared-B Mul, and source-authored casts/broadcasts through named composition. | Independently accepted semantics and actual-main binding; 153 independent and 1,489 main cases per stack, including 117 new permanent cases; fixed CPU edge/finite evidence, BF16 runtime unverified | `7c68300b`; 6,933-test complete primary-stack run and all seven actual hooks pass; frozen hashes stay exact |
+| Native Where and typed JIT | Preserve original calls, static BOOL/floating selection and pure closed JIT bodies with actual typed bindings and native inline compatibility. | Independently accepted semantics and actual-main integration; 2,661 pre-repair main and 200 independent checks per stack, strict signed-zero failures retained; fresh complete primary suite passes 7,236 tests after the shared restoration repair | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
+| Shared x64 restoration | Preserve the hidden global beneath active local overrides, including entry/body exceptions, without changing effective LEGACY precision policy. | Independently accepted two-file repair and actual-main binding; 89 cases per stack, including 87 new permanent cases and both unchanged cache tests; failed first full run retained | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -688,7 +734,9 @@ D1a is committed at `223f24bf`: `where` uses native JAX operand-aware promotion,
 unchanged. Boolean selection uses `Not`/`And`/`And`/`Or` with actual pairwise
 shapes and selected exact CPU results. Numeric selection continues to emit Where
 with JAX-promoted operand types;
-`where`/`full` still require diagnostics rather than audited product admission.
+at that checkpoint, `where`/`full` required diagnostics rather than audited
+product admission. The newer bounded Where/JIT contract is recorded above;
+`full` remains diagnostic.
 The existing trace-cache namespace separates native/LEGACY/SOURCE; no extra
 cache mechanism was needed. The
 [curated findings](poc/option_and_array_creation_findings.md) retain kernel failures
@@ -858,16 +906,17 @@ The small Add/Neg/Where candidate remains failed on measured CPU cases. Export
 has no runtime-target argument: `validate_source_samples` and the raising
 `require_sample_acceptance` guard establish separate artifact-bound evidence.
 No criterion, source cast, public precision mode or family-wide admission changes.
-Native sine/cosine binding now has independently reviewed main evidence:
-553 checks per stack on the exact accepted four files. The separate two-cell
+Native sine/cosine binding has independently reviewed historical main evidence:
+553 checks per stack on the exact accepted four files. Its separate two-cell
 gather supplement produces no artifact or ORT execution: off retains its
 configuration conflict; on reaches custom Where at scope 0/equation 11. The
 native Sin/Cos and first eleven typed equations match exactly, but the complete
 traces differ at Where. The primary observer's list/tuple assertion failed after
 persisting evidence; its exit-1 record and separate JSON correction are retained.
-The secondary v2 driver succeeds. Custom Where's independently checked
-structural rule and DOUBLE cosine's half-angle numerical audit remain work;
-neither is admitted by forwarding native calls.
+The secondary v2 driver succeeds. At that checkpoint, custom Where's structural
+rule remained open; the newer Where/JIT result is recorded above. DOUBLE cosine's
+half-angle numerical audit remains work. Native dispatch alone does not certify
+these numerical contracts.
 
 The ordinary-matrix packet is integrated and has fresh audited sample results;
 its numerical post-run review is accepted. Commit `45881d8d` passes the
@@ -899,20 +948,34 @@ has now passed independent semantics and actual-main integration review. Both
 main selections pass 1,489 cases, including the earlier 990 and fourteen review
 guards; 117 cases are new permanent Pointwise regressions. The separately run
 153-case independent selection and these larger selections overlap.
-The inventory is now 210 files, 1,217 functions and 465 migration additions,
+That checkpoint’s inventory is 210 files, 1,217 functions and 465 migration additions,
 with all 752 original anchors and all raw contracts retained. Both inventory
 CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
 warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
 all five code/inventory paths and all 860 Python hashes remain unchanged.
 
-Next, independently review and integrate the separately authored Where/JIT
-packet if its exact source/branch/dtype and version-compatibility gates pass.
-Native JAX inlining-policy enum versus older Boolean representations must be
-handled through a typed compatibility seam, without string/repr guessing.
-That follow-up remains unaccepted here. Then organize the remaining work into
-coherent operator-family batches with shared representation and validation
-rules; individual allowlist additions are intermediate steps, while the full
-B–F contract remains the completion requirement. The x64 conflict, broader symbolic
+The subsequent [Where/JIT checkpoint](poc/where_jit_admission_findings.md) now
+has independent semantic and actual-main acceptance. Its 216 new permanent
+cases include the three final AbstractRef/high-form negatives; the earlier
+213-case focused selection is not additional coverage. Both pre-repair main
+runs pass 2,661 cases and observe all 49 test modules, with all 862 Python hashes
+and state restored. After the separately reviewed shared x64 repair, both fresh
+main selections pass 89 cases, including both unchanged cache tests, with hidden
+x64 True and all 863 Python hashes exact. The refreshed inventory is 213 files,
+1,254 functions and 502 additions, retaining the original 752 anchors and all raw
+contracts. The fresh complete primary-stack suite passes
+**7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
+or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
+Code commit `ae820b1a` passes all seven actual repository hooks; the tested
+checkpoint hashes remain unchanged after commit.
+
+Next, review the separately authored native gather counterpart and remaining
+coherent typed operator families. Their preparation is not product admission,
+and they are not integrated at this checkpoint. Keep the raw gather callback
+failure, strict signed-zero failures and historical criteria unchanged. Shared
+representation and validation rules guide the remaining work; individual
+allowlist additions are intermediate steps, while the full B–F contract remains
+the completion requirement. The x64 conflict, broader symbolic
 matrices/layouts, all 22 parameterized models, 41 normalization rows,
 104 metadata-free registrations and optional MaxText/MaxDiffusion discovery
 remain part of completion. The 295/310 declaration count is prioritization

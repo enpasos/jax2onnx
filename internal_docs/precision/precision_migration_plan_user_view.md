@@ -14,7 +14,25 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
+The [Where and JIT checkpoint](poc/where_jit_admission_findings.md) adds reviewed
+private support for selected conditional calculations and compiled JAX bodies.
+It keeps the original JAX call, input types, constants and actual branch inputs.
+Both supported stacks pass 2,661 main checks before a separately reviewed
+repair of shared x64 state restoration. That repair preserves caller settings
+beneath a local override; 89 fresh main checks pass on each stack with
+independent integration acceptance. The fresh complete primary-stack suite
+passes **7,236 tests**. Code commit `ae820b1a` passes all seven repository hooks.
+
+Some strict floating-point samples still lose the sign of negative zero on the
+measured CPUs. Those samples remain failed and cannot pass sample acceptance;
+passing ordinary finite or Boolean examples does not change that result. The
+original gather example now preserves the complete native trace, but still
+fails its unchanged structural check before any runtime call. A separate gather
+counterpart and further operator families are being prepared, without accepted
+product support yet. Public calls and both existing double-precision options
+keep their behavior; complete model coverage and the final transition remain open.
+
+The preceding [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
 adds reviewed private support for selected exponential and multiplication
 calculations, including a shared variable batch size. The source’s input types,
 weak typing, casts and explicit broadcasting are preserved. Main checks pass
@@ -24,7 +42,7 @@ identical results for every value or support on every device.
 The complete primary-stack run passes **6,933 tests**. Commit `7c68300b`
 passes all seven repository hooks.
 Public calls and both existing double-precision options keep their behavior.
-Where/JIT work and broader model coverage remain separate, unfinished work.
+Its historical results remain unchanged; broader model coverage is unfinished.
 
 The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 adds reviewed private support for selected matrix and bias calculations with a
@@ -120,8 +138,8 @@ The calling experiment makes omitted/false/true legacy settings,
 source-preserving calls, warnings, and conflicts directly comparable. Its
 private selector is an experiment interface. Positive results cover selected
 CPU samples, including audited named functions and two-branch conditionals.
-Loops, JIT regions, general deployment diagnostics, and broader operation
-coverage remain open. BF16 model validity alone does
+Broader loops/JIT forms, general deployment diagnostics and operation coverage
+remain open beyond the later bounded Where/JIT checkpoint. BF16 model validity alone does
 not establish execution support. The private CPU sample check records execution
 settings and refuses to accept a failed or untested numerical sample. The known
 FP16 square/sum result remains a failure on the recorded runtimes. Passing the
@@ -155,9 +173,10 @@ composition has private implementation evidence with unchanged source and
 multiple batches. Broader acceptance across 310 symbolic and seven NCHW rows
 remains open;
 symbolic layouts, normalization and broader model coverage require further work.
-Native sine/cosine binding now advances source tracing. The unchanged gather
-example still produces no artifact: its x64-on scenario reaches a custom-Where
-boundary, and x64-off retains its configuration conflict. Ordinary static matrix
+Native sine/cosine and the newer Where/JIT binding preserve the complete native
+trace of the unchanged gather example. Its x64-on scenario still fails the raw
+structural check for a broadcast constant; x64-off retains its configuration
+conflict. Neither adds an accepted artifact or runtime result. Ordinary static matrix
 admission now has main evidence. The bounded Leading-B matrix/bias extension
 is committed at `718f448e` and preserves the five unchanged MatMul, GPT Add and
 NNX Linear sources, including their real weights, bias and configuration.
@@ -165,8 +184,10 @@ Their selected FP32 CPU samples pass at batch sizes two and five in 40 runs per
 stack, with independent acceptance. Broader dynamic-shape and model requirements
 remain open. The Exp/multiplication extension now also has independent
 integration acceptance and 1,489 passing main checks per stack. Its own fixed
-CPU samples do not replace the preceding five-source observation. Where/JIT is
-the next separate review; it is not yet an accepted public capability.
+CPU samples do not replace the preceding five-source observation. Bounded
+Where/JIT semantics and actual-main integration are now independently accepted
+for the private path. A separate gather counterpart and coherent operator-family
+work are next; neither is accepted or integrated at this checkpoint.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

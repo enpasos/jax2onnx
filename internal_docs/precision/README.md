@@ -19,7 +19,47 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-The [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
+The [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
+has independent semantic and actual-main acceptance. The private SOURCE path
+preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
+static BOOL inputs and recursively validated pure closed JIT bodies. Actual
+constants, formal bindings, weak types and native symbol scopes are checked
+before lowering; version-sensitive inline hints use the compatibility layer.
+Public LEGACY precision policy, `source-static-v1` and report schema 1 remain
+unchanged.
+
+Before the shared x64 restoration repair, both actual-main selections pass
+**2,661 cases**, including the complete prior
+2,658 and 1,489 selections. Each records 7,983 passing test phases and all 49
+observed test modules: 44 from MAIN and five frozen external files. All 862
+Python hashes, settings, original callables and policy are preserved. The
+independent selection passes 200 cases per stack; the packet adds 216 permanent
+cases. These overlapping counts are not additive. The separately reviewed
+shared x64 repair preserves the hidden global beneath caller-local overrides
+and adds 87 permanent cases. Both post-repair main selections
+pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
+hashes and restored state are verified. Independent integration review accepts
+these results.
+
+The current inventory records **213 files, 1,254 functions and 502 additions**,
+retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
+Both inventory CLI checks pass. The fresh complete primary-stack suite passes
+**7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
+or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
+Code commit `ae820b1a` passes all seven actual repository hooks; the tested
+checkpoint hashes remain unchanged after commit.
+
+Strict Where negative-zero samples remain **FAILED** for FP16/FP32/FP64 in both
+CPU settings on both measured stacks; their acceptance guard still raises.
+Ordinary finite/BOOL success and BF16 structural evidence are separate. The
+original gather source now has matching complete native/activated typed traces,
+but its unchanged raw callback still rejects the false constant's broadcast
+shape. It adds no accepted artifact or ORT result and keeps its None criterion.
+A separate native gather counterpart and coherent typed operator families are
+being authored; neither is accepted or integrated here. Broader symbolic/model
+coverage and the full B–F migration remain unfinished.
+
+The preceding [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
 has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
 the original SOURCE call and weak typing; the private audited profile validates
 floating Exp and finite static/shared-batch Mul composition. Source casts and
@@ -28,7 +68,7 @@ including all previous 990 cases, fourteen frozen review guards and 117 new
 permanent cases. The separate independent selection passes 153 cases per stack;
 these overlapping counts are not additive.
 
-The inventory now records **210 files, 1,217 functions and 465 additions**, with
+That checkpoint’s inventory records **210 files, 1,217 functions and 465 additions**, with
 all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
 cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
 warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
@@ -36,8 +76,9 @@ all five code/inventory paths and all 860 Python hashes remain unchanged.
 The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
 checks do not establish a working CPU kernel. Neither the five-row Leading-B
 nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
-`source-static-v1` and report schema 1 remain unchanged. Where/JIT work is a
-separate, unaccepted follow-up; broader phases D/E/F remain unfinished.
+`source-static-v1` and report schema 1 remain unchanged. Where/JIT was still
+pending at that checkpoint; its bounded follow-up is recorded above. Broader
+phases D/E/F remain unfinished.
 
 The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 extends the private audited path to one actual leading symbolic batch at ranks
@@ -161,9 +202,11 @@ selects 13 unchanged rows/26 artifact-only cells, retaining four explicit SOURCE
 matrix counterparts and original callback failures. That artifact checkpoint
 adopts no numerical criterion and runs no corpus runtime checks. The new,
 separate numerical counterpart preserves the historical packets' None criteria
-and history while recording results under `source-corpus-fp32-conjunction-v1`. The trig gather
-supplement still produces no artifact or runtime result: x64-off retains its
-configuration conflict and x64-on now reaches the custom-Where diagnostic gap.
+and history while recording results under `source-corpus-fp32-conjunction-v1`. The historical trig
+gather supplement stopped at custom Where. The newer Where/JIT supplement
+preserves the complete typed trace but stops at the unchanged raw callback;
+x64-off retains its configuration conflict. Neither adds accepted artifact or
+runtime evidence.
 The remaining 3,580 cells and 126 unresolved recipe scenarios stay visible.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells

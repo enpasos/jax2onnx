@@ -13,7 +13,25 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
+The [Where and JIT checkpoint](poc/where_jit_admission_findings.md) adds reviewed
+private support for selected conditional calculations and compiled JAX bodies.
+It keeps the original JAX call, input types, constants and actual branch inputs.
+Both supported stacks pass 2,661 main checks before a separately reviewed
+repair of shared x64 state restoration. That repair preserves caller settings
+beneath a local override; 89 fresh main checks pass on each stack with
+independent integration acceptance. The fresh complete primary-stack suite
+passes **7,236 tests**. Code commit `ae820b1a` passes all seven repository hooks.
+
+Some strict floating-point samples still lose the sign of negative zero on the
+measured CPUs. Those samples remain failed and cannot pass sample acceptance;
+passing ordinary finite or Boolean examples does not change that result. The
+original gather example now preserves the complete native trace, but still
+fails its unchanged structural check before any runtime call. A separate gather
+counterpart and further operator families are being prepared, without accepted
+product support yet. Public calls and both existing double-precision options
+keep their behavior; complete model coverage and the final transition remain open.
+
+The preceding [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
 adds reviewed private support for selected exponential and multiplication
 calculations, including a shared variable batch size. The source’s input types,
 weak typing, casts and explicit broadcasting are preserved. Main checks pass
@@ -23,7 +41,7 @@ identical results for every value or support on every device.
 The complete primary-stack run passes **6,933 tests**. Commit `7c68300b`
 passes all seven repository hooks.
 Public calls and both existing double-precision options keep their behavior.
-Where/JIT work and broader model coverage remain separate, unfinished work.
+Its historical results remain unchanged; broader model coverage is unfinished.
 
 The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
 adds reviewed private support for selected matrix and bias calculations with a
@@ -175,8 +193,9 @@ The local follow-up also preserves weak typing in stored model parameters and
 nested configuration values when reusing a named function. Optional exporter
 optimizations now respect the selected source calculation too. These repairs
 have separate regression coverage; they do not certify runtime precision.
-No public source option is available; loops, JIT regions, broader operations,
-and deployment validation remain open.
+No public source option is available. The later Where/JIT checkpoint covers
+selected compiled bodies; broader loops/JIT forms, operations and deployment
+validation remain open.
 
 A further FP32 reciprocal example agrees with JAX under the tested ORT sessions
 with optimization off, but differs when optimization is on. A captured FP16

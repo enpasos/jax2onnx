@@ -24,8 +24,49 @@ is available. These experiments inform the
 | Audited ordinary matrices | Can the finite matrix representation pass actual admission and retain the fixed numerical contract? | [Admission findings](ordinary_matrix_admission_findings.md): static FP32/FP64 audit, 750 main checks per stack and fresh audited FP32 sample results; historical failures remain. |
 | Leading-B matrices and bias | Can one native symbolic batch survive MatMul, singleton Add and the original Linear bias path? | [Leading-B findings](leading_batch_matrix_bias_findings.md): reviewed finite semantics, exact raw-source provenance, repaired symbolic preparation and separately gated five-row numerics. |
 | Native Exp and Leading-B Mul | Do native weak typing and explicit broadcast survive exponential/multiplication composition? | [Pointwise findings](pointwise_mul_exp_findings.md): accepted four-path semantics and 1,489 actual-main checks per stack, with fixed finite CPU samples and separate BF16 structural limits. |
+| Native Where and typed JIT | Can native selection and pure compiled bodies preserve actual typed inputs, constants and scopes? | [Where/JIT findings](where_jit_admission_findings.md): accepted private semantics, 2,661 pre-repair main checks and 89 fresh restoration checks per stack; strict zero-sign failures and the raw gather callback remain unresolved. |
 
-The [native Exp and Leading-B Mul checkpoint](pointwise_mul_exp_findings.md)
+The [native Where and typed JIT checkpoint](where_jit_admission_findings.md)
+has independent semantic and actual-main acceptance. The private SOURCE path
+preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
+static BOOL inputs and recursively validated pure closed JIT bodies. Actual
+constants, formal bindings, weak types and native symbol scopes are checked
+before lowering; version-sensitive inline hints use the compatibility layer.
+Public LEGACY precision policy, `source-static-v1` and report schema 1 remain
+unchanged.
+
+Before the shared x64 restoration repair, both actual-main selections pass
+**2,661 cases**, including the complete prior
+2,658 and 1,489 selections. Each records 7,983 passing test phases and all 49
+observed test modules: 44 from MAIN and five frozen external files. All 862
+Python hashes, settings, original callables and policy are preserved. The
+independent selection passes 200 cases per stack; the packet adds 216 permanent
+cases. These overlapping counts are not additive. The separately reviewed
+shared x64 repair preserves the hidden global beneath caller-local overrides
+and adds 87 permanent cases. Both post-repair main selections
+pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
+hashes and restored state are verified. Independent integration review accepts
+these results.
+
+The current inventory records **213 files, 1,254 functions and 502 additions**,
+retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
+Both inventory CLI checks pass. The fresh complete primary-stack suite passes
+**7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
+or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
+Code commit `ae820b1a` passes all seven actual repository hooks; the tested
+checkpoint hashes remain unchanged after commit.
+
+Strict Where negative-zero samples remain **FAILED** for FP16/FP32/FP64 in both
+CPU settings on both measured stacks; their acceptance guard still raises.
+Ordinary finite/BOOL success and BF16 structural evidence are separate. The
+original gather source now has matching complete native/activated typed traces,
+but its unchanged raw callback still rejects the false constant's broadcast
+shape. It adds no accepted artifact or ORT result and keeps its None criterion.
+A separate native gather counterpart and coherent typed operator families are
+being authored; neither is accepted or integrated here. Broader symbolic/model
+coverage and the full B–F migration remain unfinished.
+
+The preceding [native Exp and Leading-B Mul checkpoint](pointwise_mul_exp_findings.md)
 has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
 the original SOURCE call and weak typing; the private audited profile validates
 floating Exp and finite static/shared-batch Mul composition. Source casts and
@@ -34,7 +75,7 @@ including all previous 990 cases, fourteen frozen review guards and 117 new
 permanent cases. The separate independent selection passes 153 cases per stack;
 these overlapping counts are not additive.
 
-The inventory now records **210 files, 1,217 functions and 465 additions**, with
+That checkpoint’s inventory records **210 files, 1,217 functions and 465 additions**, with
 all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
 cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
 warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
@@ -42,8 +83,9 @@ all five code/inventory paths and all 860 Python hashes remain unchanged.
 The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
 checks do not establish a working CPU kernel. Neither the five-row Leading-B
 nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
-`source-static-v1` and report schema 1 remain unchanged. Where/JIT work is a
-separate, unaccepted follow-up; broader phases D/E/F remain unfinished.
+`source-static-v1` and report schema 1 remain unchanged. Where/JIT was still
+pending at that checkpoint; its bounded follow-up is recorded above. Broader
+phases D/E/F remain unfinished.
 
 The preceding [Leading-B matrix/bias checkpoint](leading_batch_matrix_bias_findings.md)
 extends the private audited path to one actual leading symbolic batch at ranks
@@ -166,13 +208,16 @@ composition. The Leading-B checkpoint adds one atomic native B at axis zero of
 rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive
 static tails. The Pointwise extension adds native floating Exp and equal-tail
 shared-B/static-1 Mul at those ranks, with exact source weakness.
-Broader symbolic operations, loops, scan, JIT regions, effects and unaudited
-operations remain excluded from audited admission.
+The later Where/JIT checkpoint adds static BOOL dependencies, bounded floating
+selection and pure closed JIT bodies. Broader symbolic operations, loops, scan,
+unsupported JIT forms, effects and unaudited operations remain excluded from
+audited admission.
 Bodies are validated recursively. Same-width BitCast requires explicit opset26;
 different-width bitcasts need a different representation and are rejected.
 No opset is raised automatically. These are experiment limits, not universal
 ONNX support classifications. Separate diagnostic regressions now cover finite
-noncomplex/complex loops and JIT cases without broadening this product profile;
+noncomplex/complex loops and broader JIT forms without broadening this product
+profile;
 the [work plan](../precision_implementation_work_plan.md) records their exact gates.
 
 The audited matrix profile retains its FP16-operands/preferred-FP32 branch for
@@ -212,8 +257,10 @@ That historical artifact checkpoint adopts no numerical criterion. The new
 separate FP32 numerical counterpart retains the historical packets' None
 criteria/history and records all 24 selected cells under the approved three-predicate criterion.
 Its sample results do not audit general lowering or change default admission.
-The gather revision produces no artifact: the native trig barrier is removed,
-while x64-off's conflict and x64-on's custom-Where gap remain. The
+The historical gather revision stopped at custom Where. The newer Where/JIT
+supplement preserves the complete native typed trace but still fails the
+unchanged raw callback for the false constant's broadcast shape. X64-off's
+configuration conflict remains; no accepted artifact or runtime result is added. The
 [next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.
