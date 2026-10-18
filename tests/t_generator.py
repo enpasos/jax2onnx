@@ -175,6 +175,7 @@ def extract_from_metadata(mds) -> list[dict[str, Any]]:
     for entry in mds:
         testcases = entry.get("testcases", [])
         for testcase in testcases:
+            testcase = dict(testcase)
             testcase["context"] = entry.get("context", "default")
             testcase["component"] = entry.get("component", "default")
             testcase["jax_doc"] = entry.get("jax_doc", "")

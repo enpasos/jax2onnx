@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
+import json
 from numbers import Integral
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import jax
 import jax.numpy as jnp
@@ -28,6 +29,7 @@ from jax2onnx import user_interface
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import SourcePrecisionError
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.precision import (
     CheckStatus,
     PrecisionCheck,
@@ -44,7 +46,7 @@ class FactoryDtypePolicy(Enum):
     PRESERVE = "preserve-original-factory"
 
 
-PRESERVE_FACTORY_DTYPE = FactoryDtypePolicy.PRESERVE
+PRESERVE_FACTORY_DTYPE: Final[FactoryDtypePolicy] = FactoryDtypePolicy.PRESERVE
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,60 @@ class SourceScenario:
 
 
 @dataclass(frozen=True)
+class SourceSettings:
+    x64_enabled: bool
+    default_matmul_precision: str | None
+    jax_platforms: str | None
+    numpy_dtype_promotion: str
+    numpy_rank_promotion: str
+
+    @classmethod
+    def observe(cls) -> SourceSettings:
+        return cls(
+            bool(jax.config.x64_enabled),
+            jax.config.jax_default_matmul_precision,
+            jax.config.jax_platforms,
+            jax.config.jax_numpy_dtype_promotion,
+            jax.config.jax_numpy_rank_promotion,
+        )
+
+
+@dataclass(frozen=True)
+class SourceValueEvidence:
+    logical: TensorProperties
+    logical_sha256: str
+    encoding: str
+    physical_dtype: str
+    physical_shape: tuple[object, ...]
+    physical_sha256: str
+
+
+def value_evidence(value: Any, properties: TensorProperties) -> SourceValueEvidence:
+    array = np.asarray(value)
+    if array.dtype.name != properties.dtype:
+        raise SourcePreparationError("Evidence array dtype differs from original trace")
+    representation = representation_for_aval(
+        jax.ShapeDtypeStruct(array.shape, array.dtype)
+    )
+    physical = representation.encode_array(array)
+
+    def digest(payload: np.ndarray) -> str:
+        header = json.dumps(
+            [payload.dtype.str, payload.shape], separators=(",", ":")
+        ).encode()
+        return hashlib.sha256(header + b"\0" + payload.tobytes(order="C")).hexdigest()
+
+    return SourceValueEvidence(
+        properties,
+        digest(array),
+        representation.encoding,
+        representation.physical_dtype.name,
+        representation.physical_shape,
+        digest(physical),
+    )
+
+
+@dataclass(frozen=True)
 class PreparedSourceCase:
     identity: tuple[str, str, str]
     scenario: SourceScenario
@@ -93,6 +149,11 @@ class PreparedSourceCase:
     reference_outputs: tuple[np.ndarray, ...]
     output_tree: str
     criteria: SampleCriteria | None
+    settings: SourceSettings
+    original_trace_json: str
+    input_evidence: tuple[SourceValueEvidence, ...]
+    reference_evidence: tuple[SourceValueEvidence, ...]
+    original_jaxpr: Any = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -104,11 +165,14 @@ class SourceCaseResult:
         "representation-limit",
         "implementation-gap",
         "runtime-evidence",
+        "audit-pending",
     ]
     audit: PrecisionCheck
     prepared: PreparedSourceCase | None = None
     model: onnx.ModelProto | None = None
     validation: SourceValidationReport | None = None
+    export_settings: SourceSettings | None = None
+    schema: CheckStatus = CheckStatus.UNVERIFIED
 
     @property
     def numerical_status(self) -> CheckStatus:
@@ -133,20 +197,43 @@ class SourceCaseResult:
 class SourcePreparationError(ValueError):
     """The declared original-source inputs/reference could not be prepared faithfully."""
 
+    def __init__(self, message: str, *, category: str = "migration-gap") -> None:
+        self.category = category
+        super().__init__(message)
+
+
+def _global_source_configuration() -> dict[str, Any]:
+    # Effective values can be shadowed by caller contexts. Snapshot the global
+    # state separately so restoring it cannot overwrite the caller's state.
+    return {
+        "jax_enable_x64": jax.enable_x64.get_global(),
+        "jax_default_matmul_precision": jax.default_matmul_precision.get_global(),
+        "jax_platforms": jax.config.jax_platforms,
+        "jax_numpy_dtype_promotion": jax.numpy_dtype_promotion.get_global(),
+        "jax_numpy_rank_promotion": jax.numpy_rank_promotion.get_global(),
+    }
+
 
 @contextmanager
 def source_configuration(scenario: SourceScenario) -> Iterator[None]:
-    previous_x64 = bool(jax.config.x64_enabled)
-    previous_precision = jax.config.jax_default_matmul_precision
+    previous = _global_source_configuration()
     try:
-        jax.config.update("jax_enable_x64", scenario.caller_x64_enabled)
-        jax.config.update(
-            "jax_default_matmul_precision", scenario.default_matmul_precision
-        )
-        yield
+        with (
+            jax.enable_x64(scenario.caller_x64_enabled),
+            jax.default_matmul_precision(scenario.default_matmul_precision),
+        ):
+            settings = SourceSettings.observe()
+            yield
+            if (
+                SourceSettings.observe() != settings
+                or _global_source_configuration() != previous
+            ):
+                raise SourcePreparationError(
+                    "Source callable changed caller JAX settings"
+                )
     finally:
-        jax.config.update("jax_enable_x64", previous_x64)
-        jax.config.update("jax_default_matmul_precision", previous_precision)
+        for name, value in previous.items():
+            jax.config.update(name, value)
 
 
 def is_source_float(dtype: Any) -> bool:
@@ -266,7 +353,8 @@ def _require_preserved_dtype(dtype: Any) -> None:
     canonical = np.dtype(jax.dtypes.canonicalize_dtype(declared))
     if canonical != declared:
         raise SourcePreparationError(
-            f"Source input dtype {declared} would canonicalize to {canonical} under the declared caller JAX configuration; no implicit feed cast is allowed"
+            f"Source input dtype {declared} would canonicalize to {canonical} under the declared caller JAX configuration; no implicit feed cast is allowed",
+            category="configuration-conflict",
         )
 
 
@@ -451,7 +539,10 @@ def raw_source_case(origin: str, ordinal: int) -> dict[str, Any]:
 
 
 def prepare_source_case(
-    metadata: Mapping[str, Any], scenario: SourceScenario
+    metadata: Mapping[str, Any],
+    scenario: SourceScenario,
+    *,
+    settings_observer: Callable[[SourceSettings], None] | None = None,
 ) -> PreparedSourceCase:
     """Instantiate once, then independently trace/evaluate the original JAX callable."""
     identity = (
@@ -460,6 +551,9 @@ def prepare_source_case(
         str(metadata.get("testcase", "default")),
     )
     with source_configuration(scenario):
+        settings = SourceSettings.observe()
+        if settings_observer is not None:
+            settings_observer(settings)
         # Reject contradictory source inputs before invoking a constructor or
         # original callable, so failed preparation cannot mutate model state.
         specs, arguments = _input_data(metadata, scenario, identity)
@@ -505,6 +599,15 @@ def prepare_source_case(
                 raise SourcePreparationError(
                     "Original JAX trace/evaluation output dtypes differ"
                 )
+        from tests.extra_tests.converter.source_precision_diagnostics import (
+            typed_trace_manifest,
+        )
+
+        traced_inputs = tuple(_properties(var.aval) for var in closed.jaxpr.invars)
+        if SourceSettings.observe() != settings:
+            raise SourcePreparationError(
+                "Original callable changed caller JAX settings during preparation"
+            )
         return PreparedSourceCase(
             identity,
             scenario,
@@ -512,15 +615,32 @@ def prepare_source_case(
             dict(metadata),
             specs,
             arguments,
-            tuple(_properties(var.aval) for var in closed.jaxpr.invars),
+            traced_inputs,
             traced_outputs,
             tuple(snapshots),
             str(tree),
             _criteria(metadata, scenario),
+            settings,
+            json.dumps(
+                typed_trace_manifest(closed), sort_keys=True, separators=(",", ":")
+            ),
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(arguments, traced_inputs, strict=True)
+            ),
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(snapshots, traced_outputs, strict=True)
+            ),
+            closed,
         )
 
 
-def _export_prepared(prepared: PreparedSourceCase) -> onnx.ModelProto:
+def _export_prepared(
+    prepared: PreparedSourceCase,
+    *,
+    diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
+) -> onnx.ModelProto:
     model = user_interface._to_onnx(
         fn=prepared.fn,
         inputs=prepared.input_specs,
@@ -530,6 +650,7 @@ def _export_prepared(prepared: PreparedSourceCase) -> onnx.ModelProto:
         output_names=prepared.metadata.get("output_names"),
         return_mode="proto",
         precision_policy=PrecisionPolicy.SOURCE,
+        diagnostic_jaxpr_validator=diagnostic_jaxpr_validator,
     )
     if not isinstance(model, onnx.ModelProto):
         raise SourcePreparationError(
@@ -539,6 +660,33 @@ def _export_prepared(prepared: PreparedSourceCase) -> onnx.ModelProto:
     if report is None:
         raise SourcePreparationError(
             "Shared SOURCE facade did not attach its real export report"
+        )
+    expected_profile = (
+        "source-static-v1"
+        if diagnostic_jaxpr_validator is None
+        else "source-diagnostic-v1"
+    )
+    if report.profile != expected_profile:
+        raise SourcePreparationError(
+            "Shared facade returned a different precision profile"
+        )
+    if (
+        report.caller_x64_enabled != prepared.settings.x64_enabled
+        or report.caller_default_matmul_precision
+        != prepared.settings.default_matmul_precision
+        or report.caller_numpy_dtype_promotion
+        != prepared.settings.numpy_dtype_promotion
+        or report.caller_numpy_rank_promotion != prepared.settings.numpy_rank_promotion
+    ):
+        raise SourcePreparationError(
+            "Actual export caller settings differ from prepared original settings"
+        )
+    if diagnostic_jaxpr_validator is not None and any(
+        check.category == "lowering" and check.status is not CheckStatus.UNVERIFIED
+        for check in report.checks
+    ):
+        raise SourcePreparationError(
+            "A diagnostic artifact cannot validate its lowering audit"
         )
     for independent, observed in (
         (prepared.traced_inputs, tuple(item.traced for item in report.inputs)),
@@ -566,6 +714,9 @@ def _check_exported_signature(
                 f"Exported {label} count differs from the independent original trace"
             )
         for source, value in zip(traced, exported, strict=True):
+            representation = representation_for_aval(
+                jax.ShapeDtypeStruct(source.shape, source.dtype)
+            )
             dtype = np.dtype(ir.DataType(value.type.tensor_type.elem_type).numpy()).name
             shape = tuple(
                 (
@@ -575,11 +726,11 @@ def _check_exported_signature(
                 )
                 for dim in value.type.tensor_type.shape.dim
             )
-            if shape != source.shape:
+            if shape != representation.physical_shape:
                 raise SourcePreparationError(
                     f"Exported {label} shape {shape} differs from original source {source.shape}"
                 )
-            if dtype != source.dtype:
+            if dtype != representation.physical_dtype.name:
                 raise SourcePreparationError(
                     f"Exported {label} dtype {dtype} differs from original source {source.dtype}"
                 )
@@ -590,10 +741,17 @@ def run_source_case(
     scenario: SourceScenario,
     *,
     optimization: Literal["disabled", "all"] | None = "disabled",
+    diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
+    _prepared: PreparedSourceCase | None = None,
 ) -> SourceCaseResult:
-    prepared = None
+    prepared = _prepared
     try:
-        prepared = prepare_source_case(metadata, scenario)
+        if prepared is None:
+            prepared = prepare_source_case(metadata, scenario)
+        elif prepared.scenario != scenario:
+            raise SourcePreparationError(
+                "Prepared evidence belongs to another scenario"
+            )
     except Exception as exc:
         return SourceCaseResult(
             "source-preparation",
@@ -615,7 +773,7 @@ def run_source_case(
     if prepared.metadata.get("export_mode", "standard") != "standard":
         unsupported.append("export_mode")
     if unsupported or any(
-        not is_source_float(spec.dtype)
+        (diagnostic_jaxpr_validator is None and not is_source_float(spec.dtype))
         or any(not isinstance(dim, Integral) for dim in spec.shape)
         for spec in prepared.input_specs
     ):
@@ -629,9 +787,19 @@ def run_source_case(
             ),
             prepared,
         )
+    export_settings = None
+    schema_status = CheckStatus.UNVERIFIED
     try:
         with source_configuration(scenario):
-            model = _export_prepared(prepared)
+            export_settings = SourceSettings.observe()
+            model = (
+                _export_prepared(prepared)
+                if diagnostic_jaxpr_validator is None
+                else _export_prepared(
+                    prepared, diagnostic_jaxpr_validator=diagnostic_jaxpr_validator
+                )
+            )
+        schema_status = CheckStatus.VALIDATED
         _check_exported_signature(prepared, model)
         callback = metadata.get("post_check_onnx_graph")
         if callback is not None and not callback(model):
@@ -661,22 +829,45 @@ def run_source_case(
                 str(exc),
             ),
             prepared,
+            export_settings=export_settings,
+            schema=schema_status,
         )
     except Exception as exc:
+        if isinstance(
+            exc, (onnx.checker.ValidationError, onnx.shape_inference.InferenceError)
+        ):
+            schema_status = CheckStatus.FAILED
         return SourceCaseResult(
             "source-export",
             "implementation-gap",
             PrecisionCheck("source-audit", CheckStatus.FAILED, str(exc)),
             prepared,
+            export_settings=export_settings,
+            schema=schema_status,
         )
-    skipped = bool(metadata.get("skip_numeric_validation")) or prepared.criteria is None
+    diagnostic = diagnostic_jaxpr_validator is not None
+    skipped = (
+        diagnostic
+        or bool(metadata.get("skip_numeric_validation"))
+        or prepared.criteria is None
+    )
     samples = []
     if not skipped:
         assert prepared.criteria is not None
         samples.append(
             SourceSample(
-                tuple(np.asarray(value) for value in prepared.arguments),
-                prepared.reference_outputs,
+                tuple(
+                    representation_for_aval(spec).encode_array(np.asarray(value))
+                    for spec, value in zip(
+                        prepared.input_specs, prepared.arguments, strict=True
+                    )
+                ),
+                tuple(
+                    representation_for_aval(properties).encode_array(value)
+                    for properties, value in zip(
+                        prepared.traced_outputs, prepared.reference_outputs, strict=True
+                    )
+                ),
                 prepared.criteria,
             )
         )
@@ -686,14 +877,36 @@ def run_source_case(
         optimization=None if skipped else optimization,
     )
     return SourceCaseResult(
-        "artifact-checked" if skipped or optimization is None else "runtime-checked",
-        "audited-profile" if skipped or optimization is None else "runtime-evidence",
+        (
+            "diagnostic-artifact-checked"
+            if diagnostic
+            else (
+                "artifact-checked"
+                if skipped or optimization is None
+                else "runtime-checked"
+            )
+        ),
+        (
+            "audit-pending"
+            if diagnostic
+            else (
+                "audited-profile"
+                if skipped or optimization is None
+                else "runtime-evidence"
+            )
+        ),
         PrecisionCheck(
             "source-audit",
-            CheckStatus.VALIDATED,
-            "Initial audited profile and independent boundary types checked; this is not model-wide numerical acceptance.",
+            CheckStatus.UNVERIFIED if diagnostic else CheckStatus.VALIDATED,
+            (
+                "Diagnostic structure/representation checked; lowering audit_pending."
+                if diagnostic
+                else "Initial audited profile and independent boundary types checked; this is not model-wide numerical acceptance."
+            ),
         ),
         prepared,
         model,
         validation,
+        export_settings,
+        schema_status,
     )

@@ -273,3 +273,142 @@ def test_inventory_compare_detects_python_to_typed_scalar_and_storage_changes() 
     ):
         differences, _ = compare_inventories(inventory(before), inventory(after))
         assert differences == ["Changed cases: plugin::a::0"]
+
+
+def test_generated_metadata_enrichment_preserves_raw_case_and_factory_identity() -> (
+    None
+):
+    from jax2onnx.plugins.plugin_system import construct_and_call, with_requested_dtype
+    from tests import t_generator
+
+    def constructor(*, dtype):
+        pytest.fail("Metadata extraction must not construct a model")
+
+    recipe = construct_and_call(constructor, dtype=with_requested_dtype())
+    values = [np.asarray([[1, 2], [3, 4], [5, 6]], np.float32)]
+    raw = {
+        "testcase": "factory",
+        "description": "Original case description",
+        "callable": recipe,
+        "input_shapes": [("B", 2)],
+        "input_values": values,
+        "input_dtypes": [np.float32],
+    }
+    original = dict(raw)
+    metadata = {
+        "context": "primitives.synthetic",
+        "component": "factory",
+        "jax_doc": "jax documentation",
+        "onnx": [{"component": "Identity"}],
+        "source": "synthetic.py",
+        "since": "0.1",
+        "description": "Parent description for generated entries",
+        "children": ["synthetic-child"],
+        "testcases": [raw],
+    }
+    expected = {
+        **original,
+        **{key: value for key, value in metadata.items() if key != "testcases"},
+    }
+    first = t_generator.extract_from_metadata([metadata])[0]
+    second = t_generator.extract_from_metadata([metadata])[0]
+    assert first is not raw and second is not raw and first is not second
+    assert raw == original
+    assert raw["description"] == "Original case description"
+    assert first == second == expected
+    assert first["callable"] is second["callable"] is raw["callable"] is recipe
+    assert first["input_values"] is second["input_values"] is values
+    assert first["input_values"][0] is values[0]
+    assert first["children"] is metadata["children"]
+
+    variants = t_generator.generate_test_params(first)
+    assert [entry["testcase"] for entry in variants] == [
+        "factory_dynamic",
+        "factory_dynamic_f64",
+        "factory",
+        "factory_f64",
+    ]
+    assert [entry["input_shapes"] for entry in variants] == [
+        [("B", 2)],
+        [("B", 2)],
+        [(3, 2)],
+        [(3, 2)],
+    ]
+    for entry, dtype in zip(
+        variants, (np.float32, np.float64, np.float32, np.float64), strict=True
+    ):
+        assert entry["description"] == metadata["description"]
+        assert entry["input_values"][0].dtype == np.dtype(dtype)
+        np.testing.assert_array_equal(entry["input_values"][0], values[0])
+        contract = canonical_contract(entry["callable"], unresolved=[])
+        assert contract["dtype"] == {"dtype": np.dtype(dtype).name}
+    assert raw == original and raw["callable"] is recipe
+
+
+def test_generated_collection_preserves_all_raw_contracts_and_exact_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import jax
+    import onnxruntime
+    from jax2onnx import user_interface
+    from jax2onnx.plugins.plugin_system import construct_and_call
+    from scripts import source_precision_probe as probe
+    from scripts.source_precision_inventory import (
+        CONDITIONAL_REGISTRATIONS,
+        raw_registrations,
+    )
+    from tests import t_generator
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Metadata collection/preflight must not trace or execute models")
+
+    monkeypatch.setattr(jax, "make_jaxpr", forbidden)
+    monkeypatch.setattr(user_interface, "_to_onnx", forbidden)
+    monkeypatch.setattr(t_generator, "to_onnx", forbidden)
+    monkeypatch.setattr(onnxruntime, "InferenceSession", forbidden)
+    monkeypatch.setattr(type(construct_and_call(forbidden)), "instantiate", forbidden)
+
+    registrations, _ = raw_registrations()
+    plan = probe.build_probe_plan(json.loads(probe.DEFAULT_BASELINE.read_text()))
+    cases = frozenset(probe.FIRST_DIAGNOSTIC_CASES)
+    probe.preflight_cases(plan, registrations, cases)
+
+    def snapshot():
+        return {
+            (origin, ordinal): (
+                canonical_contract(case, unresolved=[]),
+                id(case),
+                id(case.get("callable")),
+                id(case.get("input_values")),
+                tuple(id(value) for value in case.get("input_values") or ()),
+            )
+            for origin, _, metadata in registrations
+            for ordinal, case in enumerate(metadata.get("testcases", ()))
+        }
+
+    before = snapshot()
+    baseline_identities = {(row.origin, row.ordinal) for row in plan.rows}
+    assert len(baseline_identities) == 1802
+    assert before.keys() <= baseline_identities
+    assert baseline_identities - before.keys() <= {
+        (origin, 0) for origin in CONDITIONAL_REGISTRATIONS
+    }
+    extracted = t_generator.load_plugin_metadata()
+    generated = [
+        variant
+        for entry in extracted
+        for variant in t_generator.generate_test_params(entry)
+    ]
+    assert len(extracted) == len(before) and len(generated) > len(extracted)
+    assert snapshot() == before
+    probe.preflight_cases(plan, registrations, cases)
+    assert (
+        len(
+            [
+                cell
+                for cell in plan.cells
+                if probe.SourceProvenance(cell.origin, cell.ordinal) in cases
+            ]
+        )
+        == 36
+    )
