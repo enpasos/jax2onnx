@@ -15,11 +15,14 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 import hashlib
+import importlib
 import importlib.metadata
 import json
 from pathlib import Path
 import platform
 import sys
+import subprocess
+from unittest.mock import patch
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -54,6 +57,15 @@ from tests.extra_tests.converter.source_precision_support import (  # noqa: E402
 from tests.extra_tests.converter.source_precision_diagnostics import (  # noqa: E402
     DiagnosticValidator,
     StructuralScope,
+)
+from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noqa: E402
+    CORPUS_REPLAY_CASES,
+    DOT_COUNTERPARTS,
+    HISTORICAL_BASELINE_SHA256,
+    CorpusStructureEvidence,
+    counterpart_for,
+    selector_manifest,
+    criterion_proposal_ledger,
 )
 
 
@@ -142,6 +154,8 @@ class ProbeStageEvidence:
     export_report: PrecisionReport | None
     diagnostic_scopes: tuple[StructuralScope, ...]
     previous_sha256: str | None
+    corpus_structure: CorpusStructureEvidence | None = None
+    raw_callback_status: str = "not-executed"
 
     @property
     def sha256(self) -> str:
@@ -396,6 +410,7 @@ def execute_probe_plan(
     origins: frozenset[str] = frozenset(),
     scenario: str | None = None,
     cases: frozenset[SourceProvenance] = frozenset(),
+    _corpus_replay: bool = False,
 ) -> SourceProbePlan:
     """Run a bounded batch; unselected cells and known failures stay explicit."""
     if limit <= 0:
@@ -411,6 +426,17 @@ def execute_probe_plan(
         raise ValueError("Ambiguous raw registration provenance")
     if cases:
         preflight_cases(plan, registrations, cases)
+    if _corpus_replay:
+        if (
+            cases != corpus_replay_cases(plan)
+            or limit != 26
+            or scenario is not None
+            or origins
+            or stage not in {"prepare", "diagnostic"}
+        ):
+            raise ValueError(
+                "Corpus replay requires exactly the fixed 26 diagnostic cells"
+            )
     rows = {(row.origin, row.ordinal): row for row in plan.rows}
     cells = []
     selected = 0
@@ -491,6 +517,8 @@ def execute_probe_plan(
         export_report = None
         observed_settings: list[SourceSettings] = []
         validator = DiagnosticValidator() if stage == "diagnostic" else None
+        corpus_structure = None
+        raw_callback_status = "not-executed"
         try:
             prepared = prepare_source_case(
                 metadata, declared, settings_observer=observed_settings.append
@@ -545,7 +573,14 @@ def execute_probe_plan(
                 optimization=None,
                 diagnostic_jaxpr_validator=validator,
                 _prepared=prepared,
+                _corpus_counterpart=(
+                    counterpart_for(row.origin, row.ordinal, row.contract_sha256)
+                    if _corpus_replay
+                    else None
+                ),
             )
+            corpus_structure = result.corpus_structure
+            raw_callback_status = result.raw_callback_status
             export_settings = result.export_settings
             export_report = (
                 get_precision_report(result.model) if result.model is not None else None
@@ -632,15 +667,359 @@ def execute_probe_plan(
             export_report,
             tuple(validator.scopes) if validator is not None else (),
             cell.history[-1].sha256 if cell.history else None,
+            corpus_structure,
+            raw_callback_status,
         )
         cells.append(replace(outcome, history=(*cell.history, evidence)))
     return replace(plan, cells=tuple(cells))
+
+
+_CORPUS_CODE_FILES: Final = (
+    "tests/extra_tests/converter/source_precision_support.py",
+    "scripts/source_precision_probe.py",
+    "tests/extra_tests/converter/source_precision_corpus_oracles.py",
+    "tests/extra_tests/converter/test_source_precision_corpus_replay.py",
+)
+_CORPUS_IMPORTS: Final = (
+    "scripts.source_precision_probe",
+    "tests.extra_tests.converter.source_precision_support",
+    "tests.extra_tests.converter.source_precision_corpus_oracles",
+    "tests.extra_tests.converter.source_precision_diagnostics",
+    "jax2onnx.plugins.jax.lax.dot_general",
+    "jax2onnx.plugins.jax.lax.gather",
+    "jax2onnx.plugins.jax.numpy.matmul",
+    "jax2onnx.plugins.jax.numpy.add",
+    "jax2onnx.user_interface",
+    "jax2onnx.converter.conversion_api",
+    "jax2onnx.precision",
+)
+_PRIOR_CORPUS_HASHES: Final = {
+    "3.12": frozenset(
+        {
+            "b5ae12dc4cd745dfa72989f09455316841d9487a793757725e4b0c6e2d9451d9",
+            "c1d07feb4ac540645ba3f44247770ae581bf16a8876540c4d367d3e1b89bbdeb",
+        }
+    ),
+    "3.11": frozenset(
+        {
+            "d61317d5ef72fec347cc4911362b2a0b034039a696447ae9f2dfeb7aa5916940",
+            "10d2c3fe6491130c8d38230930221c6bfef4a02981a025c325a7cecae1067cc8",
+        }
+    ),
+}
+_STABLE_SOURCE_FIELDS: Final = (
+    "row_contract_sha256",
+    "scenario_sha256",
+    "environment",
+    "requested_x64",
+    "requested_matmul_precision",
+    "actual_settings",
+    "original_trace_json",
+    "original_trace_sha256",
+    "supplied_inputs",
+    "inputs",
+    "references",
+)
+
+
+def corpus_replay_cases(plan: SourceProbePlan) -> frozenset[SourceProvenance]:
+    """Resolve only the approved13 unchanged rows, never an origin-wide selector."""
+    if (
+        plan.baseline_sha256 != HISTORICAL_BASELINE_SHA256
+        or len(plan.rows) != 1802
+        or len(plan.cells) != 3604
+    ):
+        raise ValueError(
+            "Corpus revision requires the unchanged historical raw denominator"
+        )
+    rows = {(row.origin, row.ordinal): row for row in plan.rows}
+    for case in CORPUS_REPLAY_CASES:
+        row = rows.get((case.origin, case.ordinal))
+        if (
+            row is None
+            or row.contract_sha256 != case.contract_sha256
+            or row.display[-1] != case.testcase
+            or row.criteria is not None
+            or row.unresolved_recipes
+        ):
+            raise ValueError(
+                "Fixed corpus selector/contract or unresolved criteria changed"
+            )
+    return frozenset(
+        SourceProvenance(case.origin, case.ordinal) for case in CORPUS_REPLAY_CASES
+    )
+
+
+def _corpus_code_snapshot() -> dict[str, Any]:
+    code = {
+        name: hashlib.sha256((REPOSITORY_ROOT / name).read_bytes()).hexdigest()
+        for name in _CORPUS_CODE_FILES
+    }
+    imported = {}
+    for name in _CORPUS_IMPORTS:
+        module = importlib.import_module(name)
+        path = Path(module.__file__).resolve()
+        if not path.is_relative_to(REPOSITORY_ROOT):
+            raise ValueError(f"Replay imported another checkout: {name}: {path}")
+        imported[name] = {
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    return {"owned_files": code, "imported_modules": imported}
+
+
+def _corpus_prior_comparisons(
+    plan: SourceProbePlan, histories: Sequence[Mapping[str, Any]], *, exported: bool
+) -> list[dict[str, Any]]:
+    current = {
+        tuple(cell.identity): json.loads(json.dumps(asdict(cell)))
+        for cell in plan.cells
+        if cell.history
+    }
+    fields = _STABLE_SOURCE_FIELDS + (("export_settings",) if exported else ())
+    comparisons = []
+    for prior in histories:
+        for old in prior["cells"]:
+            key = (old["origin"], old["ordinal"], old["scenario"])
+            if key not in current or not old["history"]:
+                continue
+            old_record, new_record = old["history"][-1], current[key]["history"][-1]
+            differences = [
+                name for name in fields if old_record[name] != new_record[name]
+            ]
+            comparisons.append(
+                {
+                    "identity": key,
+                    "prior_evidence_sha256": _fingerprint(old_record),
+                    "current_evidence_sha256": _fingerprint(new_record),
+                    "compared_fields": fields,
+                    "drift_fields": differences,
+                }
+            )
+    return comparisons
+
+
+def _corpus_product_controls(
+    plan: SourceProbePlan,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+) -> list[dict[str, Any]]:
+    registered = {origin: metadata for origin, _, metadata in registrations}
+    controls = []
+    for origin in ("plugin::jax.numpy.add", "plugin::dot_general"):
+        row = next(
+            row for row in plan.rows if row.origin == origin and row.ordinal == 0
+        )
+        metadata = _resolve_case(row, registered)
+        for scenario in raw_source_scenarios(metadata, SourceProvenance(origin, 0)):
+            result = run_source_case(metadata, scenario, optimization=None)
+            controls.append(
+                {
+                    "origin": origin,
+                    "scenario": scenario.name,
+                    "stage": result.stage,
+                    "audit": asdict(result.audit),
+                    "artifact_sha256": (
+                        result.validation.artifact_sha256
+                        if result.validation is not None
+                        else None
+                    ),
+                    "numerics": result.numerical_status,
+                }
+            )
+    return controls
+
+
+def execute_corpus_revision(
+    inventory_blob: bytes,
+    registrations: Sequence[tuple[str, str, Mapping[str, Any]]],
+    *,
+    prior_paths: Sequence[Path],
+    preparation_output: Path,
+) -> dict[str, Any]:
+    """A separate dated revision supplement; original failed histories are immutable."""
+    baseline_sha = hashlib.sha256(inventory_blob).hexdigest()
+    plan = build_probe_plan(json.loads(inventory_blob), baseline_sha256=baseline_sha)
+    cases = corpus_replay_cases(plan)
+    preflight_cases(plan, registrations, cases)
+    if preparation_output.exists():
+        raise ValueError("Retain the frozen preparation; choose a new output path")
+    prior_bytes = {str(path.resolve()): path.read_bytes() for path in prior_paths}
+    expected = _PRIOR_CORPUS_HASHES.get(
+        f"{sys.version_info.major}.{sys.version_info.minor}"
+    )
+    if (
+        len(prior_bytes) != 2
+        or {hashlib.sha256(blob).hexdigest() for blob in prior_bytes.values()}
+        != expected
+    ):
+        raise ValueError(
+            "Replay needs both unchanged same-stack original36 and two-dot files"
+        )
+    histories = [json.loads(blob) for blob in prior_bytes.values()]
+    if any(item["baseline_sha256"] != baseline_sha for item in histories):
+        raise ValueError("Prior observations use another raw baseline")
+    unselected = tuple(
+        cell
+        for cell in plan.cells
+        if SourceProvenance(cell.origin, cell.ordinal) not in cases
+    )
+    if (
+        len(unselected) != 3578
+        or sum(cell.stage == "recipe-pending" for cell in unselected) != 126
+    ):
+        raise ValueError("The unselected raw denominator changed")
+    code = _corpus_code_snapshot()
+    ledger = criterion_proposal_ledger()
+    configuration = {
+        "schema_version": 1,
+        "kind": "separate-static-corpus-revision-supplement",
+        "date": "2026-10-18",
+        "checkout": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT, text=True
+        ).strip(),
+        "checkout_root": str(REPOSITORY_ROOT),
+        "baseline_sha256": baseline_sha,
+        "selector": selector_manifest(),
+        "counterparts": [item.descriptor() for item in DOT_COUNTERPARTS],
+        "criterion_proposal": ledger,
+        "criterion_proposal_sha256": _fingerprint(ledger),
+        "code": code,
+        "prior_files": {
+            name: hashlib.sha256(blob).hexdigest() for name, blob in prior_bytes.items()
+        },
+        "unselected": {
+            "count": 3578,
+            "recipe_pending": 126,
+            "sha256": _fingerprint([asdict(cell) for cell in unselected]),
+        },
+        "runtime_policy": "Artifact-only; numerical proposal unadopted; no samples or ORT sessions",
+        "symbolic_rows_unresolved": 310,
+        "nchw_rows_unresolved": 7,
+    }
+    attempts: list[str] = []
+    controls_before: list[dict[str, Any]] = []
+    controls_after: list[dict[str, Any]] = []
+    caller = SourceSettings.observe()
+
+    def deny_runtime(*args: Any, **kwargs: Any) -> Any:
+        attempts.append("InferenceSession attempted")
+        raise AssertionError("Corpus artifact revision forbids ORT sessions")
+
+    with patch("onnxruntime.InferenceSession", side_effect=deny_runtime):
+        prepared = execute_probe_plan(
+            plan,
+            registrations,
+            stage="prepare",
+            limit=26,
+            cases=cases,
+            _corpus_replay=True,
+        )
+        comparisons = _corpus_prior_comparisons(prepared, histories, exported=False)
+        frozen = {
+            **configuration,
+            "preparation": [
+                asdict(cell)
+                for cell in prepared.cells
+                if SourceProvenance(cell.origin, cell.ordinal) in cases
+            ],
+            "prior_source_comparisons": comparisons,
+        }
+        preparation_output.write_text(
+            json.dumps(frozen, indent=2, sort_keys=True) + "\n"
+        )
+        if any(item["drift_fields"] for item in comparisons):
+            result = prepared
+            state = "blocked-source-drift-before-export"
+        else:
+            controls_before = _corpus_product_controls(plan, registrations)
+            result = execute_probe_plan(
+                prepared,
+                registrations,
+                stage="diagnostic",
+                limit=26,
+                cases=cases,
+                _corpus_replay=True,
+            )
+            controls_after = _corpus_product_controls(plan, registrations)
+            state = "observed-no-numerical-acceptance"
+    final_unselected = tuple(
+        cell
+        for cell in result.cells
+        if SourceProvenance(cell.origin, cell.ordinal) not in cases
+    )
+    final_comparisons = _corpus_prior_comparisons(result, histories, exported=True)
+    unchanged_history = all(
+        Path(name).read_bytes() == blob for name, blob in prior_bytes.items()
+    )
+    invariants = {
+        "unselected_3578_unchanged": final_unselected == unselected,
+        "126_recipe_pending_unchanged": sum(
+            cell.stage == "recipe-pending" for cell in final_unselected
+        )
+        == 126,
+        "prior_file_bytes_unchanged": unchanged_history,
+        "code_unchanged": _corpus_code_snapshot() == code,
+        "caller_settings_restored": SourceSettings.observe() == caller,
+        "zero_ort_attempts": not attempts,
+        "all_selected_criteria_unresolved": all(
+            row.criteria is None
+            for row in result.rows
+            if SourceProvenance(row.origin, row.ordinal) in cases
+        ),
+        "lowering_runtime_numerics_unverified": all(
+            cell.lowering_audit
+            is cell.runtime
+            is cell.numerics
+            is CheckStatus.UNVERIFIED
+            for cell in result.cells
+            if SourceProvenance(cell.origin, cell.ordinal) in cases
+        ),
+        "same_stack_source_reference_unchanged": not any(
+            item["drift_fields"] for item in final_comparisons
+        ),
+        "default_admission_controls_unchanged": bool(controls_before)
+        and controls_before == controls_after,
+        "audited_add_keeps_default_admission": bool(controls_after)
+        and all(
+            item["audit"]["status"] is CheckStatus.VALIDATED
+            for item in controls_after
+            if item["origin"] == "plugin::jax.numpy.add"
+        ),
+        "unaudited_matrix_keeps_default_exclusion": bool(controls_after)
+        and all(
+            item["audit"]["status"] is CheckStatus.UNVERIFIED
+            and item["artifact_sha256"] is None
+            for item in controls_after
+            if item["origin"] == "plugin::dot_general"
+        ),
+    }
+    return {
+        **configuration,
+        "status": state,
+        "preparation_file": str(preparation_output),
+        "preparation_sha256": hashlib.sha256(
+            preparation_output.read_bytes()
+        ).hexdigest(),
+        "prior_source_comparisons": final_comparisons,
+        "selected": [
+            asdict(cell)
+            for cell in result.cells
+            if SourceProvenance(cell.origin, cell.ordinal) in cases
+        ],
+        "invariants": invariants,
+        "ort_session_attempts": attempts,
+        "controls_before": controls_before,
+        "controls_after": controls_after,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--corpus-replay", action="store_true")
+    parser.add_argument("--preparation-output", type=Path)
+    parser.add_argument("--history", type=Path, action="append", default=[])
     parser.add_argument(
         "--stage", choices=("plan", "prepare", "product", "diagnostic"), default="plan"
     )
@@ -654,6 +1033,54 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Exact raw origin::ordinal, e.g. plugin::add::0",
     )
     args = parser.parse_args(argv)
+    if args.corpus_replay:
+        if (
+            args.limit != 26
+            or args.stage != "plan"
+            or args.origin
+            or args.case
+            or args.scenario
+            or args.output is None
+            or args.preparation_output is None
+        ):
+            parser.error(
+                "Corpus revision needs --limit26, --output, --preparation-output and both --history files; no stage/origin/case/scenario override"
+            )
+        if args.output.resolve() == args.preparation_output.resolve():
+            parser.error(
+                "--output and --preparation-output need distinct resolved paths"
+            )
+        if args.output.exists():
+            parser.error("Retain prior supplement bytes; choose a new output path")
+        payload = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "158ce625:internal_docs/precision/source_migration_inventory.json",
+            ],
+            cwd=REPOSITORY_ROOT,
+        )
+        registrations, _ = raw_registrations()
+        result = execute_corpus_revision(
+            payload,
+            registrations,
+            prior_paths=args.history,
+            preparation_output=args.preparation_output,
+        )
+        args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        print(
+            json.dumps(
+                {
+                    "status": result["status"],
+                    "selected_cells": len(result["selected"]),
+                    "invariants": result["invariants"],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if all(result["invariants"].values()) else 1
+    if args.preparation_output is not None or args.history:
+        parser.error("Corpus supplement options require --corpus-replay")
     if args.stage != "plan" and (args.limit is None or args.limit <= 0):
         parser.error(
             "Execution needs an explicit positive --limit; default planning executes no models."

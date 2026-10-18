@@ -9,6 +9,7 @@ import numpy as np
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx._compat.jax import JaxprEqn
+from jax2onnx.plugins.jax.lax._min_max_utils import lower_source_min_max
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -41,6 +42,8 @@ from jax2onnx.plugins.plugin_system import (
 )
 class MinPlugin(PrimitiveLeafPlugin):
     def lower(self, ctx: Any, eqn: JaxprEqn) -> None:
+        if lower_source_min_max(ctx, eqn, operation="Min"):
+            return
         lhs_var, rhs_var = eqn.invars
         out_var = eqn.outvars[0]
 

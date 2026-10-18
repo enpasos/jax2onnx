@@ -17,7 +17,7 @@ from enum import Enum
 import hashlib
 import json
 from numbers import Integral
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -40,6 +40,12 @@ from jax2onnx.precision import (
     validate_source_samples,
     get_precision_report,
 )
+
+if TYPE_CHECKING:
+    from tests.extra_tests.converter.source_precision_corpus_oracles import (
+        CorpusStructureEvidence,
+        DotCounterpart,
+    )
 
 
 class FactoryDtypePolicy(Enum):
@@ -173,6 +179,8 @@ class SourceCaseResult:
     validation: SourceValidationReport | None = None
     export_settings: SourceSettings | None = None
     schema: CheckStatus = CheckStatus.UNVERIFIED
+    corpus_structure: CorpusStructureEvidence | None = None
+    raw_callback_status: str = "not-executed"
 
     @property
     def numerical_status(self) -> CheckStatus:
@@ -743,6 +751,7 @@ def run_source_case(
     optimization: Literal["disabled", "all"] | None = "disabled",
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     _prepared: PreparedSourceCase | None = None,
+    _corpus_counterpart: DotCounterpart | None = None,
 ) -> SourceCaseResult:
     prepared = _prepared
     try:
@@ -789,6 +798,8 @@ def run_source_case(
         )
     export_settings = None
     schema_status = CheckStatus.UNVERIFIED
+    corpus_structure = None
+    raw_callback_status = "not-executed"
     try:
         with source_configuration(scenario):
             export_settings = SourceSettings.observe()
@@ -801,9 +812,23 @@ def run_source_case(
             )
         schema_status = CheckStatus.VALIDATED
         _check_exported_signature(prepared, model)
-        callback = metadata.get("post_check_onnx_graph")
-        if callback is not None and not callback(model):
-            raise AssertionError("Raw metadata structural callback failed")
+        if _corpus_counterpart is None:
+            callback = metadata.get("post_check_onnx_graph")
+            raw_callback_status = "absent" if callback is None else "error"
+            if callback is not None:
+                raw_callback_status = "passed" if callback(model) else "failed"
+                if raw_callback_status == "failed":
+                    raise AssertionError("Raw metadata structural callback failed")
+        else:
+            corpus_structure = _corpus_counterpart.check(prepared, model)
+            raw_callback_status = corpus_structure.raw_callback_status
+            if not corpus_structure.accepted:
+                raise AssertionError(
+                    "Reviewed corpus structure failed: "
+                    + corpus_structure.source_detail
+                    + "; "
+                    + corpus_structure.raw_callback_detail
+                )
     except SourcePrecisionError as exc:
         category: Literal[
             "representation-limit", "migration-gap", "implementation-gap"
@@ -831,6 +856,8 @@ def run_source_case(
             prepared,
             export_settings=export_settings,
             schema=schema_status,
+            corpus_structure=corpus_structure,
+            raw_callback_status=raw_callback_status,
         )
     except Exception as exc:
         if isinstance(
@@ -844,6 +871,8 @@ def run_source_case(
             prepared,
             export_settings=export_settings,
             schema=schema_status,
+            corpus_structure=corpus_structure,
+            raw_callback_status=raw_callback_status,
         )
     diagnostic = diagnostic_jaxpr_validator is not None
     skipped = (
@@ -909,4 +938,6 @@ def run_source_case(
         validation,
         export_settings,
         schema_status,
+        corpus_structure,
+        raw_callback_status,
     )
