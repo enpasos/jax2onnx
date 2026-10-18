@@ -19,44 +19,63 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
-extends the private SOURCE foundation to bounded Boolean and integer values,
-comparisons, bitwise operations, conversions and selection, with a static
-complex construction/extraction foundation. Native promotion, weak typing,
-actual symbolic scopes and shared values remain explicit. Independent owner
-review accepts **4,171 passing cases on each stack**, including all 1,330 cases
-in the three new modules and the mapped prior selection. Actual MAIN focused
-checks pass **2,047 cases per stack**. These checks precede a whitespace-only
-formatting amendment whose AST is unchanged; they are not postformat runs.
+The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
+removes the private facade's blanket parameter exclusion. Positional and named
+values now share actual typed root arguments, native signature binding, symbolic
+scope, exported names, reports and sample feeds. The independently reviewed
+owner packet passes **1,026 affected-area cases per stack**. Finite FP32/BOOL
+samples exercise root, Function and If scopes at B=2/5 with True/False/True:
+each stack records six validation-API sessions/36 runs and six separate direct
+capture sessions/36 runs. Those observations do not establish complete models.
 
-The inventory now records **217 files, 1,323 functions and 571 migration
-additions**, retaining all 752 original functions, zero original removals and
-1,802 raw rows/3,604 cells. Both inventory CLI checks pass. Independent MAIN
-review accepts the checkpoint. The complete primary-stack suite passes **8,659
-tests** (13,162 warnings, 488.80 pytest seconds), with the exact expected identities
-and no failures, errors or skips. Code commit `0d8f9d19` passes all seven actual
-hooks on retry; the initial path-marker failure is retained. Only path comments
-were added to the three new test files after the full run, with unchanged test
-ASTs and all production bytes. All 32 final checkpoint paths and 867 Python
-hashes remain unchanged after the successful commit.
+The closed owner ledger preserves all 22 original model contracts and their
+actual first barriers, with criteria None and runtime, numerics and product
+support unverified. Its zero-input/B=1 native references measure tracing progress.
+NNX MLP now reaches BatchNorm, Linen MLP reaches Dense, and GPT full/embeddings
+reach zero-rate Dropout; the old before-factory parameter guard is no longer
+these models' current first barrier. Original missing-key and immutable-state
+errors remain recorded.
 
-Both stacks have new evidence from 65 unchanged raw contracts: 125 artifacts
-from 130 cells, with five explicit gaps retained. Separate exact sample records
-validate 500 comparisons per stack; the raw records keep their None criteria.
-Independent post-run review accepts these bounded observations and their recording
-limits. This does not establish all 65 rows, general integer arithmetic, complex arithmetic or complete model support.
-Actual GPT and embeddings inputs now pass typed boundary checks, but their
-unchanged `input_params` calls still fail before construction or weights.
+The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
+packages a finite, explicitly authorized pretrace cast change and actual NNX
+parameter configuration. Its 11 maintained tests pass on each stack. Each stack
+records twelve ordinary audited export attempts and four actual CPU runs of the
+two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+bounded preparation feasibility, not a generic transformer or all-model support.
 
-The six-path named-parameter packet is released for isolated implementation;
-independent review, integration and model acceptance remain pending. It targets
-real named runtime parameters and original-model preparation, beginning with the
-unchanged NNX MLP and then Linen/Function examples. Fixed-source precision preparation is also
-required compatibility work before the final transition: an explicit JAX-side
-change supplies its own reference before ordinary export. No generic precision
-transformer or new public mode is implemented. Public LEGACY behavior and both
-existing double-precision options remain unchanged; only final phase F rejects
-both explicit Boolean values.
+Code checkpoint `8f823ac3` commits the named binder, portable preparation proof
+and reviewed instance-lifetime cache repair: fourteen code/inventory paths,
+with 871 Python files and all 27 existing precision documents bound. MAIN focused checks pass **2,191 cases and 6,573
+setup/call/teardown phases per stack**, with settings, callables and source bytes
+restored. The inventory records **220 manual files, 1,363 functions and 611
+migration additions**; all 1,357 immediate predecessor functions and 752 original
+anchors remain. Raw 1,802 rows/3,604 cells and nonmanual fields are unchanged.
+Both inventory CLIs and the configured style/type checks pass.
+
+The first complete run retains **8,765 passes and one DINO B14 failure**. A
+controlled instance-address reuse defect is repaired, but address reuse in that
+original event was not observed. The older-stack FP16 decoder benchmark also
+remains failed; pristine-baseline comparison proves that specific failure
+predates this packet. Details and separate owner counts are in the
+[retained failure record](poc/named_runtime_parameters_findings.md#instance-lifetime-and-retained-failures).
+The fresh complete primary suite passes **8,772 tests** with no failures,
+errors or skips (13,773 warnings; 570.05 pytest seconds). Every previous 8,766
+identity and six lifetime regressions are present. All seven actual code hooks
+pass without bypass; frozen source/checkpoint/document bytes stay unchanged.
+
+Standalone copy-selection probes establish finite exact-byte feasibility and
+favor INT32 GatherElements over the measured alternatives. Its isolated
+implementation has runtime validation pending. The unchanged NNX/Linen MLP
+closure is also released for implementation, including required state/PRNG work
+and floating-criterion approval. Neither workstream has an accepted or integrated
+production fix; current Where failures and model barriers remain unchanged.
+
+The preceding [Typed checkpoint](poc/typed_values_and_masks_findings.md) retains
+its independent acceptance, 8,659-test full result and code commit `0d8f9d19`.
+Its RAW65, cast/subnormal, Where and matrix-context results remain unchanged.
+Public LEGACY behavior and both double-precision options are unchanged. The
+full B–F migration still requires complete model/control coverage, compatible
+fixed-source preparation and one ordinary source-preserving public call.
 
 The preceding [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
 `plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
@@ -254,9 +273,9 @@ stacks. Its failures, criteria and unverified general lowering remain unchanged.
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
 operands, native JAX promotion/sequence binding and Boolean selection evidence.
-Named runtime operands and these array-creation families still require private
-diagnostic admission; recording/web options work through the private audited
-facade. BF16 target failures, failed exact `linspace` samples and dynamic `arange`
+At that checkpoint, named runtime operands and these array-creation families
+required private diagnostic admission; recording/web options used the private
+audited facade. The later named binder is described above. BF16 target failures, failed exact `linspace` samples and dynamic `arange`
 compatibility work remain visible. The
 [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md) record the
 bounded diagnostic matrix contract and repaired optional Dropout input cleanup.

@@ -1,50 +1,69 @@
 # Computation Precision Migration Plan
 
-Status: accepted plan for a complete precision migration, 2026-10-18. The
+Status: accepted plan for a complete precision migration, 2026-10-19. The
 [implementation work plan](precision_implementation_work_plan.md) defines the
 existing-functionality acceptance matrix and checkpoint ledger. The final normal
 `to_onnx(...)` call preserves the JAX computation through one consistent contract.
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
-The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
-extends the private SOURCE foundation to bounded Boolean and integer values,
-comparisons, bitwise operations, conversions and selection, with a static
-complex construction/extraction foundation. Native promotion, weak typing,
-actual symbolic scopes and shared values remain explicit. Independent owner
-review accepts **4,171 passing cases on each stack**, including all 1,330 cases
-in the three new modules and the mapped prior selection. Actual MAIN focused
-checks pass **2,047 cases per stack**. These checks precede a whitespace-only
-formatting amendment whose AST is unchanged; they are not postformat runs.
+The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
+removes the private facade's blanket parameter exclusion. Positional and named
+values now share actual typed root arguments, native signature binding, symbolic
+scope, exported names, reports and sample feeds. The independently reviewed
+owner packet passes **1,026 affected-area cases per stack**. Finite FP32/BOOL
+samples exercise root, Function and If scopes at B=2/5 with True/False/True:
+each stack records six validation-API sessions/36 runs and six separate direct
+capture sessions/36 runs. Those observations do not establish complete models.
 
-The inventory now records **217 files, 1,323 functions and 571 migration
-additions**, retaining all 752 original functions, zero original removals and
-1,802 raw rows/3,604 cells. Both inventory CLI checks pass. Independent MAIN
-review accepts the checkpoint. The complete primary-stack suite passes **8,659
-tests** (13,162 warnings, 488.80 pytest seconds), with the exact expected identities
-and no failures, errors or skips. Code commit `0d8f9d19` passes all seven actual
-hooks on retry; the initial path-marker failure is retained. Only path comments
-were added to the three new test files after the full run, with unchanged test
-ASTs and all production bytes. All 32 final checkpoint paths and 867 Python
-hashes remain unchanged after the successful commit.
+The closed owner ledger preserves all 22 original model contracts and their
+actual first barriers, with criteria None and runtime, numerics and product
+support unverified. Its zero-input/B=1 native references measure tracing progress.
+NNX MLP now reaches BatchNorm, Linen MLP reaches Dense, and GPT full/embeddings
+reach zero-rate Dropout; the old before-factory parameter guard is no longer
+these models' current first barrier. Original missing-key and immutable-state
+errors remain recorded.
 
-Both stacks have new evidence from 65 unchanged raw contracts: 125 artifacts
-from 130 cells, with five explicit gaps retained. Separate exact sample records
-validate 500 comparisons per stack; the raw records keep their None criteria.
-Independent post-run review accepts these bounded observations and their recording
-limits. This does not establish all 65 rows, general integer arithmetic, complex arithmetic or complete model support.
-Actual GPT and embeddings inputs now pass typed boundary checks, but their
-unchanged `input_params` calls still fail before construction or weights.
+The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
+packages a finite, explicitly authorized pretrace cast change and actual NNX
+parameter configuration. Its 11 maintained tests pass on each stack. Each stack
+records twelve ordinary audited export attempts and four actual CPU runs of the
+two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+bounded preparation feasibility, not a generic transformer or all-model support.
 
-The six-path named-parameter packet is released for isolated implementation;
-independent review, integration and model acceptance remain pending. It targets
-real named runtime parameters and original-model preparation, beginning with the
-unchanged NNX MLP and then Linen/Function examples. Fixed-source precision preparation is also
-required compatibility work before the final transition: an explicit JAX-side
-change supplies its own reference before ordinary export. No generic precision
-transformer or new public mode is implemented. Public LEGACY behavior and both
-existing double-precision options remain unchanged; only final phase F rejects
-both explicit Boolean values.
+Code checkpoint `8f823ac3` commits the named binder, portable preparation proof
+and reviewed instance-lifetime cache repair: fourteen code/inventory paths,
+with 871 Python files and all 27 existing precision documents bound. MAIN focused checks pass **2,191 cases and 6,573
+setup/call/teardown phases per stack**, with settings, callables and source bytes
+restored. The inventory records **220 manual files, 1,363 functions and 611
+migration additions**; all 1,357 immediate predecessor functions and 752 original
+anchors remain. Raw 1,802 rows/3,604 cells and nonmanual fields are unchanged.
+Both inventory CLIs and the configured style/type checks pass.
+
+The first complete run retains **8,765 passes and one DINO B14 failure**. A
+controlled instance-address reuse defect is repaired, but address reuse in that
+original event was not observed. The older-stack FP16 decoder benchmark also
+remains failed; pristine-baseline comparison proves that specific failure
+predates this packet. Details and separate owner counts are in the
+[retained failure record](poc/named_runtime_parameters_findings.md#instance-lifetime-and-retained-failures).
+The fresh complete primary suite passes **8,772 tests** with no failures,
+errors or skips (13,773 warnings; 570.05 pytest seconds). Every previous 8,766
+identity and six lifetime regressions are present. All seven actual code hooks
+pass without bypass; frozen source/checkpoint/document bytes stay unchanged.
+
+Standalone copy-selection probes establish finite exact-byte feasibility and
+favor INT32 GatherElements over the measured alternatives. Its isolated
+implementation has runtime validation pending. The unchanged NNX/Linen MLP
+closure is also released for implementation, including required state/PRNG work
+and floating-criterion approval. Neither workstream has an accepted or integrated
+production fix; current Where failures and model barriers remain unchanged.
+
+The preceding [Typed checkpoint](poc/typed_values_and_masks_findings.md) retains
+its independent acceptance, 8,659-test full result and code commit `0d8f9d19`.
+Its RAW65, cast/subnormal, Where and matrix-context results remain unchanged.
+Public LEGACY behavior and both double-precision options are unchanged. The
+full B–F migration still requires complete model/control coverage, compatible
+fixed-source preparation and one ordinary source-preserving public call.
 
 The preceding [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
 `plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
@@ -352,46 +371,49 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
-Independent planning review accepts the next shared facade packet and the
-fixed-source precision-preparation decision with explicit release conditions.
-The six-path facade packet is released for isolated implementation against the
-accepted Typed checkpoint; independent review, integration and model acceptance
-remain pending. Promote the existing real named-input
-mapping into audited SOURCE admission and use that same mapping for corpus
-preparation, references, exported names, reports and sample feeds. Keep ordinary
-signature/default/error behavior, actual dtypes and weakness, native scope
-identity, serialization and cache isolation. Runtime exemplars must not become
-constants; closures or partial application are only for intentionally fixed
-settings. No diagnostic bypass, synthetic flag or per-operation legacy fallback
-is a completion path.
+The shared named binder and finite preparation proof are described in the
+[named-parameter findings](poc/named_runtime_parameters_findings.md) and
+[preparation findings](poc/fixed_source_preparation_findings.md). The binder uses
+one positional/named mapping for native tracing, original-model preparation,
+reports and physical sample feeds. Its finite scope does not close the models
+that use it. The preparation proof makes an explicit selected numerical change;
+a general fixed-source preparation mechanism remains required work before F.
 
-Use the unchanged `example::examples.nnx::MLP`, ordinal 2, as the first complete
-model target, followed by Linen MLP and Function examples 014/015. Preserve actual
-weights, positive dropout rates, normalization state and original callables.
-Exercise both flag values and applicable B variants through the same artifact;
-014's fixed dimension must remain fixed. Prefreeze exact discrete/intermediate
-and justified floating criteria, or leave numerical status None/unverified.
-Keep stochastic key/state prerequisites and all 22 original model identities.
-Preserve the actual model's fixed-key dependence, stream advancement, correlations,
-inference consumption behavior, errors and state updates. The NNX stream and the
-Linen bridge's repeated fixed key are different contracts. Compare native eager
-and valid JIT from the same initial state and record post-state. A live Dropout
-graph or matching distributions alone cannot establish equivalence; neither does
-this plan promise universal bitwise JAX random streams. Where the model's numerical
-contract is unresolved, retain None/unverified rather than inventing a criterion.
-The facade change alone will not close normalization, activation, randomness,
-embedding, matrix/broadcast or other model dependencies. Measure and complete
-the actual next barrier instead of substituting an easier source.
+The reviewed MLP plan and static state/PRNG supplement are released from code
+`8f823ac3` for isolated implementation. Eight existing production paths and
+three new tests are initially owned; the required measured PRNG extension and
+floating-criterion approval remain part of full-model closure. The separate
+exact-copy selection implementation has runtime validation pending. Neither
+workstream has accepted or integrated model/production results.
 
-One Sol owner has the released six-path facade/preparation packet for isolated
-implementation: conversion API, user interface, existing source-preparation support,
-existing runtime-parameter tests and two dedicated facade/model test modules.
-Typed profile/representation/sample rules and framework lowerers remain pinned
-dependencies unless a concrete finding receives separate ownership. Independent
-review, actual-main checks on both stacks, inventory preservation, a fresh full
-suite and installed hooks remain required. Isolated implementation is released;
-independent review, integration and model acceptance remain pending. See the [Typed findings](poc/typed_values_and_masks_findings.md#next-shared-work)
-for the frozen plan and precision-preparation decision.
+The next coherent implementation follows unchanged NNX MLP ordinal 2 through
+BatchNorm → Dropout → GELU and its two Linear calls, with Linen Dense and the
+corresponding framework paths. Preserve the original 30/20/10 dimensions,
+seed 17, positive dropout rate 0.1, captured parameters and normalization state.
+Source interception must forward native behavior and admit the resulting actual
+graph; a patched Dropout identity cannot supply the native reference. Function
+examples 014/015 remain separate follow-ons, with 014's fixed dimension intact.
+
+Running-stat BatchNorm inference, GELU's actual approximation choice and each
+operand/accumulation/cast policy need finite FP32/FP64 checks. Dynamic training
+also needs an explicit pure whole-model state input/output wrapper using the
+existing call contract. Preserve actual keys, counters, stream advancement,
+shared-key correlations, inference consumption behavior, repeat/error semantics
+and state updates. The selected PRNG/state extension is a mandatory next part of
+the same model goal, not an inference-only completion waiver. No universal
+bitwise random-stream promise is introduced; live Dropout ports or distribution
+checks alone do not establish the original model's contract.
+
+Prefreeze meaningful nonzero native eager/JIT probes and criteria before target
+runs, retaining original zero probes, both flag values and B=2/5 where declared.
+Use one artifact for the varying controls, start native calls from identical
+explicit state, and inspect post-state as well as outputs. Keep unresolved
+numerical contracts None/unverified. No diagnostic bypass, source rewrite,
+synthetic flag or per-operation legacy fallback closes these dependencies.
+
+Independent review, actual-main validation, inventory preservation, the complete
+suite and installed hooks remain separate release gates. The public transition
+still requires all existing functionality across phases B–F.
 
 The immediate review follow-ups have reached this checkpoint:
 
@@ -424,10 +446,11 @@ The Typed checkpoint extends bounded BOOL/integer predicates, conversions,
 selection and masks, plus static complex construction/extraction. Each checkpoint retains
 its own integration and sample evidence. The persisted profile identifier is
 unchanged.
-Nonempty `input_params`, dynamic layouts, nondefault normalization, unlisted
-operations, effects, broader symbolic shapes, loops and unsupported JIT forms
-remain temporary audited-profile gates; named BOOL and other reviewed diagnostic paths
-do not silently broaden that admission.
+The named binder removes the blanket nonempty `input_params` gate while
+preserving each declared value's native type, scope and actual variable binding.
+Dynamic layouts, nondefault normalization, unlisted operations, effects, broader
+symbolic shapes, loops and unsupported JIT forms remain temporary audited-profile
+gates; a successfully bound parameter does not bypass those checks.
 Where the existing converter supports them, they remain required migration work.
 
 The implementation follows these acceptance requirements:
@@ -624,10 +647,10 @@ diagnostic structure with those raw failures retained and zero ORT calls.
 Product Gather admission remains unfinished. The subsequent Typed checkpoint
 covers the bounded value families recorded above, with independent actual-main
 acceptance, 8,659 full-suite passes and all actual hooks passing. The named
-parameter and preparation packet described above is released for isolated
-implementation; independent review, integration and model acceptance remain pending. Continue through the actual remaining
-model dependencies, symbolic shapes, layouts, normalization and optional-model
-contracts; these bounded packets do not close the whole inventory.
+binder and finite preparation proof described above advance separate shared
+prerequisites. Continue through the unchanged MLP dependency chain, actual
+training state/PRNG behavior, broader symbolic shapes, layouts, normalization and
+optional-model contracts; these bounded packets do not close the whole inventory.
 
 ## Stage 1 Inventory and freeze observable behavior
 
@@ -980,9 +1003,9 @@ it does not make the previous static calculation unavailable. Verify both BOOL
 values against original JAX, defaults/literal overrides, unused arguments,
 Function/If/Loop forwarding, names and report arity. The existing mixed
 static-root/dynamic-Function witness must never produce a misleading artifact.
-The named-parameter implementation is released in isolation; parameter support
-remains excluded from the committed private profile until review and integration.
-Model acceptance remains pending.
+The reviewed named binder implements this mapping for the private audited path;
+the unchanged all-22 sources now expose their actual next barriers. Complete
+model and stochastic numerical acceptance remain pending.
 The tracing strategy must pass compatibility examples using those existing
 models with unchanged sources. A static wrapper cannot replace a previously
 working dynamic control. If a supported baseline model would require a source rewrite, keep the

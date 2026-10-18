@@ -1,6 +1,6 @@
 # Computation Precision Migration Plan: User View
 
-Status: accepted plan for the complete precision transition, 2026-10-18.
+Status: accepted plan for the complete precision transition, 2026-10-19.
 The completed normal `to_onnx(...)` call will preserve the JAX computation
 through one consistent rule across the existing functionality. There will be
 no public precision-mode or partial-profile choice. The
@@ -14,24 +14,38 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
-adds reviewed private rules for Boolean and integer inputs, comparisons,
-conversions and selection, plus selected static complex values. Both supported
-stacks pass 2,047 focused checks on the actual migration checkout; independent
-integration review accepts the checkpoint. The complete primary-stack suite
-passes 8,659 tests, and code commit `0d8f9d19` passes all repository hooks after
-a comment-only path-marker correction. The original GPT and embeddings
-integer inputs now pass input checks, but export still stops at the named-parameter
-restriction before model construction. This is progress towards existing models,
-not completed model support.
+The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
+lets the private migration path trace declared keyword values as real inputs
+through the whole calculation. Selected examples retain the same model artifact
+when the batch size or Boolean control changes. This removes a shared parameter
+guard; complete model support still depends on the operations and state used by
+each model. The unchanged NNX and Linen MLPs now reach their actual normalization
+or Dense barriers, and GPT reaches Dropout.
 
-The named-parameter packet is released for isolated implementation to preserve
-real runtime controls through unchanged model sources. Independent review,
-integration and model acceptance remain pending. Fixed-source FP64 workflows also require explicit JAX-side preparation
-where existing configuration is insufficient; deliberate casts, accumulation and
-stored weights remain protected unless a numerical change is explicitly chosen.
-That preparation is required work, not an available automatic transformation.
-Public calls and both current double-precision options keep their behavior.
+The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
+separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
+a different FP64 computation with its own reference. It also reuses actual stored
+weights when changing a model's computation dtype. Eleven tests pass per stack,
+but this finite tool does not automatically prepare arbitrary models.
+
+A reviewed cache repair now keeps each live model instance's tracing identity
+separate from later objects that reuse its address. Focused checks pass on both
+stacks, and the fresh complete primary suite passes **8,772 tests**. Code commit
+`8f823ac3` passes all seven repository hooks. The first full run's DINO failure
+remains recorded; its original cause was not observed. A separate older-stack
+FP16 benchmark failure is unchanged from the accepted baseline and remains unresolved.
+
+Exact-copy probes also show a finite way to preserve the selected floating-point
+bits. Its isolated implementation has runtime validation pending. The unchanged
+MLP work is also released for implementation, preserving both runtime choices
+and actual state/randomness. A production Where fix and complete MLP support
+are not yet accepted or integrated.
+
+Public export calls and both existing double-precision options keep their
+behavior. The full transition still requires unchanged model sources, working
+runtime controls and state, and compatible precision preparation. The preceding
+[Typed results](poc/typed_values_and_masks_findings.md), including their retained
+numerical failures, are unchanged.
 
 The preceding [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
 a saved ONNX representation for one unchanged indexing-and-trigonometry example.
@@ -184,7 +198,7 @@ operators, scopes and options. Missing comparison criteria remain unverified;
 they are not silently replaced with exact agreement. Integer and Boolean
 results must remain exact even when floating outputs use a tolerance.
 Runtime failures remain visible under their recorded criteria.
-The first private parameter packet now carries real named Boolean inputs
+The first private diagnostic parameter packet carried real named Boolean inputs
 through the complete prepared call, including framework Dropout and local
 Function defaults. An external whole-call `lax.cond` adapter preserves a bounded
 unchanged Python-branch implementation and both runtime choices; static binding
@@ -221,9 +235,9 @@ CPU samples do not replace the preceding five-source observation. Bounded
 Where/JIT semantics and actual-main integration are now independently accepted
 for the private path. The later Gather diagnostic check preserves that example
 without establishing product or runtime support. The committed Typed checkpoint now adds
-bounded value-family rules with independent integration acceptance. Named runtime
-parameters and unchanged-model preparation are the next shared step after that
-checkpoint; complete Gather and broader model acceptance remain open.
+bounded value-family rules with independent integration acceptance. The later
+named binder and finite preparation proof advance those shared prerequisites;
+complete Gather and broader model acceptance remain open.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 
@@ -283,13 +297,13 @@ ONNX limitation. A static binding is a replacement only for an intended static
 configuration; it does not replace a working runtime control.
 The [22-model classification](poc/fixed_source_compatibility_findings.md) now
 identifies which controls are dynamic, flag-insensitive or static. It does not
-establish numerical or stochastic SOURCE acceptance. This parameter transition
-is released for isolated implementation; independent review, integration and
-model acceptance remain pending. It is not available through the committed
-bounded private profile.
-The next shared implementation will start with the unchanged NNX MLP, then Linen
-and Function examples. It must preserve real runtime flags through one artifact,
-including variable batches where the original model declares them. A successful
+establish numerical or stochastic SOURCE acceptance. The reviewed private binder now
+uses real typed named inputs across the whole trace. Its fresh model ledger
+records progress past the parameter guard, with no model numerical acceptance.
+The next model work follows the unchanged NNX MLP through normalization,
+dropout and GELU, with the corresponding Linen path and then Function examples.
+It must preserve real runtime flags through one artifact, including variable
+batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution
 of the complete model succeeds. Training behavior needs separate checks of the
 model's actual keys, repeated calls and state changes. A live Dropout operation

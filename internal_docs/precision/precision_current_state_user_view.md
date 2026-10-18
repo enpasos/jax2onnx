@@ -13,24 +13,38 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
-adds reviewed private rules for Boolean and integer inputs, comparisons,
-conversions and selection, plus selected static complex values. Both supported
-stacks pass 2,047 focused checks on the actual migration checkout; independent
-integration review accepts the checkpoint. The complete primary-stack suite
-passes 8,659 tests, and code commit `0d8f9d19` passes all repository hooks after
-a comment-only path-marker correction. The original GPT and embeddings
-integer inputs now pass input checks, but export still stops at the named-parameter
-restriction before model construction. This is progress towards existing models,
-not completed model support.
+The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
+lets the private migration path trace declared keyword values as real inputs
+through the whole calculation. Selected examples retain the same model artifact
+when the batch size or Boolean control changes. This removes a shared parameter
+guard; complete model support still depends on the operations and state used by
+each model. The unchanged NNX and Linen MLPs now reach their actual normalization
+or Dense barriers, and GPT reaches Dropout.
 
-The named-parameter packet is released for isolated implementation to preserve
-real runtime controls through unchanged model sources. Independent review,
-integration and model acceptance remain pending. Fixed-source FP64 workflows also require explicit JAX-side preparation
-where existing configuration is insufficient; deliberate casts, accumulation and
-stored weights remain protected unless a numerical change is explicitly chosen.
-That preparation is required work, not an available automatic transformation.
-Public calls and both current double-precision options keep their behavior.
+The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
+separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
+a different FP64 computation with its own reference. It also reuses actual stored
+weights when changing a model's computation dtype. Eleven tests pass per stack,
+but this finite tool does not automatically prepare arbitrary models.
+
+A reviewed cache repair now keeps each live model instance's tracing identity
+separate from later objects that reuse its address. Focused checks pass on both
+stacks, and the fresh complete primary suite passes **8,772 tests**. Code commit
+`8f823ac3` passes all seven repository hooks. The first full run's DINO failure
+remains recorded; its original cause was not observed. A separate older-stack
+FP16 benchmark failure is unchanged from the accepted baseline and remains unresolved.
+
+Exact-copy probes also show a finite way to preserve the selected floating-point
+bits. Its isolated implementation has runtime validation pending. The unchanged
+MLP work is also released for implementation, preserving both runtime choices
+and actual state/randomness. A production Where fix and complete MLP support
+are not yet accepted or integrated.
+
+Public export calls and both existing double-precision options keep their
+behavior. The full transition still requires unchanged model sources, working
+runtime controls and state, and compatible precision preparation. The preceding
+[Typed results](poc/typed_values_and_masks_findings.md), including their retained
+numerical failures, are unchanged.
 
 The preceding [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
 a saved ONNX representation for one unchanged indexing-and-trigonometry example.
@@ -107,13 +121,13 @@ as do native JAX promotion for `where`/`full` and selected Boolean results. The
 from remaining BF16 execution and floating-point comparison failures. They do
 not establish browser support or broaden the audited operation profile.
 
-Private migration checks now also carry real named Boolean arguments through
+The earlier private diagnostic packet carried real named Boolean arguments through
 the complete prepared call and framework Dropout, while preserving local defaults
 and static settings. Native `arange`/`linspace` binding retains JAX's chosen
 calculation. Selected exact sequence comparisons, BF16 execution and dynamic
-`arange` compatibility remain open. The all-22 model diagnostic pass yields
+`arange` compatibility remain open. That historical all-22 diagnostic pass yielded
 three checked artifacts and 19 pending cases per stack, with no runtime or
-numerical acceptance.
+numerical acceptance. The later audited progress ledger is described above.
 
 The earlier private diagnostics cover selected FP32/FP64 matrix calculations, and
 a shared Dropout cleanup defect is repaired. The
