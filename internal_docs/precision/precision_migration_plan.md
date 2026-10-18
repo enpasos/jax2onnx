@@ -19,10 +19,19 @@ at `223f24bf`. C4c scalar-BOOL binding and D1b native sequence binding are commi
 at `4c1c57fe` and `05037961`, with reviewed manual inventory additions. The shared
 Dropout optimizer repair is committed at `c528a894`; D2a ordinary FP32/FP64
 matrix lowering is committed at `2011b140`. All passed actual repository hooks.
-The latest complete primary-stack run passes **6,183 tests**; required typing
-covers 541 files, with RNG registration and global Ruff passing. The inventory
-now records 197 handwritten-test files, 1,023 functions and 271 migration
-additions, retaining all 752 original anchors and 1,802 raw contracts.
+The historical Dropout/D2a complete primary-stack run passed **6,183 tests**;
+required typing covers 541 files, with RNG registration and global Ruff passing.
+That inventory recorded 197 handwritten-test files, 1,023 functions and 271
+migration additions. The current root-owned refresh records 200 files, 1,074
+functions and 322 additions, retaining all 752 original anchors and 1,802 raw
+contracts. Native add/min/max binding and the separate Mul-None diagnostic
+dependency are independently accepted. Static layouts and their corrected shared
+observer/naming dependency have focused acceptance after ten full-run failures;
+the final 238 cases pass in owner and independent runs on each stack. The fresh
+complete run passes **6,351 tests** (13,110 warnings, 466.07 seconds). Optimizer
+`f02c0b4c`, binder/Mul-None `258e90d6` and static NCHW `7609fc2e` all passed actual
+configured hooks; the
+[new findings](poc/layout_and_native_binary_findings.md) record the exact scope.
 Both fresh inventory comparisons pass. The first B3 batch retains its historical
 baseline and outcomes; a separate two-dot-cell supplement still fails artifact
 validation against the unchanged legacy structural callback. The
@@ -259,12 +268,32 @@ matrix packet nor the Dropout repair broadens audited admission or establishes
 stochastic/full-model acceptance. The separate two-cell B3 supplement leaves
 structural-oracle migration open; it closes no corpus row.
 
-The next C4b packet is planned for selected static logical rank-four NCHW export
-boundaries. One explicit representation descriptor must preserve the original
-NHWC computation, dtype and complex component axis, with strict IR/proto/reloaded
-checks, names, aliases and real named controls. Symbolic layouts, normalization
-selection and raw-metadata layout replay remain separate work. This plan does
-not establish layout or model support before implementation and review.
+The committed C4b packet implements selected static logical rank-four NCHW
+boundaries through one representation descriptor, preserving the original NHWC
+computation, dtype and complex component axis. Strict IR/proto/reloaded checks,
+names, aliases and real named controls remain active. Its shared observer repair
+also protects inverse-output captures and lexical names across native NameFix.
+The initial full run exposed ten regressions from detached Transpose use links;
+the final local-consumer correction passes 238 checks per stack independently,
+including the unchanged failures and all 57 observer/36 layout cases. The earlier
+572-case selection remains historical focused evidence. Symbolic layouts,
+normalization and raw-metadata replay remain separate work. No whole-model layout
+row closes.
+
+The native add/min/max group uses one opt-in at the existing binder, leaving
+other callers and LEGACY unchanged. Selected gradient/vmap samples pass, while
+eight signed-zero CPU observations per stack remain FAILED. The separate
+Mul-None diagnostic correction changes no production lowerer or profile.
+
+The next accepted symbolic packet is two equal-shaped inputs sharing one named
+batch dimension, one audited Add and a named composition, with one artifact
+checked at two concrete batches. It is unimplemented; all 310 symbolic raw rows
+remain. This is the sole next production packet. Min/Max numerical representations
+remain feasibility only: semantic justification does not establish strict CPU
+success, and the cheap Where candidate also changes measured baseline results.
+Current export has no runtime-target argument; the existing sample validator and
+raising acceptance guard provide that separate evidence gate. No costly rollout,
+new public mode or broad admission is selected.
 
 ## Stage 1 Inventory and freeze observable behavior
 

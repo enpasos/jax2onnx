@@ -25,9 +25,14 @@ repository hooks passing; public behavior and audited operation admission stay
 unchanged. Real scalar-Boolean runtime binding and native `arange`/`linspace`
 binding now also have reviewed private coverage. Selected ordinary FP32/FP64
 matrix calculations and a shared Dropout cleanup repair are now reviewed and
-committed too. The latest complete run passes **6,183 tests**. The refreshed
-inventory retains every original contract and test anchor; this regression
-result does not complete source coverage.
+committed too. That complete run passed **6,183 tests**. The subsequent
+[layout and native-binary checkpoint](poc/layout_and_native_binary_findings.md)
+has accepted binder/Mul checks. Its initial full run failed ten regressions;
+the corrected layout/observer packet passes focused review on both stacks.
+The fresh complete primary-stack run passes **6,351 tests**, and the three code
+commits passed actual repository hooks. The refreshed inventory
+retains every original contract and test anchor; these results do not complete
+source coverage.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -96,8 +101,12 @@ The [matrix findings](poc/matrix_and_optimizer_findings.md) likewise retain exac
 failures for selected subnormal values. A separate recheck of two original
 matrix scenarios now passes schema checking but still fails the existing
 structural callback; it establishes no new corpus acceptance. Static NCHW
-input/output boundaries are planned next, while preserving the unchanged model's
-calculation. Symbolic layout and broader model coverage remain separate work.
+input/output boundaries and the shared optimizer/naming dependency have passed
+independent review. Eight min/max signed-zero observations per
+stack remain failed under their original criteria. The next accepted symbolic
+direction is one shared batch dimension through a bounded Add composition,
+using unchanged source and multiple concrete batches; it is not implemented.
+Symbolic layouts, normalization and broader model coverage remain separate work.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

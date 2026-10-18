@@ -45,12 +45,17 @@ Private diagnostics now also cover selected FP32/FP64 matrix calculations, and
 a shared Dropout cleanup defect is repaired. The
 [matrix findings](poc/matrix_and_optimizer_findings.md) retain exact failures for
 selected very small values; matching graph types alone does not establish
-matching results. Static NCHW input/output layout handling is planned next.
-These changes do not broaden the public precision interface or establish
-complete matrix or model support.
+matching results. Static NCHW input/output boundaries and corrected shared
+optimizer fixes have passed independent review and are committed. Native
+add/min/max binding has passed independent review, preserving JAX promotion
+and weak inputs. Its recorded signed-zero samples still fail strict CPU
+comparison. The [new findings](poc/layout_and_native_binary_findings.md) separate
+these outcomes from future symbolic work and complete-model acceptance.
 
-The latest complete run passes **6,183 tests**. These reviewed changes are
-committed locally and passed repository hooks. The refreshed inventory retains
+The earlier Dropout/D2a complete run passed **6,183 tests**. The next full run
+failed ten regressions; their narrow repair passes the unchanged failing cases
+and related checks on both stacks. The fresh complete primary-stack run passes
+**6,351 tests**, and all three new code commits passed repository hooks. The refreshed inventory retains
 all original contracts and test anchors. The
 [work plan](precision_implementation_work_plan.md) tracks the remaining operators,
 options and full-model validation. The migration is not complete.

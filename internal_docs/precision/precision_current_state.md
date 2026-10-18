@@ -102,14 +102,30 @@ The [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md) record
 the exclusions, preserved operands and failed exact subnormal samples.
 A separate two-cell corpus supplement now passes schema checking but fails the
 unchanged Gemm/zero-bias structural callback; no B3 artifact or row is accepted.
-Static NCHW boundaries remain planned work, alongside broader options and models.
+Static NCHW boundaries are committed at `7609fc2e`, with their corrected shared
+observer/naming dependency at `f02c0b4c` and native binary/Mul-None at `258e90d6`.
+The [new findings](poc/layout_and_native_binary_findings.md) distinguish that
+scope from the independently accepted native add/min/max binder and separate
+Mul-None diagnostic repair. The binder passes 366 independent tests per stack;
+eight signed-zero target samples per stack remain FAILED. Broader options and
+models remain open.
 
-The latest complete primary-stack run passes **6,183 tests** (13,110 warnings,
+The historical Dropout/D2a complete primary-stack run passed **6,183 tests** (13,110 warnings,
 406.62 seconds), with no exclusions. Required typing covers 541 files; RNG
-registration and global Ruff pass. Both new commits passed actual hooks. The
-final inventory records 197 handwritten-test files, 1,023 functions and 271
-migration additions, retaining all 752 original anchors, all 1,802 raw contracts
-and optional entries. Fresh CLI comparisons pass on both stacks. The
+registration and global Ruff pass. Both Dropout/D2a commits passed actual hooks. The
+checkpoint inventory records 197 handwritten-test files, 1,023 functions and 271
+migration additions. The next full run on optimizer `8fd3cff6` failed ten tests,
+with 6,335 passed and 13,110 warnings in 632.85 seconds. Detached removed-Transpose
+use links caused all ten failures, reproduced unchanged on both stacks. Final
+`0f8b60c5` bytes use current local consumers while retaining output/nested guards;
+owner and independent checks pass the same 238 cases per stack. These prefixes
+are file hashes, not commits. Root typing (541 files plus RNG) and global Ruff pass.
+The current inventory records 200 files, 1,074 functions and 322 additions, retaining
+all 752 original anchors, all 1,802 raw contracts and optional entries. Fresh
+CLI comparisons pass on both stacks. The fresh complete primary-stack run passes
+**6,351 tests** (13,110 warnings, 466.07 seconds). All three new code commits passed
+actual configured hooks; all 17 frozen code/inventory hashes remain unchanged.
+The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 
 For observable behavior and export choices, read the

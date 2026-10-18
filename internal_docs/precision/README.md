@@ -37,10 +37,17 @@ Private scalar-BOOL runtime binding is committed at `4c1c57fe`; native
 `arange`/`linspace` binding is committed at `05037961`. Both passed independent
 review and actual hooks. The shared Dropout optimizer repair is committed at
 `c528a894`; bounded ordinary FP32/FP64 matrix lowering is committed at `2011b140`.
-Both also passed independent review and actual hooks. The latest complete
-primary-stack run passes **6,183 tests**. The inventory retains every raw contract
-and original anchor, with 197 handwritten-test files, 1,023 functions and 271
-migration additions.
+Both also passed independent review and actual hooks. That committed
+checkpoint’s complete primary-stack run passes **6,183 tests**, with
+197 handwritten-test files, 1,023 functions and 271 migration additions.
+The [layout and native-binary checkpoint](poc/layout_and_native_binary_findings.md)
+is committed on `precision-migration`: shared observer/naming repair `f02c0b4c`,
+binder and Mul-None `258e90d6`, and static NCHW `7609fc2e`. All passed independent
+review and actual configured hooks. The initial full run failed ten regressions;
+the live-observer correction passes 238 owner and independent checks per stack.
+Its root-owned inventory records 200 files, 1,074 functions and 322 additions,
+retaining all 752 original anchors and 1,802 raw contracts. The fresh complete
+primary-stack run passes **6,351 tests**, with 13,110 warnings in 466.07 seconds.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
@@ -53,7 +60,11 @@ compatibility work remain visible. The
 bounded diagnostic matrix contract and repaired optional Dropout input cleanup.
 Selected subnormal matrix samples still fail exact comparison. These changes do
 not establish browser, stochastic or model-wide numerical acceptance. Static
-NCHW boundary handling is the next planned option packet; it is not implemented.
+NCHW boundary handling and its shared observer/naming dependency have passed
+independent review. They do not establish whole-model layout support.
+Native add/min/max binding preserves JAX promotion; eight signed-zero target
+observations per stack remain FAILED. The next accepted symbolic direction is
+a shared named batch dimension through a bounded Add composition, not yet implemented.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one

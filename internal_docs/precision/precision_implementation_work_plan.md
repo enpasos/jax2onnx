@@ -21,8 +21,15 @@ actual hooks passing. C4c scalar-BOOL binding is committed at `4c1c57fe`; D1b
 native sequence binding is committed at `05037961`. Both passed independent
 review and actual hooks. The shared Dropout optimizer repair is committed at
 `c528a894`; D2a ordinary FP32/FP64 matrices are committed at `2011b140`, also with
-independent review and actual hooks passing. The latest complete primary-stack
-run passes **6,183 tests**. An earlier failed preflight exposed raw metadata
+independent review and actual hooks passing. That complete primary-stack
+run passed **6,183 tests**. Native add/min/max binding and the separate Mul-None
+diagnostic dependency are committed at `258e90d6`; the shared observer/naming
+repair is committed at `f02c0b4c` and C4b static layout at `7609fc2e`. All passed
+independent review and actual configured hooks. After ten regressions in the
+initial full run, the corrected complete primary-stack run passes **6,351 tests**
+(13,110 warnings, 466.07 seconds).
+The [checkpoint findings](poc/layout_and_native_binary_findings.md) retain these
+distinctions. An earlier failed preflight exposed raw metadata
 mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
@@ -345,6 +352,9 @@ planning work is separate from production-code ownership.
 | D1b: native sequence binding | Dispatch original `arange`/`linspace` arguments before normalization; preserve native typed arithmetic while retaining failed target criteria and dynamic compatibility gaps. | Independently accepted; both-stack focused/legacy checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `05037961` |
 | Shared Dropout optimizer repair | Omit only a proven-false optional training input; preserve shared/captured/observable values and existing traversal. | Independently accepted; both-stack focused/legacy checks, corrected witness provenance, complete integrated run and actual hooks pass | `c528a894` |
 | D2a: ordinary matrices | Preserve same-dtype FP32/FP64 rank-2–4/default-precision matrices, actual batch/contracting order and native matmul binding; retain exact subnormal failures. | Private diagnostic packet independently accepted; both-stack focused/generated checks, complete integrated run and actual hooks pass; no matrix-family or B3 row closure | `2011b140` |
+| Native add/min/max binding | Forward original SOURCE arguments through one private binder opt-in; preserve native promotion, weakness, errors and transforms. | Independently accepted; 366 focused/generated checks per stack, 62 new cases; integrated run and actual hooks pass; eight signed-zero target failures per stack retained | `258e90d6` |
+| Diagnostic Mul-None dependency | Admit only the observed None spelling under the existing typed floating rule; retain native abstract checks. | Separately accepted; 84 checks per stack, 18 new safeguards; integrated run and actual hooks pass; no production/profile change | `258e90d6` |
+| C4b static NCHW and shared observers | Compose root physical layout without changing canonical source values; protect observable transpose values and lexical naming. | 36 layout and 57 observer cases; ten failed-full regressions retained, final correction independently passes 238 cases per stack; fresh full run and actual hooks pass | Optimizer `f02c0b4c`; layout `7609fc2e` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -634,9 +644,11 @@ Gemm/zero-bias callback; structural-oracle migration remains open and no corpus
 row closes. The [dated supplement](poc/source_corpus_findings.md#two-cell-matrix-supplement-on-2026-10-18)
 preserves original histories and unresolved numerical criteria.
 
-The next C4b packet is planned, not implemented: selected static logical rank-four
-inputs/outputs gain NCHW external layout through the shared representation
-boundary, while the original JAX computation remains NHWC. Real storage maps
+The committed C4b packet implements selected static logical rank-four
+inputs/outputs with NCHW external layout through the shared representation
+boundary, while the original JAX computation remains NHWC. Independent review
+accepts the layout and corrected observer/naming dependency within its focused
+scope; the fresh full run passes after the ten retained regressions. Real storage maps
 `(N,H,W,C)` to `(N,C,H,W)`; complex storage maps `(N,H,W,C,2)` to `(N,C,H,W,2)`
 without moving or inferring the real/imaginary axis. Ordinary real trailing-two
 data remains real. Preserve canonical source/child values, dtype/weakness,
@@ -646,6 +658,38 @@ shift layout indices. Use one explicit descriptor through the core/facade, with
 no skipped boundary checks or primitive-admission expansion. Symbolic layouts,
 normalization policy and raw-metadata layout replay require later packets; a
 boundary implementation alone cannot establish all layout-dependent models.
+The dependency protects input/intermediate/inverse-output observations and later
+orphan cleanup. Native NameFix preserves only unambiguous visible-ancestor
+node-input aliases; ambiguity fails before mutation and no graph rewiring occurs.
+Current local-consumer membership excludes detached removed-node use links while
+retaining graph-output and reachable nested-capture guards.
+Superseded freezes and invalid direct-child-output fixtures remain identified
+in the [new findings](poc/layout_and_native_binary_findings.md).
+
+The native add/min/max packet forwards original arguments through one opt-in
+shared helper, preserving all other 46 callers and LEGACY registration paths.
+The separate diagnostic Mul-None rule retains exact native abstract evaluation;
+actual min/max gradients now validate four CPU samples each per stack. Eight
+signed-zero observations per stack remain FAILED, with exact target/payload
+bounds. No default-profile or whole-family admission follows.
+
+After the C4b integration gate, the sole next production packet is two `(B,K)` inputs
+sharing one named positive batch dimension, an audited Add and named composition,
+one artifact and at least two concrete batches. Real sample symbol binding,
+normalized reports/IR dimensions and correctly remapped child symbols are
+required; unrelated caller scopes cannot be merged. This is planned only. Keep
+all 310 raw symbolic rows and existing dynamic positive witnesses, without a
+new profile mode, runtime Assert layer or source rewrite.
+
+Min/Max zero-sign representations remain feasibility work. The small standard
+Add/Neg/Where construction has a semantic argument but fails strict CPU checks
+and changes other measured results. Gather alternatives have material or
+unverified cost and are not selected for an unconditional rollout. Current export
+has no runtime-target argument: `validate_source_samples` and the raising
+`require_sample_acceptance` guard establish separate artifact-bound evidence.
+Preserve failed samples and criteria; ordinary tolerances do not waive required
+sign/rounding behavior. No Min/Max production packet, new target API, admission
+or expensive rollout is approved.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -812,7 +856,7 @@ Checkpoint evidence on 2026-10-18:
   targets record 24 positive observations and four subnormal failures per stack.
   Those failures retain successful schema/runtime checks and rejected exact
   sample acceptance. Counts overlap and are not a matrix-family support measure.
-- The latest complete primary-stack suite passes **6,183 tests**, with 13,110
+- The Dropout/D2a complete primary-stack suite passes **6,183 tests**, with 13,110
   warnings in 406.62 seconds and no exclusions. Required typing passes 541 files
   plus RNG registration; global Ruff passes. Both `c528a894` and `2011b140` pass
   actual configured hooks. The log is
@@ -823,6 +867,43 @@ Checkpoint evidence on 2026-10-18:
   1,802 raw contracts and optional entries are unchanged. The original B3 batch
   remains bound to `158ce625`; its separate two-cell supplement adds no accepted
   artifact, row or numerical criterion.
+
+- The next native binary packet has 62 new cases. Owner checks pass 339 focused
+  and 27 unchanged generated controls per stack; independent review passes the
+  combined 366 each. Original eager/JIT references, settings, typed constants,
+  cache orders, gradients and vmap are checked. Eight min/max signed-zero sample
+  observations per stack remain FAILED; they are not numerical acceptances.
+- The separate Mul-None diagnostic dependency has 18 new safeguards. Owner and
+  independent selections pass 84 each stack; native abstract evaluation and
+  unknown/non-None exclusions remain intact. Structural acceptance is separate
+  from the binder's actual gradient runtime evidence.
+- The initial C4b/observer candidate passed 783 owner checks before a typing-only
+  variable rename; `8fd3cff6` then passed 51 owner observer cases, 572 independent
+  checks and six original valid witness replays per stack. Its subsequent full
+  run failed ten tests, with 6,335 passed and 13,110 warnings in 632.85 seconds;
+  `/tmp/jax2onnx-precision-layout-binary-full-py312.log` retains that failure.
+  Detached removed-Transpose use links caused all ten unchanged failures on both
+  stacks. The earlier focused passes and superseded freezes are not integrated
+  acceptance.
+- Final optimizer `0f8b60c5` changes only the local-user expression to current
+  graph consumers; output/nested/NameFix guards stay unchanged. Six new cases in
+  one function bring observer coverage to 57, alongside 36 layout cases. Owner
+  and independent selections each pass the same 238 tests per stack: ten original
+  failures, 57 observer, 36 layout and 135 related controls. Counts are not additive.
+  Ten collection-only controls and one injected-name check remain qualified.
+  Root typing passes 541 files plus RNG, and global Ruff passes. File-hash prefixes
+  are not commit IDs.
+- The fresh complete primary-stack run passes **6,351 tests**, with 13,110 warnings
+  in 466.07 seconds and exit status zero. The log is
+  `/tmp/jax2onnx-precision-live-observer-full-py312.log`; all 17 code/inventory hashes
+  in `/tmp/jax2onnx-precision-live-observer-full-freeze.sha256` match before and after
+  commits. Optimizer `f02c0b4c`, binder/Mul-None `258e90d6` and static NCHW `7609fc2e`
+  each passed all actual configured hooks, without bypasses or formatter upgrades.
+- The root-owned inventory refresh records 200 files, 1,074 functions and 322
+  migration additions; both CLI comparisons pass. All 752 original anchors and
+  1,802 raw contracts remain unchanged. The historical B3 batch and two-cell
+  supplement, all-22 three-checked/19-pending results, and failed matrix,
+  linspace and FP16 rounding criteria are unchanged. No row closes automatically.
 
 ## Validation and final review
 

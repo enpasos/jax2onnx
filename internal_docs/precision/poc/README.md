@@ -16,6 +16,7 @@ is available. These experiments inform the
 | Fixed-source parameters | Which existing runtime controls must survive unchanged model implementations? | [Compatibility findings](fixed_source_compatibility_findings.md): all 22 raw rows, original state prerequisites, real Function/If/Loop dependencies and the later three-artifact/19-pending diagnostic pass per stack. |
 | Recording, packaging and array creation | Do shared export options and native promotion preserve the source contract? | [Option and array findings](option_and_array_creation_findings.md): committed C4a/C4c and D1a/D1b checks, real named BOOL operands, native sequence binding and explicit target failures. |
 | Ordinary matrices and Dropout cleanup | Do bounded matrix contracts and the shared optional-input rewrite preserve actual values? | [Matrix and optimizer findings](matrix_and_optimizer_findings.md): committed D2a and shared repair, exact subnormal failures, corrected witness provenance and separate corpus evidence. |
+| Static layouts and native binary binding | Can external storage and native promotion preserve unchanged source computations? | [Layout and binary findings](layout_and_native_binary_findings.md): committed binder/Mul and C4b/observer repairs, passing 6,351-test integration after ten retained regressions, signed-zero failures and future symbolic work. |
 
 ## Run it
 
@@ -44,8 +45,10 @@ source regressions live in `tests/extra_tests/converter` and run in normal CI.
 Supplemental experiments in this folder still need an explicit test invocation.
 See [recorded validation](source_integration_findings.md#recorded-validation)
 for historical integration results and the
-[latest checkpoint](matrix_and_optimizer_findings.md#validation-and-provenance)
-for the complete 6,183-test run, versions and bounded acceptance.
+[preceding committed checkpoint](matrix_and_optimizer_findings.md#validation-and-provenance)
+for the historical 6,183-test run. The [latest checkpoint](layout_and_native_binary_findings.md)
+records the passing 6,351-test run and three commits with actual hooks, retaining
+the earlier failed full run and separate future work.
 
 ## Observable source behavior
 
@@ -122,8 +125,11 @@ broaden the audited product profile. Exact sequence failures, BF16 runtime limit
 and dynamic `arange` compatibility remain open. The shared Dropout optimizer
 defect is repaired with bounded optional-input cleanup and preserved shared uses;
 see the [repair evidence](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair).
-Static NCHW boundary handling is planned next, with symbolic and broader layout
-coverage still separate. The
+Static NCHW boundaries and the corrected observer/naming dependency are committed
+after independent review, the passing fresh full run and actual hooks. The ten
+earlier integration failures remain recorded. Symbolic batch support is the next
+production packet; broader layout coverage and Min/Max numerical feasibility
+remain separate. The
 [next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.
