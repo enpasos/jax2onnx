@@ -146,94 +146,47 @@ def V_ir(name, dtype=ir.DataType.FLOAT, shape=()):
 
 
 def build_graph_with_not_tm():
-    # graph IO
-    x = ir.val("x", ir.DataType.FLOAT, (3, 30))
+    x = ir.val("x", ir.DataType.FLOAT, (3, 20))
     ratio = ir.val("ratio", ir.DataType.FLOAT, ())
-    y = ir.val("y", ir.DataType.FLOAT, (3, 10))
-
-    # keep a dangling graph input 'deterministic' so prune pass can remove it
     det = ir.val("deterministic", ir.DataType.BOOL, ())
-
-    # intermediates
-    a = ir.val("after_gemm", ir.DataType.FLOAT, (3, 20))
-    b = ir.val("after_bn", ir.DataType.FLOAT, (3, 20))
-    not_out = ir.val("not_out", ir.DataType.BOOL, ())
-    d_out = ir.val("drop_out", ir.DataType.FLOAT, (3, 20))
-    g_out = ir.val("gelu_out", ir.DataType.FLOAT, (3, 20))
-
-    # Constant True for training-mode corridor, so Not(True) → can be inlined.
-    # Make the scalar readable in a build-agnostic way: attach it directly to
-    # the Value via `const_value`. The optimizer always checks this first.
+    y = ir.val("y", ir.DataType.FLOAT, (3, 20))
+    constant = ir.tensor(np.asarray(True, dtype=np.bool_))
     const_true = V_ir("const_true", ir.DataType.BOOL, ())
-    # Attach constant payload directly; skip tricky Attr/Attributes handling.
-    const_true.const_value = ir.tensor(np.asarray(True, dtype=np.bool_))
-    const_node = ir.Node(
-        op_type="Constant",
-        domain="",
-        inputs=[],
-        outputs=[const_true],
-        name="Const_true",
-        attributes=[],  # payload is on Value.const_value
-        num_outputs=1,
-    )
-
-    n1 = ir.Node(op_type="Gemm", domain="", inputs=[x], outputs=[a], name="Gemm_1")
-    n2 = ir.Node(
-        op_type="BatchNormalization", domain="", inputs=[a], outputs=[b], name="BN_1"
-    )
-    n3 = ir.Node(
-        op_type="Not", domain="", inputs=[const_true], outputs=[not_out], name="Not_1"
-    )
-    n4 = ir.Node(
-        op_type="Dropout",
-        domain="",
-        inputs=[b, ratio, not_out],
-        outputs=[d_out],
-        name="Drop_1",
-    )
-    n5 = ir.Node(
-        op_type="Gelu", domain="", inputs=[d_out], outputs=[g_out], name="Gelu_1"
-    )
-    n6 = ir.Node(op_type="Gemm", domain="", inputs=[g_out], outputs=[y], name="Gemm_2")
-
-    g = ir.Graph(
+    not_out = V_ir("not_out", ir.DataType.BOOL, ())
+    graph = ir.Graph(
+        [x, det, ratio],
+        [y],
+        nodes=[
+            ir.Node(
+                "",
+                "Constant",
+                [],
+                outputs=[const_true],
+                attributes=[ir.AttrTensor("value", constant)],
+            ),
+            ir.Node("", "Not", [const_true], outputs=[not_out]),
+            ir.Node("", "Dropout", [x, ratio, not_out], outputs=[y]),
+        ],
         name="g",
-        inputs=[x, det, ratio],  # 'det' is intentionally unused so it can be pruned
-        outputs=[y],
-        nodes=[const_node, n1, n2, n3, n4, n5, n6],
+        opset_imports={"": 23},
     )
-    m = ir.Model(graph=g, ir_version=10)
-    m.opset_imports[""] = 21
-    return m
+    return ir.Model(graph, ir_version=10)
 
 
 def test_dropout_training_mode_inlined_constant_false_and_not_removed():
-    m = build_graph_with_not_tm()
-    m = optimize_graph(m)
-    g = m.graph
-    nodes = list(g)
-
-    # Not must be gone
-    assert "Not" not in [n.op_type for n in nodes]
-
-    # Dropout must remain and its 3rd input must be "missing" (empty name)
-    drops = [n for n in nodes if n.op_type == "Dropout"]
-    assert len(drops) == 1
-    d = drops[0]
-    ins = d.inputs
-    # If .input stores names instead of Values, normalize to names only
-    if ins and isinstance(ins[0], str):
-        third_name = ins[2]
-    else:
-        third = ins[2]
-        third_name = third.name
-    assert third_name == "false_const", f"expected missing tm input, got {third_name!r}"
-
-    # Unused graph input 'deterministic' must be pruned; 'x' and 'ratio' must remain
-    in_names = {v.name for v in g.inputs}
-    assert "deterministic" not in in_names
-    assert "x" in in_names
-    assert "ratio" in in_names
+    model = build_graph_with_not_tm()
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    model = optimize_graph(model)
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    nodes = list(model.graph)
+    assert not any(node.op_type == "Not" for node in nodes)
+    dropout = next(node for node in nodes if node.op_type == "Dropout")
+    assert len(dropout.inputs) == 2 or dropout.inputs[2] is None
+    proto_dropout = next(
+        node for node in ir.to_proto(model).graph.node if node.op_type == "Dropout"
+    )
+    assert len(proto_dropout.input) == 2 or proto_dropout.input[2] == ""
+    assert {value.name for value in model.graph.inputs} == {"x", "ratio"}
 
 
 def test_prune_unused_input_not_kept_due_to_nested_graph_name_collision():

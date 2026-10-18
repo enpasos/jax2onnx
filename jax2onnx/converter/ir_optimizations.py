@@ -2332,102 +2332,37 @@ def _read_scalar_bool_from_value_or_constant(
     return None
 
 
-def _constant_false_value() -> "ir.Value":
-    return ir.Value(
-        name="false_const",
-        type=ir.TensorType(ir.DataType.BOOL),
-        shape=ir.Shape(()),
-        const_value=ir.tensor(_as_ndarray(False, dtype=np.dtype(np.bool_))),
-    )
-
-
 def inline_dropout_training_mode_constants_ir(graph: ir.Graph) -> None:
-    """
-    Constant-only inlining for Dropout.training_mode:
-      - If training_mode is a constant False → drop it (make input #2 missing)
-      - If training_mode is Not(True)        → drop it (make input #2 missing)
-    This preserves dynamic (graph-input) cases: they are NOT inlined.
-    """
-    nodes = list(graph)
-    if not nodes:
-        return
-    changed = False
-    del_not_names: Set[str] = set()
-    del_not_nodes: Set[ir.Node] = set()
+    """Omit a same-graph Not(True) used as Dropout's optional training input.
 
-    for idx, n in enumerate(nodes):
-        if n.op_type != "Dropout":
+    Missing training_mode defaults to false. Other uses and graph outputs keep
+    their original Not value; only unobserved Not nodes are removed. This pass
+    does not recurse into child graphs or inline already-direct false inputs.
+    """
+    candidates: set[ir.Node] = set()
+    for node in list(graph):
+        if node.domain != "" or node.op_type != "Dropout" or len(node.inputs) < 3:
             continue
-        ins = _node_inputs(n)
-        if len(ins) < 3:
+        producer = producer_in_graph(graph, node.inputs[2])
+        if producer is None or producer.domain != "" or producer.op_type != "Not":
             continue
-        tm = ins[2]
+        flag = _first_input(producer)
+        if isinstance(flag, ir.Value) and flag.is_graph_input():
+            continue
+        if _read_scalar_bool_from_value_or_constant(graph, flag) is True:
+            node.replace_input_with(2, None)
+            candidates.add(producer)
 
-        _dbg_tm(
-            "Dropout@",
-            idx,
-            "tm input:",
-            (tm if isinstance(tm, str) else _v_name(tm)),
-            "type:",
-            type(tm).__name__,
+    removable = [
+        node
+        for node in candidates
+        if all(
+            not value.uses() and not value.is_graph_output() for value in node.outputs
         )
-        # Prefer handling the Not(True) pattern so we can drop the Not producer.
-        producer = producer_in_graph(graph, tm)
-        if producer is not None:
-            if producer.op_type == "Not":
-                _dbg_tm("tm producer is Not")
-                not_in = _first_input(producer)
-                if isinstance(not_in, ir.Value) and not_in.is_graph_input():
-                    _dbg_tm("Not input is dynamic graph input; skipping")
-                    _dbg_tm("Not input could not be proven True; nv=", None)
-                    continue
-                nv = _read_scalar_bool_from_value_or_constant(graph, not_in)
-                if nv is not None and bool(nv) is True:
-                    rep_val = _constant_false_value()
-                    ins_new = list(ins)
-                    ins_new[2] = rep_val
-                    old_not_out = _node_output(producer)
-                    if old_not_out is None:
-                        continue
-                    ir.convenience.replace_all_uses_with(
-                        old_not_out, rep_val, replace_graph_outputs=True
-                    )
-                    _set_node_inputs(n, ins_new)
-                    changed = True
-                    out_v = _node_output(producer)
-                    out_name = _v_name(out_v)
-                    if out_name:
-                        del_not_names.add(out_name)
-                    del_not_nodes.add(producer)
-                    # We need to mark producer index as deleted if we track by index
-                    # But the current code uses del_not_nodes (set of nodes) and del_not_names.
-                    # The original code used del_not_idx.
-                    # We should probably stick to del_not_nodes which is safer.
-                    continue
-                _dbg_tm("Not input could not be proven True; nv=", nv)
-
-        # Case A removed: we only inline Not(True) patterns to preserve
-        # call-param wiring in inference graphs.
-    if changed:
-        _dbg_tm("changed detected; del_not_nodes=", len(del_not_nodes))
-        # Remove any Not nodes whose outputs have no remaining consumers
-        if del_not_nodes:
-            final_del_nodes = []
-            for not_node in del_not_nodes:
-                has_uses = False
-                for ov in _node_outputs(not_node):
-                    if ov.uses() or ov.is_graph_output():
-                        has_uses = True
-                        break
-                if not has_uses:
-                    final_del_nodes.append(not_node)
-
-            if final_del_nodes:
-                if TRN_DEBUG or os.getenv("JAX2ONNX_TM_DEBUG"):
-                    print(
-                        f"[tm-inline] removed {len(final_del_nodes)} orphan Not nodes"
-                    )
-                graph.remove(final_del_nodes)
+    ]
+    if removable:
+        _dbg_tm("removed", len(removable), "unobserved Not nodes")
+        graph.remove(removable)
 
 
 # ---------------- DCE ----------------
