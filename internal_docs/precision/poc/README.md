@@ -26,8 +26,48 @@ is available. These experiments inform the
 | Native Exp and Leading-B Mul | Do native weak typing and explicit broadcast survive exponential/multiplication composition? | [Pointwise findings](pointwise_mul_exp_findings.md): accepted four-path semantics and 1,489 actual-main checks per stack, with fixed finite CPU samples and separate BF16 structural limits. |
 | Native Where and typed JIT | Can native selection and pure compiled bodies preserve actual typed inputs, constants and scopes? | [Where/JIT findings](where_jit_admission_findings.md): accepted private semantics, 2,661 pre-repair main checks and 89 fresh restoration checks per stack; strict zero-sign failures and the raw gather callback remain unresolved. |
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
+| Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The [Gather diagnostic counterpart](gather_counterpart_findings.md) checks one unchanged
+The [Typed values and masks checkpoint](typed_values_and_masks_findings.md)
+extends the private SOURCE foundation to bounded Boolean and integer values,
+comparisons, bitwise operations, conversions and selection, with a static
+complex construction/extraction foundation. Native promotion, weak typing,
+actual symbolic scopes and shared values remain explicit. Independent owner
+review accepts **4,171 passing cases on each stack**, including all 1,330 cases
+in the three new modules and the mapped prior selection. Actual MAIN focused
+checks pass **2,047 cases per stack**. These checks precede a whitespace-only
+formatting amendment whose AST is unchanged; they are not postformat runs.
+
+The inventory now records **217 files, 1,323 functions and 571 migration
+additions**, retaining all 752 original functions, zero original removals and
+1,802 raw rows/3,604 cells. Both inventory CLI checks pass. Independent MAIN
+review accepts the checkpoint. The complete primary-stack suite passes **8,659
+tests** (13,162 warnings, 488.80 pytest seconds), with the exact expected identities
+and no failures, errors or skips. Code commit `0d8f9d19` passes all seven actual
+hooks on retry; the initial path-marker failure is retained. Only path comments
+were added to the three new test files after the full run, with unchanged test
+ASTs and all production bytes. All 32 final checkpoint paths and 867 Python
+hashes remain unchanged after the successful commit.
+
+Both stacks have new evidence from 65 unchanged raw contracts: 125 artifacts
+from 130 cells, with five explicit gaps retained. Separate exact sample records
+validate 500 comparisons per stack; the raw records keep their None criteria.
+Independent post-run review accepts these bounded observations and their recording
+limits. This does not establish all 65 rows, general integer arithmetic, complex arithmetic or complete model support.
+Actual GPT and embeddings inputs now pass typed boundary checks, but their
+unchanged `input_params` calls still fail before construction or weights.
+
+The six-path named-parameter packet is released for isolated implementation;
+independent review, integration and model acceptance remain pending. It targets
+real named runtime parameters and original-model preparation, beginning with the
+unchanged NNX MLP and then Linen/Function examples. Fixed-source precision preparation is also
+required compatibility work before the final transition: an explicit JAX-side
+change supplies its own reference before ordinary export. No generic precision
+transformer or new public mode is implemented. Public LEGACY behavior and both
+existing double-precision options remain unchanged; only final phase F rejects
+both explicit Boolean values.
+
+The preceding [Gather diagnostic counterpart](gather_counterpart_findings.md) checks one unchanged
 `plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
 native traces and saved ONNX representation. Its exact graph of twenty nodes
 and thirteen constants retains native broadcasts, index adaptation and the existing
@@ -48,7 +88,7 @@ accepted: both stacks pass the same 249 focused cases and reproduce the bounded 
 replay and separate ordinary probes, with all 864 Python hashes unchanged.
 Eight other matrix cells per stack have unresolved fresh reference differences;
 Gather’s own reference and artifact remain byte-identical to the owner evidence.
-The current inventory records **214 files, 1,264 functions and 512 migration
+That Gather checkpoint’s inventory records **214 files, 1,264 functions and 512 migration
 additions**, preserving all 752 original functions, zero removals and 1,802 raw
 rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
 442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`

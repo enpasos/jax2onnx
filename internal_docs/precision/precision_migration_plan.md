@@ -7,7 +7,46 @@ existing-functionality acceptance matrix and checkpoint ledger. The final normal
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
-The [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
+The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
+extends the private SOURCE foundation to bounded Boolean and integer values,
+comparisons, bitwise operations, conversions and selection, with a static
+complex construction/extraction foundation. Native promotion, weak typing,
+actual symbolic scopes and shared values remain explicit. Independent owner
+review accepts **4,171 passing cases on each stack**, including all 1,330 cases
+in the three new modules and the mapped prior selection. Actual MAIN focused
+checks pass **2,047 cases per stack**. These checks precede a whitespace-only
+formatting amendment whose AST is unchanged; they are not postformat runs.
+
+The inventory now records **217 files, 1,323 functions and 571 migration
+additions**, retaining all 752 original functions, zero original removals and
+1,802 raw rows/3,604 cells. Both inventory CLI checks pass. Independent MAIN
+review accepts the checkpoint. The complete primary-stack suite passes **8,659
+tests** (13,162 warnings, 488.80 pytest seconds), with the exact expected identities
+and no failures, errors or skips. Code commit `0d8f9d19` passes all seven actual
+hooks on retry; the initial path-marker failure is retained. Only path comments
+were added to the three new test files after the full run, with unchanged test
+ASTs and all production bytes. All 32 final checkpoint paths and 867 Python
+hashes remain unchanged after the successful commit.
+
+Both stacks have new evidence from 65 unchanged raw contracts: 125 artifacts
+from 130 cells, with five explicit gaps retained. Separate exact sample records
+validate 500 comparisons per stack; the raw records keep their None criteria.
+Independent post-run review accepts these bounded observations and their recording
+limits. This does not establish all 65 rows, general integer arithmetic, complex arithmetic or complete model support.
+Actual GPT and embeddings inputs now pass typed boundary checks, but their
+unchanged `input_params` calls still fail before construction or weights.
+
+The six-path named-parameter packet is released for isolated implementation;
+independent review, integration and model acceptance remain pending. It targets
+real named runtime parameters and original-model preparation, beginning with the
+unchanged NNX MLP and then Linen/Function examples. Fixed-source precision preparation is also
+required compatibility work before the final transition: an explicit JAX-side
+change supplies its own reference before ordinary export. No generic precision
+transformer or new public mode is implemented. Public LEGACY behavior and both
+existing double-precision options remain unchanged; only final phase F rejects
+both explicit Boolean values.
+
+The preceding [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
 `plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
 native traces and saved ONNX representation. Its exact graph of twenty nodes
 and thirteen constants retains native broadcasts, index adaptation and the existing
@@ -28,7 +67,7 @@ accepted: both stacks pass the same 249 focused cases and reproduce the bounded 
 replay and separate ordinary probes, with all 864 Python hashes unchanged.
 Eight other matrix cells per stack have unresolved fresh reference differences;
 Gather’s own reference and artifact remain byte-identical to the owner evidence.
-The current inventory records **214 files, 1,264 functions and 512 migration
+That Gather checkpoint’s inventory records **214 files, 1,264 functions and 512 migration
 additions**, preserving all 752 original functions, zero removals and 1,802 raw
 rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
 442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`
@@ -268,11 +307,17 @@ distinguish an exact conversion from a local minimum. Export inputs instantiate
 such rules; they do not rewrite fixed casts, parameter types, or third-party
 constraints. Configure JAX x64 before creating values or tracing FP64 work.
 
-Export performs no implicit numerical FP32-to-FP64 transformation. Whether the
-migration also needs an explicit external preparation facility for hardcoded
-FP32 calculations in fixed sources is awaiting the user's clarification; no
-such API or implementation is assumed here. Development does
-not change `enable_double_precision`. Its legacy behavior includes
+Export performs no implicit numerical FP32-to-FP64 transformation. Explicit
+JAX-side preparation is required compatibility work for supported fixed-source
+workflows that existing configuration cannot express. It must produce a defined
+prepared computation and independent native reference before ordinary export,
+while the supplied source remains unchanged. Preserve exact casts, accumulation,
+stored parameter values and output contracts unless the requested preparation
+explicitly changes them. Widening stored weights cannot recover lost precision.
+No general transformation API is implemented or assumed, and a particular
+model's intended numerical changes must not be inferred from an FP32 dtype.
+This requirement is settled; implementation and acceptance remain open.
+Development does not change `enable_double_precision`. Its legacy behavior includes
 temporarily disabling JAX x64 when false, selecting defaults for shape-only
 inputs, and applying the existing export precision rules. Compatibility with
 those rules is distinct from preserving the existing conversion capabilities.
@@ -307,6 +352,47 @@ matrix, not only the bounded internal profile.
 
 ## Next implementation work
 
+Independent planning review accepts the next shared facade packet and the
+fixed-source precision-preparation decision with explicit release conditions.
+The six-path facade packet is released for isolated implementation against the
+accepted Typed checkpoint; independent review, integration and model acceptance
+remain pending. Promote the existing real named-input
+mapping into audited SOURCE admission and use that same mapping for corpus
+preparation, references, exported names, reports and sample feeds. Keep ordinary
+signature/default/error behavior, actual dtypes and weakness, native scope
+identity, serialization and cache isolation. Runtime exemplars must not become
+constants; closures or partial application are only for intentionally fixed
+settings. No diagnostic bypass, synthetic flag or per-operation legacy fallback
+is a completion path.
+
+Use the unchanged `example::examples.nnx::MLP`, ordinal 2, as the first complete
+model target, followed by Linen MLP and Function examples 014/015. Preserve actual
+weights, positive dropout rates, normalization state and original callables.
+Exercise both flag values and applicable B variants through the same artifact;
+014's fixed dimension must remain fixed. Prefreeze exact discrete/intermediate
+and justified floating criteria, or leave numerical status None/unverified.
+Keep stochastic key/state prerequisites and all 22 original model identities.
+Preserve the actual model's fixed-key dependence, stream advancement, correlations,
+inference consumption behavior, errors and state updates. The NNX stream and the
+Linen bridge's repeated fixed key are different contracts. Compare native eager
+and valid JIT from the same initial state and record post-state. A live Dropout
+graph or matching distributions alone cannot establish equivalence; neither does
+this plan promise universal bitwise JAX random streams. Where the model's numerical
+contract is unresolved, retain None/unverified rather than inventing a criterion.
+The facade change alone will not close normalization, activation, randomness,
+embedding, matrix/broadcast or other model dependencies. Measure and complete
+the actual next barrier instead of substituting an easier source.
+
+One Sol owner has the released six-path facade/preparation packet for isolated
+implementation: conversion API, user interface, existing source-preparation support,
+existing runtime-parameter tests and two dedicated facade/model test modules.
+Typed profile/representation/sample rules and framework lowerers remain pinned
+dependencies unless a concrete finding receives separate ownership. Independent
+review, actual-main checks on both stacks, inventory preservation, a fresh full
+suite and installed hooks remain required. Isolated implementation is released;
+independent review, integration and model acceptance remain pending. See the [Typed findings](poc/typed_values_and_masks_findings.md#next-shared-work)
+for the frozen plan and precision-preparation decision.
+
 The immediate review follow-ups have reached this checkpoint:
 
 | Work package | Implemented result | Remaining limit |
@@ -318,9 +404,9 @@ The immediate review follow-ups have reached this checkpoint:
 | Preserve preferred FP32 matrix result | Local FP32 operand casts and FP32 MatMul preserve the original FP16 inputs for the admitted rank-2/rank-3 default-precision cases. | Other shapes, types, precision algorithms, and deployment costs need separate evidence. Public legacy behavior is unchanged. |
 | Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
-| Preserve typed representations | Reviewed logical/physical descriptors encode actual complex payloads, preserve ordinary integer/Boolean boundaries, and reject JAX input canonicalization before tracing. | The private diagnostic profile keeps lowering unverified; this does not audit all complex operators or loops. |
+| Preserve typed representations | Logical/physical descriptors retain actual payloads; the Typed checkpoint adds audited bounded BOOL/integer operations and static complex construction/extraction. Input canonicalization still fails before tracing. | General integer/complex arithmetic, symbolic complex and broader loops remain open; diagnostic and sample results keep their separate status. |
 | Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the observed CPU Where negative-zero failure remains failed under its bitwise sample criterion. |
-| Preserve native Where and pure JIT | Original Where calls, typed floating/BOOL selection and pure closed JIT bodies retain actual bindings, constants, scopes and supported version-specific inline hints. | Strict CPU zero-sign failures remain failed; broader JIT, integer/complex and symbolic BOOL admission remains open. |
+| Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | Strict CPU zero-sign failures remain failed; broader JIT, complex selection and general symbolic shapes remain open. |
 | Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
 
 The [accepted work plan](precision_implementation_work_plan.md) connects this
@@ -334,7 +420,8 @@ boundaries and the finite shared-B Add/named-composition extension have reviewed
 private implementation. Leading-B matrix/bias and the native Exp/Mul extension
 add the finite rank-two/three contracts described above. Native Where and typed
 JIT add static BOOL dependencies and recursively checked pure closed bodies.
-Each checkpoint retains
+The Typed checkpoint extends bounded BOOL/integer predicates, conversions,
+selection and masks, plus static complex construction/extraction. Each checkpoint retains
 its own integration and sample evidence. The persisted profile identifier is
 unchanged.
 Nonempty `input_params`, dynamic layouts, nondefault normalization, unlisted
@@ -534,11 +621,13 @@ inline compatibility seam. The raw gather trace now matches completely, while
 its unchanged callback and x64-off conflict remain unresolved. The subsequent
 [Gather counterpart](poc/gather_counterpart_findings.md) validates one exact
 diagnostic structure with those raw failures retained and zero ORT calls.
-Product Gather admission and coherent typed operator families remain unfinished.
-Preserve every source-validation and completion gate while completing those
-shared representation rules. Continue with the remaining symbolic, layout,
-parameter, normalization and optional-model contracts; these bounded packets do
-not close the whole inventory.
+Product Gather admission remains unfinished. The subsequent Typed checkpoint
+covers the bounded value families recorded above, with independent actual-main
+acceptance, 8,659 full-suite passes and all actual hooks passing. The named
+parameter and preparation packet described above is released for isolated
+implementation; independent review, integration and model acceptance remain pending. Continue through the actual remaining
+model dependencies, symbolic shapes, layouts, normalization and optional-model
+contracts; these bounded packets do not close the whole inventory.
 
 ## Stage 1 Inventory and freeze observable behavior
 
@@ -891,8 +980,9 @@ it does not make the previous static calculation unavailable. Verify both BOOL
 values against original JAX, defaults/literal overrides, unused arguments,
 Function/If/Loop forwarding, names and report arity. The existing mixed
 static-root/dynamic-Function witness must never produce a misleading artifact.
-This decision is planned; parameter support remains excluded from the current
-private profile until its implementation passes review.
+The named-parameter implementation is released in isolation; parameter support
+remains excluded from the committed private profile until review and integration.
+Model acceptance remains pending.
 The tracing strategy must pass compatibility examples using those existing
 models with unchanged sources. A static wrapper cannot replace a previously
 working dynamic control. If a supported baseline model would require a source rewrite, keep the

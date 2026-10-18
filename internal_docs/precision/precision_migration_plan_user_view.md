@@ -14,7 +14,26 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
+The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
+adds reviewed private rules for Boolean and integer inputs, comparisons,
+conversions and selection, plus selected static complex values. Both supported
+stacks pass 2,047 focused checks on the actual migration checkout; independent
+integration review accepts the checkpoint. The complete primary-stack suite
+passes 8,659 tests, and code commit `0d8f9d19` passes all repository hooks after
+a comment-only path-marker correction. The original GPT and embeddings
+integer inputs now pass input checks, but export still stops at the named-parameter
+restriction before model construction. This is progress towards existing models,
+not completed model support.
+
+The named-parameter packet is released for isolated implementation to preserve
+real runtime controls through unchanged model sources. Independent review,
+integration and model acceptance remain pending. Fixed-source FP64 workflows also require explicit JAX-side preparation
+where existing configuration is insufficient; deliberate casts, accumulation and
+stored weights remain protected unless a numerical change is explicitly chosen.
+That preparation is required work, not an available automatic transformation.
+Public calls and both current double-precision options keep their behavior.
+
+The preceding [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
 a saved ONNX representation for one unchanged indexing-and-trigonometry example.
 It preserves the original JAX call, input values and types, and reference result.
 The example’s original graph check still fails; a separate source-structure
@@ -201,8 +220,10 @@ integration acceptance and 1,489 passing main checks per stack. Its own fixed
 CPU samples do not replace the preceding five-source observation. Bounded
 Where/JIT semantics and actual-main integration are now independently accepted
 for the private path. The later Gather diagnostic check preserves that example
-without establishing product or runtime support. Coherent operator-family work
-and complete Gather acceptance remain next steps.
+without establishing product or runtime support. The committed Typed checkpoint now adds
+bounded value-family rules with independent integration acceptance. Named runtime
+parameters and unchanged-model preparation are the next shared step after that
+checkpoint; complete Gather and broader model acceptance remain open.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 
@@ -229,7 +250,9 @@ Migration must also cover fixed third-party sources, using external configuratio
 preparation or caller wrappers. Previous FP64 workflows need explicit examples
 with unchanged sources; enabling x64 alone does not rewrite hardcoded casts. The externally
 prepared JAX computation supplies the comparison reference. This compatibility
-work remains an acceptance gate, rather than a promise that it is implemented.
+work is required before the final transition; a general transformation is not
+implemented. A requested change must preserve intentional rounding, accumulation
+and stored weights unless that change is explicitly part of the prepared model.
 Preserving conversion capabilities does not promise unchanged old numbers or
 call syntax.
 
@@ -261,7 +284,17 @@ configuration; it does not replace a working runtime control.
 The [22-model classification](poc/fixed_source_compatibility_findings.md) now
 identifies which controls are dynamic, flag-insensitive or static. It does not
 establish numerical or stochastic SOURCE acceptance. This parameter transition
-is planned work; it is not available through the current bounded private profile.
+is released for isolated implementation; independent review, integration and
+model acceptance remain pending. It is not available through the committed
+bounded private profile.
+The next shared implementation will start with the unchanged NNX MLP, then Linen
+and Function examples. It must preserve real runtime flags through one artifact,
+including variable batches where the original model declares them. A successful
+input check alone does not mean that construction, export or numerical execution
+of the complete model succeeds. Training behavior needs separate checks of the
+model's actual keys, repeated calls and state changes. A live Dropout operation
+or similar output distributions alone does not prove equivalent behavior; this
+is not a promise of identical random streams on every runtime.
 
 ## Implementation coverage and reports
 

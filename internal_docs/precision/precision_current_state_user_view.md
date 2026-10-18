@@ -13,7 +13,26 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
+The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
+adds reviewed private rules for Boolean and integer inputs, comparisons,
+conversions and selection, plus selected static complex values. Both supported
+stacks pass 2,047 focused checks on the actual migration checkout; independent
+integration review accepts the checkpoint. The complete primary-stack suite
+passes 8,659 tests, and code commit `0d8f9d19` passes all repository hooks after
+a comment-only path-marker correction. The original GPT and embeddings
+integer inputs now pass input checks, but export still stops at the named-parameter
+restriction before model construction. This is progress towards existing models,
+not completed model support.
+
+The named-parameter packet is released for isolated implementation to preserve
+real runtime controls through unchanged model sources. Independent review,
+integration and model acceptance remain pending. Fixed-source FP64 workflows also require explicit JAX-side preparation
+where existing configuration is insufficient; deliberate casts, accumulation and
+stored weights remain protected unless a numerical change is explicitly chosen.
+That preparation is required work, not an available automatic transformation.
+Public calls and both current double-precision options keep their behavior.
+
+The preceding [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
 a saved ONNX representation for one unchanged indexing-and-trigonometry example.
 It preserves the original JAX call, input values and types, and reference result.
 The example’s original graph check still fails; a separate source-structure

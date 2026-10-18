@@ -4,7 +4,46 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
-The [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
+The [Typed values and masks checkpoint](poc/typed_values_and_masks_findings.md)
+extends the private SOURCE foundation to bounded Boolean and integer values,
+comparisons, bitwise operations, conversions and selection, with a static
+complex construction/extraction foundation. Native promotion, weak typing,
+actual symbolic scopes and shared values remain explicit. Independent owner
+review accepts **4,171 passing cases on each stack**, including all 1,330 cases
+in the three new modules and the mapped prior selection. Actual MAIN focused
+checks pass **2,047 cases per stack**. These checks precede a whitespace-only
+formatting amendment whose AST is unchanged; they are not postformat runs.
+
+The inventory now records **217 files, 1,323 functions and 571 migration
+additions**, retaining all 752 original functions, zero original removals and
+1,802 raw rows/3,604 cells. Both inventory CLI checks pass. Independent MAIN
+review accepts the checkpoint. The complete primary-stack suite passes **8,659
+tests** (13,162 warnings, 488.80 pytest seconds), with the exact expected identities
+and no failures, errors or skips. Code commit `0d8f9d19` passes all seven actual
+hooks on retry; the initial path-marker failure is retained. Only path comments
+were added to the three new test files after the full run, with unchanged test
+ASTs and all production bytes. All 32 final checkpoint paths and 867 Python
+hashes remain unchanged after the successful commit.
+
+Both stacks have new evidence from 65 unchanged raw contracts: 125 artifacts
+from 130 cells, with five explicit gaps retained. Separate exact sample records
+validate 500 comparisons per stack; the raw records keep their None criteria.
+Independent post-run review accepts these bounded observations and their recording
+limits. This does not establish all 65 rows, general integer arithmetic, complex arithmetic or complete model support.
+Actual GPT and embeddings inputs now pass typed boundary checks, but their
+unchanged `input_params` calls still fail before construction or weights.
+
+The six-path named-parameter packet is released for isolated implementation;
+independent review, integration and model acceptance remain pending. It targets
+real named runtime parameters and original-model preparation, beginning with the
+unchanged NNX MLP and then Linen/Function examples. Fixed-source precision preparation is also
+required compatibility work before the final transition: an explicit JAX-side
+change supplies its own reference before ordinary export. No generic precision
+transformer or new public mode is implemented. Public LEGACY behavior and both
+existing double-precision options remain unchanged; only final phase F rejects
+both explicit Boolean values.
+
+The preceding [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
 `plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
 native traces and saved ONNX representation. Its exact graph of twenty nodes
 and thirteen constants retains native broadcasts, index adaptation and the existing
@@ -25,7 +64,7 @@ accepted: both stacks pass the same 249 focused cases and reproduce the bounded 
 replay and separate ordinary probes, with all 864 Python hashes unchanged.
 Eight other matrix cells per stack have unresolved fresh reference differences;
 Gather’s own reference and artifact remain byte-identical to the owner evidence.
-The current inventory records **214 files, 1,264 functions and 512 migration
+That Gather checkpoint’s inventory records **214 files, 1,264 functions and 512 migration
 additions**, preserving all 752 original functions, zero removals and 1,802 raw
 rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
 442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`
@@ -356,7 +395,8 @@ This table records the initial phase-A scope. Later static-matrix and shared-B
 packets extend finite audited contracts while keeping the persisted identifier
 and report schema. The Leading-B matrix/bias and Exp/Mul checkpoints add bounded rank-two/three
 contracts; the later Where/JIT checkpoint adds static BOOL dependencies and pure
-closed JIT bodies. Their acceptance gates do not
+closed JIT bodies. The Typed checkpoint adds bounded BOOL/integer value families
+and static complex construction/extraction. Their acceptance gates do not
 retroactively broaden historical phase-A evidence.
 
 Retain appropriate NaN, infinity, and signed-zero coverage. BF16 graph validity
@@ -528,6 +568,7 @@ planning work is separate from production-code ownership.
 | Native Where and typed JIT | Preserve original calls, static BOOL/floating selection and pure closed JIT bodies with actual typed bindings and native inline compatibility. | Independently accepted semantics and actual-main integration; 2,661 pre-repair main and 200 independent checks per stack, strict signed-zero failures retained; fresh complete primary suite passes 7,236 tests after the shared restoration repair | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
 | Shared x64 restoration | Preserve the hidden global beneath active local overrides, including entry/body exceptions, without changing effective LEGACY precision policy. | Independently accepted two-file repair and actual-main binding; 89 cases per stack, including 87 new permanent cases and both unchanged cache tests; failed first full run retained | `ae820b1a`; all seven actual hooks pass and frozen hashes remain unchanged |
 | Gather diagnostic counterpart | Bind the unchanged raw source, native trace, exact twenty-node/thirteen-constant representation and preserved raw callback failure. | Six-file tooling semantics independently accepted; owner 249 per stack including ninety new cases, 26-cell replay and ordinary two-cell diagnostics retain None criteria and zero ORT; actual MAIN 249 per stack and artifact-only replays independently accepted | `e60ba9ab`; complete primary suite passes 7,326 tests and all seven actual hooks pass; checkpoint hashes stay unchanged |
+| Typed values and masks | Preserve bounded Boolean/integer predicates, bitwise operations, conversions, selection and static complex components, including native component broadcasting. | Independent owner and MAIN acceptance; owner 4,171 and MAIN 2,047 per stack before formatting, full primary 8,659 after formatting/before path comments; inventory and final hooks pass; strict failures retained | `0d8f9d19`; all seven actual hooks pass on retry after comment-only headers; final hashes unchanged |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -682,10 +723,36 @@ implementation cannot be assumed. Previous fixed-source FP64 workflows also
 require an explicit compatible preparation recipe and independent reference,
 rather than an instruction to edit hardcoded casts. These decisions remain open
 acceptance work; no new generic transformation API is assumed by this plan.
-The user has been asked whether external preparation must also change hardcoded
-FP32 calculations to FP64 in fixed sources. That scope question is pending;
-continue independent scope, evidence and finalization work without assuming
-the answer or weakening source preservation in the ordinary export call.
+Explicit JAX-side preparation for those supported fixed-source workflows is
+required compatibility work, including an intentional change to hardcoded FP32
+choices where existing model configuration cannot express the requested model.
+The prepared JAX computation supplies the reference before the one ordinary
+export call. A general transformer is not implemented. Preserve deliberate
+casts, accumulation, stored parameter values and output contracts unless the
+preparation explicitly changes them; wider storage cannot recover lost weight
+precision. Per-model numerical redesign needs an explicit contract, while the
+requirement to support unchanged given sources no longer awaits clarification.
+
+Independent planning review accepts the two preparation/binding proposals with
+release conditions. The six-path facade/preparation packet is now released for
+isolated implementation against the accepted Typed checkpoint, as described in the
+[migration plan](precision_migration_plan.md#next-implementation-work).
+Named values must retain their original declared types, real variable bindings,
+signatures/defaults, scope identity, names, reports and serialization. Begin with
+the unchanged NNX MLP ordinal 2, then Linen and Function examples 014/015; retain
+all 22 original model contracts and stochastic state/key requirements. Both real
+flag values and applicable B variants must use the same artifact. Keep criteria
+prefrozen or explicitly None, and record remaining operators as implementation
+work. The original GPT boundary pass is not constructor, weight, trace or
+whole-model acceptance. The packet is released for isolated implementation;
+independent review, integration and model acceptance remain pending.
+Preserve actual fixed-key and stream behavior, key correlations, inference
+no-consumption, original missing-key errors and observable state. Native eager/JIT
+references must begin from the same declared state and record their post-state.
+Neither a live Dropout graph nor a distribution check establishes equivalence by
+itself; no universal bitwise random-stream guarantee is introduced. A specific
+training contract can remain unverified without blocking correct deterministic
+binding. Additional state/key representation requires separate reviewed ownership.
 
 
 C4a is committed at `8a82d510`. Exactly three SOURCE guard removals enable
@@ -1008,8 +1075,13 @@ The subsequent [Gather diagnostic counterpart](poc/gather_counterpart_findings.m
 checks one exact source and saved graph while retaining the raw callback failure,
 x64 conflict and None criteria. Independent MAIN review accepts the dual 249-case focused runs and the
 artifact-only replays; product and numerical acceptance remain open.
-Next, complete coherent typed operator families and the required product/runtime
-Gather validation. Diagnostic structure is not product admission. Keep strict
+The subsequent Typed checkpoint has independent semantic and actual-main
+acceptance, with 8,659 full-suite passes and all actual hooks passing. Named
+parameters/preparation is released for isolated implementation along the unchanged
+model dependency chain; independent review, integration and model acceptance
+remain pending. Complete
+product/runtime Gather validation separately. Diagnostic structure is not
+product admission. Keep strict
 signed-zero failures and historical criteria unchanged. Shared
 representation and validation rules guide the remaining work; individual
 allowlist additions are intermediate steps, while the full B–F contract remains
