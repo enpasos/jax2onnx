@@ -288,6 +288,7 @@ class SampleCriteria:
 
     Exact values compare signed zero equally and, by default, matching NaNs.
     Bitwise comparison distinguishes signed zero and NaN payloads.
+    Integer and Boolean outputs always require exact values.
     """
 
     mode: Literal["exact", "tolerant", "bitwise"] = "exact"
@@ -539,6 +540,12 @@ def _compare(
         return f"shape differs: actual {actual.shape}, reference {reference.shape}"
     if criteria.mode == "bitwise":
         matches = actual.tobytes(order="C") == reference.tobytes(order="C")
+    elif actual.dtype.kind in "biu":
+        return (
+            None
+            if np.array_equal(actual, reference)
+            else "values fail exact integer/Boolean comparison"
+        )
     elif criteria.mode == "exact":
         matches = bool(np.array_equal(actual, reference, equal_nan=criteria.equal_nan))
     else:
