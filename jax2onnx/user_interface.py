@@ -608,8 +608,12 @@ def _separate_source_output_aliases(
         assigned[id(value)] = target
 
 
-def _source_boundary_failure(label: str, index: int, expected: Any, opset: int) -> None:
-    representation = representation_for_aval(expected)
+def _source_boundary_failure(
+    label: str, index: int, expected: Any, opset: int, *, nchw: bool = False
+) -> None:
+    representation = representation_for_aval(
+        expected, boundary_layout="NCHW" if nchw else None
+    )
     raise SourcePrecisionError(
         "exported boundary dtype or static shape differs from the actual source trace",
         phase="finalization",
@@ -641,9 +645,15 @@ def _assert_source_boundaries(
         graph_inputs, graph_outputs = model.graph.inputs, model.graph.outputs
     else:
         graph_inputs, graph_outputs = model.graph.input, model.graph.output
-    for label, variables, values, names in (
-        ("input", trace.jaxpr.invars, graph_inputs, input_names),
-        ("output", trace.jaxpr.outvars, graph_outputs, output_names),
+    for label, variables, values, names, layouts in (
+        ("input", trace.jaxpr.invars, graph_inputs, input_names, trace.inputs_as_nchw),
+        (
+            "output",
+            trace.jaxpr.outvars,
+            graph_outputs,
+            output_names,
+            trace.outputs_as_nchw,
+        ),
     ):
         if len(variables) != len(values):
             raise SourcePrecisionError(
@@ -667,7 +677,9 @@ def _assert_source_boundaries(
             )
         for index, (var, value) in enumerate(zip(variables, values, strict=True)):
             expected = var.aval
-            representation = representation_for_aval(expected)
+            representation = representation_for_aval(
+                expected, boundary_layout="NCHW" if index in layouts else None
+            )
             dtype = representation.ir_dtype
             shape = representation.physical_shape
             if ir_model:
@@ -676,7 +688,9 @@ def _assert_source_boundaries(
                     or value.shape is None
                     or tuple(value.shape) != shape
                 ):
-                    _source_boundary_failure(label, index, expected, opset)
+                    _source_boundary_failure(
+                        label, index, expected, opset, nchw=index in layouts
+                    )
             else:
                 tensor = value.type.tensor_type
                 if (
@@ -685,7 +699,9 @@ def _assert_source_boundaries(
                     or any(not dim.HasField("dim_value") for dim in tensor.shape.dim)
                     or tuple(dim.dim_value for dim in tensor.shape.dim) != shape
                 ):
-                    _source_boundary_failure(label, index, expected, opset)
+                    _source_boundary_failure(
+                        label, index, expected, opset, nchw=index in layouts
+                    )
 
 
 def _source_value_properties(value: ir.Value) -> TensorProperties:
@@ -742,18 +758,30 @@ def _build_source_report(
     named_supplied: Mapping[str, TensorProperties],
 ) -> PrecisionReport:
     representations = []
-    for role, variables in (
-        ("input", trace.jaxpr.invars),
-        ("output", trace.jaxpr.outvars),
+    for role, variables, layouts in (
+        ("input", trace.jaxpr.invars, trace.inputs_as_nchw),
+        ("output", trace.jaxpr.outvars, trace.outputs_as_nchw),
     ):
         for index, var in enumerate(variables):
-            representation = representation_for_aval(var.aval)
+            representation = representation_for_aval(
+                var.aval, boundary_layout="NCHW" if index in layouts else None
+            )
             if representation.encoding == "complex-real-pair":
                 representations.append(
                     f"{role} {index}: {representation.logical_dtype} "
                     f"{representation.logical_shape} represented by "
                     f"{representation.physical_dtype} {representation.physical_shape} "
                     "real/imaginary channels"
+                )
+            if index in layouts:
+                pair_note = (
+                    "; complex pair axis unchanged"
+                    if representation.encoding == "complex-real-pair"
+                    else ""
+                )
+                representations.append(
+                    f"{role} {index}: logical NHWC {representation.logical_shape} "
+                    f"uses external NCHW storage {representation.physical_shape}{pair_note}"
                 )
     return PrecisionReport(
         exporter_version=model.producer_version or "unknown",
@@ -1079,11 +1107,6 @@ def _to_onnx(
         for option, supplied_option in (
             ("enable_double_precision", enable_double_precision),
             ("input_params", bool(input_params) and not diagnostic),
-            ("inputs_as_nchw", inputs_as_nchw is not None and len(inputs_as_nchw) > 0),
-            (
-                "outputs_as_nchw",
-                outputs_as_nchw is not None and len(outputs_as_nchw) > 0,
-            ),
             ("normalization_mode", normalized_normalization_mode != "auto"),
         ):
             if supplied_option:

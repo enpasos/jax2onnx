@@ -707,8 +707,6 @@ def test_source_reports_actual_matrix_widening_without_runtime_claim(
     "options",
     [
         {"input_params": {"flag": True}},
-        {"inputs_as_nchw": [0]},
-        {"outputs_as_nchw": [0]},
         {"normalization_mode": "prefer_native"},
     ],
 )

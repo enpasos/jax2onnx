@@ -658,7 +658,6 @@ def test_diagnostic_function_cache_cannot_turn_later_default_export_into_audited
     "options",
     [
         {"opset": 22},
-        {"inputs_as_nchw": [0]},
         {"normalization_mode": "prefer_native"},
     ],
 )

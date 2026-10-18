@@ -774,6 +774,33 @@ class _LayoutAdapter:
         aval_shape = tuple(var.aval.shape)
         self._require_4d(aval_shape, kind="input", index=index)
 
+        if self.ctx.precision_policy is PrecisionPolicy.SOURCE:
+            canonical = representation_for_aval(var.aval)
+            boundary = representation_for_aval(var.aval, boundary_layout="NCHW")
+            external = ir.val(
+                f"in_{index}",
+                dtype=boundary.ir_dtype,
+                shape=ir_shape_from_dims(
+                    boundary.physical_shape, parse_integer_like=False
+                ),
+            )
+            self.ctx.add_graph_input_value(external)
+            restored = self.ctx.builder.op(
+                "Transpose",
+                [external],
+                {"perm": ir.AttrInt64s("perm", boundary.input_permutation)},
+                output=ir.val(
+                    f"in_{index}_nhwc_restored",
+                    dtype=canonical.ir_dtype,
+                    shape=ir_shape_from_dims(
+                        canonical.physical_shape, parse_integer_like=False
+                    ),
+                ),
+            )
+            self.ctx.bind_value_for_var_without_origins(var, restored)
+            self.ctx.record_symbolic_dim_origins(boundary.physical_shape, external)
+            return
+
         nchw_shape = tuple(aval_shape[p] for p in _NHWC_TO_NCHW_PERM)
         nchw_input_val = ir.Value(
             name=f"in_{index}_nchw",
@@ -806,6 +833,23 @@ class _LayoutAdapter:
         val = self.ctx.require_value_for_var(out_var)
         aval_shape = tuple(out_var.aval.shape)
         self._require_4d(aval_shape, kind="output", index=index)
+
+        if self.ctx.precision_policy is PrecisionPolicy.SOURCE:
+            boundary = representation_for_aval(out_var.aval, boundary_layout="NCHW")
+            external = self.ctx.builder.op(
+                "Transpose",
+                [val],
+                {"perm": ir.AttrInt64s("perm", boundary.output_permutation)},
+                output=ir.val(
+                    f"out_{index}_nchw_converted",
+                    dtype=boundary.ir_dtype,
+                    shape=ir_shape_from_dims(
+                        boundary.physical_shape, parse_integer_like=False
+                    ),
+                ),
+            )
+            self.ctx.add_graph_output_value(external)
+            return
 
         output_type = val.type
         if output_type is None:
@@ -1041,8 +1085,6 @@ def _convert_to_ir(
             raise ValueError("Private source conversion requires a subset validator")
         unsupported = {
             "input_params": bool(input_params) and not allow_source_runtime_parameters,
-            "inputs_as_nchw": inputs_as_nchw is not None,
-            "outputs_as_nchw": outputs_as_nchw is not None,
             "normalization_mode": normalization_mode != "auto",
         }
         for option, supplied in unsupported.items():
@@ -1111,12 +1153,14 @@ def _convert_to_ir(
         strict_optimizer_failures=strict_optimizer_failures,
     )
     if precision_policy is PrecisionPolicy.SOURCE:
-        for label, variables, values in (
-            ("input", jpr.invars, model.graph.inputs),
-            ("output", jpr.outvars, model.graph.outputs),
+        for label, variables, values, layouts in (
+            ("input", jpr.invars, model.graph.inputs, trace.inputs_as_nchw),
+            ("output", jpr.outvars, model.graph.outputs, trace.outputs_as_nchw),
         ):
-            for var, value in zip(variables, values, strict=True):
-                representation = representation_for_aval(var.aval)
+            for index, (var, value) in enumerate(zip(variables, values, strict=True)):
+                representation = representation_for_aval(
+                    var.aval, boundary_layout="NCHW" if index in layouts else None
+                )
                 if not representation.matches_ir_value(value):
                     raise RuntimeError(
                         f"Final {label} {value.name} lost source type {representation.ir_dtype} "
