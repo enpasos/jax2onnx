@@ -247,7 +247,6 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
         ({"input_params": {"scale": 2}}, "does not support input_params"),
         ({"inputs_as_nchw": [0]}, "does not support inputs_as_nchw"),
         ({"outputs_as_nchw": [0]}, "does not support outputs_as_nchw"),
-        ({"record_primitive_calls_file": "calls.json"}, "does not support record"),
         ({"normalization_mode": "prefer_native"}, "does not support normalization"),
         ({"inputs": [()]}, "requires typed inputs"),
         (

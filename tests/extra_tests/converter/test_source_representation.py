@@ -660,7 +660,6 @@ def test_diagnostic_function_cache_cannot_turn_later_default_export_into_audited
         {"opset": 22},
         {"inputs_as_nchw": [0]},
         {"normalization_mode": "prefer_native"},
-        {"export_mode": "web"},
     ],
 )
 def test_diagnostic_retains_existing_opset_and_option_gaps(

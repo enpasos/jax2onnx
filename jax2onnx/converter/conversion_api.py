@@ -937,7 +937,6 @@ def _convert_to_ir(
             "input_params": bool(input_params),
             "inputs_as_nchw": inputs_as_nchw is not None,
             "outputs_as_nchw": outputs_as_nchw is not None,
-            "record_primitive_calls_file": record_primitive_calls_file is not None,
             "normalization_mode": normalization_mode != "auto",
         }
         for option, supplied in unsupported.items():

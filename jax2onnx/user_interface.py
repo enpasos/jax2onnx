@@ -1062,8 +1062,6 @@ def _to_onnx(
                 "outputs_as_nchw",
                 outputs_as_nchw is not None and len(outputs_as_nchw) > 0,
             ),
-            ("record_primitive_calls_file", record_primitive_calls_file is not None),
-            ("export_mode='web'", normalized_export_mode != "standard"),
             ("normalization_mode", normalized_normalization_mode != "auto"),
         ):
             if supplied_option:

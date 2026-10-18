@@ -2,7 +2,7 @@
 
 """Private SOURCE and public legacy calls share the actual export facade."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 import warnings
@@ -20,6 +20,7 @@ from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.precision import CheckStatus, get_precision_report
+from tests.extra_tests.converter.source_precision_diagnostics import DiagnosticValidator
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +77,16 @@ def _named_bad_leaf(x: jax.Array) -> jax.Array:
 @onnx_function(name="NamedDiagnosticOuter")
 def _named_bad_outer(x: jax.Array) -> jax.Array:
     return _named_bad_leaf(x)
+
+
+@onnx_function
+def _large_fp64_inner(x: jax.Array, *, payload: np.ndarray) -> tuple[Any, ...]:
+    return x, payload
+
+
+@onnx_function
+def _large_fp64_outer(x: jax.Array, *, payload: np.ndarray) -> tuple[Any, ...]:
+    return _large_fp64_inner(x, payload=payload)
 
 
 def test_source_observes_the_real_trace_once_without_wrapping_the_callable(
@@ -276,6 +287,236 @@ def test_source_saved_external_data_preserves_report_and_boundaries(
     assert get_precision_report(onnx.load_model(path)) == report
 
 
+@pytest.fixture
+def _large_fp64_capture() -> Iterator[tuple[Callable[..., Any], np.ndarray]]:
+    words = np.asarray(
+        [
+            0x3FF0000000400000,  # 1 + 2**-30, lost by FP32 rounding.
+            0x0000000000000000,
+            0x8000000000000000,
+            0x7FF8000000000001,
+            0x7FF8000000000002,
+        ],
+        dtype=np.uint64,
+    )
+    payload = np.resize(words, 150_000).view(np.float64)
+    assert payload.nbytes == 1_200_000
+    assert payload[0] != np.float64(np.float32(payload[0]))
+
+    def model(x: jax.Array) -> tuple[Any, ...]:
+        return payload, *_large_fp64_outer(x, payload=payload)
+
+    with jax.enable_x64(True):
+        yield model, payload
+
+
+def _assert_exact_payload(actual: np.ndarray, expected: np.ndarray) -> None:
+    assert actual.dtype == expected.dtype
+    assert actual.shape == expected.shape
+    assert actual.tobytes(order="C") == expected.tobytes(order="C")
+
+
+def _large_capture_tensors(
+    proto: onnx.ModelProto,
+) -> tuple[onnx.TensorProto, onnx.TensorProto]:
+    functions = {
+        (function.domain, function.name): function for function in proto.functions
+    }
+    assert len(functions) == 2
+    (root_call,) = [
+        node for node in proto.graph.node if (node.domain, node.op_type) in functions
+    ]
+    outer = functions[root_call.domain, root_call.op_type]
+    (inner_call,) = [
+        node for node in outer.node if (node.domain, node.op_type) in functions
+    ]
+    inner = functions[inner_call.domain, inner_call.op_type]
+    assert inner is not outer
+    (constant,) = [node for node in inner.node if inner.output[1] in node.output]
+    assert constant.op_type == "Constant"
+    (attribute,) = [attr for attr in constant.attribute if attr.name == "value"]
+    assert attribute.type == onnx.AttributeProto.TENSOR
+    root = next(
+        value
+        for value in proto.graph.initializer
+        if value.name == proto.graph.output[0].name
+    )
+    for tensor in (root, attribute.t):
+        assert tensor.data_type == onnx.TensorProto.DOUBLE
+        assert list(tensor.dims) == [150_000]
+    return root, attribute.t
+
+
+def _assert_large_capture_contract(proto: onnx.ModelProto) -> None:
+    assert [value.name for value in proto.graph.input] == ["features"]
+    assert [value.name for value in proto.graph.output] == [
+        "root_weights",
+        "direct",
+        "nested_weights",
+    ]
+    assert all(
+        value.type.tensor_type.elem_type == onnx.TensorProto.DOUBLE
+        for value in (*proto.graph.input, *proto.graph.output)
+    )
+    report = get_precision_report(proto)
+    assert report is not None
+    assert report.profile == "source-static-v1"
+    assert report.caller_x64_enabled
+    assert report.inputs[0].normalized.weak_type is False
+    assert report.inputs[0].exported.name == "features"
+    assert [value.name for value in report.exported_outputs] == [
+        "root_weights",
+        "direct",
+        "nested_weights",
+    ]
+    assert [value.dtype for value in report.exported_outputs] == ["float64"] * 3
+    assert [value.shape for value in report.exported_outputs] == [
+        (150_000,),
+        (2,),
+        (150_000,),
+    ]
+    assert {check.category: check.status for check in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+
+
+@pytest.mark.parametrize("return_mode", ["ir", "proto", "file"])
+def test_source_large_fp64_root_and_nested_captures_keep_exact_serialized_payload(
+    return_mode: str,
+    _large_fp64_capture: tuple[Callable[..., Any], np.ndarray],
+    tmp_path: Path,
+) -> None:
+    model, payload = _large_fp64_capture
+    path = tmp_path / "large.onnx"
+    artifact = _source(
+        model,
+        [jax.ShapeDtypeStruct((2,), np.float64)],
+        return_mode=return_mode,
+        output_path=path,
+        input_names=["features"],
+        output_names=["root_weights", "direct", "nested_weights"],
+    )
+    report = get_precision_report(artifact)
+    assert report is not None
+    if return_mode == "file":
+        assert Path(artifact) == path
+        unresolved = onnx.load_model(path, load_external_data=False)
+        root, nested = _large_capture_tensors(unresolved)
+        assert root.data_location == onnx.TensorProto.EXTERNAL
+        assert not root.raw_data
+        assert (
+            dict((entry.key, entry.value) for entry in root.external_data)["location"]
+            == path.name + ".data"
+        )
+        assert (tmp_path / (path.name + ".data")).stat().st_size > 0
+        assert nested.data_location == onnx.TensorProto.DEFAULT
+        assert not nested.external_data
+        _assert_exact_payload(onnx.numpy_helper.to_array(nested), payload)
+        _assert_large_capture_contract(unresolved)
+        assert get_precision_report(unresolved) == report
+    elif return_mode == "ir":
+        root = artifact.graph.initializers[artifact.graph.outputs[0].name]
+        _assert_exact_payload(root.const_value.numpy(), payload)
+        inner = next(
+            function
+            for function in artifact.functions.values()
+            if function.name == "_large_fp64_inner"
+        )
+        constant = inner.graph.outputs[1].producer()
+        assert constant.op_type == "Constant"
+        _assert_exact_payload(constant.attributes["value"].as_tensor().numpy(), payload)
+
+    proto = _proto(artifact)
+    onnx.checker.check_model(proto, full_check=True)
+    _assert_large_capture_contract(proto)
+    assert get_precision_report(proto) == report
+    for tensor in _large_capture_tensors(proto):
+        assert tensor.data_location == onnx.TensorProto.DEFAULT
+        assert not tensor.external_data
+        _assert_exact_payload(onnx.numpy_helper.to_array(tensor), payload)
+
+
+def test_source_web_large_fp64_captures_replace_real_external_sidecar(
+    _large_fp64_capture: tuple[Callable[..., Any], np.ndarray], tmp_path: Path
+) -> None:
+    model, payload = _large_fp64_capture
+    path = tmp_path / "large.onnx"
+    options = dict(
+        return_mode="file",
+        output_path=path,
+        input_names=["features"],
+        output_names=["root_weights", "direct", "nested_weights"],
+    )
+    standard = _source(model, [jax.ShapeDtypeStruct((2,), np.float64)], **options)
+    sidecar = tmp_path / (path.name + ".data")
+    assert sidecar.stat().st_size > 0
+    root, _ = _large_capture_tensors(
+        onnx.load_model(standard, load_external_data=False)
+    )
+    assert root.data_location == onnx.TensorProto.EXTERNAL
+    report = get_precision_report(standard)
+    web = _source(
+        model, [jax.ShapeDtypeStruct((2,), np.float64)], export_mode="web", **options
+    )
+    assert Path(web) == path
+    assert not sidecar.exists()
+    assert list(tmp_path.iterdir()) == [path]
+    proto = onnx.load_model(web, load_external_data=False)
+    onnx.checker.check_model(proto, full_check=True)
+    _assert_large_capture_contract(proto)
+    assert get_precision_report(proto) == report
+    for tensor in _large_capture_tensors(proto):
+        assert tensor.data_location == onnx.TensorProto.DEFAULT
+        assert not tensor.external_data
+        _assert_exact_payload(onnx.numpy_helper.to_array(tensor), payload)
+
+
+def test_source_diagnostic_web_keeps_lowering_unverified(tmp_path: Path) -> None:
+    observer = DiagnosticValidator()
+    path = _source(
+        lambda x: -x,
+        [jax.ShapeDtypeStruct((2,), np.float32)],
+        diagnostic_jaxpr_validator=observer,
+        export_mode="web",
+        return_mode="file",
+        output_path=tmp_path / "diagnostic.onnx",
+    )
+    proto = onnx.load_model(path, load_external_data=False)
+    onnx.checker.check_model(proto, full_check=True)
+    assert observer.scopes
+    report = get_precision_report(proto)
+    assert report is not None
+    assert report.profile == "source-diagnostic-v1"
+    assert {check.category: check.status for check in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.UNVERIFIED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+
+
+@pytest.mark.parametrize("return_mode", ["ir", "proto"])
+def test_source_web_option_is_accepted_for_nonfile_return_modes(
+    return_mode: str, tmp_path: Path
+) -> None:
+    artifact = _source(
+        lambda x: -x,
+        [jax.ShapeDtypeStruct((2,), np.float32)],
+        return_mode=return_mode,
+        export_mode="web",
+        output_path=tmp_path / "unused.onnx",
+    )
+    assert isinstance(artifact, ir.Model if return_mode == "ir" else onnx.ModelProto)
+    proto = _proto(artifact)
+    assert [node.op_type for node in proto.graph.node] == ["Neg"]
+    report = get_precision_report(proto)
+    assert report is not None and report.profile == "source-static-v1"
+    assert not list(tmp_path.iterdir())
+
+
 def test_source_records_real_truncation_warning_and_keeps_it_visible() -> None:
     jax.config.update("jax_enable_x64", False)
     with pytest.warns(UserWarning, match="float64") as observed:
@@ -468,9 +709,7 @@ def test_source_reports_actual_matrix_widening_without_runtime_claim(
         {"input_params": {"flag": True}},
         {"inputs_as_nchw": [0]},
         {"outputs_as_nchw": [0]},
-        {"export_mode": "web"},
         {"normalization_mode": "prefer_native"},
-        {"record_primitive_calls_file": "calls.json"},
     ],
 )
 def test_source_deferred_options_are_explicit_internal_migration_gaps(
