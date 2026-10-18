@@ -532,13 +532,14 @@ def _validate_source_inputs(
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
         shape = tuple(spec.shape)
-        requirement = "static shapes or shared leading rank-two/rank-three batches, and FP16/BF16/FP32/FP64 inputs"
-        action = "use typed floating inputs within the finite audited shape contract"
+        requirement = "FP16/BF16/FP32/FP64 static or shared leading-batch inputs, or static Boolean inputs"
+        action = "use typed floating or static Boolean inputs within the finite audited shape contract"
         if not diagnostic and dtype not in {
             "float16",
             "bfloat16",
             "float32",
             "float64",
+            "bool",
         }:
             raise SourcePrecisionError(
                 f"input shape {shape} and dtype {dtype} are outside the internal milestone",
@@ -549,6 +550,21 @@ def _validate_source_inputs(
                 opset=opset,
                 requirement=requirement,
                 action=action,
+            )
+        if (
+            not diagnostic
+            and dtype == "bool"
+            and source_shape_contract(shape)[1] is not None
+        ):
+            raise SourcePrecisionError(
+                "symbolic Boolean inputs are outside the internal milestone",
+                phase="input",
+                category="profile-exclusion",
+                location=f"input {index}",
+                requested_dtypes=(dtype,),
+                opset=opset,
+                requirement="static Boolean input shapes",
+                action="use a static runtime mask; symbolic Boolean migration remains pending",
             )
     try:
         validate_source_shapes(

@@ -346,11 +346,10 @@ def test_where_native_promotion_and_weak_inputs(
         _, audit, _, _ = _export(
             fn, (np.asarray([True, False]), data), cpu=dtype is not jnp.bfloat16
         )
-        eqn = next(
-            eqn for eqn in audit.equations if eqn.primitive.name == "jax.numpy.where"
-        )
-        assert eqn.params["source_dtype"] == np.dtype(dtype)
-        assert eqn.params["source_weak_type"] is False
+        eqn = next(eqn for eqn in audit.equations if eqn.primitive.name == "select_n")
+        assert np.dtype(eqn.outvars[0].aval.dtype) == np.dtype(dtype)
+        assert eqn.outvars[0].aval.weak_type is False
+        assert not eqn.params
 
 
 @pytest.mark.parametrize("x64", [False, True])
@@ -651,7 +650,7 @@ def test_source_boolean_selection_has_exact_logical_cpu_lowering(
             )
         return jnp.where(condition, x, y)
 
-    proto, _, _, expected = _export(target, arguments)
+    proto, audit, _, expected = _export(target, arguments)
     _cpu(proto, arguments, expected, optimized=True)
     nodes = list(proto.graph.node)
     for function in proto.functions:
@@ -661,7 +660,10 @@ def test_source_boolean_selection_has_exact_logical_cpu_lowering(
             if attribute.type == onnx.AttributeProto.GRAPH:
                 nodes.extend(attribute.g.node)
     assert "Where" not in {node.op_type for node in nodes}
-    assert {"Not", "And", "Or"} <= {node.op_type for node in nodes}
+    if kind == "empty":
+        assert all(eqn.primitive.name != "select_n" for eqn in audit.equations)
+    else:
+        assert {"Not", "And", "Or"} <= {node.op_type for node in nodes}
 
 
 def test_source_boolean_intermediates_keep_their_own_broadcast_shapes() -> None:
@@ -686,9 +688,9 @@ def test_source_boolean_intermediates_keep_their_own_broadcast_shapes() -> None:
     logical = [node for node in raw.graph if node.op_type in {"Not", "And", "Or"}]
     assert [node.op_type for node in logical] == ["Not", "And", "And", "Or"]
     assert [tuple(node.outputs[0].shape) for node in logical] == [
-        (2, 1),
         (2, 3),
-        (2, 1),
+        (2, 3),
+        (2, 3),
         (2, 3),
     ]
     assert raw.graph.outputs[0].dtype.numpy() == original.outvars[0].aval.dtype
@@ -747,12 +749,24 @@ def test_native_legacy_source_trace_caches_are_isolated_without_clearing(
 def test_local_diagnostic_rejects_inconsistent_resolved_where_metadata(
     corruption: str,
 ) -> None:
-    _, audit, _, _ = _export(
-        lambda mask, value: jnp.where(mask, value, 0.5),
-        (np.asarray([True, False]), np.asarray([1, 2], np.float32)),
-    )
+    # The retained custom primitive still requires all seven schema guards;
+    # native SOURCE Where now forwards JAX instead of constructing this schema.
+    from jax2onnx.plugins.jax.numpy.where import JnpWherePlugin
+
+    with precision_policy_scope(PrecisionPolicy.SOURCE):
+        trace = jax.make_jaxpr(
+            lambda mask, value: JnpWherePlugin._PRIM.bind(
+                mask,
+                value,
+                0.5,
+                source_dtype=np.dtype(np.float32),
+                source_weak_type=False,
+            )
+        )(jax.ShapeDtypeStruct((2,), np.bool_), jax.ShapeDtypeStruct((2,), np.float32))
     eqn = copy(
-        next(eqn for eqn in audit.equations if eqn.primitive.name == "jax.numpy.where")
+        next(
+            eqn for eqn in _body(trace).eqns if eqn.primitive.name == "jax.numpy.where"
+        )
     )
     eqn.params = dict(eqn.params)
     if corruption == "missing_dtype":
@@ -819,7 +833,18 @@ def test_creation_repairs_do_not_widen_product_admission(component: str) -> None
         return jnp.full((2,), value)
 
     arguments = (np.asarray(0.25, np.float32),)
-    _reference(target, arguments)
+    _, expected = _reference(target, arguments)
+    if component == "where":
+        artifact = user_interface._to_onnx(
+            target,
+            [_shape_spec(jnp.asarray(arguments[0]))],
+            precision_policy=PrecisionPolicy.SOURCE,
+        )
+        report = get_precision_report(artifact)
+        assert report is not None and report.profile == "source-static-v1"
+        _cpu(artifact, arguments, expected)
+        assert active_precision_policy() is PrecisionPolicy.LEGACY
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         user_interface._to_onnx(
             target,

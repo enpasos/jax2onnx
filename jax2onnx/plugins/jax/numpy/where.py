@@ -461,7 +461,7 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("Original jnp.where not found")
             setattr(cls._PRIM, storage_slot, orig)
 
-            def _patched(
+            def _legacy(
                 condition: ArrayLike,
                 x: ArrayLike | None = None,
                 y: ArrayLike | None = None,
@@ -470,18 +470,12 @@ class JnpWherePlugin(PrimitiveLeafPlugin):
                     raise NotImplementedError(
                         "jnp.where with fewer than three arguments is not supported"
                     )
-                if active_precision_policy() is PrecisionPolicy.SOURCE:
-                    dtype, weak_type = jax.dtypes.result_type(
-                        x, y, return_weak_type_flag=True
-                    )
-                    return cls._PRIM.bind(
-                        condition,
-                        x,
-                        y,
-                        source_dtype=np.dtype(dtype),
-                        source_weak_type=weak_type,
-                    )
                 return cls._PRIM.bind(condition, x, y)
+
+            def _patched(*args: Any, **kwargs: Any) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(*args, **kwargs)
+                return _legacy(*args, **kwargs)
 
             return _patched
 

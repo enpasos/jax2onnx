@@ -8,6 +8,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
@@ -138,7 +139,12 @@ class SelectNPlugin(PrimitiveLeafPlugin):
 
         invars = list(eqn.invars)
         out_var = eqn.outvars[0]
-        out_spec = ctx.get_value_for_var(
+        source = (
+            ctx.precision_policy is PrecisionPolicy.SOURCE
+            and len(invars) == 3
+            and np.issubdtype(invars[0].aval.dtype, np.bool_)
+        )
+        out_spec = (ctx.allocate_value_for_var if source else ctx.get_value_for_var)(
             out_var, name_hint=ctx.fresh_name("select_out")
         )
 
@@ -185,6 +191,20 @@ class SelectNPlugin(PrimitiveLeafPlugin):
             false_val = ctx.get_value_for_var(
                 case_vars[0], name_hint=ctx.fresh_name("select_false")
             )
+
+            if source and np.dtype(out_var.aval.dtype) == np.dtype(np.bool_):
+                not_cond = builder.op("Not", [cond_val])
+                _ensure_tensor_metadata(not_cond, selector_shape, ir.DataType.BOOL)
+                selected_true = builder.op("And", [cond_val, true_val])
+                _ensure_tensor_metadata(selected_true, out_shape, ir.DataType.BOOL)
+                selected_false = builder.op("And", [not_cond, false_val])
+                _ensure_tensor_metadata(selected_false, out_shape, ir.DataType.BOOL)
+                result = builder.op(
+                    "Or", [selected_true, selected_false], output=out_spec
+                )
+                _ensure_tensor_metadata(result, out_shape, ir.DataType.BOOL)
+                ctx.bind_value_for_var(out_var, result)
+                return
 
             desired_name = getattr(out_spec, "name", None) or ctx.fresh_name("Where")
             where_out = cast(

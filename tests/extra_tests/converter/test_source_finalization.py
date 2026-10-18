@@ -244,7 +244,11 @@ def _leaky_model(scope: str) -> Any:
 
 
 def _validate_alpha_trace(jaxpr: Any, opset: int) -> None:
+    from jax2onnx._compat.jax import DropVar
+
     remaining = []
+    inputs = list(jaxpr.invars)
+    bound = {id(var) for var in (*jaxpr.invars, *jaxpr.constvars)}
     assert not jaxpr.effects and opset == 23
     for eqn in jaxpr.eqns:
         if eqn.primitive.name != "jax.nn.leaky_relu":
@@ -256,7 +260,16 @@ def _validate_alpha_trace(jaxpr: Any, opset: int) -> None:
             np.dtype(var.aval.dtype) == np.float32 and tuple(var.aval.shape) == (2,)
             for var in (*eqn.invars, *eqn.outvars)
         )
-    validate_source_jaxpr(jaxpr.replace(eqns=remaining), opset)
+        # The locally audited operation is opaque to the finite product
+        # validator. Its outputs become formals only in this partial view;
+        # the original graph and the actual lowering remain unchanged.
+        for var in eqn.outvars:
+            if isinstance(var, DropVar):
+                continue
+            assert id(var) not in bound
+            bound.add(id(var))
+            inputs.append(var)
+    validate_source_jaxpr(jaxpr.replace(invars=inputs, eqns=remaining), opset)
 
 
 def _stage_alpha_override(monkeypatch: pytest.MonkeyPatch) -> None:

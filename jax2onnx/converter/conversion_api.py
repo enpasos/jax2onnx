@@ -679,20 +679,13 @@ def _activate_plugin_worlds() -> Iterator[None]:
 
 @contextmanager
 def _force_jax_x64(enable_double_precision: bool) -> Iterator[None]:
-    read_config = jax.config.read if hasattr(jax.config, "read") else None
-    previous: Optional[bool]
-    if callable(read_config):
-        previous = bool(read_config("jax_enable_x64"))
-    elif hasattr(jax.config, "jax_enable_x64"):
-        previous = bool(jax.config.jax_enable_x64)
-    else:
-        previous = None
-    jax.config.update("jax_enable_x64", bool(enable_double_precision))
+    # Config reads include a local override; restore the actual global value.
+    previous = jax.enable_x64.get_global()
     try:
+        jax.config.update("jax_enable_x64", bool(enable_double_precision))
         yield
     finally:
-        if previous is not None:
-            jax.config.update("jax_enable_x64", previous)
+        jax.config.update("jax_enable_x64", previous)
 
 
 def _create_ir_context(

@@ -334,7 +334,7 @@ def test_profile_reports_nested_cond_location_and_validates_actual_function_body
     "model",
     [
         lambda x: jnp.sin(x),
-        lambda x: jax.jit(lambda value: -value)(x),
+        lambda x: jax.jit(lambda value: jnp.sin(value))(x),
         lambda x: jax.lax.fori_loop(0, 2, lambda index, value: value + value, x),
         lambda x: x.astype(jnp.int32) + np.int32(1),
         lambda x: (jax.debug.print("value={x}", x=x), x)[1],

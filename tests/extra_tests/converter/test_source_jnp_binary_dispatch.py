@@ -661,7 +661,11 @@ def test_where_full_adapters_and_dynamic_arange_compatibility_remain() -> None:
     _reference(adapters, values)
     with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
         trace = jax.make_jaxpr(adapters)(*map(_spec, values))
-    assert {leaf[0] for leaf in _leaves(trace)} >= {"jax.numpy.where", "jax.numpy.full"}
+    assert {leaf[0] for leaf in _leaves(trace)} >= {"select_n", "jax.numpy.full"}
+    native_where = jax.make_jaxpr(_ORIGINALS["where"])(*map(_spec, values))
+    with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
+        source_where = jax.make_jaxpr(jnp.where)(*map(_spec, values))
+    assert typed_trace_manifest(source_where) == typed_trace_manifest(native_where)
 
     def dynamic(start: Any) -> Any:
         return jnp.arange(start, start + 3, dtype=jnp.float32)

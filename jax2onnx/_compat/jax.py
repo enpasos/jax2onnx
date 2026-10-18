@@ -45,6 +45,34 @@ def fresh_var_like(var: Any) -> Any:
     return Var(var.aval, **metadata)
 
 
+def is_unspecified_jit_sharding(value: object) -> bool:
+    """Recognize JAX's actual native plain-JIT sharding sentinel."""
+    from jax._src.sharding_impls import UNSPECIFIED
+
+    return value is UNSPECIFIED
+
+
+def is_empty_jit_mesh(value: object) -> bool:
+    """Inspect the concrete Mesh used by native plain JIT on both stacks."""
+    from jax._src.mesh import Mesh
+
+    return isinstance(value, Mesh) and bool(value.empty)
+
+
+def native_jit_boolean_inline_hints() -> tuple[object, object]:
+    """Return the native representations of the ordinary False/True hints.
+
+    JAX 0.11 canonicalizes them to Inline.AUTO/JAX_LATE. Do not coerce or
+    rewrite the original equation, and do not infer support for XLA options.
+    """
+    from jax._src import api
+
+    inline = getattr(api, "Inline", None)
+    if inline is None:
+        return False, True
+    return inline.AUTO, inline.JAX_LATE
+
+
 def _resolve_literal_type() -> type[Any]:
     literal_type = getattr(jax_core_ext, "Literal", None)
     if isinstance(literal_type, type):

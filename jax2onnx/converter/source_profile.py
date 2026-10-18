@@ -3,12 +3,13 @@
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
 The persisted identifier includes finite rank-two/rank-three leading-batch
-Add/Mul/Exp and canonical MatMul, plus the static bias reshape, actual named
-Function bodies and returned aliases. Other symbolic rules remain separate work.
+Add/Mul/Exp and canonical MatMul, plus static native Where, typed plain-JIT
+carriers, the static bias reshape, actual named Function bodies and returned
+aliases. Other symbolic rules remain separate work.
 
 These checks describe an export representation, not runtime numerical evidence.
-The top-level facade owns floating input normalization. Recursive callbacks may
-receive Boolean comparisons and uint32 bit representations as internal operands.
+The top-level facade owns typed floating and static Boolean input normalization.
+Recursive callbacks may receive Boolean comparisons and uint32 bit representations.
 Function bodies are checked when their lowering retraces them with this callback.
 """
 
@@ -21,7 +22,15 @@ from typing import Any, Final, Literal, NoReturn
 import jax
 import numpy as np
 
-from jax2onnx._compat.jax import Literal as JaxLiteral
+from jax2onnx._compat.jax import (
+    AbstractValue,
+    ClosedJaxpr,
+    DropVar,
+    Literal as JaxLiteral,
+    is_empty_jit_mesh,
+    is_unspecified_jit_sharding,
+    native_jit_boolean_inline_hints,
+)
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -167,9 +176,16 @@ class _Tensor:
 
 
 def _tensor(var: Any, site: _Site) -> _Tensor:
+    site.require(
+        not isinstance(var.aval, AbstractValue)
+        or isinstance(var.aval, jax.core.ShapedArray),
+        "non-tensor or reference aval is outside the profile",
+        "ordinary ShapedArray values without refs, tokens, or high-level types",
+    )
     try:
         dtype = np.dtype(var.aval.dtype).name
         shape = tuple(var.aval.shape)
+        weak_type = var.aval.weak_type
     except (AttributeError, TypeError, ValueError) as exc:
         site.fail(
             f"invalid traced tensor metadata: {exc}",
@@ -181,6 +197,12 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         dtype in _VALUE_DTYPES,
         f"dtype {dtype} is outside the profile",
         "FP16/BF16/FP32/FP64 values, Boolean comparisons, or uint32 bits",
+    )
+    site.require(
+        type(weak_type) is bool,
+        "invalid traced weakness metadata",
+        "a native Boolean weak_type flag",
+        category="lowering-defect",
     )
     try:
         normalized, symbol = source_shape_contract(shape)
@@ -550,12 +572,197 @@ def _validate_bias_reshape(
     _same_shape(target.shape, expected, site)
 
 
+def _signature(variables: Sequence[Any], site: _Site) -> tuple[Any, ...]:
+    return tuple((_tensor(var, site), var.aval.weak_type) for var in variables)
+
+
+def _validate_select(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 3, 1, site)
+    site.require(
+        not eqn.params,
+        "selection has unaudited parameters",
+        "native select_n without parameters or placement",
+    )
+    condition, false_arm, true_arm = inputs
+    result = outputs[0]
+    site.require(
+        condition.dtype == "bool" and false_arm.dtype in _FLOATS | {"bool"},
+        "selection operand types are outside the profile",
+        "one Boolean selector and two floating or Boolean cases",
+    )
+    site.require(
+        false_arm.dtype == true_arm.dtype == result.dtype
+        and false_arm.shape == true_arm.shape == result.shape
+        and false_arm.symbol == true_arm.symbol == result.symbol
+        and condition.shape in ((), result.shape)
+        and bool(eqn.outvars[0].aval.weak_type)
+        == all(bool(var.aval.weak_type) for var in eqn.invars[1:]),
+        "selection signatures disagree with the native two-case rule",
+        "equal case/result dtypes and shapes, scalar or same-shaped selector, and conjunction of case weakness",
+        category="lowering-defect",
+    )
+    if result.symbol is not None:
+        site.require(
+            condition.shape == ()
+            and condition.symbol is None
+            and result.dtype in _FLOATS,
+            "symbolic selection is outside the bounded selector family",
+            "a static scalar Boolean and equal native leading-batch floating arms",
+        )
+
+
+_JIT_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "jaxpr",
+        "in_shardings",
+        "out_shardings",
+        "in_layouts",
+        "out_layouts",
+        "donated_invars",
+        "ctx_mesh",
+        "name",
+        "keep_unused",
+        "inline",
+        "compiler_options_kvs",
+    }
+)
+
+
+def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
+    """Prove a native plain-JIT carrier before the existing lowerer binds it."""
+    site.require(
+        not set(eqn.params) - _JIT_FIELDS,
+        "JIT has unaudited parameters",
+        "the native eleven-field plain-JIT schema without lazy or alternative body fields",
+    )
+    site.require(
+        set(eqn.params) == _JIT_FIELDS,
+        "JIT is missing native parameters",
+        "the complete native plain-JIT schema",
+        category="lowering-defect",
+    )
+    params = eqn.params
+    closed = params["jaxpr"]
+    site.require(
+        isinstance(closed, ClosedJaxpr),
+        "JIT body is not a concrete closed Jaxpr",
+        "an actual native ClosedJaxpr, never a thunk or an open body",
+        category="lowering-defect",
+    )
+    body = closed.jaxpr  # JAX 0.11 returns self; never repeatedly unwrap it.
+    site.require(
+        not getattr(body, "is_high", False),
+        "high-level JIT bodies are outside the profile",
+        "a low-level pure tensor Jaxpr",
+    )
+    for key, count in (("in", len(eqn.invars)), ("out", len(eqn.outvars))):
+        for suffix in ("shardings", "layouts"):
+            entries = params[f"{key}_{suffix}"]
+            site.require(
+                type(entries) is tuple and len(entries) == count,
+                f"JIT {key}_{suffix} has malformed type or arity",
+                "a native tuple with one entry per port",
+                category="lowering-defect",
+            )
+            site.require(
+                all(
+                    (
+                        is_unspecified_jit_sharding(value)
+                        if suffix == "shardings"
+                        else value is None
+                    )
+                    for value in entries
+                ),
+                f"JIT {key}_{suffix} requests explicit placement",
+                "actual UNSPECIFIED sharding sentinels and None layouts",
+            )
+    donated = params["donated_invars"]
+    site.require(
+        type(donated) is tuple
+        and len(donated) == len(eqn.invars)
+        and all(type(value) is bool for value in donated),
+        "JIT donation metadata has malformed type or arity",
+        "one native Boolean donation flag per input",
+        category="lowering-defect",
+    )
+    site.require(not any(donated), "JIT requests donation", "no donated inputs")
+    site.require(
+        isinstance(params["name"], str)
+        and any(
+            params["inline"] is value for value in native_jit_boolean_inline_hints()
+        )
+        and type(params["keep_unused"]) is bool,
+        "JIT compilation hints have malformed types",
+        "a string name, native False/True inline representation, and Boolean keep_unused",
+        category="lowering-defect",
+    )
+    site.require(
+        type(params["compiler_options_kvs"]) is tuple,
+        "JIT compiler options have a malformed type",
+        "the native tuple of compiler options",
+        category="lowering-defect",
+    )
+    site.require(
+        not params["compiler_options_kvs"] and is_empty_jit_mesh(params["ctx_mesh"]),
+        "JIT compiler options or mesh are outside the profile",
+        "empty compiler options and an actual empty concrete JAX Mesh",
+    )
+    site.require(
+        all(
+            isinstance(var.aval, jax.core.ShapedArray)
+            for var in (*body.invars, *body.constvars, *body.outvars)
+        ),
+        "JIT has non-tensor or reference boundary values",
+        "ordinary ShapedArray boundaries without refs/tokens",
+    )
+    site.require(
+        _signature(eqn.invars, site) == _signature(body.invars, site)
+        and _signature(eqn.outvars, site) == _signature(body.outvars, site),
+        "JIT outer/body signatures disagree",
+        "exact input/output counts, dtype, shape, weakness and native symbolic scope",
+        category="lowering-defect",
+    )
+    consts = closed.consts
+    site.require(
+        len(consts) == len(body.constvars),
+        "JIT constant payload count disagrees with its bindings",
+        "one unchanged payload per constant variable",
+        category="lowering-defect",
+    )
+    for index, (var, value) in enumerate(zip(body.constvars, consts, strict=True)):
+        site.require(
+            isinstance(
+                value, (np.ndarray, np.generic, jax.Array, bool, int, float, complex)
+            ),
+            f"JIT constant {index} is not an array or scalar payload",
+            "a concrete numeric payload without conversion hooks",
+            category="lowering-defect",
+        )
+        array = np.asarray(
+            value
+        )  # Never use jnp.asarray: ambient x64 must not recanonicalize it.
+        site.require(
+            array.dtype == np.dtype(var.aval.dtype)
+            and array.shape == tuple(var.aval.shape),
+            f"JIT constant {index} payload dtype or shape disagrees with its aval",
+            "exact payload dtype/shape while retaining declared weakness and bytes",
+            category="lowering-defect",
+        )
+    try:
+        _validate_scope(body, site.opset, ancestors)
+    except SourcePrecisionError as exc:
+        raise exc.with_context(f"{site.location}/jit body") from exc
+
+
 def _validate_equation(
     eqn: Any,
     site: _Site,
     consumers: Mapping[int, list[tuple[str, int]]],
     graph_outputs: set[int],
     formal_symbols: set[tuple[str, object | None]],
+    ancestors: frozenset[int],
 ) -> None:
     inputs = [_tensor(var, site) for var in eqn.invars]
     outputs = [_tensor(var, site) for var in eqn.outvars]
@@ -571,12 +778,38 @@ def _validate_equation(
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
         not symbolic
-        or name in {"add", "mul", "exp", "dot_general"}
+        or name in {"add", "mul", "exp", "dot_general", "jit", "select_n"}
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
         "shared leading-batch Add/Mul/Exp/MatMul, named Function signatures, and returned aliases",
     )
-    if name == "exp":
+    if name == "jit":
+        _validate_jit(eqn, site, ancestors)
+    elif name == "select_n":
+        _validate_select(eqn, inputs, outputs, site)
+    elif name == "ne":
+        _arity(eqn, 2, 1, site)
+        _params(eqn, set(), site)
+        _float_values(inputs, site)
+        site.require(
+            not eqn.params
+            and inputs[0].dtype == inputs[1].dtype
+            and inputs[1].shape == ()
+            and isinstance(eqn.invars[1], JaxLiteral)
+            and eqn.invars[1].val == 0,
+            "numeric condition is outside the native Where family",
+            "a static floating condition compared with a same-dtype scalar zero literal",
+        )
+        site.require(
+            outputs[0].dtype == "bool"
+            and bool(eqn.outvars[0].aval.weak_type)
+            == all(bool(var.aval.weak_type) for var in eqn.invars),
+            "numeric condition result dtype or weakness differs from native Ne",
+            "the native Boolean comparison result",
+            category="lowering-defect",
+        )
+        _same_shape(outputs[0].shape, inputs[0].shape, site)
+    elif name == "exp":
         _validate_exp(eqn, inputs, outputs, site)
     elif name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
@@ -671,7 +904,16 @@ def _validate_equation(
                 category="lowering-defect",
             )
         _same_shape(target.shape, source.shape, site)
-        if source.dtype == "bool" and target.dtype == "int32":
+        if source.dtype == target.dtype == "bool":
+            site.require(
+                set(eqn.params)
+                <= {"new_dtype", "weak_type", "sharding", "out_sharding"}
+                and "weak_type" in eqn.params
+                and all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+                "Boolean conversion attributes or placement are outside the profile",
+                "an explicit same-Boolean conversion with native weakness and unspecified placement",
+            )
+        elif source.dtype == "bool" and target.dtype == "int32":
             uses = consumers.get(id(eqn.outvars[0]), [])
             site.require(
                 source.shape == ()
@@ -691,8 +933,22 @@ def _validate_equation(
             site,
             required={"shape", "broadcast_dimensions"},
         )
-        _float_values((*inputs, *outputs), site)
         source, target = inputs[0], outputs[0]
+        if source.dtype == target.dtype == "bool":
+            site.require(
+                all(eqn.params.get(key) is None for key in _PLACEMENT_PARAMS),
+                "Boolean broadcast placement is outside the profile",
+                "an unplaced static Boolean broadcast",
+            )
+            site.require(
+                bool(eqn.invars[0].aval.weak_type)
+                == bool(eqn.outvars[0].aval.weak_type),
+                "Boolean broadcast changes native weakness",
+                "the original Boolean weakness",
+                category="lowering-defect",
+            )
+        else:
+            _float_values((*inputs, *outputs), site)
         dimensions = eqn.params.get("broadcast_dimensions", ())
         site.require(
             len(dimensions) == len(source.shape)
@@ -812,13 +1068,16 @@ def _validate_equation(
             branch_inputs = [_tensor(var, site) for var in body.invars]
             branch_outputs = [_tensor(var, site) for var in body.outvars]
             site.require(
-                branch_inputs == inputs[1:] and branch_outputs == outputs,
+                branch_inputs == inputs[1:]
+                and branch_outputs == outputs
+                and _signature(body.invars, site) == _signature(eqn.invars[1:], site)
+                and _signature(body.outvars, site) == _signature(eqn.outvars, site),
                 "branch signature disagrees with the conditional",
                 "matching branch operand/result dtypes and shapes",
                 category="lowering-defect",
             )
             try:
-                validate_source_jaxpr(body, site.opset)
+                _validate_scope(body, site.opset, ancestors)
             except SourcePrecisionError as exc:
                 raise exc.with_context(f"{site.location}/branch {index}") from exc
     elif name is not None and name.startswith("onnx_fn::"):
@@ -830,18 +1089,69 @@ def _validate_equation(
     else:
         site.fail(
             "primitive is outside the profile",
-            "only the finite source-static-v1 operations; loops, scan, JIT regions, and integer arithmetic are excluded",
+            "only the finite source-static-v1 operations; loops, scan, unaudited JIT bodies/options, and integer arithmetic are excluded",
         )
 
 
 def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
-    """Validate one traced scope and recursively inspect two-branch conditionals.
+    """Validate one scope and recursively inspect conditionals and plain JIT.
 
     Pass this function as the common converter's validator to also check actual
     retraced ONNX Function bodies. A callback alone does not identify the enclosing
     function name; its caller can prefix ``SourcePrecisionError.with_context``.
     """
+    _validate_scope(jaxpr, opset, frozenset())
+
+
+def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
     site = _Site("graph", opset)
+    site.require(
+        not getattr(jaxpr, "is_high", False),
+        "high-level traced bodies are outside the profile",
+        "low-level pure tensor scopes",
+    )
+    site.require(
+        id(jaxpr) not in ancestors and len(ancestors) < 32,
+        "cyclic or excessively nested traced body",
+        "an acyclic bounded tree of native scopes",
+        category="lowering-defect",
+    )
+    ancestors = ancestors | {id(jaxpr)}
+    bound: set[int] = set()
+    for var in (*jaxpr.invars, *jaxpr.constvars):
+        site.require(
+            not isinstance(var, (JaxLiteral, DropVar)) and id(var) not in bound,
+            "duplicate or invalid scope binding",
+            "distinct input and constant definitions",
+            category="lowering-defect",
+        )
+        bound.add(id(var))
+    for index, eqn in enumerate(jaxpr.eqns):
+        binding_site = _Site(f"equation {index}", opset, eqn.primitive.name)
+        for var in eqn.invars:
+            binding_site.require(
+                isinstance(var, JaxLiteral) or id(var) in bound,
+                "unresolved nonliteral operand",
+                "an existing scope binding or literal before use",
+                category="lowering-defect",
+            )
+        for var in eqn.outvars:
+            if isinstance(var, DropVar):
+                continue
+            binding_site.require(
+                not isinstance(var, JaxLiteral) and id(var) not in bound,
+                "result redefines an existing binding",
+                "one definition per non-dropped result",
+                category="lowering-defect",
+            )
+            bound.add(id(var))
+    for var in jaxpr.outvars:
+        site.require(
+            isinstance(var, JaxLiteral) or id(var) in bound,
+            "unbound scope output",
+            "a bound input, constant, result, or literal; repeated aliases are permitted",
+            category="lowering-defect",
+        )
     site.require(
         opset in (23, 26),
         f"opset {opset} is outside the profile",
@@ -947,7 +1257,9 @@ def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
                 "a scalar bool-to-int32 conversion in this scope",
             )
         try:
-            _validate_equation(eqn, eqn_site, consumers, graph_outputs, formal_symbols)
+            _validate_equation(
+                eqn, eqn_site, consumers, graph_outputs, formal_symbols, ancestors
+            )
         except SourcePrecisionError:
             raise
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
