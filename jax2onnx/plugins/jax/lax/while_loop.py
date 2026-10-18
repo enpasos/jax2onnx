@@ -11,8 +11,13 @@ import onnx_ir as ir
 from onnx_ir import Shape as IRShape
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
+from jax2onnx.plugins._ir_shapes import (
+    DimInput,
+    _ensure_value_metadata,
+    _stamp_type_and_shape,
+)
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import (
     LoopCallParameters,
@@ -202,6 +207,28 @@ def _is_literal(var: Any) -> bool:
     return hasattr(var, "val")
 
 
+def _set_value_metadata_from_aval(
+    ctx: LoweringContextProtocol, value: ir.Value, aval: Any
+) -> None:
+    if ctx.precision_policy is PrecisionPolicy.SOURCE:
+        representation = representation_for_aval(aval)
+        shape = cast(tuple[DimInput, ...], representation.physical_shape)
+        dtype = representation.ir_dtype
+        if value.dtype is not None and value.dtype != dtype:
+            raise TypeError(
+                f"SOURCE while value requires {dtype}, received {value.dtype}"
+            )
+    else:
+        shape = tuple(getattr(aval, "shape", ()))
+        dtype = _dtype_to_ir(
+            np.dtype(getattr(aval, "dtype", np.float32)),
+            ctx.builder.enable_double_precision,
+        )
+    value.type = ir.TensorType(dtype)
+    _stamp_type_and_shape(value, shape)
+    _ensure_value_metadata(ctx, value)
+
+
 def _evaluate_closed_jaxpr(
     ctx: LoweringContextProtocol,
     closed_jaxpr: Any,
@@ -219,14 +246,7 @@ def _evaluate_closed_jaxpr(
         out_val = ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name(prefix))
         aval = getattr(out_var, "aval", None)
         if aval is not None:
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            out_val.type = ir.TensorType(dtype_enum)
-            _stamp_type_and_shape(out_val, shape)
-            _ensure_value_metadata(ctx, out_val)
+            _set_value_metadata_from_aval(ctx, out_val, aval)
         outputs.append(out_val)
     return outputs
 
@@ -356,14 +376,7 @@ def _build_loop_body_graph(
     for out_var, out_val in zip(body_jaxpr.outvars, state_candidates):
         aval = getattr(out_var, "aval", None)
         if aval is not None:
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype_enum = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            out_val.type = ir.TensorType(dtype_enum)
-            _stamp_type_and_shape(out_val, shape)
-            _ensure_value_metadata(body_ctx, out_val)
+            _set_value_metadata_from_aval(body_ctx, out_val, aval)
 
     if predicate_input is None:
         state_outputs = state_candidates
@@ -374,6 +387,8 @@ def _build_loop_body_graph(
             body_jaxpr.outvars, state_candidates, state_inputs
         ):
             state_shape = tuple(getattr(out_var.aval, "shape", ()))
+            if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                state_shape = representation_for_aval(out_var.aval).physical_shape
             if len(state_shape) < predicate_rank:
                 raise NotImplementedError(
                     "vmapped while_loop state rank must be at least the predicate rank"
@@ -1052,14 +1067,7 @@ class WhileLoopPlugin(PrimitiveLeafPlugin):
             aval = getattr(var, "aval", None)
             if aval is None:
                 continue
-            shape = tuple(getattr(aval, "shape", ()))
-            dtype = _dtype_to_ir(
-                np.dtype(getattr(aval, "dtype", np.float32)),
-                ctx.builder.enable_double_precision,
-            )
-            val.type = ir.TensorType(dtype)
-            _stamp_type_and_shape(val, shape)
-            _ensure_value_metadata(ctx, val)
+            _set_value_metadata_from_aval(ctx, val, aval)
             ctx.bind_value_for_var(var, val)
 
         if (
