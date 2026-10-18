@@ -2,9 +2,9 @@
 
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
-The persisted identifier includes finite rank-two/rank-three leading-batch Add
-and canonical MatMul, plus the static bias reshape, actual named Function bodies
-and returned aliases. Other symbolic rules remain separate migration work.
+The persisted identifier includes finite rank-two/rank-three leading-batch
+Add/Mul/Exp and canonical MatMul, plus the static bias reshape, actual named
+Function bodies and returned aliases. Other symbolic rules remain separate work.
 
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns floating input normalization. Recursive callbacks may
@@ -242,6 +242,40 @@ def _float_values(values: Sequence[_Tensor], site: _Site) -> None:
         all(value.dtype in _FLOATS for value in values),
         "nonfloating arithmetic or conversion is outside the profile",
         "floating arithmetic and explicit floating conversions",
+    )
+
+
+def _validate_exp(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1, 1, site)
+    _params(eqn, {"accuracy"}, site)
+    site.require(
+        eqn.params.get("accuracy") is None
+        and all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+        "exponential accuracy or placement is outside the profile",
+        "native Exp with absent/None accuracy and unspecified placement",
+    )
+    source, target = inputs[0], outputs[0]
+    _float_values((source,), site)
+    site.require(
+        target.dtype == source.dtype,
+        "exponential result dtype differs from its operand",
+        "the original floating dtype",
+        category="lowering-defect",
+    )
+    site.require(
+        bool(eqn.outvars[0].aval.weak_type) == bool(eqn.invars[0].aval.weak_type),
+        "exponential result weakness differs from its native operand",
+        "the native Exp weak-type rule without rebuilding avals",
+        category="lowering-defect",
+    )
+    _same_shape(target.shape, source.shape, site)
+    site.require(
+        target.symbol == source.symbol,
+        "exponential result scope differs from its operand",
+        "the original verified native leading-batch scope",
+        category="lowering-defect",
     )
 
 
@@ -537,12 +571,14 @@ def _validate_equation(
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
         not symbolic
-        or name in {"add", "dot_general"}
+        or name in {"add", "mul", "exp", "dot_general"}
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
-        "shared leading-batch Add/MatMul, named Function signatures, and returned aliases",
+        "shared leading-batch Add/Mul/Exp/MatMul, named Function signatures, and returned aliases",
     )
-    if name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
+    if name == "exp":
+        _validate_exp(eqn, inputs, outputs, site)
+    elif name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt", "gt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
         _arity(eqn, 1 if unary else 2, 1, site)
         allowed_params = (
@@ -556,6 +592,12 @@ def _validate_equation(
             "explicit arithmetic output dtype/accuracy is outside the profile",
             "ordinary floating arithmetic; select wider work with explicit conversions",
         )
+        if name == "mul":
+            site.require(
+                all(eqn.params.get(param) is None for param in _PLACEMENT_PARAMS),
+                "multiplication placement is outside the profile",
+                "native floating Mul with unspecified placement",
+            )
         _float_values(inputs, site)
         site.require(
             len({value.dtype for value in inputs}) == 1,
@@ -571,10 +613,11 @@ def _validate_equation(
             category="lowering-defect",
         )
         if symbolic:
+            operation = "Add" if name == "add" else "Mul"
             symbolic_inputs = [value for value in inputs if value.symbol is not None]
             site.require(
                 bool(symbolic_inputs),
-                "symbolic Add operands do not provide a native batch variable",
+                f"symbolic {operation} operands do not provide a native batch variable",
                 "at least one operand with the declared native B",
                 category="lowering-defect",
             )
@@ -588,14 +631,14 @@ def _validate_equation(
                     for value in inputs
                 )
                 and outputs[0].symbol == batch.symbol,
-                "symbolic Add operands do not share the same leading-batch shape",
+                f"symbolic {operation} operands do not share the same leading-batch shape",
                 "equal rank-two/rank-three tails with the same native B or a literal leading extent 1",
             )
             site.require(
                 bool(eqn.outvars[0].aval.weak_type)
                 == all(bool(var.aval.weak_type) for var in eqn.invars),
-                "symbolic Add result weakness differs from its native operands",
-                "the native floating Add weak-type rule",
+                f"symbolic {operation} result weakness differs from its native operands",
+                "the native floating pointwise weak-type rule",
                 category="lowering-defect",
             )
             shape = batch.shape
