@@ -14,6 +14,7 @@ is available. These experiments inform the
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
 | Source corpus | What does the first frozen 36-cell batch actually establish? | [Corpus findings](source_corpus_findings.md): 26 artifacts per stack, explicit failures/pending cells, and unverified lowering/runtime/numerics. |
 | Fixed-source parameters | Which existing runtime controls must survive unchanged model implementations? | [Compatibility findings](fixed_source_compatibility_findings.md): all 22 raw rows, original state prerequisites and real Function/If/Loop dependencies. |
+| Recording, packaging and array creation | Do shared export options and native promotion preserve the source contract? | [Option and array findings](option_and_array_creation_findings.md): committed C4a/D1a checks, Boolean CPU positives and explicit kernel/numerical failures. |
 
 ## Run it
 
@@ -41,7 +42,9 @@ the old module paths remain runnable compatibility entry points. The durable
 source regressions live in `tests/extra_tests/converter` and run in normal CI.
 Supplemental experiments in this folder still need an explicit test invocation.
 See [recorded validation](source_integration_findings.md#recorded-validation)
-for suite counts, versions and actual results.
+for historical integration results and the
+[latest checkpoint](option_and_array_creation_findings.md#validation-and-provenance)
+for the complete 5,803-test run, versions and bounded acceptance.
 
 ## Observable source behavior
 
@@ -106,10 +109,13 @@ BF16 structural validity does not establish runtime kernels. Function coverage
 does not establish all nested combinations or every JAX setting. Names/layouts,
 parameter materialization, other return modes and concurrent export remain
 outside the harness. The normal public pipeline still uses its legacy policy. The shared private
-facade separately supports names, reports and IR/proto/standard-file returns.
+facade separately supports names, reports, primitive recording and
+IR/proto/standard/web-file returns. The new array-creation diagnostics preserve
+native promotion/weakness and selected Boolean CPU results; `where`/`full`
+remain excluded from the audited product profile.
 The [next implementation work](../precision_migration_plan.md#next-implementation-work)
-completes the remaining options and full source coverage. Recording and web
-packaging are the next reviewed implementation packet, not completed features.
+completes remaining options and full source coverage. Web packaging has exact
+serialized-payload evidence, while browser execution remains unverified.
 
 ## Numerical acceptance is a separate result
 

@@ -18,10 +18,13 @@ Reviewed private work now covers names, reports, file formats, typed constants,
 selected noncomplex and complex loops, local promotion settings and required
 finalization failures. The new focused repairs and diagnostic tooling passed
 independent review and are committed locally with repository hooks passing.
-The latest integrated run passes **5,650 tests** after repairing metadata
-mutation during collection. The refreshed inventory retains every original
-contract and test anchor; this regression result does not complete source
-coverage.
+Private recording and web-file packaging now have reviewed coverage, alongside
+native JAX promotion for `where`/`full` and selected Boolean results. These
+[bounded changes](poc/option_and_array_creation_findings.md) are committed with
+repository hooks passing; public behavior and audited operation admission stay
+unchanged. The latest complete run passes **5,803 tests**. The refreshed inventory
+retains every original contract and test anchor; this regression result does
+not complete source coverage.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -76,6 +79,10 @@ operators, scopes and options. Missing comparison criteria remain unverified;
 they are not silently replaced with exact agreement. Integer and Boolean
 results must remain exact even when floating outputs use a tolerance.
 Runtime failures remain visible under their recorded criteria.
+The next parameter work carries real named Boolean inputs through the complete
+model while retaining unchanged supplied implementations. Array-sequence work
+must also resolve recorded exact floating-point discrepancies; matching graph
+types does not by itself establish matching results on a runtime.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

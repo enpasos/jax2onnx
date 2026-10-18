@@ -14,9 +14,12 @@ the repairs are committed and that checkpoint's integrated run passes all
 Further promotion-context, complex-loop and strict-finalization repairs are
 committed at `ea6a8da7`, `8ba3c681` and `f1ee71b3`. B3 diagnostics, the reviewed
 metadata-ownership repair and inventory additions are committed at `3dbec1b8`.
-All four commits passed actual repository hooks. The latest integrated
-primary-stack run passes **5,650 tests**. An earlier failed preflight exposed raw
-metadata mutation, now repaired; an interrupted run is not counted as passing.
+All four commits passed actual repository hooks. C4a recording/web packaging is
+committed at `8a82d510`; D1a array-promotion repairs and the reviewed manual
+inventory refresh are committed at `223f24bf`, also with independent review and
+actual hooks passing. The latest complete primary-stack run passes **5,803 tests**.
+An earlier failed preflight exposed raw metadata mutation, now repaired; an
+interrupted run is not counted as passing.
 The first 36-cell diagnostic batch has run on both stacks, with every
 lowering/runtime/numerical gate still unverified. Broader source-corpus execution
 and migration remain open.
@@ -169,14 +172,15 @@ numerical acceptance for every composition or execution target.
 | Scopes | Inline computation, audited `@onnx_function` specializations and captured/static state, and two-branch `cond`. Apply the same profile to nested bodies. |
 | Outputs | Flattened structured results in existing output order, including mixed admitted floating types, Boolean comparison results, and the admitted UINT32 bitcast result. Integer arithmetic is excluded. |
 | ONNX opsets | 23 and 26. The caller selects any required newer opset explicitly. |
-| Export boundary | `proto`, `ir`, and standard `file` return modes; model name and custom input/output names. |
+| Export boundary | Initially `proto`, `ir`, and standard `file` returns, model name and custom input/output names; C4a now adds private primitive recording and web-file packaging through the same owners. Browser execution is a separate gate. |
 | JAX configuration | Caller x64 and default matrix precision, including supported model-local scopes captured by named-function tracing. Explicit unsupported matrix algorithms fail. |
 
 During phase A, the source path rejects symbolic dimensions, effects, loops/scan/JIT regions,
 unlisted operations or precision parameters, nonempty `input_params`, nonempty
-NCHW input/output options, `export_mode="web"`, and nondefault normalization
+NCHW input/output options, and nondefault normalization
 selection. Empty/omitted parameter and layout options retain their ordinary
-meaning. These are temporary migration exclusions unless the inventory records
+meaning. The initial recording/web guards have been removed in reviewed C4a.
+Remaining exclusions are temporary migration gaps unless the inventory records
 a genuine technical limit. Existing captured-state forms and supported
 configuration behavior require audit in later phases. New concurrent-export
 guarantees are not required beyond the existing functionality.
@@ -329,6 +333,8 @@ planning work is separate from production-code ownership.
 | C3c: finite complex loop representations | Apply shared physical descriptors to scan/while formals, outputs, masks and stacked extents; retain exact canonical values and explicit runtime sample failures. | Independently accepted; integrated run and actual hooks pass | `8ba3c681` |
 | Required SOURCE finalization | Stop on required shape, Function postprocessing or explicit attribute failures before returning a successful artifact/report. | Independently accepted; integrated run and actual hooks pass | `f1ee71b3` |
 | B3b: artifact diagnostic runner | Bind immutable stage history to exact rows, settings, original traces, typed values and artifacts; inspect only explicitly known structural families. | Independently accepted; first 36 cells per stack measured; metadata repair, integrated run and actual hooks pass | `3dbec1b8` |
+| C4a: recording and packaging | Reuse shared logging and serialization; preserve exact large root/nested payloads, names/reports and primary failures; remove real stale sidecars in web mode. | Independently accepted; both-stack focused checks, complete integrated run and actual hooks pass | `8a82d510` |
+| D1a: array promotion | Preserve native `where` promotion and `full` weakness, immutable canonical operands and Boolean logical selection; retain diagnostic-only admission and failed target evidence. | Independently accepted; both-stack focused/generated checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `223f24bf` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -488,31 +494,89 @@ continue independent scope, evidence and finalization work without assuming
 the answer or weakening source preservation in the ordinary export call.
 
 
-C4a is the next reviewed implementation packet after this checkpoint: remove
-only the SOURCE recording/web guards and reuse the shared logging ownership and
-serializer. Check actual payloads larger than 1 MiB, FP64 rounding, signed zero,
-NaN bits, names/reports, standard external data and web sidecar cleanup across
-IR/proto/file paths. Recording must preserve artifacts through nested
-Function/If/Loop scopes and remain best effort on log-write failure. Browser
-execution is a separate gate; this packet does not certify it.
+C4a is committed at `8a82d510`. Exactly three SOURCE guard removals enable
+recording and web packaging through the existing logger and serializer. Exact
+1.2 MB FP64 root and nested Function payloads retain rounding-sensitive values,
+signed zero and NaN bits across IR/proto/file returns. Tests cover real external
+data, same-path web sidecar cleanup, names/reports, off/on/off recording, a single
+root flush through Function/If/Loop scopes and best-effort log failures that
+preserve the primary result/error. Browser execution remains a separate gate.
 
-C4c starts with real scalar BOOL operands in one prepared root. Carry actual
-values through NNX/Linen/Equinox adapters and named/control-flow scopes; use the
-same binding map for exported boundaries and reports. Preserve all 22 rows,
-including original RNG/key and immutable-state prerequisites. Static False is
-valid for the supported SpectralNorm case; freezing positive-rate Dropout is not
-an acceptable migration. Extend the same contract to the remaining parameter
-types before final acceptance.
+C4c is the next coupled parameter packet. One owner changes root tracing and
+binding metadata in `conversion_api.py`, facade names/reports in
+`user_interface.py`, SOURCE ownership in `ir_context.py` and `plugin_system.py`,
+and the NNX/Equinox Dropout lowerers. Linen inherits the NNX lowerer. Existing
+Function argument packing and ordinary If/Loop operand wiring are reused;
+additional control-flow or optimizer changes need a demonstrated defect.
 
-The reviewed next D packet has four plugin owners: `where`/`full` preserve JAX
-promotion, weak typing and canonical constant ownership; `arange`/`linspace`
-preserve the native typed arithmetic, including intermediate rounding, omitted
-step behavior, appended endpoints and integer flooring. Prefer captured native
-JAX binding where it is traceable; retain existing dynamic capabilities as
-explicit compatibility work. The existing policy trace-cache namespace already
-separates ordinary JAX/LEGACY/SOURCE; no additional cache mechanism is justified
-without a failing isolation case. These are implementation plans, not repairs
-included in the current checkpoint.
+Trace the complete unchanged callable once with positional specs followed by
+real typed scalar-BOOL named operands. Accept actual Boolean scalar declarations
+without coercing numeric values; reject other unimplemented named contracts
+explicitly. Closures, construction and partial application hold intended static
+settings. The first packet is diagnostic-only; audited product admission and
+LEGACY behavior remain unchanged. Default/literal callee settings remain local,
+regardless of whether their names match a declared runtime argument.
+
+Use one immutable ordered binding tuple tied to actual root vars, normalized
+specs, positional indices/keyword keys and trace indices. Retain every genuine
+root formal initially, including unused flags, using internal `in_N` names
+through optimization. No new pruning policy or report schema is needed. Resolve
+the tuple against finalized/cloned inputs with strict arity, order and shared
+representation checks; never retain stale pre-clone identities or invent avals.
+Input names remain positional-only. Final naming and output-alias separation
+receive the complete input target map, including named ports, and apply one
+collision-checked rename. Reports use that same mapping for supplied, normalized,
+traced and exported properties, including proto/file rechecks.
+
+SOURCE skips late input-parameter materialization and promotion by name. Named
+Function captures and Dropout resolve actual typed vars; a name-only flag request
+fails rather than appending a port. SOURCE adds no unused Function sink. Actual
+input retention is not liveness evidence. Check real call/formal bindings and
+If/Loop dependencies through a positive-rate Dropout control to a model output.
+The existing legacy promotion, sinks and pruning stay unchanged until phase F.
+
+Preserve all 22 compatibility rows and their original factories/dtypes. The
+sixteen positive-rate controls remain dynamic; five zero-rate GPT configurations
+remain flag-insensitive; SpectralNorm's supported False case uses static partial
+preparation. Equinox's missing-key False failure and original NNX/Linen state/key
+behavior stay explicit. For genuine Python branching in an unchanged pure
+source, test a concrete external `lax.cond` adapter that selects the complete
+original computation with concrete branch flags. Do not build an automatic
+combinatorial wrapper engine or freeze a working dynamic control. Stochastic
+JAX/ONNX masks, sequences and state advancement are separate unresolved contracts.
+
+Focused regressions cover root-only and mixed root/Function control, defaults,
+literal overrides, unused inputs, zero-trip and nested loops, names/aliases,
+failure restoration and cache ordering on both stacks. Original references run
+outside plugin activation. Follow with a bounded all-22 preparation/trace/export
+pass: retain exact missing audits or lowering gates; no permissive validator may
+turn large-model attempts into support claims. Concrete `B=1` probes do not
+close the separate symbolic-batch gap. Extend the same contract to all remaining
+parameter types before final acceptance.
+
+D1a is committed at `223f24bf`: `where` uses native JAX operand-aware promotion,
+`full` retains weak fills, and SOURCE consumer casts leave canonical constants
+unchanged. Boolean selection uses `Not`/`And`/`And`/`Or` with actual pairwise
+shapes and selected exact CPU results. Numeric selection continues to emit Where
+with JAX-promoted operand types;
+`where`/`full` still require diagnostics rather than audited product admission.
+The existing trace-cache namespace separates native/LEGACY/SOURCE; no extra
+cache mechanism was needed. The
+[curated findings](poc/option_and_array_creation_findings.md) retain kernel failures
+and the precise regression scope.
+
+D1b next uses captured original `arange`/`linspace` binding where traceable,
+preserving native dtype/weakness, omitted-step behavior, explicit conversions,
+appended endpoints and integer flooring. Existing dynamic `arange` capability
+remains compatibility work even when native JAX rejects data-dependent bounds.
+Selected FP16/FP32 native `linspace` traces and ONNX intermediate types match,
+but exact JAX samples differ from ORT and ONNX ReferenceEvaluator on both stacks.
+These remain failed exact criteria. Compiled arithmetic, contraction and
+low-precision evaluation need investigation before any faithful adaptation;
+none is established as the cause. Do not call this an ORT-only defect or ONNX
+impossibility, change the algorithm, widen the computation, or loosen the failed
+criteria to make the packet pass. Ordinary cross-runtime floating reproducibility
+and deliberately required rounding remain distinct acceptance questions.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -608,7 +672,7 @@ Checkpoint evidence on 2026-10-18:
   the repaired tooling selection passes 125 tests on each stack. Independent
   review passes 58 tests on each stack and closes both findings. The fixed
   36-cell artifact batch is measured separately in the corpus findings.
-- The latest integrated primary-stack run passes **5,650 tests**, with 13,104
+- The preceding integrated primary-stack checkpoint passes **5,650 tests**, with 13,104
   warnings in 356.07 seconds. The preceding run's one failure and 5,647 passes
   exposed raw dictionary mutation by `tests/t_generator.py` during collection.
   The accepted shallow-copy repair preserves enrichment, variants, typed values
@@ -624,6 +688,23 @@ Checkpoint evidence on 2026-10-18:
   ownership/inventory (`3dbec1b8`) all pass actual repository hooks. Package
   typing covers 541 files; RNG registrations, global Ruff, path markers and
   strict MkDocs pass. These checkpoints do not complete C4 or phases D/E/F.
+- C4a passes 485 focused tests per stack. Independent review reruns all 23 new
+  cases: 16 recording and seven facade/serialization cases. The logger and
+  serializer implementations remain unchanged.
+- D1a passes 453 focused tests and 47 generated LEGACY controls per stack;
+  independent review reruns all 134 new cases. Twenty Boolean export cases have
+  exact CPU samples with optimization off/all across inline/Function/If/Loop
+  scopes. BF16 and neutral LEGACY Boolean Where kernel failures are recorded
+  separately; a passing test count does not turn them into runtime support.
+- The latest complete primary-stack suite passes **5,803 tests**, with 13,104
+  warnings in 382.81 seconds. Required package typing passes 541 files, RNG
+  registration and global Ruff pass, and both C4a (`8a82d510`) and D1a
+  (`223f24bf`) pass actual repository hooks.
+- The `223f24bf` refresh changes only manual accounting: 192 files, 963 test
+  functions and 211 migration additions. All 752 original anchors, 1,802 raw
+  contracts and optional entries remain unchanged; no original anchor was
+  removed. Fresh CLI comparisons pass on both stacks. The historical first B3
+  batch remains bound to its original baseline and was not rerun.
 
 ## Validation and final review
 

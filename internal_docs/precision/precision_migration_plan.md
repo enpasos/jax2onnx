@@ -13,11 +13,17 @@ plan is committed at `158ce625`. That checkpoint passed 5,363 integrated
 primary-stack tests. Further promotion-context, finite complex-loop and
 required-finalization repairs are committed at `ea6a8da7`, `8ba3c681` and
 `f1ee71b3`. B3 diagnostics, the raw-metadata ownership repair and reviewed
-inventory additions are committed at `3dbec1b8`. All four commits passed actual
-repository hooks. The latest integrated primary-stack run passes **5,650 tests**;
-the repaired metadata packet passes 127 focused tests on each stack. The
-inventory now records 191 handwritten-test files, 944 functions and 192 added
+inventory additions are committed at `3dbec1b8`. Private recording/web packaging
+is committed at `8a82d510`; SOURCE `where`/`full` promotion repairs and the latest
+manual inventory are committed at `223f24bf`. All passed actual repository hooks.
+The latest complete primary-stack run passes **5,803 tests**; required typing
+covers 541 files, with RNG registration and global Ruff passing. The
+inventory now records 192 handwritten-test files, 963 functions and 211 added
 migration tests, retaining all 752 original anchors and 1,802 raw contracts.
+Both fresh inventory comparisons pass; the first B3 batch retains its historical
+baseline and has not been rerun. The
+[option and array-creation findings](poc/option_and_array_creation_findings.md)
+record the bounded acceptance and remaining target failures.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -146,9 +152,10 @@ The [accepted work plan](precision_implementation_work_plan.md) connects this
 private foundation to the existing export boundary. Its internal `source-static-v1`
 profile admits static floating kernels, the bounded preferred-FP32 matrix
 lowering, FP32-to-UINT32 bitcast at opset 26, audited named functions, and
-two-branch conditionals. It supports opsets 23/26, names, and proto/IR/standard
-file returns through reviewed private facade integration. Nonempty `input_params`,
-NCHW options, web serialization, nondefault normalization, unlisted operations,
+two-branch conditionals. It supports opsets 23/26, names, primitive recording,
+and proto/IR/standard/web file returns through reviewed private facade integration.
+Web packaging does not establish browser execution. Nonempty `input_params`,
+NCHW options, nondefault normalization, unlisted operations,
 effects, symbolic shapes, loops, and JIT regions are temporary internal gates.
 Where the existing converter supports them, they remain required migration work.
 
@@ -197,13 +204,38 @@ The initial scenario plan leaves missing, one-sided and legacy-variant-only
 criteria unresolved; it does not invent exact comparisons. Freeze reviewed
 criteria before numerical runs. Integer and Boolean outputs always require
 exact values, including mixed outputs whose floating values use tolerances.
-Finite C3b promotion-context and C3c complex-loop repairs have independent
-focused acceptance. C4 options and broader scope/operator/model coverage in
+Finite C3b promotion-context, C3c complex-loop, C4a recording/packaging and D1a
+array-promotion repairs have independent focused acceptance. D1a remains
+diagnostic: `where`/`full` are still excluded from audited product admission.
+Remaining C4 options and broader scope/operator/model coverage in
 phases D/E/F remain open. The first B3 batch is recorded in the
 [corpus findings](poc/source_corpus_findings.md); no numerical corpus acceptance
 follows from its artifact checks.
 Preexisting negative contracts remain distinct from positive capabilities that
 the migration must preserve.
+
+The next C4c packet traces positional inputs and real scalar-BOOL named operands
+in one complete prepared root. One ordered map ties each actual source var to
+its normalized spec, final graph input, name and report entry. Initially every
+real root formal is retained, including unused declarations; no artificial sink
+or weakened boundary check is needed. SOURCE bypasses late name-based promotion
+and materialization. NNX/Linen/Equinox Dropout must consume actual operands, while
+callee defaults and explicit literals stay local. The first packet remains
+diagnostic and keeps all 22 compatibility rows and their state/key prerequisites
+visible. An external whole-root `lax.cond` adapter can support genuine Python
+branching in an unchanged pure source; static binding is only for an intended
+fixed setting. Structural control checks do not certify stochastic equivalence.
+
+D1b next addresses `arange`/`linspace` through captured native JAX binding,
+preserving dtype, weakness, omitted-step behavior, integer flooring and explicit
+conversion boundaries. Existing dynamic `arange` capability remains required
+compatibility work. Native typed graphs alone do not establish exact floating
+results: recorded FP16 and FP32 `linspace` samples disagree with both JAX stacks
+on ORT and ONNX ReferenceEvaluator. Those exact criteria remain failed; the
+evidence does not establish an ORT-only defect or an ONNX impossibility.
+Investigate compiled arithmetic and rounding before proposing an adaptation.
+Ordinary cross-runtime reproducibility and deliberately required rounding need
+separate, reviewed criteria; do not loosen these failed witnesses to close D1b.
 
 ## Stage 1 Inventory and freeze observable behavior
 

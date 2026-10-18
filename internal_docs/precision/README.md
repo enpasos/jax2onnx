@@ -30,10 +30,19 @@ comparisons and finite noncomplex loop repairs are committed. The `158ce625`
 checkpoint passed 5,363 integrated primary-stack tests. Promotion-context,
 complex-loop and required-finalization repairs are now committed at `ea6a8da7`,
 `8ba3c681` and `f1ee71b3`. Diagnostic tooling, the metadata-ownership repair and
-reviewed inventory additions are committed at `3dbec1b8`. The latest integrated
-primary-stack run passes **5,650 tests**. All four checkpoints passed their actual
-repository hooks. The inventory retains every raw contract and original anchor,
-with 191 handwritten-test files, 944 functions and 192 migration additions.
+reviewed inventory additions are committed at `3dbec1b8`. Private recording/web
+packaging and array-creation promotion repairs are now committed at `8a82d510`
+and `223f24bf`, with independent review and actual repository hooks passing.
+The latest complete primary-stack run passes **5,803 tests**. The inventory
+retains every raw contract and original anchor, with 192 handwritten-test files,
+963 functions and 211 migration additions.
+
+The [option and array-creation findings](poc/option_and_array_creation_findings.md)
+record exact large-payload serialization, recording behavior, native JAX
+promotion/weakness and Boolean selection evidence. `where`/`full` remain outside
+the audited product profile; BF16 kernel failures and failed exact floating
+samples remain visible. These changes do not establish browser or model-wide
+numerical acceptance.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one

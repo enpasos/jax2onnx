@@ -27,10 +27,15 @@ numerical acceptance was claimed. A separate
 runtime controls and static configurations that all 22 parameterized examples
 must retain with their implementations unchanged.
 
-The latest integrated run passes **5,650 tests** after repairing metadata
-mutation during test collection. The new reviewed repairs and diagnostic
-tooling are committed locally and passed repository hooks. The refreshed
-inventory retains all original contracts and test anchors. The
+Private recording and single-file web packaging now have regression coverage,
+as do native JAX promotion for `where`/`full` and selected Boolean results. The
+[findings](poc/option_and_array_creation_findings.md) distinguish these successes
+from remaining BF16 execution and floating-point comparison failures. They do
+not establish browser support or broaden the audited operation profile.
+
+The latest complete run passes **5,803 tests**. These reviewed changes are
+committed locally and passed repository hooks. The refreshed inventory retains
+all original contracts and test anchors. The
 [work plan](precision_implementation_work_plan.md) tracks the remaining operators,
 options and full-model validation. The migration is not complete.
 

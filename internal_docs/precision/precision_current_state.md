@@ -43,7 +43,7 @@ all 22 parameterized models using 44 serialized LEGACY checks in total and 20
 manual scope checks in total. It identifies capabilities the new runtime-input
 contract must retain without editing supplied source implementations.
 
-The latest integrated primary-stack run passes **5,650 tests** (13,104 warnings,
+The preceding integrated checkpoint passed **5,650 tests** (13,104 warnings,
 356.07 seconds). An earlier run failed one preflight while 5,647 tests passed:
 test generation had mutated raw registration metadata. The accepted repair
 copies each testcase before enrichment, preserving generated behavior and raw
@@ -54,9 +54,28 @@ C3b, C3c and required finalization are committed at `ea6a8da7`, `8ba3c681` and
 `f1ee71b3`; B3 tooling, metadata ownership and the reviewed inventory refresh
 are committed at `3dbec1b8`. All four commits passed their actual hooks. Package
 typing (541 files), RNG registration, Ruff, path markers and strict MkDocs pass.
-The inventory now has 191 handwritten-test files, 944 functions and 192
-migration additions; all 752 original anchors and 1,802 raw contracts remain.
-Fresh inventory comparisons pass on both stacks. The
+The `3dbec1b8` inventory recorded 191 handwritten-test files, 944 functions and
+192 migration additions, retaining all 752 original anchors and 1,802 raw
+contracts. The first B3 batch remains bound to its earlier baseline and has not
+been rerun.
+
+Private recording/web packaging is now committed at `8a82d510`; SOURCE
+`where`/`full` promotion and weak-type repairs are committed at `223f24bf`.
+Both passed independent review and actual repository hooks. Recording reuses
+the shared logger; IR/proto/file checks preserve exact 1.2 MB FP64 payloads
+through root and nested Function constants, including signed zero and NaN bits.
+The array repairs preserve native JAX promotion and canonical constants;
+Boolean selection uses logical operations with exact CPU samples. Audited
+product admission still excludes `where`/`full`. BF16 and neutral Boolean
+Where kernel failures remain separate target evidence. See the
+[curated findings](poc/option_and_array_creation_findings.md).
+
+The latest complete primary-stack run passes **5,803 tests** (13,104 warnings,
+382.81 seconds). Required typing covers 541 files; RNG registration and global
+Ruff pass on the frozen combined changes. The refreshed inventory records
+192 handwritten-test files, 963 functions and 211 migration additions, retaining
+all 752 original anchors, all 1,802 raw contracts and optional entries. Fresh CLI
+comparisons pass on both stacks. The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 
 For observable behavior and export choices, read the
@@ -313,8 +332,10 @@ public target-selection API. In particular, the known FP16 square/sum model
 still exports and executes, but fails acceptance against its exact reference
 on the recorded runtimes. That numerical defect remains unresolved.
 
-Current validation totals are recorded centrally in the
-[integration findings](poc/source_integration_findings.md#recorded-validation).
+Historical validation totals are recorded in the
+[integration findings](poc/source_integration_findings.md#recorded-validation);
+the [latest checkpoint](poc/option_and_array_creation_findings.md#validation-and-provenance)
+records the complete 5,803-test run.
 A green suite can include tests that recognize the known numerical failure;
 it does not establish model-wide or deployment-wide precision compliance.
 
