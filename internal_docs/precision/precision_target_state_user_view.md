@@ -22,6 +22,14 @@ A model may keep calculations in FP16 or BF16, use wider arithmetic for selected
 sensitive steps, or require FP64 for scientific calculations. These choices
 belong to the model's numerical design.
 
+The model may come from fixed or third-party JAX sources. Supported workflows
+must also work without editing those sources: use their exposed configuration,
+typed inputs, model preparation, or an ordinary caller wrapper to make the
+intended choices. Compatibility includes workflows with those sources unchanged.
+Fixed casts still define the supplied computation; enabling JAX x64 alone does
+not rewrite them. A requested change to that computation needs an explicit
+supported preparation step and a matching JAX reference.
+
 ## What you set in JAX
 
 Use model code and the dtype settings offered by your framework to choose:
@@ -48,9 +56,23 @@ cannot recover lost information.
 | --- | --- |
 | Callable or configured model | The JAX computation to export. |
 | Input arrays or specifications through `inputs` | The shapes, dtypes, and precision-relevant properties JAX uses for tracing, and the exported model's input interface. |
+| Named values through `input_params` | Named runtime inputs, with their declared types, throughout the computation. |
 | ONNX operator-set version through `opset` | The operator schemas available for representing that computation. |
 | Supported implementation options | The ONNX representation, such as a native normalization operator or an explicit sequence of operations, subject to its numerical requirements. |
 | Names, layouts, and output format | The interface and packaging of the exported artifact. |
+
+Bind fixed configuration in your JAX model, a closure, or `functools.partial`.
+Use `input_params` for values that may change when the exported model runs.
+A runtime value has that meaning throughout the model, including ordinary
+code, named functions and loops. Runtime branches use JAX control flow such as
+`lax.cond` or `jnp.where`. With fixed sources, an existing framework adapter or
+an external caller wrapper can place unchanged calls inside those branches,
+so the runtime flag selects the complete matching calculation. Editing the
+given model is not a prerequisite. Unsupported direct Python branching receives
+an actionable tracing error; preserving supported functionality requires a
+working adapter. Use static binding only for an intended fixed setting.
+Unused runtime inputs may be removed; a function boundary never changes a value
+from fixed to dynamic.
 
 Input dtypes are the connection between the export call and JAX. When model
 code chooses a computation dtype from `x.dtype`, a different input specification
@@ -163,7 +185,8 @@ that output conversion a separate, explicit model decision.
 A model or layer setting can express the same intention when the framework
 offers one. A fixed FP32 conversion retains its exact meaning, including in a
 third-party model; expressing a different intention requires a suitable model
-setting or source change.
+setting or explicit model preparation. Source edits are an option when the
+model is editable, rather than a prerequisite for supported workflows.
 
 ## What you set in the execution environment
 

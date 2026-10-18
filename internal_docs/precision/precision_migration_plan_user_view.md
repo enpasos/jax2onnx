@@ -14,23 +14,23 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The latest local step preserves promotion metadata in stored model state and
-configuration when sharing named functions. It also makes optional exporter
-optimizations respect the source calculation. The shared private conversion
-pipeline and separate CPU sample-validation API are committed; integration with
-all existing export options and calculations remains required work.
-The private facade's naming, report, file-format and CPU sample integration is
-reviewed and committed. The full integrated primary-stack regression passes
-5,363 tests. The new inventory/reference modules separately pass 53 focused tests on
-each stack and independent review; the full source corpus still needs execution
-and reconciliation. The reference infrastructure and complex-constant repair
-are committed. Typed complex boundaries, exact integer/Boolean comparisons,
-selected loop repairs and a fixed scenario plan have now passed independent
-review and are included in that full run. The repairs are committed locally;
-the scenario-plan checkpoint accompanies this update.
-Complex loops, local promotion settings and the remaining export options and
-calculations still need migration. Diagnostic artifacts do not claim audited
-lowering. This remains internal work, not a new public precision choice.
+Reviewed private work now covers names, reports, file formats, typed constants,
+selected noncomplex and complex loops, local promotion settings and required
+finalization failures. The new focused repairs and diagnostic tooling passed
+independent review and are committed locally with repository hooks passing.
+The latest integrated run passes **5,650 tests** after repairing metadata
+mutation during collection. The refreshed inventory retains every original
+contract and test anchor; this regression result does not complete source
+coverage.
+
+The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
+per stack, producing 26 checked artifacts while retaining ten failed or pending
+outcomes. No runtime or numerical acceptance was claimed. The
+[fixed-source review](poc/fixed_source_compatibility_findings.md) classifies all 22
+parameterized models so their existing runtime controls and static settings can
+be preserved without editing the supplied implementation. Broader operation,
+option and full-model acceptance remain unfinished. There is no new public
+precision choice.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -69,7 +69,8 @@ settings and refuses to accept a failed or untested numerical sample. The known
 FP16 square/sum result remains a failure on the recorded runtimes. Passing the
 tests includes recognizing that failure; it is not a deployment certificate.
 
-The next work runs the frozen scenario plan in bounded batches, completes
+The first bounded artifact batch is recorded; the next work resolves its measured
+gaps, continues the frozen scenario plan in bounded batches, completes
 unresolved recipes and comparison criteria, and migrates the remaining
 operators, scopes and options. Missing comparison criteria remain unverified;
 they are not silently replaced with exact agreement. Integer and Boolean
@@ -96,10 +97,44 @@ handles the former Boolean argument explicitly:
 
 FP32 is only the shape-only input default, not a minimum computation precision.
 FP64 scientific workloads remain supported. Export no longer widens arbitrary
-FP32 arithmetic after tracing: exact FP32 casts remain exact FP32 casts. A model
-with fixed third-party casts may therefore need a deliberate source change to
-compute in FP64. Preserving conversion capabilities does not promise unchanged
-old numbers or call syntax.
+FP32 arithmetic after tracing: exact FP32 casts remain exact FP32 casts.
+Migration must also cover fixed third-party sources, using external configuration,
+preparation or caller wrappers. Previous FP64 workflows need explicit examples
+with unchanged sources; enabling x64 alone does not rewrite hardcoded casts. The externally
+prepared JAX computation supplies the comparison reference. This compatibility
+work remains an acceptance gate, rather than a promise that it is implemented.
+Preserving conversion capabilities does not promise unchanged old numbers or
+call syntax.
+
+## Fixed configuration and runtime parameters
+
+In the completed API, `input_params` means named runtime inputs everywhere in
+the model. A value must not be fixed in one part and changeable in another.
+Use ordinary model construction, a closure, or `functools.partial` for fixed
+configuration. For example, bind `deterministic=True` with
+`partial(model, deterministic=True)` when it should stay fixed, and export that
+configured callable. This retains the static calculation without an extra
+runtime input.
+
+To change a flag at execution time, declare it through `input_params`. For
+Python branches in fixed sources, use a supported caller or framework adapter
+that selects the complete computation, or bind the value externally when it
+is intentionally static. Moving code into a named function
+does not change these rules. Unused runtime inputs may be removed.
+
+Some existing calls specialize their keyword values at the root but promote
+them inside a named function. Those calls need an explicit static binding or a
+consistently dynamic model. Migration tests must retain their existing model
+capabilities, including dropout and other configuration-sensitive examples.
+Those examples must use unchanged given model sources. If a previously supported
+runtime flag needs source edits under the proposed tracing strategy, that is
+unfinished migration work requiring a different supported adapter, not a new
+ONNX limitation. A static binding is a replacement only for an intended static
+configuration; it does not replace a working runtime control.
+The [22-model classification](poc/fixed_source_compatibility_findings.md) now
+identifies which controls are dynamic, flag-insensitive or static. It does not
+establish numerical or stochastic SOURCE acceptance. This parameter transition
+is planned work; it is not available through the current bounded private profile.
 
 ## Implementation coverage and reports
 

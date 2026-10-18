@@ -5,13 +5,21 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 The bounded private facade, canonical initializer repair, and deterministic
-attention fixtures are reviewed and committed. The integrated primary-stack
-regression passes; inventory/reference infrastructure is committed. A fixed
+attention fixtures are reviewed and committed; inventory/reference infrastructure
+is committed. A fixed
 source-scenario plan, logical/physical boundary checks, exact discrete sample
 comparison, and finite noncomplex loop repairs have passed independent review;
-the repairs are committed and the full integrated run passes all 5,363 tests.
-The scenario-plan checkpoint accompanies this update.
-Source-corpus execution and broader migration remain open.
+the repairs are committed and that checkpoint's integrated run passes all
+5,363 tests. The scenario plan is committed at `158ce625`.
+Further promotion-context, complex-loop and strict-finalization repairs are
+committed at `ea6a8da7`, `8ba3c681` and `f1ee71b3`. B3 diagnostics, the reviewed
+metadata-ownership repair and inventory additions are committed at `3dbec1b8`.
+All four commits passed actual repository hooks. The latest integrated
+primary-stack run passes **5,650 tests**. An earlier failed preflight exposed raw
+metadata mutation, now repaired; an interrupted run is not counted as passing.
+The first 36-cell diagnostic batch has run on both stacks, with every
+lowering/runtime/numerical gate still unverified. Broader source-corpus execution
+and migration remain open.
 The completed normal `to_onnx` call will have one source-preserving contract.
 The bounded source path remains internal during migration. The committed public
 facade still has legacy behavior; no release version is assigned.
@@ -58,6 +66,12 @@ Overall completion requires all of the following:
    accepts the complete inventory and representative end-to-end results.
 9. Important accepted checkpoints are committed locally with their evidence.
    Completion does not imply a push, merge, publication, or deployment.
+10. Existing workflows with fixed, externally supplied JAX sources remain
+    available without editing their implementation. Demonstrate external
+    configuration/preparation and caller wrappers for static configuration,
+    supported runtime flags and previous FP64 use cases. A static binding does
+    not replace a working dynamic control. A strategy requiring source rewrites
+    leaves a migration gap until an appropriate supported adapter exists.
 
 A private prototype, bounded-profile release, or plan update cannot complete
 this contract. Existing loops/JIT, symbolic shapes, layout bridges, parameters,
@@ -197,8 +211,9 @@ migration examples. It is distinct from preserving existing export capabilities.
 FP64 scientific computation, low-precision models, mixed regions, existing
 operators, and export options remain required. Blanket legacy widening has no
 universally equivalent source-preserving replacement: a hardcoded FP32 cast
-continues to mean FP32 and requires an intentional model change if FP64 is
-wanted. Do not hide that difference behind another exporter mode. An earlier
+continues to mean FP32. Computing in FP64 instead requires explicit model
+configuration or preparation of a different JAX computation, with its own
+reference. Do not hide that difference behind another exporter mode. An earlier
 release may announce deprecation, but final completion cannot leave two public
 precision contracts. A supported previous release remains a reproducible
 historical reference, not a fallback inside the new exporter.
@@ -304,12 +319,16 @@ planning work is separate from production-code ownership.
 | M6: phase A acceptance | Validate and review actual facade artifacts through the CPU sample API, complete integrated checks, record remaining inventory work, and commit the checkpoint. The overall goal stays active. | Bounded integration reviewed; integrated standard regression passed | `3b3a48e0` |
 | B prerequisite: deterministic fixtures | Replace two unseeded attention input-fixture producers with isolated named-seed generators; preserve Gaussian domain, dtype/shape, causal masks, and numerical criteria without touching global RNG state. | Committed | `32554a9e` |
 | B1/B2: baseline and source oracle | Preserve raw row provenance and typed contract fingerprints; prepare independent original-JAX references without legacy coercion; reject input canonicalization before model construction. | Committed | `206277ac` |
-| B3: fixed initial scenario plan | Preserve original factory configuration and typed inputs in paired x64-off/on cells; freeze provenance, criteria status, and bounded plan/prepare/product stages without a broad corpus run. | Independently accepted; included in this update | This checkpoint |
+| B3: fixed initial scenario plan | Preserve original factory configuration and typed inputs in paired x64-off/on cells; freeze provenance, criteria status, and bounded plan/prepare/product stages without a broad corpus run. | Committed | `158ce625` |
 | C1: canonical initializers | Carry SOURCE policy into builders; preserve typed payloads and exact duplicate identity, require typed floating coefficients, and validate actual function Constant payload/metadata on reuse. | Committed | `b2974c3d` |
 | C2a: complex constant storage | Pack actual initializer and Constant tensor payloads together with metadata, preserving the selected component dtype and checking cache consistency before mutation. | Committed | `3e904b46` |
 | Sample comparison: discrete outputs | Compare integer/Boolean values exactly even when floating outputs use tolerance; retain strict dtype/shape checks and artifact-bound acceptance. | Committed | `52389e29` |
 | C2b: typed representation boundary | Encode logical complex values into actual typed real/imaginary payloads; check physical boundaries exactly, reject input canonicalization before tracing, and label private diagnostic artifacts as unaudited. | Committed | `530561d1` |
 | C3a: finite noncomplex loops | Preserve original JAX fori tracing, typed while/scan carries and static extents; materialize correctly shaped zero-trip scanned outputs after body validation. | Committed | `1461e4b9` |
+| C3b: promotion context | Replay local NumPy dtype/rank promotion, specialize function caches, and record actual caller settings in compatible optional report fields. | Independently accepted; integrated run and actual hooks pass | `ea6a8da7` |
+| C3c: finite complex loop representations | Apply shared physical descriptors to scan/while formals, outputs, masks and stacked extents; retain exact canonical values and explicit runtime sample failures. | Independently accepted; integrated run and actual hooks pass | `8ba3c681` |
+| Required SOURCE finalization | Stop on required shape, Function postprocessing or explicit attribute failures before returning a successful artifact/report. | Independently accepted; integrated run and actual hooks pass | `f1ee71b3` |
+| B3b: artifact diagnostic runner | Bind immutable stage history to exact rows, settings, original traces, typed values and artifacts; inspect only explicitly known structural families. | Independently accepted; first 36 cells per stack measured; metadata repair, integrated run and actual hooks pass | `3dbec1b8` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -385,11 +404,12 @@ relaxed boundary checker. With x64 disabled, explicit int64, uint64 and complex1
 requests require the same canonicalization check as explicit FP64 requests.
 C3 audits concrete dtype-default and promotion settings as they affect existing
 cases; it does not require a generic framework for every JAX configuration flag.
-The recorded local dtype/rank-promotion failures are C3b work: named-function
-retracing currently loses a model-local `standard` or `allow` scope beneath an
-outer `strict` or `raise` setting. Other existing transformed scopes and dynamic
-loop contracts remain in the phase C inventory beyond the finite C3a packet.
-C3b will add optional `caller_numpy_dtype_promotion` and
+The recorded local dtype/rank-promotion failures are repaired in C3b: named
+functions replay model-local `standard` or `allow` scopes beneath an outer
+`strict` or `raise` setting and include both settings in specialization keys.
+Other transformed scopes and dynamic loop contracts remain in the phase C
+inventory beyond the finite reviewed packets.
+C3b adds optional `caller_numpy_dtype_promotion` and
 `caller_numpy_rank_promotion` report fields with actual caller values. Older
 schema-1 artifacts read missing fields as `None` (not recorded), without inferred
 defaults. Function specialization records and replays its actual local settings
@@ -411,9 +431,14 @@ The first diagnostic batch is fixed at ordinal zero for 18 registered origins:
 add, convert_element_type, sin, reshape, transpose, gather, reduce_sum,
 dot_general, conv_general_dilated, jit, pjit, lax.fori_loop, while, scan, complex,
 real, imag, and fft. Both x64 contexts produce 36 cells per stack; the other
-3,568 remain scheduled. Record environment, actual tracing settings, prepared
-input/reference fingerprints and original signatures with stage evidence.
-No numerical session is part of this first artifact-only batch.
+3,568 remain unchanged and unexecuted, including 126 recipe-pending cells. The
+[first measured batch](poc/source_corpus_findings.md) produced the same outcomes
+on both stacks: 26 checked artifacts, four export implementation gaps, three
+structural forms pending, two trace-lineage cases pending and one source x64
+configuration conflict. Original references passed for 35 cells. All 36 keep
+lowering, runtime and numerical acceptance unverified; zero ORT sessions ran.
+History retains actual settings, environment, logical/physical bytes, original
+trace fingerprints, lineage and artifact evidence. No criteria were invented.
 
 Diagnostic lowering uses the shared facade and a real recursive validator.
 Its fixed `source-diagnostic-v1` report keeps lowering `unverified` even when
@@ -421,11 +446,73 @@ representation checks and samples pass. The strict reader rejects a diagnostic
 report claiming validated lowering. Audited product admission remains unchanged;
 successful probes do not silently broaden `source-static-v1`.
 
-Before broad phase D/F acceptance, audit required SOURCE finalization and
-function-attribute processing for swallowed errors. A required transformation
-failure must not leave a successful lowering claim merely because the artifact
-still passes the schema checker. This audit remains open alongside C4 options
-and the wider D/E/F gates.
+The reviewed strict-finalization repair stops SOURCE on required shape and
+Function postprocessing failures and on explicit attributes that cannot be
+applied to surviving nodes. The checker-valid LeakyRelu default witness proves
+why schema validity alone cannot certify the intended computation. Removed
+nodes and overrides belonging to another graph remain legitimate skips; hit
+counter bookkeeping stays best effort. Broader D/F admission still requires
+the full lowering audit alongside C4 options and the wider D/E/F gates.
+
+C4 parameter migration uses an explicit whole-model contract: `input_params`
+declares real typed runtime arguments; model construction, closures and partial
+application bind static configuration. Do not preserve the legacy inference of
+dynamicness from ONNX Function usage. Trace the root once with the declared
+runtime values and carry the actual formals through boundaries and reports.
+Never add synthetic dynamic flags to a specialized root. Preserve all 22
+existing metadata-model capabilities and the handwritten root-only static
+cases with runnable migration recipes; changed argument syntax is documented
+separately from a lost capability. Python branching on a declared runtime flag
+requires JAX control flow through a supported framework or external caller
+adapter; use a static binding only for an intended fixed setting. Defaults and literal
+overrides stay local, unused inputs may be pruned, and both BOOL values must
+match independent original-JAX references through Function/If/Loop scopes.
+The first implementation packet may audit scalar BOOLs; unimplemented parameter
+contracts stay open and cannot become a final public partial profile.
+The [fixed-source compatibility review](poc/fixed_source_compatibility_findings.md)
+has classified all 22 baseline models and the static/manual witnesses: 16 rows
+have live positive-rate dynamic controls, five GPT rows are flag-insensitive at
+zero dropout, and one SpectralNorm row is static False. Serialized LEGACY checks
+passed for all 44 models in total, 22 per stack, plus 20 manual checks in total,
+ten per stack. This is a compatibility baseline, not SOURCE or stochastic
+numerical acceptance. Reject a tracing strategy
+that preserves their names but loses an existing dynamic control. External
+configuration and wrappers may change export call syntax; modifying the supplied
+implementation cannot be assumed. Previous fixed-source FP64 workflows also
+require an explicit compatible preparation recipe and independent reference,
+rather than an instruction to edit hardcoded casts. These decisions remain open
+acceptance work; no new generic transformation API is assumed by this plan.
+The user has been asked whether external preparation must also change hardcoded
+FP32 calculations to FP64 in fixed sources. That scope question is pending;
+continue independent scope, evidence and finalization work without assuming
+the answer or weakening source preservation in the ordinary export call.
+
+
+C4a is the next reviewed implementation packet after this checkpoint: remove
+only the SOURCE recording/web guards and reuse the shared logging ownership and
+serializer. Check actual payloads larger than 1 MiB, FP64 rounding, signed zero,
+NaN bits, names/reports, standard external data and web sidecar cleanup across
+IR/proto/file paths. Recording must preserve artifacts through nested
+Function/If/Loop scopes and remain best effort on log-write failure. Browser
+execution is a separate gate; this packet does not certify it.
+
+C4c starts with real scalar BOOL operands in one prepared root. Carry actual
+values through NNX/Linen/Equinox adapters and named/control-flow scopes; use the
+same binding map for exported boundaries and reports. Preserve all 22 rows,
+including original RNG/key and immutable-state prerequisites. Static False is
+valid for the supported SpectralNorm case; freezing positive-rate Dropout is not
+an acceptable migration. Extend the same contract to the remaining parameter
+types before final acceptance.
+
+The reviewed next D packet has four plugin owners: `where`/`full` preserve JAX
+promotion, weak typing and canonical constant ownership; `arange`/`linspace`
+preserve the native typed arithmetic, including intermediate rounding, omitted
+step behavior, appended endpoints and integer flooring. Prefer captured native
+JAX binding where it is traceable; retain existing dynamic capabilities as
+explicit compatibility work. The existing policy trace-cache namespace already
+separates ordinary JAX/LEGACY/SOURCE; no additional cache mechanism is justified
+without a failing isolation case. These are implementation plans, not repairs
+included in the current checkpoint.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -489,19 +576,54 @@ Checkpoint evidence on 2026-10-18:
   its 60 new source-loop cases. Primary-stack selections pass 193 broader tests
   and 135 new/generated tests; the older-stack selection passes 269 tests.
   These selections overlap and have different totals; they are not summed or
-  presented as identical matrices. The repair is committed at `1461e4b9`. Complex loops,
-  further recursive scopes and local promotion settings remain open work.
+  presented as identical matrices. The repair is committed at `1461e4b9`. At that
+  checkpoint, complex loops and local promotion replay remained open; their
+  subsequent finite C3b/C3c evidence is recorded below. Broader scopes stay open.
   Reverse scan is already rejected by the legacy path: record that preexisting
   unsupported contract separately, without calling it an ONNX impossibility.
-- The full integrated primary-stack run, with no test exclusions, passes 5,363
-  tests (13,104 warnings, 502.81 seconds), including B1/B2 and these packets.
+- The historical integrated primary-stack run at the `158ce625` checkpoint,
+  with no test exclusions, passes 5,363 tests (13,104 warnings, 502.81 seconds),
+  including B1/B2 and these packets.
   Global Ruff, path markers and strict MkDocs also pass. This is regression
   evidence, not source-corpus or phase F acceptance.
-- The explicitly refreshed inventory retains all 1,802 raw rows, unchanged
+- The `158ce625` inventory refresh retains all 1,802 raw rows, unchanged
   registered contracts, 63 opaque recipes and all 752 original handwritten-test
   anchors. It now records 186 handwritten-test files, 888 test functions and
   136 migration additions; no original anchor was removed. Fresh read-only
   comparisons pass on both stacks; optional integrations remain unresolved.
+- C3b passes the same 359-test selection on both stacks; independent review
+  passes all 52 new promotion-context and report-compatibility tests.
+- C3c passes 404 focused tests and 75 generated loop tests on each stack;
+  independent review passes its 121 new cases. Diagnostic lowering remains
+  unverified. Actual bitwise sample evidence retains CPU Where's selected
+  negative-zero failure on ORT 1.31/1.29 under both optimization settings.
+  Broadcast, full-condition, Expand and flattened standard alternatives retain
+  that failure; finite masking controls and unbatched exact-payload cases pass.
+- Required finalization passes the same 523-test selection on both stacks;
+  independent review passes its 54 new cases, including defaulted-attribute
+  semantics, failure causes and preserving preexisting output files.
+- The complete package typing check passes 541 files and RNG registrations
+  with all three production packets frozen. B3b's initial independent review
+  found a global-setting leak and a valid batched-while misclassification;
+  the repaired tooling selection passes 125 tests on each stack. Independent
+  review passes 58 tests on each stack and closes both findings. The fixed
+  36-cell artifact batch is measured separately in the corpus findings.
+- The latest integrated primary-stack run passes **5,650 tests**, with 13,104
+  warnings in 356.07 seconds. The preceding run's one failure and 5,647 passes
+  exposed raw dictionary mutation by `tests/t_generator.py` during collection.
+  The accepted shallow-copy repair preserves enrichment, variants, typed values
+  and factory identities without weakening preflight. The 127-test focused
+  selection passes on each stack, as do independent reruns of both new
+  regressions and generated-module collection controls.
+- The `3dbec1b8` inventory refresh changes only manual-test accounting: 191 files,
+  944 test functions and 192 migration additions. All 752 original anchors,
+  all 1,802 raw contracts and optional entries remain unchanged; no original
+  anchor was removed. Fresh CLI comparisons pass on both stacks. The first B3
+  batch remains bound to its earlier `9ac003ba...` baseline, not this refresh.
+- C3b (`ea6a8da7`), C3c (`8ba3c681`), finalization (`f1ee71b3`) and B3/metadata
+  ownership/inventory (`3dbec1b8`) all pass actual repository hooks. Package
+  typing covers 541 files; RNG registrations, global Ruff, path markers and
+  strict MkDocs pass. These checkpoints do not complete C4 or phases D/E/F.
 
 ## Validation and final review
 

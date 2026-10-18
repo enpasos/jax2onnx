@@ -17,29 +17,47 @@ function keys. The [follow-up findings](poc/source_integration_findings.md#follo
 record the repaired cases and further runtime failures. They do not change the
 public baseline analyzed below.
 
-The branch now has committed shared-facade report, naming, serialization and
-CPU-sample integration (`3b3a48e0`), the separate report/evidence module
-(`ccc861b0`), and exact typed initializer handling (`b2974c3d`). The integrated
-primary-stack regression passes all 5,363 tests, including the new inventory and
-original-JAX reference modules. Their review found typed-scalar fingerprint loss
-and input narrowing during preparation. Both defects are repaired; the modules
-pass 53 focused tests on each stack and independent review and are committed at
-`206277ac`, without establishing source coverage of the full inventory. The
-shared complex-constant storage repair is committed at `3e904b46`; its 99
-helper/packing and 69 affected generated
-tests pass on both stacks. The logical/physical boundary and discrete-comparison
-repairs now pass the same 976-test selection on each stack; independent review
-passes their 148 new tests. Noncomplex while/fori/scan repairs retain original
-trace types, static extents and zero-trip output shapes; their 60 new cases pass
-independent review, alongside separate primary/older-stack selections recorded
-in the work plan. The fixed 3,604-cell source-scenario plan is also reviewed.
-The comparison, boundary and loop repairs are committed at `52389e29`,
-`530561d1` and `1461e4b9`; the scenario-plan checkpoint accompanies this update.
-Diagnostic artifacts explicitly retain unverified lowering; neither these
-samples nor the plan establish whole-corpus or family-wide support.
-Complex loop representations and local dtype/rank-promotion replay remain open,
-along with other existing options and operations. The
-[work plan](precision_implementation_work_plan.md) records the remaining gates.
+The branch has committed shared-facade report/naming/serialization and CPU
+sample integration (`3b3a48e0`), the evidence module (`ccc861b0`), typed
+initializers (`b2974c3d`), independent reference preparation (`206277ac`) and
+complex-constant storage (`3e904b46`). Discrete comparisons, logical/physical
+boundaries and finite noncomplex loops are committed at `52389e29`, `530561d1`
+and `1461e4b9`. Their `158ce625` scenario-plan checkpoint passed 5,363 integrated
+primary-stack tests; that is historical regression evidence.
+
+Further local promotion-context replay, finite complex-loop representations
+and required SOURCE finalization have passed independent focused review on both
+stacks. Their selections passed 359, 404 and 523 tests per stack, respectively;
+complex loops also passed 75 generated tests per stack. Independent review ran
+all 52, 121 and 54 new cases, respectively. These overlapping selections do not
+establish family-wide support. Known CPU Where negative-zero failures remain
+failed under their bitwise sample criteria on ORT 1.31/1.29, with optimization
+off and on. Diagnostic lowering remains unverified.
+
+The [first corpus batch](poc/source_corpus_findings.md) measured 36 original
+x64-off/on cells per stack, including 26 checked artifacts, four export gaps,
+five pending cases and one configuration conflict. No ORT sessions ran and no
+numerical acceptance was claimed. The other 3,568 cells remain unchanged.
+The [fixed-source review](poc/fixed_source_compatibility_findings.md) classified
+all 22 parameterized models using 44 serialized LEGACY checks in total and 20
+manual scope checks in total. It identifies capabilities the new runtime-input
+contract must retain without editing supplied source implementations.
+
+The latest integrated primary-stack run passes **5,650 tests** (13,104 warnings,
+356.07 seconds). An earlier run failed one preflight while 5,647 tests passed:
+test generation had mutated raw registration metadata. The accepted repair
+copies each testcase before enrichment, preserving generated behavior and raw
+contracts. Its focused selection passes 127 tests per stack; both new
+regressions pass independent reruns, and generated-collection controls pass.
+
+C3b, C3c and required finalization are committed at `ea6a8da7`, `8ba3c681` and
+`f1ee71b3`; B3 tooling, metadata ownership and the reviewed inventory refresh
+are committed at `3dbec1b8`. All four commits passed their actual hooks. Package
+typing (541 files), RNG registration, Ruff, path markers and strict MkDocs pass.
+The inventory now has 191 handwritten-test files, 944 functions and 192
+migration additions; all 752 original anchors and 1,802 raw contracts remain.
+Fresh inventory comparisons pass on both stacks. The
+[work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are

@@ -41,11 +41,35 @@ Computation, accumulation, and output precision can differ within one
 operation. A default for unspecified input types does not impose a computation
 precision on the model.
 
+Unchanged, externally supplied JAX sources are an acceptance requirement.
+Supported existing workflows must remain available through external model
+configuration/preparation, input declarations and caller-side bindings.
+Rewriting the supplied model's implementation is not an implicit migration
+prerequisite. An external change to a fixed numerical choice must be explicit
+and produce a well-defined prepared JAX computation/reference; x64 availability
+does not itself change hardcoded FP32 casts. The exporter then follows the same
+contract for that prepared computation throughout.
+
 Input dtypes supplied to the export call cross the JAX/ONNX boundary: they
 determine the arguments used for JAX tracing and the exported input signature.
 They can affect model branches or dtype choices based on `x.dtype`. They do not
 globally rewrite stored parameters or explicit casts. Output dtypes follow the
 computation JAX traces, including any conversions chosen by the model.
+
+`input_params` declares named runtime inputs. Trace them as real typed JAX
+arguments throughout the entire root and its nested scopes. Static configuration
+belongs in model construction, a closure, or `functools.partial`; it must not be
+inferred from whether a value reaches an ONNX Function. Explicit literals and
+omitted nested defaults retain their normal static JAX meaning. Unused runtime
+inputs may be pruned, but no parameter may be attached dynamically to an already
+specialized root graph. Existing framework adapters or explicit external caller
+adapters can express dynamic JAX branches around unchanged source calls with
+concrete Boolean values. The runtime input must select the complete matching
+computation, covering all its uses. Unsupported direct Python control flow
+receives guidance to use an available adapter or bind an intended static
+configuration externally. A static binding does not replace a runtime control.
+The prepared root must satisfy JAX tracing requirements; a missing adapter for
+supported functionality is an implementation gap, not an ONNX impossibility.
 
 The export call's implementation choices must preserve that computation's
 contract. Naming, layout, and artifact options can change the interface or

@@ -12,6 +12,8 @@ is available. These experiments inform the
 | [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
 | [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
+| Source corpus | What does the first frozen 36-cell batch actually establish? | [Corpus findings](source_corpus_findings.md): 26 artifacts per stack, explicit failures/pending cells, and unverified lowering/runtime/numerics. |
+| Fixed-source parameters | Which existing runtime controls must survive unchanged model implementations? | [Compatibility findings](fixed_source_compatibility_findings.md): all 22 raw rows, original state prerequisites and real Function/If/Loop dependencies. |
 
 ## Run it
 
@@ -90,7 +92,9 @@ loops, scan, JIT regions, effects, symbolic shapes and unaudited operations.
 Bodies are validated recursively. Same-width BitCast requires explicit opset26;
 different-width bitcasts need a different representation and are rejected.
 No opset is raised automatically. These are experiment limits, not universal
-ONNX support classifications.
+ONNX support classifications. Separate diagnostic regressions now cover finite
+noncomplex/complex loops and JIT cases without broadening this product profile;
+the [work plan](../precision_implementation_work_plan.md) records their exact gates.
 
 Matrix support is limited to positive static rank-2/rank-3 standard matrix axes,
 FP16 operands, an explicitly preferred FP32 result and default precision.
@@ -101,9 +105,11 @@ low-precision hardware algorithm. Numerical coverage is for selected samples.
 BF16 structural validity does not establish runtime kernels. Function coverage
 does not establish all nested combinations or every JAX setting. Names/layouts,
 parameter materialization, other return modes and concurrent export remain
-outside the harness. The normal public pipeline still uses its legacy policy.
+outside the harness. The normal public pipeline still uses its legacy policy. The shared private
+facade separately supports names, reports and IR/proto/standard-file returns.
 The [next implementation work](../precision_migration_plan.md#next-implementation-work)
-addresses a finite initial subset and shared export-boundary integration.
+completes the remaining options and full source coverage. Recording and web
+packaging are the next reviewed implementation packet, not completed features.
 
 ## Numerical acceptance is a separate result
 
@@ -124,4 +130,4 @@ The calling experiment uses `precision="source"` only as a private spelling.
 Its supplied/normalized/traced properties, actual warnings and legacy comparison
 remain useful before any public interface is finalized. Neither it nor the
 CPU sample gate is a general deployment capability engine. Public availability
-requires the bounded acceptance gates in the migration plan.
+requires the full phase-F acceptance gate in the migration plan.

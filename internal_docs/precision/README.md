@@ -25,20 +25,26 @@ commits. The completed normal `to_onnx` call has one rule: JAX determines the
 computation and export preserves it throughout. The bounded `source-static-v1`
 path remains internal and is an intermediate checkpoint. The shared converter
 and CPU evidence module are committed; full migration is still in progress.
-The private facade's report, naming, serialization, and CPU sample integration
-are committed at `3b3a48e0`. The full integrated primary-stack regression run
-passes 5,363 tests, including the inventory/reference modules and the newly
-reviewed representation, discrete-comparison, loop and scenario-planning tests.
-The reference infrastructure is committed at `206277ac`. The complex-constant storage
-repair is committed at `3e904b46`. The fixed source-scenario plan, typed complex
-boundaries, exact discrete comparisons, and finite noncomplex loop repairs have
-now passed independent review. The comparison, boundary and loop repairs are
-committed at `52389e29`, `530561d1` and `1461e4b9`; the scenario-plan checkpoint
-accompanies this update. Complex loops, local promotion settings, remaining export
-options and broader operation/model coverage remain open. The scenario plan
-does not establish source-corpus acceptance, and diagnostic artifacts retain
-unverified lowering status.
-These checkpoints do not complete existing-functionality coverage.
+The private facade, typed constants, logical/physical boundaries, discrete
+comparisons and finite noncomplex loop repairs are committed. The `158ce625`
+checkpoint passed 5,363 integrated primary-stack tests. Promotion-context,
+complex-loop and required-finalization repairs are now committed at `ea6a8da7`,
+`8ba3c681` and `f1ee71b3`. Diagnostic tooling, the metadata-ownership repair and
+reviewed inventory additions are committed at `3dbec1b8`. The latest integrated
+primary-stack run passes **5,650 tests**. All four checkpoints passed their actual
+repository hooks. The inventory retains every raw contract and original anchor,
+with 191 handwritten-test files, 944 functions and 192 migration additions.
+
+The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
+per stack: 26 checked artifacts, four export gaps, five pending cases and one
+x64 configuration conflict. Every cell keeps lowering, runtime and numerics
+unverified; the other 3,568 cells remain unchanged. The
+[fixed-source compatibility review](poc/fixed_source_compatibility_findings.md)
+classifies all 22 parameterized models: 16 have real dynamic controls, five GPT
+configurations are flag-insensitive at zero dropout, and one SpectralNorm case
+is static. These are migration requirements, not completed SOURCE support.
+Existing export options, remaining operators and full-model acceptance stay
+open. Only phase F completes the transition.
 
 The current-state documents preserve the analysis of `main` at `fae17822` on
 2026-10-17, including the merged fix from

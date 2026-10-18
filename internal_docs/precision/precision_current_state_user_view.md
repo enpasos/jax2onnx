@@ -13,21 +13,26 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-On the local migration branch, the shared private export path now carries
-reports through names and file formats, and its artifacts reach the separate
-CPU sample-validation helper. Exact typed constants are also preserved in that
-path. These reviewed changes are committed, and the integrated primary-stack
-regression passes all 5,363 tests, including the new inventory/reference tests;
-after two preparation fixes those also separately pass 53 tests on each
-stack and independent review. The reference infrastructure and complex-constant
-repair are committed. Typed complex boundaries, exact integer/Boolean
-comparisons and selected loop repairs now have independent acceptance and local
-commits. A fixed source-scenario
-plan retains all baseline rows, but the full corpus has not passed source
-validation. Complex loops, local promotion settings and broader options remain
-open work. Diagnostic artifacts explicitly keep lowering unverified. The
-[work plan](precision_implementation_work_plan.md) tracks those gates. Public
-calls still use the behavior described below.
+On the local migration branch, reviewed private changes preserve typed constants,
+reports, names, file formats and selected loop calculations. New focused checks
+also cover local promotion settings, complex loop representations and failures
+during required finalization. Public calls still use the behavior described
+below; these are internal migration steps.
+
+The [first corpus batch](poc/source_corpus_findings.md) checked 36 source scenarios
+per stack and produced 26 valid diagnostic artifacts. Four export gaps, five
+pending cases and one x64 configuration conflict remain visible. No runtime or
+numerical acceptance was claimed. A separate
+[fixed-source review](poc/fixed_source_compatibility_findings.md) identifies the
+runtime controls and static configurations that all 22 parameterized examples
+must retain with their implementations unchanged.
+
+The latest integrated run passes **5,650 tests** after repairing metadata
+mutation during test collection. The new reviewed repairs and diagnostic
+tooling are committed locally and passed repository hooks. The refreshed
+inventory retains all original contracts and test anchors. The
+[work plan](precision_implementation_work_plan.md) tracks the remaining operators,
+options and full-model validation. The migration is not complete.
 
 ## Choosing the Export Setting
 

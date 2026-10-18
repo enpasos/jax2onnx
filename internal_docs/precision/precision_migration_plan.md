@@ -7,19 +7,25 @@ existing-functionality acceptance matrix and checkpoint ledger. The final normal
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
-The shared private facade, its actual-artifact CPU integration, canonical
-initializer repair, and deterministic attention fixtures have passed independent
-review and are committed. The full integrated primary-stack regression passes
-5,363 tests, including the new inventory/reference modules. Those modules separately
-pass 53 focused tests on each stack and independent review after both identified
-oracle fixes and are committed at `206277ac`. Complex-constant storage is
-committed at `3e904b46`. Typed logical/physical boundaries, exact discrete sample
-comparison, finite noncomplex loop repairs and the fixed source-scenario plan
-are independently accepted. The comparison, boundary and loop repairs are
-committed at `52389e29`, `530561d1` and `1461e4b9`; the scenario-plan checkpoint
-accompanies this update. Diagnostic lowering remains unverified; product admission and public
-behavior are unchanged. Complex loops, local promotion context, remaining
-options and broader operator/model coverage remain open.
+The shared private facade, typed constants, logical/physical boundaries,
+discrete comparisons and finite noncomplex loops are committed; the scenario
+plan is committed at `158ce625`. That checkpoint passed 5,363 integrated
+primary-stack tests. Further promotion-context, finite complex-loop and
+required-finalization repairs are committed at `ea6a8da7`, `8ba3c681` and
+`f1ee71b3`. B3 diagnostics, the raw-metadata ownership repair and reviewed
+inventory additions are committed at `3dbec1b8`. All four commits passed actual
+repository hooks. The latest integrated primary-stack run passes **5,650 tests**;
+the repaired metadata packet passes 127 focused tests on each stack. The
+inventory now records 191 handwritten-test files, 944 functions and 192 added
+migration tests, retaining all 752 original anchors and 1,802 raw contracts.
+
+The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
+cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
+acceptance remains unverified. The
+[fixed-source compatibility classification](poc/fixed_source_compatibility_findings.md)
+covers all 22 parameterized rows and their real dynamic/static behavior. It
+supplies migration obligations, not SOURCE acceptance. Remaining export options,
+operators and complete-model coverage stay open; public behavior is unchanged.
 PR #275 is merged. Private source policy now preserves weak inputs, selected
 function/branch calculations, call-time x64 and matrix-precision settings, and
 isolation from cached legacy/ordinary JAX traces. Optimizer selection follows
@@ -82,8 +88,11 @@ distinguish an exact conversion from a local minimum. Export inputs instantiate
 such rules; they do not rewrite fixed casts, parameter types, or third-party
 constraints. Configure JAX x64 before creating values or tracing FP64 work.
 
-This plan adds no automatic numerical FP32-to-FP64 transformation. It also does
-not change `enable_double_precision` during development. Its legacy behavior includes
+Export performs no implicit numerical FP32-to-FP64 transformation. Whether the
+migration also needs an explicit external preparation facility for hardcoded
+FP32 calculations in fixed sources is awaiting the user's clarification; no
+such API or implementation is assumed here. Development does
+not change `enable_double_precision`. Its legacy behavior includes
 temporarily disabling JAX x64 when false, selecting defaults for shape-only
 inputs, and applying the existing export precision rules. Compatibility with
 those rules is distinct from preserving the existing conversion capabilities.
@@ -130,7 +139,7 @@ The immediate review follow-ups have reached this checkpoint:
 | Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
 | Preserve typed representations | Reviewed logical/physical descriptors encode actual complex payloads, preserve ordinary integer/Boolean boundaries, and reject JAX input canonicalization before tracing. | The private diagnostic profile keeps lowering unverified; this does not audit all complex operators or loops. |
-| Preserve noncomplex loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; while/scan retain typed carries, static extents and correctly shaped empty results. | Complex loop formals/scanned shapes and broader recursive scope contracts still require review. |
+| Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the observed CPU Where negative-zero failure remains failed under its bitwise sample criterion. |
 | Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
 
 The [accepted work plan](precision_implementation_work_plan.md) connects this
@@ -188,8 +197,11 @@ The initial scenario plan leaves missing, one-sided and legacy-variant-only
 criteria unresolved; it does not invent exact comparisons. Freeze reviewed
 criteria before numerical runs. Integer and Boolean outputs always require
 exact values, including mixed outputs whose floating values use tolerances.
-Named-function dtype/rank-promotion replay is C3b; complex loop representation
-is C3c; remaining facade options are C4. These and phases D/E/F remain open.
+Finite C3b promotion-context and C3c complex-loop repairs have independent
+focused acceptance. C4 options and broader scope/operator/model coverage in
+phases D/E/F remain open. The first B3 batch is recorded in the
+[corpus findings](poc/source_corpus_findings.md); no numerical corpus acceptance
+follows from its artifact checks.
 Preexisting negative contracts remain distinct from positive capabilities that
 the migration must preserve.
 
@@ -518,10 +530,39 @@ The final argument behavior is:
 This is a deliberate public behavior and argument transition, with release
 notes, replacement examples, and migrated repository callers. Preserving
 conversion capabilities does not promise identical old arithmetic or unchanged
-call syntax. Hardcoded FP32 casts remain FP32; a model requiring different
-precision needs an intentional model change. Historical legacy fixtures can
+call syntax. Hardcoded FP32 casts remain FP32; requesting FP64 instead needs
+explicit model configuration or preparation of a different JAX computation,
+with its own reference. Cover fixed third-party
+sources through external configuration/preparation and caller wrappers, without
+requiring edits to their implementation. Account for previous FP64 workflows
+under this constraint before cutover. Historical legacy fixtures can
 remain private references, but every genuine existing capability needs a source
 counterpart before cutover.
+
+Migrate `input_params` to one explicit runtime-input contract as well. Each
+declared value becomes a genuine typed argument in the whole-model JAX trace;
+do not discover dynamicness from decorated-function usage or attach synthetic
+flags after specializing the root. Fixed keyword configuration moves to a
+closure, `functools.partial`, or model construction. This deliberately replaces
+the old mixture of fixed root kwargs and selectively promoted Function flags.
+Preserve all 22 existing metadata-model capabilities and the handwritten static
+configuration cases through runnable migration examples. Unsupported Python
+branching on a declared runtime value needs an actionable tracing diagnostic;
+it does not make the previous static calculation unavailable. Verify both BOOL
+values against original JAX, defaults/literal overrides, unused arguments,
+Function/If/Loop forwarding, names and report arity. The existing mixed
+static-root/dynamic-Function witness must never produce a misleading artifact.
+This decision is planned; parameter support remains excluded from the current
+private profile until its implementation passes review.
+The tracing strategy must pass compatibility examples using those existing
+models with unchanged sources. A static wrapper cannot replace a previously
+working dynamic control. If a supported baseline model would require a source rewrite, keep the
+case open and implement an appropriate semantics-preserving adapter; do not
+close it as a newly declared tracing or ONNX limit. The
+[completed 22-row classification](poc/fixed_source_compatibility_findings.md)
+now supplies that compatibility baseline: 16 live positive-rate controls, five
+zero-rate GPT configurations and one static SpectralNorm calculation. Numerical
+and stochastic SOURCE acceptance still precedes completion of the new contract.
 
 Preserve existing return types and store the
 versioned export report under metadata key `jax2onnx.precision`.
