@@ -35,9 +35,12 @@ packaging and array-creation promotion repairs are now committed at `8a82d510`
 and `223f24bf`, with independent review and actual repository hooks passing.
 Private scalar-BOOL runtime binding is committed at `4c1c57fe`; native
 `arange`/`linspace` binding is committed at `05037961`. Both passed independent
-review and actual hooks. The latest complete primary-stack run passes **6,035
-tests**. The inventory retains every raw contract and original anchor, with
-195 handwritten-test files, 1,003 functions and 251 migration additions.
+review and actual hooks. The shared Dropout optimizer repair is committed at
+`c528a894`; bounded ordinary FP32/FP64 matrix lowering is committed at `2011b140`.
+Both also passed independent review and actual hooks. The latest complete
+primary-stack run passes **6,183 tests**. The inventory retains every raw contract
+and original anchor, with 197 handwritten-test files, 1,023 functions and 271
+migration additions.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
@@ -45,14 +48,19 @@ operands, native JAX promotion/sequence binding and Boolean selection evidence.
 Named runtime operands and these array-creation families still require private
 diagnostic admission; recording/web options work through the private audited
 facade. BF16 target failures, failed exact `linspace` samples and dynamic `arange`
-compatibility work remain visible. A separate shared Dropout optimizer defect
-is still open. These changes do not establish browser, stochastic or model-wide
-numerical acceptance.
+compatibility work remain visible. The
+[matrix and optimizer findings](poc/matrix_and_optimizer_findings.md) record the
+bounded diagnostic matrix contract and repaired optional Dropout input cleanup.
+Selected subnormal matrix samples still fail exact comparison. These changes do
+not establish browser, stochastic or model-wide numerical acceptance. Static
+NCHW boundary handling is the next planned option packet; it is not implemented.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one
 x64 configuration conflict. Every cell keeps lowering, runtime and numerics
-unverified; the other 3,568 cells remain unchanged. The
+unverified; the other 3,568 cells remain unchanged. A later two-dot-cell
+supplement passes schema checking but still fails the unchanged raw structural
+callback; it adds no accepted artifact or row. The
 [fixed-source compatibility review](poc/fixed_source_compatibility_findings.md)
 classifies all 22 parameterized models: 16 have real dynamic controls, five GPT
 configurations are flag-insensitive at zero dropout, and one SpectralNorm case

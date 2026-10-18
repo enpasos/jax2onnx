@@ -19,9 +19,12 @@ committed at `8a82d510`; D1a array-promotion repairs and the reviewed manual
 inventory refresh are committed at `223f24bf`, also with independent review and
 actual hooks passing. C4c scalar-BOOL binding is committed at `4c1c57fe`; D1b
 native sequence binding is committed at `05037961`. Both passed independent
-review and actual hooks. The latest complete primary-stack run passes **6,035
-tests**. An earlier failed preflight exposed raw metadata mutation, now repaired;
-a later preflight was deliberately interrupted after typing exposed defects.
+review and actual hooks. The shared Dropout optimizer repair is committed at
+`c528a894`; D2a ordinary FP32/FP64 matrices are committed at `2011b140`, also with
+independent review and actual hooks passing. The latest complete primary-stack
+run passes **6,183 tests**. An earlier failed preflight exposed raw metadata
+mutation, now repaired; a later preflight was deliberately interrupted after
+typing exposed defects.
 Interrupted runs are not counted as passing.
 The first 36-cell diagnostic batch has run on both stacks, with every
 lowering/runtime/numerical gate still unverified. Broader source-corpus execution
@@ -340,6 +343,8 @@ planning work is separate from production-code ownership.
 | D1a: array promotion | Preserve native `where` promotion and `full` weakness, immutable canonical operands and Boolean logical selection; retain diagnostic-only admission and failed target evidence. | Independently accepted; both-stack focused/generated checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `223f24bf` |
 | C4c: real scalar-BOOL parameters | Trace one prepared root with actual positional/named operands; share checked bindings across names/reports/boundaries and preserve framework controls/defaults/literals. | Private diagnostic packet independently accepted; both-stack focused/legacy checks, complete integrated run and actual hooks pass; all-22 model acceptance remains open | `4c1c57fe` |
 | D1b: native sequence binding | Dispatch original `arange`/`linspace` arguments before normalization; preserve native typed arithmetic while retaining failed target criteria and dynamic compatibility gaps. | Independently accepted; both-stack focused/legacy checks, complete integrated run and actual hooks pass; reviewed manual inventory included | `05037961` |
+| Shared Dropout optimizer repair | Omit only a proven-false optional training input; preserve shared/captured/observable values and existing traversal. | Independently accepted; both-stack focused/legacy checks, corrected witness provenance, complete integrated run and actual hooks pass | `c528a894` |
+| D2a: ordinary matrices | Preserve same-dtype FP32/FP64 rank-2–4/default-precision matrices, actual batch/contracting order and native matmul binding; retain exact subnormal failures. | Private diagnostic packet independently accepted; both-stack focused/generated checks, complete integrated run and actual hooks pass; no matrix-family or B3 row closure | `2011b140` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -564,14 +569,17 @@ remain UNVERIFIED. Concrete `B=1` probes do not close symbolic-batch coverage.
 Extend the contract to all remaining parameter types and complete all-22 model
 acceptance before the final transition.
 
-A separate confirmed shared optimizer defect remains open: matching a same-graph
-`Not(True)` feeding Dropout can replace its uses with an unowned `false_const`.
-It affects the shared LEGACY/SOURCE pass and can break other uses of that matched
-value; a generic Boolean graph without the Dropout match is not exposed by this
-pass. C4c's actual SOURCE literals use builder-owned constants. The planned
-minimal optimizer repair would omit only the proven-false optional Dropout
-training input and preserve shared/observable Not outputs; no production repair
-or broader traversal change is claimed yet.
+The separate shared optimizer defect is repaired at `c528a894`. The old
+same-graph `Not(True)`/Dropout match could introduce an unowned `false_const`,
+including in other uses of that matched value. The bounded repair changes only
+the matched standard Dropout's optional training input to omission. It deletes
+the Not only after all matched consumers are handled and no uses, captures or
+graph outputs retain it. It introduces no replacement constant or global-use
+rewrite. Standard-domain guards, same-graph proof, dynamic/overridable-input
+exclusions and existing direct-False/nonrecursive behavior remain explicit.
+C4c's builder-owned literal handling remains unchanged. Valid checker/runtime
+witnesses and scope controls are recorded in the
+[matrix and optimizer findings](poc/matrix_and_optimizer_findings.md).
 
 D1a is committed at `223f24bf`: `where` uses native JAX operand-aware promotion,
 `full` retains weak fills, and SOURCE consumer casts leave canonical constants
@@ -603,6 +611,41 @@ criteria. BF16 Add loading/result-interface failures and the installed opset27
 runtime limit stay separate from numerical comparisons. Ordinary cross-runtime
 floating reproducibility and deliberately required rounding remain distinct
 gates; the accepted binding packet does not close family-wide numerical work.
+
+D2a is committed at `2011b140`. The diagnostic lowering covers same-type
+FP32/FP64 operands and results, preferred type omitted or equal, default precision,
+and equal positive static ranks 2–4 with one contracting/free axis per operand.
+Checked permutations preserve the declared paired-batch order, using fresh typed
+Transpose consumers where needed. Input/output representations and source result
+shape are checked before arithmetic. Canonical values remain unchanged; no Gemm
+zero bias, result cast or global widening is introduced. The earlier finite
+FP16/preferred-FP32 route retains its local operand casts.
+
+SOURCE `matmul` forwards original arguments to captured native JAX, retaining
+promotion, weak types, strict errors and precision parameters. LEGACY and audited
+product admission remain unchanged. Only unspecified `out_sharding=None` is
+accepted; unknown semantic fields and non-None placement stay explicit exclusions.
+Vector/broadcast/general contractions, other result types, algorithms and broader
+wrappers remain work. Four exact subnormal target observations per stack remain
+FAILED: native eager/JIT positive-zero bits 0 versus CPU ORT bits 2 for FP32/FP64
+with optimization off/all. No criterion or reference is relaxed. A separate
+recheck of the two original B3 dot cells passes schema but fails the unchanged
+Gemm/zero-bias callback; structural-oracle migration remains open and no corpus
+row closes. The [dated supplement](poc/source_corpus_findings.md#two-cell-matrix-supplement-on-2026-10-18)
+preserves original histories and unresolved numerical criteria.
+
+The next C4b packet is planned, not implemented: selected static logical rank-four
+inputs/outputs gain NCHW external layout through the shared representation
+boundary, while the original JAX computation remains NHWC. Real storage maps
+`(N,H,W,C)` to `(N,C,H,W)`; complex storage maps `(N,H,W,C,2)` to `(N,C,H,W,2)`
+without moving or inferring the real/imaginary axis. Ordinary real trailing-two
+data remains real. Preserve canonical source/child values, dtype/weakness,
+output aliases, custom names and final IR/proto/reloaded reports. Select only
+positional inputs and flattened outputs; named scalar BOOL operands must not
+shift layout indices. Use one explicit descriptor through the core/facade, with
+no skipped boundary checks or primitive-admission expansion. Symbolic layouts,
+normalization policy and raw-metadata layout replay require later packets; a
+boundary implementation alone cannot establish all layout-dependent models.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -745,7 +788,7 @@ Checkpoint evidence on 2026-10-18:
   target/compatibility failures stay explicit. The actual pinned Black hook
   changed one redundant-parentheses line; independent full-AST comparison,
   including type comments, confirms no behavior change.
-- The latest complete primary-stack suite passes **6,035 tests**, with 13,110
+- The C4c/D1b complete primary-stack suite passes **6,035 tests**, with 13,110
   warnings in 402.20 seconds, with no exclusions. Required package typing passes
   541 files, RNG registration and global Ruff pass, and C4c (`4c1c57fe`) and D1b
   (`05037961`) pass actual configured hooks. The earlier preflight interrupted
@@ -755,6 +798,31 @@ Checkpoint evidence on 2026-10-18:
   251 additions. All 752 original anchors, 1,802 raw contracts and optional
   entries remain unchanged. Fresh CLI comparisons pass on both stacks. The
   historical B3 batch remains bound to its `158ce625` baseline and was not rerun.
+
+- The shared Dropout optimizer packet has 34 new cases. Owner selections pass
+  339 tests on each stack; independent review passes 121, including the new cases
+  and relevant existing controls. The valid original witness passes pre/post
+  checker and exact inference data comparisons on both stacks. Separate maintained
+  regression fixtures cover inference masks. A standalone Python 3.11 run
+  initially imported an older checkout; that failed record is
+  retained and corrected by explicit current-checkout path/hash verification.
+  These checks do not claim stochastic-mask equivalence.
+- D2a has 115 new cases. Owner checks pass 390 focused and 90 generated/integration
+  controls per stack; independent review passes 435 per stack. Selected exact
+  targets record 24 positive observations and four subnormal failures per stack.
+  Those failures retain successful schema/runtime checks and rejected exact
+  sample acceptance. Counts overlap and are not a matrix-family support measure.
+- The latest complete primary-stack suite passes **6,183 tests**, with 13,110
+  warnings in 406.62 seconds and no exclusions. Required typing passes 541 files
+  plus RNG registration; global Ruff passes. Both `c528a894` and `2011b140` pass
+  actual configured hooks. The log is
+  `/tmp/jax2onnx-precision-dropout-d2a-full-py312.log`.
+- The optimizer inventory records 196 handwritten-test files, 1,009 functions and
+  257 migration additions; D2a's final inventory records 197 files, 1,023 functions
+  and 271 additions. Both-stack comparisons pass. All 752 original anchors,
+  1,802 raw contracts and optional entries are unchanged. The original B3 batch
+  remains bound to `158ce625`; its separate two-cell supplement adds no accepted
+  artifact, row or numerical criterion.
 
 ## Validation and final review
 

@@ -41,7 +41,15 @@ calculation. Selected exact sequence comparisons, BF16 execution and dynamic
 three checked artifacts and 19 pending cases per stack, with no runtime or
 numerical acceptance.
 
-The latest complete run passes **6,035 tests**. These reviewed changes are
+Private diagnostics now also cover selected FP32/FP64 matrix calculations, and
+a shared Dropout cleanup defect is repaired. The
+[matrix findings](poc/matrix_and_optimizer_findings.md) retain exact failures for
+selected very small values; matching graph types alone does not establish
+matching results. Static NCHW input/output layout handling is planned next.
+These changes do not broaden the public precision interface or establish
+complete matrix or model support.
+
+The latest complete run passes **6,183 tests**. These reviewed changes are
 committed locally and passed repository hooks. The refreshed inventory retains
 all original contracts and test anchors. The
 [work plan](precision_implementation_work_plan.md) tracks the remaining operators,

@@ -88,16 +88,28 @@ argument normalization. It preserves native promotion, omitted-step arithmetic,
 integer flooring and explicit conversion boundaries. Four exact FP16/FP32
 `linspace` cells per stack still fail on ORT and ONNX ReferenceEvaluator; BF16
 runtime limits and native-untraceable, LEGACY-positive dynamic `arange` remain
-open. Public LEGACY and audited admission are unchanged. A separate shared
-Dropout optimizer rewrite can introduce an unowned `false_const` after matching
-`Not(True)` feeding Dropout; that confirmed defect is still open.
+open. Public LEGACY and audited admission are unchanged. The C4c/D1b checkpoint
+passed **6,035 tests** (13,110 warnings, 402.20 seconds), with an inventory of
+195 handwritten-test files, 1,003 functions and 251 migration additions.
 
-The latest complete primary-stack run passes **6,035 tests** (13,110 warnings,
-402.20 seconds). Required typing covers 541 files; RNG registration and global
-Ruff pass. Both new commits passed actual hooks. The final inventory records
-195 handwritten-test files, 1,003 functions and 251 migration additions, retaining
-all 752 original anchors, all 1,802 raw contracts and optional entries. Fresh CLI
-comparisons pass on both stacks. The
+The subsequent shared optimizer repair (`c528a894`) removes only the proven-false
+optional training input of a matched standard Dropout. It preserves shared and
+observable `Not(True)` outputs and avoids the formerly unowned `false_const`.
+D2a (`2011b140`) adds diagnostic same-dtype FP32/FP64 matrix lowering for positive
+static ranks 2–4, one contracting/free axis per operand and default precision.
+Native SOURCE `matmul` binding retains JAX promotion and precision parameters.
+The [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md) record
+the exclusions, preserved operands and failed exact subnormal samples.
+A separate two-cell corpus supplement now passes schema checking but fails the
+unchanged Gemm/zero-bias structural callback; no B3 artifact or row is accepted.
+Static NCHW boundaries remain planned work, alongside broader options and models.
+
+The latest complete primary-stack run passes **6,183 tests** (13,110 warnings,
+406.62 seconds), with no exclusions. Required typing covers 541 files; RNG
+registration and global Ruff pass. Both new commits passed actual hooks. The
+final inventory records 197 handwritten-test files, 1,023 functions and 271
+migration additions, retaining all 752 original anchors, all 1,802 raw contracts
+and optional entries. Fresh CLI comparisons pass on both stacks. The
 [work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
 
 For observable behavior and export choices, read the

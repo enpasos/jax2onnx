@@ -61,12 +61,14 @@ yields three checked artifacts and 19 pending rows per stack. No ORT sessions ra
 in that batch; all lowering/runtime/numerical gates remain UNVERIFIED. Focused
 successes do not establish full-model or stochastic acceptance.
 
-A confirmed separate shared optimizer defect remains open: a same-graph
-`Not(True)` feeding Dropout can be replaced by an unowned `false_const`, also
-breaking other uses of that matched value. Generic Boolean graphs without that
-Dropout match are not affected by this pass. C4c folds actual SOURCE literals
-with builder-owned constants. A minimal shared optimizer repair is planned,
-without a production-fix claim in this checkpoint.
+This checkpoint exposed a separate shared optimizer defect: a same-graph
+`Not(True)` feeding Dropout could introduce an unowned `false_const`, including
+in other uses of the matched value. The subsequent `c528a894` repair omits only
+the proven-false optional Dropout training input and preserves shared/observable
+outputs. Generic Boolean graphs without the Dropout match remain unchanged,
+as does C4c's builder-owned literal handling. The
+[repair findings](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair)
+record the independent checks and corrected standalone witness provenance.
 
 Maintained regressions:
 [runtime parameters](../../../tests/extra_tests/converter/test_source_runtime_parameters.py),
@@ -203,7 +205,7 @@ module. The final pinned Black change to that module removes redundant parenthes
 independent complete-AST comparison, including type comments, confirms unchanged
 behavior. Production hashes are unchanged.
 
-The latest complete primary-stack suite passes **6,035 tests**, with 13,110
+The C4c/D1b complete primary-stack suite passes **6,035 tests**, with 13,110
 warnings in 402.20 seconds and no exclusions. Required package typing passes
 541 files, RNG registration and global Ruff pass, and both new commits pass
 actual configured hooks. The earlier preflight was intentionally interrupted
@@ -221,14 +223,16 @@ historical `158ce625` baseline. The [22-row compatibility review](fixed_source_c
 also remains a migration obligation rather than completed SOURCE acceptance.
 
 The prior C4a/D1a full run is `/tmp/jax2onnx-precision-c4a-d1a-full-py312.log`.
-The new complete run is `/tmp/jax2onnx-precision-c4c-d1b-full-final-py312.log`;
+The C4c/D1b complete run is `/tmp/jax2onnx-precision-c4c-d1b-full-final-py312.log`;
 independent focused logs are `/tmp/jax2onnx-c4c-astra-py{312,311}.log`,
 `/tmp/jax2onnx-c4c-astra-typing-repair-final-py{312,311}.log` and
 `/tmp/jax2onnx-d1b-astra-py{312,311}.log`. Maintained regression commands run the
 linked test modules with the repository's normal pytest setup; these log paths
 are provenance, not dependencies of the tests.
 
-The [work plan](../precision_implementation_work_plan.md) retains the remaining
-parameter/model coverage, shared optimizer repair and numerical gates. Broader
+The [later matrix/optimizer checkpoint](matrix_and_optimizer_findings.md#validation-and-provenance)
+records the subsequent 6,183-test run and reviewed inventory additions. The
+[work plan](../precision_implementation_work_plan.md) retains the remaining
+parameter/model coverage and numerical gates. Broader
 options, framework/random contracts, full-model validation and the final public
 transition remain open.

@@ -15,6 +15,7 @@ is available. These experiments inform the
 | Source corpus | What does the first frozen 36-cell batch actually establish? | [Corpus findings](source_corpus_findings.md): 26 artifacts per stack, explicit failures/pending cells, and unverified lowering/runtime/numerics. |
 | Fixed-source parameters | Which existing runtime controls must survive unchanged model implementations? | [Compatibility findings](fixed_source_compatibility_findings.md): all 22 raw rows, original state prerequisites, real Function/If/Loop dependencies and the later three-artifact/19-pending diagnostic pass per stack. |
 | Recording, packaging and array creation | Do shared export options and native promotion preserve the source contract? | [Option and array findings](option_and_array_creation_findings.md): committed C4a/C4c and D1a/D1b checks, real named BOOL operands, native sequence binding and explicit target failures. |
+| Ordinary matrices and Dropout cleanup | Do bounded matrix contracts and the shared optional-input rewrite preserve actual values? | [Matrix and optimizer findings](matrix_and_optimizer_findings.md): committed D2a and shared repair, exact subnormal failures, corrected witness provenance and separate corpus evidence. |
 
 ## Run it
 
@@ -43,8 +44,8 @@ source regressions live in `tests/extra_tests/converter` and run in normal CI.
 Supplemental experiments in this folder still need an explicit test invocation.
 See [recorded validation](source_integration_findings.md#recorded-validation)
 for historical integration results and the
-[latest checkpoint](option_and_array_creation_findings.md#validation-and-provenance)
-for the complete 6,035-test run, versions and bounded acceptance.
+[latest checkpoint](matrix_and_optimizer_findings.md#validation-and-provenance)
+for the complete 6,183-test run, versions and bounded acceptance.
 
 ## Observable source behavior
 
@@ -99,11 +100,14 @@ ONNX support classifications. Separate diagnostic regressions now cover finite
 noncomplex/complex loops and JIT cases without broadening this product profile;
 the [work plan](../precision_implementation_work_plan.md) records their exact gates.
 
-Matrix support is limited to positive static rank-2/rank-3 standard matrix axes,
-FP16 operands, an explicitly preferred FP32 result and default precision.
+The audited matrix profile is limited to positive static rank-2/rank-3 standard
+matrix axes, FP16 operands, an explicitly preferred FP32 result and default precision.
 Explicit algorithms and other combinations are rejected. The wider computation
 has no measured latency/memory advantage and does not promise a native
 low-precision hardware algorithm. Numerical coverage is for selected samples.
+The separate D2a diagnostic packet adds bounded ordinary FP32/FP64 rank-2–4 matrices, preserving paired-batch order
+and native matmul binding without changing audited admission. Exact subnormal
+samples still fail on the recorded CPUs; broader matrix contracts remain open.
 
 BF16 structural validity does not establish runtime kernels. Function coverage
 does not establish all nested combinations or every JAX setting. Names/layouts,
@@ -114,9 +118,13 @@ IR/proto/standard/web-file returns. The new array-creation diagnostics preserve
 native promotion/weakness, sequence arithmetic and selected Boolean CPU results.
 Private scalar-BOOL runtime declarations use one real root binding map, including
 framework Dropout, local defaults and static literals. These diagnostics do not
-broaden the audited product profile. Exact sequence failures, BF16 runtime limits,
-dynamic `arange` compatibility and a shared Dropout optimizer defect remain open.
-The [next implementation work](../precision_migration_plan.md#next-implementation-work)
+broaden the audited product profile. Exact sequence failures, BF16 runtime limits
+and dynamic `arange` compatibility remain open. The shared Dropout optimizer
+defect is repaired with bounded optional-input cleanup and preserved shared uses;
+see the [repair evidence](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair).
+Static NCHW boundary handling is planned next, with symbolic and broader layout
+coverage still separate. The
+[next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.
 

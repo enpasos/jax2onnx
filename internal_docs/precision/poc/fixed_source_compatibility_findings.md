@@ -130,12 +130,15 @@ random-stream equivalence or full-model numerical behavior. Equinox's original
 missing-key training failure remains a prerequisite, not an inferred source
 success.
 
-The shared optimizer's confirmed Dropout-specific `Not(True)` rewrite can create
-an unowned `false_const`; its separate repair is still pending. The C4c tests
-use builder-owned constants for actual SOURCE literals and retain this independent
-bug as open work. See the
+The separate Dropout-specific optimizer defect discovered during C4c is now
+repaired at `c528a894`: only the proven-false optional training input is omitted,
+and shared/observable values remain intact. The
+[repair evidence](matrix_and_optimizer_findings.md#shared-dropout-optimizer-repair)
+is separate from this unchanged all-22 diagnostic batch; it does not promote
+any pending model or establish stochastic acceptance. C4c's builder-owned
+SOURCE literals remain unchanged. See the
 [option findings](option_and_array_creation_findings.md#real-named-boolean-operands)
-for the implementation and focused evidence.
+for the binding implementation and focused evidence.
 
 Maintained regressions cover
 [runtime bindings](../../../tests/extra_tests/converter/test_source_runtime_parameters.py)

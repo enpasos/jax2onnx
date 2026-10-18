@@ -114,3 +114,43 @@ batch: its original `9ac003ba...` baseline and 36-cell evidence remain intact.
 The earlier 5,363-test passing run belongs to `158ce625`.
 The [work plan](../precision_implementation_work_plan.md) owns current validation
 and commit status. No result here completes phases B-F.
+
+
+## Two-cell matrix supplement on 2026-10-18
+
+A separate observation after the D2a lowering repair repeats exactly
+`plugin::dot_general`, ordinal 0, in the original raw-x64-off/on scenarios on
+each stack. The original FP32 `[3,4]` and `[4,2]` operands, FP32 `[3,2]` result,
+`preferred_element_type=None`, factories, reference bytes, trace fingerprints,
+settings and environment fields are unchanged. The inventory remains the
+historical `158ce625` baseline with SHA256 `9ac003ba...` above. The first 36-cell
+batch and its failed ordinary-dot observations remain intact.
+
+| Supplement gate | Result on each stack |
+| --- | --- |
+| Independent source reference and structural diagnostic | VALIDATED for both cells |
+| ONNX schema | VALIDATED for both cells |
+| Artifact acceptance | FAILED for both cells: unchanged raw callback requires Gemm with zero bias; the bounded SOURCE lowering emits MatMul |
+| Lowering, runtime and numerics | UNVERIFIED; numerical criteria remain unresolved and zero ORT sessions ran |
+
+The raw helper still records the generic `implementation-gap` category with
+`Raw metadata structural callback failed`. The precise next task is to audit
+and migrate the SOURCE structural oracle. No raw metadata, historical result or
+criterion was changed to force a pass. There is no accepted artifact digest,
+newly closed corpus row or numerical acceptance from this supplement.
+
+Independent inspection confirms preserved prior observations, all recorded
+reference fields, unchanged before/after control artifacts, zero ORT attempts
+and all isolation invariants. The separate fresh plan has only these two new
+observations; it does not reset the earlier 36-cell batch. Imported module paths
+and hashes were verified against production snapshot
+`8463f856ca832d9f75e192d7b3c15faf4dfcf842560c2daca0c8e2bf795b0c65`.
+Those bytes are now committed at `c528a894`/`2011b140`; the recorded observation
+checkout `182e03f6` correctly identifies their earlier uncommitted observation.
+
+Local records are
+`/tmp/jax2onnx-d2a-b3-dot-8463f856ca83-py{312,311}.{compact,full}.json`;
+independent inspection is `/tmp/jax2onnx-d2a-b3-dot-astra-review.md`. These paths
+are provenance, not maintained repository commands. The
+[matrix and optimizer findings](matrix_and_optimizer_findings.md) record the
+bounded implementation, distinct runtime samples and current checkpoint checks.

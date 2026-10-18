@@ -23,9 +23,11 @@ native JAX promotion for `where`/`full` and selected Boolean results. These
 [bounded changes](poc/option_and_array_creation_findings.md) are committed with
 repository hooks passing; public behavior and audited operation admission stay
 unchanged. Real scalar-Boolean runtime binding and native `arange`/`linspace`
-binding now also have reviewed private coverage. The latest complete run passes
-**6,035 tests**. The refreshed inventory retains every original contract and test anchor; this regression result does
-not complete source coverage.
+binding now also have reviewed private coverage. Selected ordinary FP32/FP64
+matrix calculations and a shared Dropout cleanup repair are now reviewed and
+committed too. The latest complete run passes **6,183 tests**. The refreshed
+inventory retains every original contract and test anchor; this regression
+result does not complete source coverage.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -90,6 +92,12 @@ is appropriate only for an intended fixed setting. Broader model and stochastic
 contracts remain open. Native array-sequence binding is implemented, but recorded
 exact floating-point discrepancies and dynamic `arange` compatibility remain
 unresolved; matching graph types does not establish matching runtime results.
+The [matrix findings](poc/matrix_and_optimizer_findings.md) likewise retain exact
+failures for selected subnormal values. A separate recheck of two original
+matrix scenarios now passes schema checking but still fails the existing
+structural callback; it establishes no new corpus acceptance. Static NCHW
+input/output boundaries are planned next, while preserving the unchanged model's
+calculation. Symbolic layout and broader model coverage remain separate work.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

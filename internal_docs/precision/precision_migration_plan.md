@@ -16,16 +16,19 @@ required-finalization repairs are committed at `ea6a8da7`, `8ba3c681` and
 inventory additions are committed at `3dbec1b8`. Private recording/web packaging
 is committed at `8a82d510`; SOURCE `where`/`full` promotion repairs are committed
 at `223f24bf`. C4c scalar-BOOL binding and D1b native sequence binding are committed
-at `4c1c57fe` and `05037961`, with reviewed manual inventory additions. All passed
-actual repository hooks. The latest complete primary-stack run passes **6,035
-tests**; required typing covers 541 files, with RNG registration and global Ruff
-passing. The inventory now records 195 handwritten-test files, 1,003 functions
-and 251 migration additions, retaining all 752 original anchors and 1,802 raw
-contracts.
-Both fresh inventory comparisons pass; the first B3 batch retains its historical
-baseline and has not been rerun. The
+at `4c1c57fe` and `05037961`, with reviewed manual inventory additions. The shared
+Dropout optimizer repair is committed at `c528a894`; D2a ordinary FP32/FP64
+matrix lowering is committed at `2011b140`. All passed actual repository hooks.
+The latest complete primary-stack run passes **6,183 tests**; required typing
+covers 541 files, with RNG registration and global Ruff passing. The inventory
+now records 197 handwritten-test files, 1,023 functions and 271 migration
+additions, retaining all 752 original anchors and 1,802 raw contracts.
+Both fresh inventory comparisons pass. The first B3 batch retains its historical
+baseline and outcomes; a separate two-dot-cell supplement still fails artifact
+validation against the unchanged legacy structural callback. The
 [option and array-creation findings](poc/option_and_array_creation_findings.md)
-record the bounded acceptance and remaining target failures.
+and [matrix and optimizer findings](poc/matrix_and_optimizer_findings.md)
+record bounded acceptance and remaining target failures.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -242,10 +245,26 @@ selected discrepancies; any numerical adaptation still needs separate evidence.
 Ordinary cross-runtime reproducibility and deliberately required rounding need
 separate, reviewed criteria; accepted binding changes do not close these failed
 numerical gates. BF16 loading/result-interface failures and the installed
-opset27 runtime limit remain separately recorded. A shared Dropout optimizer
-rewrite can create an unowned `false_const` after matching `Not(True)` feeding
-Dropout. Its separate minimal repair is planned; the defect remains open and
-is not evidence of a generic Boolean-graph failure.
+opset27 runtime limit remain separately recorded.
+
+The shared Dropout optimizer repair now omits only the proven-false optional
+training input for a standard-domain, same-graph `Not(True)` match. Shared uses,
+captures and observable outputs remain intact; dynamic/direct-False behavior and
+traversal are unchanged. D2a adds bounded same-dtype FP32/FP64 rank-2–4 matrix
+lowering with checked batch/contracting axes and native SOURCE `matmul` binding.
+It retains canonical operands, default precision and explicit implementation
+exclusions. Four recorded subnormal targets per stack still fail exact numerical
+criteria, despite valid artifacts and successful execution. Neither the finite
+matrix packet nor the Dropout repair broadens audited admission or establishes
+stochastic/full-model acceptance. The separate two-cell B3 supplement leaves
+structural-oracle migration open; it closes no corpus row.
+
+The next C4b packet is planned for selected static logical rank-four NCHW export
+boundaries. One explicit representation descriptor must preserve the original
+NHWC computation, dtype and complex component axis, with strict IR/proto/reloaded
+checks, names, aliases and real named controls. Symbolic layouts, normalization
+selection and raw-metadata layout replay remain separate work. This plan does
+not establish layout or model support before implementation and review.
 
 ## Stage 1 Inventory and freeze observable behavior
 
