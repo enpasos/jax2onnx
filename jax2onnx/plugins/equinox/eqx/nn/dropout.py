@@ -14,6 +14,7 @@ from jax.core import ShapedArray
 from jax.interpreters import batching
 
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph
@@ -202,7 +203,9 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             _ensure_value_metadata(ctx, not_val)
             return cast(ir.Value, not_val)
 
-        if call_time:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            training_val = ctx.ensure_training_mode(param_name, inference_var)
+        elif call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
             if param_name not in call_params and inference_bool is not None:
                 det_val = _const_tensor(

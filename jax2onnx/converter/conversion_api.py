@@ -72,6 +72,19 @@ _staged_lowering_metadata: Callable[..., object] = (
 
 
 @dataclass(frozen=True)
+class _SourceInputBinding:
+    trace_index: int
+    positional_index: int | None
+    keyword_name: str | None
+    spec: jax.ShapeDtypeStruct
+    var: Any
+
+    @property
+    def internal_name(self) -> str:
+        return f"in_{self.trace_index}"
+
+
+@dataclass(frozen=True)
 class _TraceResult:
     closed_jaxpr: Any
     jaxpr: Any
@@ -79,6 +92,57 @@ class _TraceResult:
     frozen_params: dict[str, object]
     inputs_as_nchw: tuple[int, ...]
     outputs_as_nchw: tuple[int, ...]
+    source_inputs: tuple[_SourceInputBinding, ...] = ()
+
+
+def _source_named_input_spec(
+    name: str, value: object, *, opset: int
+) -> jax.ShapeDtypeStruct:
+    if not isinstance(name, str) or not name:
+        raise ValueError("SOURCE input_params names must be nonempty strings")
+    if isinstance(value, bool):
+        return jax.ShapeDtypeStruct((), np.bool_)
+    if isinstance(value, (jax.ShapeDtypeStruct, jax.Array, np.ndarray, np.generic)):
+        dtype = np.dtype(value.dtype)
+        shape = tuple(value.shape)
+        if dtype == np.dtype(np.bool_) and shape == ():
+            return jax.ShapeDtypeStruct(
+                shape, dtype, weak_type=bool(getattr(value, "weak_type", False))
+            )
+    raise SourcePrecisionError(
+        f"named parameter {name!r} requires a typed scalar BOOL declaration",
+        phase="input",
+        category="profile-exclusion",
+        location=f"input_params[{name!r}]",
+        opset=opset,
+        requirement="Python/NumPy bool, scalar BOOL array, or scalar BOOL ShapeDtypeStruct",
+        action="use a scalar BOOL runtime declaration or bind intended fixed configuration with a closure or partial",
+    )
+
+
+def _source_input_values(
+    trace: _TraceResult,
+    values: Sequence[ir.Value],
+    *,
+    require_internal_names: bool = False,
+) -> tuple[ir.Value, ...]:
+    bindings = trace.source_inputs
+    if len(bindings) != len(trace.jaxpr.invars) or len(values) != len(bindings):
+        raise RuntimeError(
+            "SOURCE finalized input arity differs from its real root bindings"
+        )
+    for index, (binding, var, value) in enumerate(
+        zip(bindings, trace.jaxpr.invars, values, strict=True)
+    ):
+        if (
+            binding.trace_index != index
+            or binding.var is not var
+            or (require_internal_names and value.name != binding.internal_name)
+        ):
+            raise RuntimeError(
+                "SOURCE finalized input order differs from its real root bindings"
+            )
+    return tuple(values)
 
 
 # ---------------------------
@@ -842,17 +906,39 @@ def _trace_to_jaxpr(
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
+    opset: int = 23,
 ) -> _TraceResult:
     sds_list = _as_sds_list(
         inputs, enable_double_precision, precision_policy=precision_policy
     )
-    frozen_params: Dict[str, object] = dict(input_params or {})
+    source = precision_policy is PrecisionPolicy.SOURCE
+    positional_count = len(sds_list)
+    named_params = dict(input_params or {}) if source else {}
+    if source:
+        sds_list.extend(
+            _source_named_input_spec(name, value, opset=opset)
+            for name, value in named_params.items()
+        )
+    frozen_params: Dict[str, object] = {} if source else dict(input_params or {})
 
     def _wrapped(*xs: Any) -> Any:
+        if source:
+            named_values = dict(zip(named_params, xs[positional_count:], strict=True))
+            return fn(*xs[:positional_count], **named_values)
         return fn(*xs, **frozen_params)
 
     with precision_policy_scope(precision_policy), _activate_plugin_worlds():
-        closed = jax.make_jaxpr(_wrapped)(*sds_list)
+        try:
+            closed = jax.make_jaxpr(_wrapped)(*sds_list)
+        except jax.errors.TracerBoolConversionError as exc:
+            if source and named_params:
+                exc.add_note(
+                    "SOURCE named runtime BOOLs are real traced operands. For pure Python-if "
+                    "source, prepare an external jax.lax.cond adapter whose concrete True/False "
+                    "branches invoke the complete unchanged original callable; bind intended "
+                    "fixed configuration with a closure or functools.partial instead."
+                )
+            raise
     if os.environ.get("J2O_PRINT_JAXPR", "0") == "1":
         try:
             print(f"JAXPR: {closed.jaxpr.pretty_print()}")
@@ -860,9 +946,9 @@ def _trace_to_jaxpr(
             pass
     jpr = closed.jaxpr
 
-    if input_names is not None and len(input_names) != len(jpr.invars):
+    if input_names is not None and len(input_names) != positional_count:
         raise ValueError(
-            f"input_names length ({len(input_names)}) must match traced positional inputs ({len(jpr.invars)})."
+            f"input_names length ({len(input_names)}) must match traced positional inputs ({positional_count})."
         )
     if output_names is not None and len(output_names) != len(jpr.outvars):
         raise ValueError(
@@ -871,7 +957,7 @@ def _trace_to_jaxpr(
     validated_inputs_as_nchw = _validate_layout_indices(
         inputs_as_nchw,
         kind="inputs_as_nchw",
-        upper_bound=len(jpr.invars),
+        upper_bound=positional_count,
     )
     validated_outputs_as_nchw = _validate_layout_indices(
         outputs_as_nchw,
@@ -879,6 +965,24 @@ def _trace_to_jaxpr(
         upper_bound=len(jpr.outvars),
     )
 
+    source_inputs = (
+        tuple(
+            _SourceInputBinding(
+                index,
+                index if index < positional_count else None,
+                (
+                    None
+                    if index < positional_count
+                    else tuple(named_params)[index - positional_count]
+                ),
+                spec,
+                var,
+            )
+            for index, (spec, var) in enumerate(zip(sds_list, jpr.invars, strict=True))
+        )
+        if source
+        else ()
+    )
     return _TraceResult(
         closed_jaxpr=closed,
         jaxpr=jpr,
@@ -886,6 +990,7 @@ def _trace_to_jaxpr(
         frozen_params=frozen_params,
         inputs_as_nchw=validated_inputs_as_nchw,
         outputs_as_nchw=validated_outputs_as_nchw,
+        source_inputs=source_inputs,
     )
 
 
@@ -917,6 +1022,7 @@ def _convert_to_ir(
     precision_policy: PrecisionPolicy = PrecisionPolicy.LEGACY,
     jaxpr_validator: Callable[[Any, int], None] | None = None,
     trace_observer: Callable[[_TraceResult], None] | None = None,
+    allow_source_runtime_parameters: bool = False,
 ) -> ir.Model:
     """Trace, lower, and finalize through one private conversion pipeline.
 
@@ -934,7 +1040,7 @@ def _convert_to_ir(
         if jaxpr_validator is None:
             raise ValueError("Private source conversion requires a subset validator")
         unsupported = {
-            "input_params": bool(input_params),
+            "input_params": bool(input_params) and not allow_source_runtime_parameters,
             "inputs_as_nchw": inputs_as_nchw is not None,
             "outputs_as_nchw": outputs_as_nchw is not None,
             "normalization_mode": normalization_mode != "auto",
@@ -964,6 +1070,7 @@ def _convert_to_ir(
         input_names=input_names,
         output_names=output_names,
         precision_policy=precision_policy,
+        opset=opset,
     )
     if trace_observer is not None:
         trace_observer(trace)
@@ -1015,6 +1122,7 @@ def _convert_to_ir(
                         f"Final {label} {value.name} lost source type {representation.ir_dtype} "
                         f"or shape {representation.physical_shape}"
                     )
+        _source_input_values(trace, model.graph.inputs, require_internal_names=True)
     return model
 
 

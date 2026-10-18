@@ -243,9 +243,11 @@ class IRContext:
         self._call_input_param_names: set[str] = set()
         self._call_input_param_literals: dict[str, object] = {}
         self._call_param_value_by_name: dict[str, ir.Value] = {}
-        # Root tracing receives declared input_params as Python values. Function
-        # retracing uses explicit formals, so its Python kwargs remain static.
-        self._promote_call_input_params: bool = True
+        # LEGACY promotes frozen root kwargs by name. SOURCE already owns its
+        # actual runtime operands and never enables that promotion.
+        self._promote_call_input_params: bool = (
+            precision_policy is not PrecisionPolicy.SOURCE
+        )
         self._implicit_capture_parent: IRContext | None = None
         self._external_flag_resolver: Callable[[str], ir.Value] | None = None
         self._const_folder = ConstantFolder()
@@ -431,6 +433,21 @@ class IRContext:
         Function and Loop bodies require explicit local bindings. If branches
         may capture an enclosing flag through a local Identity on first use.
         """
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            if var is None:
+                raise RuntimeError(
+                    "SOURCE runtime flags require an actual bound BOOL[] operand"
+                )
+            source_flag = self.require_value_for_var(var)
+            if (
+                source_flag.dtype != ir.DataType.BOOL
+                or source_flag.shape is None
+                or tuple(source_flag.shape) != ()
+            ):
+                raise RuntimeError(
+                    "SOURCE runtime flag operand must have dtype BOOL and scalar shape"
+                )
+            return source_flag
         if self._inside_function_scope:
             if var is None:
                 value = self._call_param_value_by_name.get(name)
@@ -471,11 +488,27 @@ class IRContext:
     def ensure_training_mode(self, flag_name: str, var: Any) -> ir.Value:
         """
         Return a BOOL[] Value for `training_mode`.
+        SOURCE resolves only the actual operand; literal folding uses its value.
         - Inside a function: if `var` is a JAX literal (has a `.val`), fold to a constant
           training_mode = not(var.val) and feed Dropout directly (NO Not).
         - Otherwise: route the flag through a Not: flag → Not → training_mode.
           (Top-level uses a single graph input named `flag_name`; function uses the local wire.)
         """
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            flag = self.ensure_external_flag(flag_name, var)
+            literal = _maybe_literal_value(var)
+            if literal is not None:
+                return self.builder.add_initializer_from_scalar(
+                    name=self.fresh_name("training_mode"),
+                    value=np.asarray(not np.asarray(literal).item(), dtype=np.bool_),
+                )
+            return self.builder.op(
+                "Not",
+                [flag],
+                output=ir.val(
+                    self.fresh_name("training_mode"), dtype=ir.DataType.BOOL, shape=()
+                ),
+            )
         # If we're inside a function body and the flag is a literal, fold now.
         if self._inside_function_scope:
             lit_obj = _maybe_literal_value(var)

@@ -1109,7 +1109,11 @@ class FunctionPlugin(PrimitivePlugin):
                 signature.append(
                     (name, ("dynamic", tuple(aval.shape), str(aval.dtype)))
                 )
-            elif ctx._promote_call_input_params and name in ctx._call_input_param_names:
+            elif (
+                ctx.precision_policy is not PrecisionPolicy.SOURCE
+                and ctx._promote_call_input_params
+                and name in ctx._call_input_param_names
+            ):
                 spec = self._parameter_spec(
                     value,
                     preserve_weak_type=ctx.precision_policy is PrecisionPolicy.SOURCE,
@@ -1127,7 +1131,8 @@ class FunctionPlugin(PrimitivePlugin):
         handled = set(static) | {capture.name for capture in dynamic}
         implicit_names = (
             ctx._call_input_param_names - handled
-            if ctx._promote_call_input_params
+            if ctx.precision_policy is not PrecisionPolicy.SOURCE
+            and ctx._promote_call_input_params
             else set()
         )
         if implicit_names:
@@ -1319,7 +1324,8 @@ class FunctionPlugin(PrimitivePlugin):
             raise exc.with_context(
                 f"function {self._friendly_name_base()} ({self._qualified_target})"
             ) from exc
-        self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
+        if ctx.precision_policy is not PrecisionPolicy.SOURCE:
+            self._keep_unused_captures(scope.ctx, captures.dynamic, child_captures)
         outputs = [scope.ctx.require_value_for_var(var) for var in body.outvars]
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
             # Function result names must be unique and distinct from formals,

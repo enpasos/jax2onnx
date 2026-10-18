@@ -85,6 +85,7 @@ from jax2onnx.converter.conversion_api import (
     ShapeDimSpec,
     ShapeTupleSpec,
     _TraceResult,
+    _source_input_values,
     _convert_to_ir,
     _force_jax_x64,
     _to_ir_dtype_from_np,
@@ -403,6 +404,7 @@ def _apply_custom_io_names_on_ir(
     input_names: Optional[Sequence[str]],
     output_names: Optional[Sequence[str]],
     positional_input_count: int,
+    input_values: Optional[Sequence[ir.Value]] = None,
 ) -> None:
     if not input_names and not output_names:
         return
@@ -411,7 +413,11 @@ def _apply_custom_io_names_on_ir(
     rename_pairs: List[tuple[ir.Value, str]] = []
 
     if input_names is not None:
-        positional_inputs = _resolve_positional_inputs(graph, positional_input_count)
+        positional_inputs = (
+            list(input_values)
+            if input_values is not None
+            else _resolve_positional_inputs(graph, positional_input_count)
+        )
         if len(positional_inputs) != len(input_names):
             raise ValueError(
                 f"input_names length ({len(input_names)}) does not match positional graph inputs ({len(positional_inputs)})."
@@ -621,7 +627,12 @@ def _source_boundary_failure(label: str, index: int, expected: Any, opset: int) 
 
 
 def _assert_source_boundaries(
-    model: ir.Model | onnx.ModelProto, trace: _TraceResult, opset: int
+    model: ir.Model | onnx.ModelProto,
+    trace: _TraceResult,
+    opset: int,
+    *,
+    input_names: Sequence[str] | None = None,
+    output_names: Sequence[str] | None = None,
 ) -> None:
     ir_model = isinstance(model, ir.Model)
     graph_inputs: Sequence[Any]
@@ -630,9 +641,9 @@ def _assert_source_boundaries(
         graph_inputs, graph_outputs = model.graph.inputs, model.graph.outputs
     else:
         graph_inputs, graph_outputs = model.graph.input, model.graph.output
-    for label, variables, values in (
-        ("input", trace.jaxpr.invars, graph_inputs),
-        ("output", trace.jaxpr.outvars, graph_outputs),
+    for label, variables, values, names in (
+        ("input", trace.jaxpr.invars, graph_inputs, input_names),
+        ("output", trace.jaxpr.outvars, graph_outputs, output_names),
     ):
         if len(variables) != len(values):
             raise SourcePrecisionError(
@@ -642,6 +653,16 @@ def _assert_source_boundaries(
                 location=label,
                 opset=opset,
                 requirement=f"{len(variables)} values",
+                action="report this exporter defect with a minimal reproduction",
+            )
+        if names is not None and tuple(value.name for value in values) != tuple(names):
+            raise SourcePrecisionError(
+                "exported boundary names/order differ from the finalized source bindings",
+                phase="finalization",
+                category="lowering-defect",
+                location=label,
+                opset=opset,
+                requirement=f"ordered names {tuple(names)!r}",
                 action="report this exporter defect with a minimal reproduction",
             )
         for index, (var, value) in enumerate(zip(variables, values, strict=True)):
@@ -718,6 +739,7 @@ def _build_source_report(
     caller_rank_promotion: str,
     opset: int,
     diagnostic: bool,
+    named_supplied: Mapping[str, TensorProperties],
 ) -> PrecisionReport:
     representations = []
     for role, variables in (
@@ -743,20 +765,20 @@ def _build_source_report(
         caller_numpy_rank_promotion=caller_rank_promotion,
         inputs=tuple(
             PrecisionInputSummary(
-                index,
-                original,
-                _source_aval_properties(spec),
-                _source_aval_properties(var.aval),
+                binding.trace_index,
+                (
+                    supplied[binding.positional_index]
+                    if binding.positional_index is not None
+                    else named_supplied[cast(str, binding.keyword_name)]
+                ),
+                _source_aval_properties(binding.spec),
+                _source_aval_properties(binding.var.aval),
                 _source_value_properties(value),
             )
-            for index, (original, spec, var, value) in enumerate(
-                zip(
-                    supplied,
-                    trace.sds_list,
-                    trace.jaxpr.invars,
-                    model.graph.inputs,
-                    strict=True,
-                )
+            for binding, value in zip(
+                trace.source_inputs,
+                _source_input_values(trace, model.graph.inputs),
+                strict=True,
             )
         ),
         traced_outputs=tuple(
@@ -1056,7 +1078,7 @@ def _to_onnx(
     if source:
         for option, supplied_option in (
             ("enable_double_precision", enable_double_precision),
-            ("input_params", bool(input_params)),
+            ("input_params", bool(input_params) and not diagnostic),
             ("inputs_as_nchw", inputs_as_nchw is not None and len(inputs_as_nchw) > 0),
             (
                 "outputs_as_nchw",
@@ -1140,6 +1162,7 @@ def _to_onnx(
                 else validate_source_jaxpr
             ),
             "trace_observer": observe_trace,
+            "allow_source_runtime_parameters": diagnostic,
         }
     config_scope = nullcontext() if source else _temporary_x64(enable_double_precision)
     warning_scope = (
@@ -1210,23 +1233,58 @@ def _to_onnx(
                 pass
         return dest
 
-    _materialize_input_params_on_ir(result, param_map)
+    source_values: tuple[ir.Value, ...] | None = None
+    final_input_names = normalized_input_names
+    named_supplied: dict[str, TensorProperties] = {}
     if source:
-        _separate_source_output_aliases(
-            result, normalized_input_names, normalized_output_names
+        assert trace_result is not None
+        source_values = _source_input_values(
+            trace_result, result.graph.inputs, require_internal_names=True
         )
+        final_input_names = []
+        for binding, value in zip(
+            trace_result.source_inputs, source_values, strict=True
+        ):
+            if binding.positional_index is not None:
+                final_input_names.append(
+                    normalized_input_names[binding.positional_index]
+                    if normalized_input_names is not None
+                    else cast(str, value.name)
+                )
+            else:
+                name = cast(str, binding.keyword_name)
+                final_input_names.append(name)
+                named_supplied[name] = TensorProperties(
+                    name,
+                    tuple(binding.spec.shape),
+                    np.dtype(binding.spec.dtype).name,
+                    bool(getattr(param_map[name], "weak_type", False)),
+                )
+        _separate_source_output_aliases(
+            result, final_input_names, normalized_output_names
+        )
+    else:
+        _materialize_input_params_on_ir(result, param_map)
     _apply_custom_io_names_on_ir(
         result,
-        input_names=normalized_input_names,
+        input_names=final_input_names,
         output_names=normalized_output_names,
         positional_input_count=len(normalized_inputs),
+        input_values=source_values,
     )
     model_proto: onnx.ModelProto | None = None
     if source:
         assert trace_result is not None
-        _assert_source_boundaries(result, trace_result, opset)
+        source_output_names = tuple(
+            cast(str, value.name) for value in result.graph.outputs
+        )
+        boundary_names = {
+            "input_names": final_input_names,
+            "output_names": source_output_names,
+        }
+        _assert_source_boundaries(result, trace_result, opset, **boundary_names)
         model_proto = ir.to_proto(result)
-        _assert_source_boundaries(model_proto, trace_result, opset)
+        _assert_source_boundaries(model_proto, trace_result, opset, **boundary_names)
         onnx.checker.check_model(model_proto, full_check=True)
         report = _build_source_report(
             result,
@@ -1241,6 +1299,7 @@ def _to_onnx(
             caller_rank_promotion=caller_rank_promotion,
             opset=opset,
             diagnostic=diagnostic,
+            named_supplied=named_supplied,
         )
         attach_precision_report(result, report)
         attach_precision_report(model_proto, report)
@@ -1261,7 +1320,7 @@ def _to_onnx(
         if source:
             assert trace_result is not None
             reloaded = onnx.load_model(saved_path, load_external_data=False)
-            _assert_source_boundaries(reloaded, trace_result, opset)
+            _assert_source_boundaries(reloaded, trace_result, opset, **boundary_names)
             onnx.checker.check_model(saved_path, full_check=True)
             if get_precision_report(reloaded) != report:
                 raise RuntimeError(

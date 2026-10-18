@@ -7,6 +7,7 @@ import numpy.typing as npt
 import logging
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -308,7 +309,10 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         call_params = ctx._call_input_param_names
         rate = float(eqn.params.get("rate", 0.5))
 
-        if "deterministic" in call_params:
+        if (
+            ctx.precision_policy is not PrecisionPolicy.SOURCE
+            and "deterministic" in call_params
+        ):
             try:
                 ctx.ensure_external_flag("deterministic", det_var)
             except Exception:
@@ -328,7 +332,11 @@ class DropoutPlugin(PrimitiveLeafPlugin):
         # - call_time=False:
         #     literal → constant; otherwise Not(det_var)
         train_v: ir.Value
-        if call_time:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            if len(invars) != 2 or len(eqn.outvars) != 1:
+                raise ValueError("SOURCE Dropout requires data and a scalar BOOL flag")
+            train_v = ctx.ensure_training_mode("deterministic", det_var)
+        elif call_time:
             inside_fn = bool(getattr(ctx, "_inside_function_scope", False))
             det_lit = _extract_python_bool(det_var)
             if "deterministic" not in call_params and det_lit is not None:
