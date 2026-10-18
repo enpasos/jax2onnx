@@ -19,6 +19,7 @@ is available. These experiments inform the
 | Static layouts and native binary binding | Can external storage and native promotion preserve unchanged source computations? | [Layout and binary findings](layout_and_native_binary_findings.md): committed binder/Mul and C4b/observer repairs, passing 6,351-test integration after ten retained regressions, signed-zero failures and future symbolic work. |
 | Shared symbolic batch and Min/Max feasibility | Can one artifact preserve a shared batch contract, and what does the finite selection audit establish? | [Shared-batch findings](symbolic_batch_and_minmax_findings.md): focused Add/named-composition acceptance, strict sample binding, retained BF16/subnormal failures, measured selection costs and planned artifact-only corpus tooling. |
 | Min/Max lowering and corpus replay | Does the finite zero-sign representation survive real export, and how far do unchanged raw scenarios progress? | [Checkpoint findings](minmax_and_corpus_replay_findings.md): committed lowerer and repaired B3 tooling, retained target failures/cost and artifact-only outcomes; 6,466-test integrated run and actual hooks pass. |
+| Native trig and fixed corpus numerics | Does native dispatch preserve the source, and do the fixed FP32 samples meet all approved comparisons? | [Current findings](native_trig_and_corpus_numerics_findings.md): reviewed trig binding, retained gather gaps and 48 successful CPU observations per stack; general lowering stays unverified and checkpoint gates remain explicit. |
 
 ## Run it
 
@@ -53,10 +54,17 @@ records the passing 6,351-test run and three commits with actual hooks, retainin
 the earlier failed full run and separate future work.
 The [shared-batch checkpoint](symbolic_batch_and_minmax_findings.md) has 697 owner
 and 241 independent focused checks per stack. Commit `80cb68b2` passed actual
-hooks and that complete primary-stack run passed 6,391 tests. The latest
+hooks and that complete primary-stack run passed 6,391 tests. The preceding
 [checkpoint](minmax_and_corpus_replay_findings.md), `fc3f9323`, commits Min/Max and
 B3 after independent review, 323 focused passes per stack, both main replays and
 inventory comparisons, a 6,466-test full run and all seven actual hooks.
+The [current checkpoint](native_trig_and_corpus_numerics_findings.md), `d2292b89`, has 553 trig
+and 247 numerical-tooling main checks per stack. Its separately released fixed
+numerical packet records 48 CPU runs per stack, all passing the approved
+comparisons. Independent post-run review accepts the recorded samples. The first
+full run's 6,577 passes and two failed native-Sin facade assertions remain
+recorded. After the reviewed assertion repair, the fresh full run passes
+**6,579 tests** and all seven actual configured hooks pass.
 
 ## Observable source behavior
 
@@ -144,9 +152,12 @@ for equal FP16/FP32/FP64 operands. New zero-sign samples pass, while strict
 subnormal/grid failures remain and no default profile is expanded. B3 tooling
 selects 13 unchanged rows/26 artifact-only cells; side and main replays each check
 24 artifacts and retain two unresolved outcomes per stack, with zero ORT.
-This checkpoint adopts no numerical criterion. A separate approved FP32
-numerical-counterpart plan awaits implementation freeze and independent review
-before execution. The
+That historical artifact checkpoint adopts no numerical criterion. The new
+separate FP32 numerical counterpart retains the historical packets' None
+criteria/history and records all 24 selected cells under the approved three-predicate criterion.
+Its sample results do not audit general lowering or change default admission.
+The gather revision produces no artifact: the native trig barrier is removed,
+while x64-off's conflict and x64-on's custom-Where gap remain. The
 [next implementation work](../precision_migration_plan.md#next-implementation-work)
 completes remaining options and full source coverage. Web packaging has exact
 serialized-payload evidence, while browser execution remains unverified.

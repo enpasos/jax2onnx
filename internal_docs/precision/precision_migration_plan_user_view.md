@@ -39,13 +39,22 @@ stacks: one Add/named-function artifact runs with batch sizes two and five, and
 validation rejects inconsistent batches. Its complete primary-stack run passes
 **6,391 tests**, and the code commit passed actual repository hooks.
 The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
-evidence. The [latest checkpoint](poc/minmax_and_corpus_replay_findings.md),
+evidence. The [preceding checkpoint](poc/minmax_and_corpus_replay_findings.md),
 `fc3f9323`, commits the private Min/Max zero-sign correction and repaired
 artifact-only corpus tooling. Both stacks pass 323 focused checks; the complete
 primary-stack run passes **6,466 tests**, and all actual hooks pass. This
-checkpoint changes no default operation admission or numerical criteria. A
-separate fixed numerical comparison plan is approved; execution awaits its
-implementation freeze and independent review.
+checkpoint changes no default operation admission or numerical criteria.
+
+The [new findings](poc/native_trig_and_corpus_numerics_findings.md) record the
+separate approved numerical counterpart: twelve unchanged FP32 sources, both
+original x64 settings and 48 CPU runs per stack. Every captured result passes
+all three fixed comparisons; independent post-run review accepts these
+recorded samples.
+The results cover those inputs and targets, with general lowering still
+unverified. Current focused checks pass. The first full run's two failed
+facade assertions about native Sin metadata remain recorded. After the reviewed
+repair, the fresh full run passes **6,579 tests** and commit `d2292b89` passes
+all seven actual hooks. Historical failures and comparison records remain unchanged.
 
 The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
 per stack, producing 26 checked artifacts while retaining ten failed or pending
@@ -122,8 +131,16 @@ increase remain visible. One shared batch dimension through Add and named
 composition has private implementation evidence with unchanged source and
 multiple batches. All 310 raw symbolic rows and seven NCHW rows remain open;
 symbolic layouts, normalization and broader model coverage require further work.
-The next accepted native sine/cosine binding plan advances source tracing; it
-does not by itself complete the unchanged gather model or its numerical audit.
+Native sine/cosine binding now advances source tracing. The unchanged gather
+example still produces no artifact: its x64-on scenario reaches a custom-Where
+boundary, and x64-off retains its configuration conflict. The next work admits
+the reviewed ordinary matrix forms, then extends shared-batch matrices and bias
+broadcasting through unchanged MatMul, GPT Add and NNX Linear sources. A bounded
+native Linear/reshape adapter prerequisite is independently accepted in its
+isolated checkout and awaits main integration. These plans preserve real model
+weights, bias and configuration; they do
+not replace the original sources with simpler examples or close all dynamic
+shape/model requirements.
 An unreviewed operation or an unfinished implementation remains open work; it
 cannot be relabeled as a technical limit to complete the migration.
 

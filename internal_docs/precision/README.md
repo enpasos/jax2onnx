@@ -66,7 +66,24 @@ ORT. The complete primary-stack run passes **6,466 tests** (13,110 warnings,
 413.65 seconds), and all seven actual configured hooks pass. Typing (542 files
 plus RNG), global Ruff and both inventory CLI comparisons pass. The inventory
 records 203 files, 1,114 functions and 362 additions, retaining all original
-anchors and raw contracts.
+anchors and raw contracts. These are historical checkpoint results.
+
+The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
+record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
+per stack. The separately approved numerical tooling passes 247 main checks per
+stack and records all 24 selected strong-FP32 cells under both CPU settings:
+48 actual runs per stack, all three fixed comparisons passing, no pending cell.
+These are sample results; general diagnostic lowering remains UNVERIFIED and
+no default operation admission changes. Independent post-run review accepts
+these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
+manual inventory
+records 205 files, 1,146 functions and 394 additions, retaining all 752 original
+anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
+pass. The first integrated full run's 6,577 passes and two failed facade
+assertions remain recorded. After the reviewed native-Sin assertion repair,
+the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
+Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
+code/test/inventory hashes match after commit.
 
 The [option and array-creation findings](poc/option_and_array_creation_findings.md)
 record exact large-payload serialization, recording behavior, real named BOOL
@@ -88,11 +105,13 @@ per stack and 108 inherited FP32/FP64 grid mismatches remain failed. The dense
 selection has measured cost and adds no default admission. Shared-B Add remains
 finite; all 310 symbolic and seven NCHW corpus rows stay open. The B3 revision
 selects 13 unchanged rows/26 artifact-only cells, retaining four explicit SOURCE
-matrix counterparts and original callback failures. This artifact checkpoint
-adopts no numerical criterion and runs no corpus runtime checks. A separate
-12-row/24-cell FP32 numerical counterpart now has an approved criterion plan;
-execution awaits its implementation freeze and independent review. Native
-sine/cosine binding is being implemented separately from this checkpoint.
+matrix counterparts and original callback failures. That artifact checkpoint
+adopts no numerical criterion and runs no corpus runtime checks. The new,
+separate numerical counterpart preserves the historical packets' None criteria
+and history while recording results under `source-corpus-fp32-conjunction-v1`. The trig gather
+supplement still produces no artifact or runtime result: x64-off retains its
+configuration conflict and x64-on now reaches the custom-Where diagnostic gap.
+The remaining 3,580 cells and 126 unresolved recipe scenarios stay visible.
 
 The [first source-corpus batch](poc/source_corpus_findings.md) measured 36 cells
 per stack: 26 checked artifacts, four export gaps, five pending cases and one

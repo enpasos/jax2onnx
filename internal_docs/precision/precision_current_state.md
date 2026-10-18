@@ -145,7 +145,7 @@ seven actual configured hooks. All twelve tested code/inventory hashes remain
 unchanged after commit. Public LEGACY, the private profile identifier and report
 schema remain unchanged. These are the preceding checkpoint results.
 
-The [latest checkpoint findings](poc/minmax_and_corpus_replay_findings.md) record an
+The [preceding checkpoint findings](poc/minmax_and_corpus_replay_findings.md) record an
 independently accepted SOURCE Min/Max lowerer for equal FP16/FP32/FP64 at opset 23.
 Owner and independent selections each pass the same 132 tests per stack,
 including 29 new cases. New zero-sign artifacts pass bitwise native eager/JIT
@@ -156,7 +156,7 @@ non-NaN mismatches remain FAILED. Actual graphs have 15 total nodes for Min and
 one-workload cost evidence remains scoped.
 
 The repaired B3 revision has independent acceptance for 13 unchanged rows/26
-artifact-only cells. Fresh side and main replays each check 24 artifacts per
+artifact-only cells. At that checkpoint, side and main replays each check 24 artifacts per
 stack, retaining gather-off's configuration conflict and gather-on's custom-sine
 diagnostic gap. All 26 lowering/runtime/numerical gates remain unverified, with
 zero ORT. A separate negative reproduction overwrote its own preparation
@@ -170,10 +170,42 @@ focused checks pass 323 per stack; the full primary-stack run passes **6,466 tes
 nine frozen code/test/inventory hashes match after commit. Typing (542 files plus
 RNG), global Ruff and both inventory CLI comparisons pass. The inventory records
 203 files, 1,114 functions and 362 additions, retaining all 752 original anchors
-and 1,802 raw contracts. A separate 12-row/24-cell FP32 numerical criterion plan
-is approved; execution awaits its implementation freeze and independent review.
-The
-[work plan](precision_implementation_work_plan.md) owns the remaining acceptance gates.
+and 1,802 raw contracts. Those historical results are unchanged.
+
+The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
+record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
+per stack. The separately approved numerical tooling passes 247 main checks per
+stack and records all 24 selected strong-FP32 cells under both CPU settings:
+48 actual runs per stack, all three fixed comparisons passing, no pending cell.
+These are sample results; general diagnostic lowering remains UNVERIFIED and
+no default operation admission changes. Independent post-run review accepts
+these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
+manual inventory
+records 205 files, 1,146 functions and 394 additions, retaining all 752 original
+anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
+pass. The first integrated full run's 6,577 passes and two failed facade
+assertions remain recorded. After the reviewed native-Sin assertion repair,
+the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
+Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
+code/test/inventory hashes match after commit.
+
+The new criterion requires exact output count/FP32 dtype/shape and all three
+comparisons: `allclose(Y, Rraw)`, `allclose(Rraw, Y)` and
+`allclose(Rharness, Y)`, with `rtol=atol=1e-5` and `equal_nan=True`.
+`Rharness` evaluates the unchanged native callable on the same feeds under
+x64 disabled and matmul precision `float32`; it is a separately labelled
+context reference, not the legacy export or its original random-input run.
+Every predicate consumes the same captured Y. Historical None criteria, raw
+Gemm callback failures and stricter failed samples remain unchanged.
+
+The new gather supplement retains x64-off's configuration conflict; x64-on
+passes the former sine barrier and stops at `scope 0/equation 11
+(jax.numpy.where)`. Its first eleven equations and typed boundary/output
+signatures match the native trace, including native Sin/Cos; the complete
+traces differ at Where. No artifact or ORT result is added. A primary observer
+list/tuple assertion failed after persisting evidence; that exit-1 run remains,
+with a separate persisted-JSON correction. The secondary v2 driver passes.
+The [work plan](precision_implementation_work_plan.md) owns the remaining gates.
 
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are

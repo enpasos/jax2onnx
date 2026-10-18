@@ -33,7 +33,7 @@ those distinctions. Shared-B packet `80cb68b2` has 697 owner and 241 independent
 focused passes per stack, including 40 new cases. Its complete primary-stack run
 passes **6,391 tests** (13,110 warnings, 444.36 seconds), and actual configured
 hooks pass. The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md)
-retain that checkpoint. The [next findings](poc/minmax_and_corpus_replay_findings.md)
+retain that checkpoint. The [preceding findings](poc/minmax_and_corpus_replay_findings.md)
 record their joint commit `fc3f9323`: 323 main focused passes per stack, both
 26-cell artifact replays and inventory comparisons, and **6,466 full-suite passes**
 (13,110 warnings, 413.65 seconds). Typing (542 files plus RNG), global Ruff and all
@@ -41,6 +41,23 @@ seven actual configured hooks pass. An earlier failed preflight exposed raw meta
 mutation, now repaired; a later preflight was deliberately interrupted after
 typing exposed defects.
 Interrupted runs are not counted as passing.
+
+The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
+record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
+per stack. The separately approved numerical tooling passes 247 main checks per
+stack and records all 24 selected strong-FP32 cells under both CPU settings:
+48 actual runs per stack, all three fixed comparisons passing, no pending cell.
+These are sample results; general diagnostic lowering remains UNVERIFIED and
+no default operation admission changes. Independent post-run review accepts
+these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
+manual inventory
+records 205 files, 1,146 functions and 394 additions, retaining all 752 original
+anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
+pass. The first integrated full run's 6,577 passes and two failed facade
+assertions remain recorded. After the reviewed native-Sin assertion repair,
+the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
+Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
+code/test/inventory hashes match after commit.
 The first 36-cell diagnostic batch has run on both stacks, with every
 lowering/runtime/numerical gate still unverified. Broader source-corpus execution
 and migration remain open.
@@ -371,7 +388,10 @@ planning work is separate from production-code ownership.
 | Shared symbolic batch | Preserve equal `(B,K)` floating Add and named composition, exact symbolic boundaries and fresh sample bindings; one artifact at B=2/5. | 697 owner and 241 independent checks per stack, all 40 new cases; full run and actual hooks pass; all 310 raw symbolic rows remain open | `80cb68b2` |
 | Min/Max signed-zero lowering | Preserve typed zero-tie signs through scoped GatherElements selection at opset 23; retain baseline bytes and known target failures. | Independently accepted; 132 tests per stack including 29 new; main focused/full/inventory and actual hooks pass; no default admission | `fc3f9323` |
 | B3 revision supplement | Replay 13 unchanged rows/26 artifact-only cells; retain raw outcomes and four SOURCE matrix counterparts; propose criteria separately. | Independently accepted; main replays retain 24 artifacts/two unresolved outcomes per stack; zero ORT, no criterion adoption in this packet; integrated checks and actual hooks pass | `fc3f9323` |
-| Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Separate side implementation in progress; excluded from this checkpoint; later Where and DOUBLE-cosine boundaries remain | Planned |
+| Native sine/cosine binding | Forward original SOURCE calls through two existing opt-ins; preserve typed traces and update obsolete test guards. | Independently reviewed main evidence: 553 checks per stack; gather remains pending at configuration/custom Where; no new artifact or runtime evidence from that supplement | `d2292b89`; full run and all actual hooks pass |
+| Fixed FP32 corpus numerics | Preserve twelve original rows/24 cells, both source contexts and the preapproved three-comparison criterion on one actual output per mode. | 247 main checks per stack; 48 CPU runs per stack pass, zero pending; independent post-run review accepted; general lowering UNVERIFIED | `d2292b89`; full run and all actual hooks pass |
+| Audited ordinary matrix admission | Apply the reviewed finite static FP32/FP64 contract through the actual profile and explicit SOURCE counterparts; preserve raw failures and pinned historical tooling. | Six-path plan accepted; isolated implementation is active from `d2292b89`; review and fresh audited numerical observations remain pending | Not integrated or accepted; main admission unchanged |
+| Native Linear/reshape prerequisite | Preserve the original NNX method and reshape calls under SOURCE, with exact weights/bias and existing LEGACY bindings. | Independently accepted isolated implementation: 544 tests per stack, including 41 new cases; static diagnostic artifacts/native symbolic traces only, no profile/corpus expansion | Awaiting main integration; not part of `d2292b89` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -742,14 +762,24 @@ fixed corpus-oracle helper/test, the private source-support seam and maintained
 probe tooling; numerical lowerers, metadata, profiles and diagnostic families
 are outside the packet.
 
-A separate numerical counterpart now has an approved mapping:
-`source-corpus-fp32-conjunction-v1`, twelve unchanged strong-FP32 rows/24 cells
-per stack, CPU optimization disabled/all. Require exact dtype/shape and all
-three predeclared tolerance comparisons against raw-source and separately
-labelled historical-harness references. Preserve the historical None criteria,
-proposal ledger and current SampleCriteria behavior. Numerical implementation
-may proceed separately; actual corpus execution awaits its frozen-code
-independent review. No numerical results or row closure are inferred.
+The separate numerical counterpart is implemented in three new tooling/test
+files and has independent code acceptance; actual-main focused checks pass 247
+per stack. Root explicitly released its frozen preparations under
+`source-corpus-fp32-conjunction-v1`. Both packets complete all twelve original
+strong-FP32 rows/24 cells with no pending cell and 48 actual CPU runs per stack,
+optimization disabled/all. All seven packet invariants and all three comparison
+predicates pass on each same captured output. Independent post-run review
+accepts the recorded samples; general diagnostic lowering remains UNVERIFIED.
+
+Require exact output count/FP32 dtype/shape followed by `allclose(Y,Rraw)`,
+`allclose(Rraw,Y)` and `allclose(Rharness,Y)`, each with rtol/atol `1e-5` and
+`equal_nan=True`. `Rharness` is the unchanged native source on the same feeds
+under x64False/matmulfloat32, not a claim about legacy seed reproduction or
+legacy ONNX outputs. Historical None criteria, the proposal ledger and current
+SampleCriteria behavior are unchanged. Eight raw Gemm callback failures per
+stack remain beside the explicit reviewed MatMul counterparts. The other 3,580
+cells, 126 unresolved recipe scenarios, all 310 symbolic/seven NCHW rows and
+all-22 model results remain outside this numerical packet.
 
 Min/Max sparse scalar/empty/output-only and the single FP16 cost comparison are
 complete feasibility evidence: 72 exact edges and 12 scoped grid checks per
@@ -773,11 +803,33 @@ The small Add/Neg/Where candidate remains failed on measured CPU cases. Export
 has no runtime-target argument: `validate_source_samples` and the raising
 `require_sample_acceptance` guard establish separate artifact-bound evidence.
 No criterion, source cast, public precision mode or family-wide admission changes.
-The next accepted binder plan covers only native sine/cosine opt-ins, a focused
-module and two obsolete guards in the old binary tests. Native diagnostic trig
-rules already cover the observed typed form; custom Where and DOUBLE cosine's
-half-angle numerical audit remain separate work. Its side implementation is
-separate from this checkpoint and has no integration acceptance yet.
+Native sine/cosine binding now has independently reviewed main evidence:
+553 checks per stack on the exact accepted four files. The separate two-cell
+gather supplement produces no artifact or ORT execution: off retains its
+configuration conflict; on reaches custom Where at scope 0/equation 11. The
+native Sin/Cos and first eleven typed equations match exactly, but the complete
+traces differ at Where. The primary observer's list/tuple assertion failed after
+persisting evidence; its exit-1 record and separate JSON correction are retained.
+The secondary v2 driver succeeds. Custom Where's independently checked
+structural rule and DOUBLE cosine's half-angle numerical audit remain work;
+neither is admitted by forwarding native calls.
+
+Next, implement the accepted ordinary-matrix admission contract with its six
+owned paths, including the precise obsolete guard. Root will create separate
+fresh audited numerical observations while retaining the historical numerical
+CLI's strict bindings and every old result. The accepted three-path NNX
+Linear/reshape dispatch prerequisite is independently accepted on the approved
+`02211b62` base plus accepted trig patch: 544 tests pass per stack, including
+41 new cases. It awaits main integration and changes no shared binder, profile
+or corpus rule. Then extend the
+shared leading-B matrix/bias-broadcast contract through the five original rows:
+JNP MatMul ordinals 6/5, GPT_broadcast_add ordinal 0 and NNX Linear ordinals 0/3.
+Native symbolic traces and B=2/5 references are feasible on both stacks, with
+exact frozen parameters; that trace audit is not artifact or numerical
+acceptance. The biased native NNX path also needs a substantive static bias
+reshape audit. One artifact across two batches, strict symbol bindings and
+actual named composition remain gates. The 295/310 leading-B declaration count
+is prioritization only, not an admission or coverage result.
 
 Checkpoint evidence on 2026-10-18:
 
@@ -829,8 +881,8 @@ Checkpoint evidence on 2026-10-18:
   Independent review passes the 93 new packing tests.
 - B3's initial plan/preparation packet passes 53 focused tests on each stack
   and independent review. This includes 14 new plan tests and the 39 existing
-  source-preparation checks. No broad source-corpus run or B3 numerical run has
-  occurred.
+  source-preparation checks. At that initial checkpoint, no broad source-corpus
+  run or B3 numerical run had occurred.
 - C2b and the separate discrete-comparison repair pass the same 976-test
   selection on each supported stack. Independent review runs all 138 new
   representation tests and 10 real-artifact discrete sample tests. Package
@@ -1012,7 +1064,7 @@ Checkpoint evidence on 2026-10-18:
   source/import hashes and recorded numerical payloads match. These are focused
   acceptance results, not a new integrated total. B3's repaired side packet is
   independently accepted. Root package typing passes 542 files plus RNG and
-  global Ruff passes. Manual inventory now records 203 files, 1,114 functions and
+  global Ruff passes. That manual inventory records 203 files, 1,114 functions and
   362 additions, retaining all 752 anchors, 1,802 raw contracts/3,604 cells and
   optional entries, with no removals. Both actual inventory CLI comparisons pass.
 - Main combined focused checks pass **323 tests per stack** (86.81/41.90 seconds).
@@ -1025,6 +1077,41 @@ Checkpoint evidence on 2026-10-18:
   `/tmp/jax2onnx-corpus-minmax-main-code-commit.log`; all nine frozen
   code/test/inventory hashes match after commit. The earlier 6,391-test result
   and inventory 201/1,093/341 remain historical facts.
+
+- The native-trig main selection passes **553 tests per stack**; its independent
+  review verifies the recorded four-file/import/settings provenance and gather
+  supplement without new runtime execution. Numerical tooling passes **247 main
+  checks per stack** (pytest 18.31/16.16 seconds). Both explicitly
+  released numerical packets complete 24 cells/48 one-run CPU observations,
+  all seven invariants and all three approved comparisons per observation;
+  independent post-run review accepts these recorded samples. General lowering
+  stays UNVERIFIED, and old criteria/failures remain unchanged.
+- The current manual inventory records **205 files, 1,146 functions and 394
+  additions**, all 752 original anchors with zero removals, and the unchanged
+  1,802 rows/3,604 cells. Inventory SHA256:
+  `7c24e8fb261f5f53920f8e1f81c7dd4c66b25325a45a2a3ec005b4abddea9041`.
+  Typing (542 files plus RNG), global Ruff and both actual inventory CLI
+  comparisons pass; the older conditional `one_minus_square` entry is retained.
+- The first integrated full run ends with **6,577 passed, two failed**, 13,110
+  warnings and 397.31 seconds. The two existing facade assertions expect empty
+  precision metadata, while native Sin correctly reports `accuracy=None`. The
+  original log/XML and eight-path freeze are retained at
+  `/tmp/jax2onnx-trig-numerics-main-full-py312.log` and
+  `/tmp/jax2onnx-trig-numerics-main-full-freeze.sha256`. A one-file test repair
+  in `test_source_facade.py` now asserts exact native `sin` and diagnostic
+  `{"accuracy": "None"}`. Owner and independent selections each pass 159 tests
+  per stack; independent pytest summaries are 17.69/17.20 seconds, eight warnings,
+  with no setting leaks. The accepted review is
+  `/tmp/jax2onnx-source-facade-native-fix-astra-review.md`. No production change
+  or numerical-packet rerun was needed.
+- The fresh complete primary-stack run passes **6,579 tests**, with 13,110
+  warnings in 384.83 seconds and exit zero, recorded in
+  `/tmp/jax2onnx-trig-numerics-corrected-full-py312.log`. Commit `d2292b89` passes
+  all seven actual configured hooks; log
+  `/tmp/jax2onnx-trig-numerics-code-commit.log`. All nine frozen code/test/inventory
+  hashes match after commit. The completed checkpoint is recorded in
+  `/tmp/jax2onnx-trig-numerics-code-checkpoint.json`; the original failed run
+  and earlier accepted numerical observations remain unchanged.
 
 ## Validation and final review
 

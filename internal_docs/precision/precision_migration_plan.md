@@ -47,13 +47,30 @@ before runtime execution. The complete primary-stack run passes **6,391 tests**
 refresh records 201 files, 1,093 functions and 341 additions, retaining all raw
 contracts and original anchors. The
 [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain this
-completed checkpoint. The [latest findings](poc/minmax_and_corpus_replay_findings.md)
+completed checkpoint. The [preceding findings](poc/minmax_and_corpus_replay_findings.md)
 record Min/Max and repaired B3 tooling at `fc3f9323`: 323 focused checks per stack,
 both main replays and inventory comparisons, **6,466 full-suite passes** (13,110
 warnings, 413.65 seconds), and all seven actual configured hooks passing. Typing
-(542 files plus RNG) and global Ruff pass. The inventory now records 203 files,
+(542 files plus RNG) and global Ruff pass. That inventory records 203 files,
 1,114 functions and 362 additions, with no original anchor or raw contract loss.
 This checkpoint changes no default operation admission or numerical criterion.
+
+The [native-trig and corpus-numerical findings](poc/native_trig_and_corpus_numerics_findings.md)
+record checkpoint `d2292b89`. Native sine/cosine binding passes 553 main checks
+per stack. The separately approved numerical tooling passes 247 main checks per
+stack and records all 24 selected strong-FP32 cells under both CPU settings:
+48 actual runs per stack, all three fixed comparisons passing, no pending cell.
+These are sample results; general diagnostic lowering remains UNVERIFIED and
+no default operation admission changes. Independent post-run review accepts
+these recorded samples. Typing (542 files plus RNG) and global Ruff pass. The
+manual inventory
+records 205 files, 1,146 functions and 394 additions, retaining all 752 original
+anchors and 1,802 raw contracts/3,604 cells. Both actual inventory CLI comparisons
+pass. The first integrated full run's 6,577 passes and two failed facade
+assertions remain recorded. After the reviewed native-Sin assertion repair,
+the fresh full run passes **6,579 tests** (13,110 warnings, 384.83 seconds).
+Commit `d2292b89` passes all seven actual configured hooks; all nine frozen
+code/test/inventory hashes match after commit.
 
 The [first diagnostic corpus batch](poc/source_corpus_findings.md) measured 36
 cells per stack, including 26 checked artifacts. All lowering/runtime/numerical
@@ -334,21 +351,39 @@ one FP16 Min broadcast workload, not a general bound. Integrated checks and
 actual hooks pass at `fc3f9323`; default admission stays unchanged. Export has no
 runtime-target argument; sample evidence and its raising guard remain separate.
 
-The accepted next binder plan is two native SOURCE opt-ins for `jnp.sin` and
-`jnp.cos`, focused tests and two obsolete test-guard updates. It is being
-implemented separately and is excluded from this checkpoint. Their observed
-native diagnostic forms already exist; the
-unchanged gather pipeline is expected to reach the later custom-Where diagnostic
-boundary. DOUBLE cosine's existing half-angle arithmetic remains unaudited.
-No source rewrite, diagnostic-table expansion or criterion change is inferred.
+Native SOURCE `jnp.sin`/`jnp.cos` binding is implemented and independently
+reviewed; main checks pass 553 tests per stack. A separate two-cell gather
+revision retains x64-off's configuration conflict and now reaches custom Where
+at scope 0/equation 11 on x64-on. It adds no artifact or runtime acceptance.
+Native Sin/Cos and the exact trace prefix are preserved; the complete traces
+still differ at Where. DOUBLE cosine's existing half-angle arithmetic remains
+unaudited. The primary observer's exit-1 list/tuple failure and separate JSON
+correction remain visible in the new findings.
 
-Separately, `source-corpus-fp32-conjunction-v1` is approved for twelve unchanged
-strong-FP32 rows/24 cells. It requires exact dtype/shape plus all three
-predeclared tolerance comparisons against the raw-source and separately labelled
-historical-harness references. Historical None criteria and the proposal ledger
-stay unchanged; no public `SampleCriteria` change is needed. Actual execution
-awaits independent review of the numerical implementation freeze, and is not
-part of `fc3f9323`. No numerical outcomes are claimed yet.
+The approved `source-corpus-fp32-conjunction-v1` counterpart has now executed:
+twelve unchanged strong-FP32 rows/24 cells, CPU optimization disabled/all,
+48 actual runs per stack and no pending cell. All three comparisons pass for
+each captured output under the predeclared `1e-5` absolute/relative tolerances
+and equal-NaN rule, after exact count/dtype/shape checks. The historical-context
+reference uses the same inputs and unchanged native callable under x64 disabled
+and matmul precision `float32`. Independent post-run review accepts these
+recorded samples.
+Historical None criteria, the proposal ledger and existing `SampleCriteria`
+remain unchanged; diagnostic lowering is still UNVERIFIED.
+
+After this checkpoint, the next implementation is audited admission for the
+already bounded ordinary FP32/FP64 matrix contract, with precise obsolete
+control maintenance. Root will record fresh audited numerical observations
+separately; the historical numerical CLI and its bindings stay strictly pinned.
+The three-file native NNX Linear/reshape dispatch prerequisite has independent
+acceptance in the isolated `02211b62` checkout plus accepted trig patch, under
+the recorded scheduling amendment: 544 tests pass per stack. It is not yet
+integrated into main. It leads to one shared leading-B
+matrix/bias-broadcast packet using the five unchanged MatMul, GPT Add and NNX
+Linear anchors, including both bias choices. Native trace feasibility is already
+recorded; symbolic artifacts, strict sample binding, bias reshape and numerical
+criteria remain implementation/review gates. No broad admission, wrapper-wide
+switch, fallback or public UX transition follows from these plans.
 
 ## Stage 1 Inventory and freeze observable behavior
 

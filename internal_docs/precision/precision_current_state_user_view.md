@@ -68,15 +68,28 @@ run passes **6,391 tests**, and the code commit passed repository hooks. This
 does not complete dynamic-shape support: all 310 raw
 symbolic rows remain open, and BF16 still fails loading on the measured CPUs.
 The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
-checkpoint. The [next findings](poc/minmax_and_corpus_replay_findings.md) describe a
+checkpoint. The [preceding findings](poc/minmax_and_corpus_replay_findings.md) describe a
 reviewed private Min/Max correction: new artifacts preserve required zero signs
 on the measured CPUs, while subnormal failures and added execution cost remain.
 The repaired raw-corpus replay is committed with that correction at `fc3f9323`.
 Both stacks pass 323 focused checks; the complete primary-stack run passes
 **6,466 tests**, and actual repository hooks pass. The replay checks artifacts
-without running them, so it establishes no corpus numerical acceptance. A
-separate numerical comparison plan is approved but has not run. Public options
-and defaults remain unchanged; no new precision choice is added.
+without running them, so that historical checkpoint establishes no corpus
+numerical acceptance.
+
+The [new findings](poc/native_trig_and_corpus_numerics_findings.md) record a
+separate, preapproved comparison of twelve unchanged FP32 sources under both
+original x64 settings. All 48 CPU runs per stack pass the three required
+comparisons on their captured outputs. This covers those samples and settings;
+it does not certify complete models or all inputs. Independent post-run
+review accepts these recorded samples. Native sine/cosine calls now preserve
+JAX tracing, but
+the existing gather example still stops at another conversion boundary and
+produces no artifact. Current focused checks pass on both stacks. The first
+full run's two failed facade assertions about native Sin metadata remain
+recorded. The reviewed repair is included in commit `d2292b89`; the fresh full
+run passes **6,579 tests**, and all seven actual repository hooks pass. Public options and
+defaults remain unchanged; no new precision choice is added.
 
 ## Choosing the Export Setting
 
