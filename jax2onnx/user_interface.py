@@ -94,6 +94,11 @@ from jax2onnx.converter.conversion_api import (
 )
 from jax2onnx.converter.ir_postprocess import postprocess_ir_model
 from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.normalization_options import (
+    NormalizationMode,
+    normalize_normalization_mode,
+    source_normalization_adaptations,
+)
 from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
     validate_source_input_dtype,
@@ -126,8 +131,6 @@ ReturnMode = Literal["proto", "ir", "file"]
 _VALID_RETURN_MODES = {"proto", "ir", "file"}
 ExportMode = Literal["standard", "web"]
 _VALID_EXPORT_MODES = {"standard", "web"}
-NormalizationMode = Literal["auto", "prefer_native", "force_decomposed"]
-_VALID_NORMALIZATION_MODES = {"auto", "prefer_native", "force_decomposed"}
 
 
 PathLikeStr = Union[str, os.PathLike[str]]
@@ -156,13 +159,7 @@ def _normalize_export_mode(value: str) -> ExportMode:
 
 
 def _normalize_normalization_mode(value: str) -> NormalizationMode:
-    mode = value.lower().strip()
-    if mode not in _VALID_NORMALIZATION_MODES:
-        raise ValueError(
-            "Unsupported normalization_mode "
-            f"'{value}'. Expected one of: {sorted(_VALID_NORMALIZATION_MODES)}"
-        )
-    return cast(NormalizationMode, mode)
+    return normalize_normalization_mode(value)
 
 
 @runtime_checkable
@@ -821,6 +818,7 @@ def _build_source_report(
     opset: int,
     diagnostic: bool,
     named_supplied: Mapping[str, TensorProperties],
+    normalization_mode: NormalizationMode,
 ) -> PrecisionReport:
     representations = []
     for role, variables, layouts in (
@@ -881,7 +879,13 @@ def _build_source_report(
             _source_value_properties(value) for value in model.graph.outputs
         ),
         warnings=tuple(captured),
-        adaptations=(*_source_adaptations(model), *representations),
+        adaptations=(
+            *_source_adaptations(model),
+            *source_normalization_adaptations(
+                normalization_mode, diagnostic=diagnostic
+            ),
+            *representations,
+        ),
         profile=SOURCE_DIAGNOSTIC_PROFILE if diagnostic else SOURCE_PRECISION_PROFILE,
         checks=(
             PrecisionCheck(
@@ -1169,12 +1173,8 @@ def _to_onnx(
     normalized_export_mode = _normalize_export_mode(export_mode)
     normalized_normalization_mode = _normalize_normalization_mode(normalization_mode)
     if source:
-        for option, supplied_option in (
-            ("enable_double_precision", enable_double_precision),
-            ("normalization_mode", normalized_normalization_mode != "auto"),
-        ):
-            if supplied_option:
-                _source_migration_gap(option, opset)
+        if enable_double_precision:
+            _source_migration_gap("enable_double_precision", opset)
         for item in inputs:
             if not isinstance(item, (_SupportsShapeAndDtype, tuple, list)):
                 _source_migration_gap(
@@ -1406,6 +1406,7 @@ def _to_onnx(
             opset=opset,
             diagnostic=diagnostic,
             named_supplied=named_supplied,
+            normalization_mode=normalized_normalization_mode,
         )
         attach_precision_report(result, report)
         attach_precision_report(model_proto, report)

@@ -49,6 +49,7 @@ from .ir_builder import _dtype_to_ir
 from .ir_optimizations import optimize_graph
 from .function_scope import FunctionRegistry
 from .precision_policy import PrecisionPolicy, precision_policy_scope
+from .normalization_options import normalize_normalization_mode
 from .source_profile import SourcePrecisionError, validate_source_input_dtype
 from .source_representation import representation_for_aval, validate_source_shapes
 from . import lowering_dispatch as _lowering_dispatch
@@ -1097,6 +1098,7 @@ def _convert_to_ir(
     The caller owns any legacy x64 override. SOURCE retains ambient JAX
     configuration and requires a validator for its bounded audited subset.
     """
+    normalization_mode = normalize_normalization_mode(normalization_mode)
     if precision_policy is PrecisionPolicy.SOURCE:
         if inputs_as_nchw is not None and len(inputs_as_nchw) == 0:
             inputs_as_nchw = None
@@ -1107,12 +1109,6 @@ def _convert_to_ir(
             raise ValueError("Source precision cannot use legacy double promotion")
         if jaxpr_validator is None:
             raise ValueError("Private source conversion requires a subset validator")
-        unsupported = {
-            "normalization_mode": normalization_mode != "auto",
-        }
-        for option, supplied in unsupported.items():
-            if supplied:
-                raise ValueError(f"Private source conversion does not support {option}")
         for index, spec in enumerate(inputs):
             if not isinstance(spec, jax.ShapeDtypeStruct):
                 raise ValueError("Private source conversion requires typed inputs")

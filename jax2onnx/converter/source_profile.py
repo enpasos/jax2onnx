@@ -472,6 +472,90 @@ def _validate_ordinary_dot(
     )
 
 
+def _validate_tensor_matrix_dot(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Prove canonical tensor-by-static-matrix semantics without reshaping."""
+    lhs, rhs = inputs
+    result = outputs[0]
+    rank = len(lhs.shape)
+    site.require(
+        rank in (2, 3, 4) and len(rhs.shape) == 2 and rhs.symbol is None,
+        "tensor-matrix dimensions are outside the profile",
+        "rank-2 through rank-4 lhs and an entirely static rank-2 rhs",
+    )
+    dimensions = eqn.params["dimension_numbers"]
+    site.require(
+        isinstance(dimensions, (tuple, list))
+        and len(dimensions) == 2
+        and all(
+            isinstance(pair, (tuple, list))
+            and len(pair) == 2
+            and all(isinstance(axes, (tuple, list)) for axes in pair)
+            for pair in dimensions
+        ),
+        "malformed tensor-matrix dimension_numbers",
+        "ordered contracting and batch axis pairs",
+        category="lowering-defect",
+    )
+    (lc, rc), (lb, rb) = (tuple(tuple(axes) for axes in pair) for pair in dimensions)
+    site.require(
+        all(
+            all(
+                isinstance(axis, (int, np.integer))
+                and not isinstance(axis, (bool, np.bool_))
+                and 0 <= axis < operand_rank
+                for axis in contracting + batch
+            )
+            and len(set(contracting + batch)) == len(contracting + batch)
+            for contracting, batch, operand_rank in ((lc, lb, rank), (rc, rb, 2))
+        )
+        and len(lc) == len(rc)
+        and len(lb) == len(rb),
+        "invalid or overlapping tensor-matrix axes",
+        "distinct non-Boolean integer axes with matching pair counts in each operand rank",
+        category="lowering-defect",
+    )
+    site.require(
+        ((lc, rc), (lb, rb)) == (((rank - 1,), (0,)), ((), ())),
+        "tensor-matrix axes are outside the profile",
+        "only lhs final-axis/rhs axis-0 contraction with no batch axes",
+    )
+    site.require(
+        all(
+            isinstance(dim, (int, np.integer))
+            and not isinstance(dim, (bool, np.bool_))
+            and dim > 0
+            for dim in (
+                *(lhs.shape if lhs.symbol is None else lhs.shape[1:]),
+                *rhs.shape,
+            )
+        ),
+        "tensor-matrix static dimensions are outside the profile",
+        "positive static extents, optionally one actual atomic leading lhs batch variable",
+    )
+    site.require(
+        lhs.shape[-1] == rhs.shape[0],
+        "inconsistent tensor-matrix contracting dimensions",
+        "equal positive static contracting sizes",
+        category="lowering-defect",
+    )
+    site.require(
+        result.dtype == lhs.dtype and result.symbol == lhs.symbol,
+        "tensor-matrix result dtype or scope differs from its operands",
+        "the common FP32/FP64 dtype and original native lhs batch scope",
+        category="lowering-defect",
+    )
+    site.require(
+        bool(eqn.outvars[0].aval.weak_type)
+        == all(bool(var.aval.weak_type) for var in eqn.invars),
+        "tensor-matrix result weakness differs from its native operands",
+        "the native dot_general weak-type rule without rebuilding avals",
+        category="lowering-defect",
+    )
+    _same_shape(result.shape, lhs.shape[:-1] + (rhs.shape[1],), site)
+
+
 def _validate_dot(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -503,6 +587,16 @@ def _validate_dot(
             "ordinary matrix preferred result type is outside the profile",
             "absent or same-dtype preferred_element_type",
         )
+        rank = len(inputs[0].shape)
+        if len(inputs[1].shape) == 2 and (
+            rank in (3, 4)
+            or (
+                rank == 2
+                and eqn.params["dimension_numbers"] == (((1,), (0,)), ((), ()))
+            )
+        ):
+            _validate_tensor_matrix_dot(eqn, inputs, outputs, site)
+            return
         if any(value.symbol is not None for value in (*inputs, *outputs)):
             _validate_leading_batch_dot(eqn, inputs, outputs, site)
             return

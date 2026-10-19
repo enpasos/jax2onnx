@@ -977,6 +977,7 @@ def _export_prepared(
         opset=int(prepared.metadata.get("opset_version", 23)),
         input_names=prepared.metadata.get("input_names"),
         output_names=prepared.metadata.get("output_names"),
+        normalization_mode=prepared.metadata.get("normalization_mode", "auto"),
         return_mode="proto",
         precision_policy=PrecisionPolicy.SOURCE,
         diagnostic_jaxpr_validator=diagnostic_jaxpr_validator,
@@ -1232,8 +1233,6 @@ def run_source_case(
         )
         if prepared.metadata.get(name)
     ]
-    if prepared.metadata.get("normalization_mode", "auto") != "auto":
-        unsupported.append("normalization_mode")
     if prepared.metadata.get("export_mode", "standard") != "standard":
         unsupported.append("export_mode")
     symbolic = any(

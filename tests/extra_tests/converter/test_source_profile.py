@@ -515,24 +515,71 @@ def test_opset16_keeps_bitcast_26_only() -> None:
         assert caught.value.category == "representation-limit"
 
 
-@pytest.mark.parametrize("rank", [1, 4])
-def test_shared_shape_widening_does_not_admit_other_symbolic_matrix_ranks(
-    rank: int,
-) -> None:
+def test_shared_shape_widening_keeps_symbolic_rank_one_matrix_rejection() -> None:
     (batch,) = export.symbolic_shape("B")
-    left = (batch,) if rank == 1 else (batch, 2, 3, 4)
-    right = (batch,) if rank == 1 else (4, 5)
-    result = () if rank == 1 else (batch, 2, 3, 5)
     graph = _graph(
         "dot_general",
         [
-            jax.ShapeDtypeStruct(left, np.float32),
-            jax.ShapeDtypeStruct(right, np.float32),
+            jax.ShapeDtypeStruct((batch,), np.float32),
+            jax.ShapeDtypeStruct((batch,), np.float32),
         ],
-        [jax.ShapeDtypeStruct(result, np.float32)],
-        {"dimension_numbers": (((rank - 1,), (0,)), ((), ()))},
+        [jax.ShapeDtypeStruct((), np.float32)],
+        {"dimension_numbers": (((0,), (0,)), ((), ()))},
     )
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
     assert caught.value.primitive == "dot_general"
     assert caught.value.category == "profile-exclusion"
+
+
+def test_profile_admits_native_canonical_symbolic_rank_four_tensor_matrix() -> None:
+    (batch,) = export.symbolic_shape("B")
+    specs = (
+        jax.ShapeDtypeStruct((batch, 2, 3, 4), np.float32),
+        jax.ShapeDtypeStruct((4, 5), np.float32),
+    )
+    dimensions = (((3,), (0,)), ((), ()))
+
+    def model(x: jax.Array, weight: jax.Array) -> jax.Array:
+        return jax.lax.dot_general(x, weight, dimensions)
+
+    native = jax.make_jaxpr(model)(*specs).jaxpr
+    source = _trace(model, *specs)
+
+    def metadata(graph: Any) -> tuple[Any, ...]:
+        variables = (*graph.invars, *graph.outvars)
+        return (
+            tuple(
+                (
+                    tuple(var.aval.shape),
+                    np.dtype(var.aval.dtype),
+                    bool(var.aval.weak_type),
+                )
+                for var in variables
+            ),
+            tuple((eqn.primitive.name, dict(eqn.params)) for eqn in graph.eqns),
+        )
+
+    native_metadata = metadata(native)
+    source_metadata = metadata(source)
+    assert source_metadata == native_metadata
+    for graph in (native, source):
+        assert not graph.effects and not graph.constvars
+        assert len(graph.invars) == 2 and len(graph.outvars) == 1
+        assert tuple(graph.invars[0].aval.shape) == (batch, 2, 3, 4)
+        assert tuple(graph.invars[1].aval.shape) == (4, 5)
+        assert tuple(graph.outvars[0].aval.shape) == (batch, 2, 3, 5)
+        assert all(
+            np.dtype(var.aval.dtype) == np.dtype(np.float32) and not var.aval.weak_type
+            for var in (*graph.invars, *graph.outvars)
+        )
+        assert len(graph.eqns) == 1
+        equation = graph.eqns[0]
+        assert equation.primitive.name == "dot_general"
+        assert equation.params["dimension_numbers"] == dimensions
+        assert equation.params.get("precision") is None
+        assert equation.params.get("preferred_element_type") is None
+        assert equation.params.get("out_sharding") is None
+        validate_source_jaxpr(graph, 23)
+    assert metadata(native) == native_metadata
+    assert metadata(source) == source_metadata

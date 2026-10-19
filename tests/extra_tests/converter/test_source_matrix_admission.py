@@ -32,7 +32,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _CANONICAL = (((1,), (0,)), ((), ()))
 _WEIGHT = np.arange(8, dtype=np.float32).reshape(4, 2) / np.float32(8)
 _MATMUL = jnp.matmul
@@ -417,12 +416,27 @@ def test_native_strict_dtype_and_rank_errors_are_preserved() -> None:
         with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
             actual = jax.make_jaxpr(fn)(*map(d2a._spec, values))
         assert typed_trace_manifest(actual) == typed_trace_manifest(original)
-        with pytest.raises(SourcePrecisionError, match="dimensions.*outside"):
-            user_interface._to_onnx(
-                fn,
-                list(map(d2a._spec, values)),
-                precision_policy=PrecisionPolicy.SOURCE,
+        proto, eager, compiled = _export(fn, values)
+        assert [node.op_type for node in proto.graph.node] == ["MatMul"]
+        assert len(proto.graph.input) == 2 and len(proto.graph.output) == 1
+        for port, shape in zip(
+            (*proto.graph.input, *proto.graph.output),
+            ((2, 3, 4), (4, 2), (2, 3, 2)),
+            strict=True,
+        ):
+            tensor = port.type.tensor_type
+            assert tensor.elem_type == onnx.TensorProto.FLOAT
+            assert all(not dim.dim_param for dim in tensor.shape.dim)
+            assert tuple(dim.dim_value for dim in tensor.shape.dim) == shape
+        assert len(eager) == len(compiled) == 1
+        for actual_output, expected_output in zip(compiled, eager, strict=True):
+            assert (
+                actual_output.dtype == expected_output.dtype == np.dtype(np.float32)
+                and actual_output.shape == expected_output.shape == (2, 3, 2)
+                and actual_output.tobytes() == expected_output.tobytes()
             )
+        for optimization in ("disabled", "all"):
+            d2a._check_samples(proto, values, eager, optimize=optimization)
 
         def rank_error(a: Any, b: Any) -> Any:
             return jnp.matmul(a, b) + np.asarray([1, 2], np.float32)

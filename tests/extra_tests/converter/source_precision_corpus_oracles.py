@@ -8,6 +8,7 @@ supply numerical criteria to a source scenario or execute runtime samples.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 import hashlib
@@ -36,7 +37,7 @@ APPROVED_SELECTOR_SHA256: Final = (
 )
 DOT_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 DOT_SOURCE_SHA256: Final = (
-    "f3b4753d24f2e2ebb4da20919adadf2c5da203ee8af8fc9033a0bf89bd39447c"
+    "2521e4000e356eec1e96c068acd1766c51b76492081ac9a12f4f7e363305517b"
 )
 ORACLE_VERSION: Final = "static-dot-source-counterpart-v2"
 LINEAR_SOURCE_PATH: Final = "jax2onnx/plugins/flax/nnx/linear.py"
@@ -1166,8 +1167,116 @@ def criterion_proposal_ledger() -> dict[str, Any]:
     }
 
 
-NORMALIZATION_ORACLE_VERSION: Final = "shared-b-original-layer-norm-v1"
+NORMALIZATION_ORACLE_VERSION: Final = "shared-b-original-layer-norm-options-v2"
 NORMALIZATION_CASES: Final[tuple[CorpusCase, ...]] = (
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        0,
+        "layer_norm",
+        "28ff0cee91358c0be1ae4ea4cf2386e42620abc4d2ca545c69644d0ea5f10243",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        1,
+        "layer_norm_multiaxis",
+        "ce9d57750c2d9a7be56dac839b7d5d7b21c6c14766d0f20efe732a23612d3135",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        2,
+        "batched_layer_norm",
+        "d3aeb83e25b9af77ec322414da31f61584914f3f36548f504cf85af53f54e769",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        3,
+        "layer_norm_no_bias_no_scale",
+        "28ff0cee91358c0be1ae4ea4cf2386e42620abc4d2ca545c69644d0ea5f10243",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        0,
+        "layer_norm",
+        "32cc21c8909a3dcaf93e212dd79de063e577df743ac2c2ab0409e2965d93ed0c",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        1,
+        "layer_norm_no_bias_no_scale",
+        "b1c8735f9f737e4e69136b0857a2a4431e01f3cea8617b87053c35b67069796b",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        2,
+        "layer_norm_multiaxis",
+        "376a8783f49a68fbb7cc0eba3ec53303bceb962cff0a1f79b245f3d8ee70539f",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        3,
+        "layer_norm_default_epsilon",
+        "ff13993a7b3a5172ae874ab70056b6c46839631a9b2dbee0448bfca8f43a5f8b",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        0,
+        "layer_norm",
+        "87e43b4dbd8bbb031ff0e968e0735251980b7f73e4b88bf4ec61ae22512e6e5e",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        1,
+        "layer_norm_no_bias_no_scale",
+        "d50091c7c4db5714c72986d437af0e6ad1802ba33bc9f70177f74d7fbff1d7ec",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        2,
+        "layer_norm_bias_no_scale",
+        "bf026adcbbc5742d5c768ec44c0fa3e1cd0140e3136802599c38ddf007eb2a88",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        3,
+        "layer_norm_no_bias_scale",
+        "1e7329dac4c333452e0e94d7a959bec40a5a3f04e1cbe512fa3d2df17d4265b0",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        4,
+        "layer_norm_bias_scale",
+        "af0fc4f4485d1895af78b50057e55f54274b08867acd6c94d3fcd33e2af9cfd9",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        5,
+        "layer_norm_multiaxis",
+        "c43ed0f5e6be4ac911313597af571d7676564f57d1206f759432e85bd4a27333",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        7,
+        "layer_norm_symbolic_batch_seq10_feat3",
+        "15fd8a32e70652890df09b2f530d76b764c1a0525b8d71bc56fd4e0c87e83595",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        8,
+        "layer_norm_symbolic_batch_seq10_feat3_2",
+        "8fc138d204be5a200657ade547ea552d3a0843caf406140a162859b5e6561681",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        9,
+        "layer_norm_negative_axis_no_div",
+        "5803ae86668523245d20b3f70299cd4f8e6fb82ee112e2bf85911f6cb2f8647e",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        12,
+        "layer_norm_slow_variance",
+        "083a3b1f34988b909d14d2267e496648a18714f202f7125a93ed3c226c2d76eb",
+    ),
     CorpusCase(
         "plugin::eqx.nn.layer_norm",
         4,
@@ -1256,6 +1365,150 @@ _NORMALIZATION_MODULES: Final = {
         "2e6481dc8951d838355492a5c714f67d906be75ea419ce6844ff5027af1905cd",
     ),
 }
+
+
+# Original ordinal and exact registration source segment remain separate from
+# opaque callable contracts: Eqx rows 0/3 deliberately share a contract hash.
+_NORMALIZATION_REGISTRATIONS: Final = {
+    ("plugin::eqx.nn.layer_norm", 0): (
+        "prefer_native",
+        "96fe6088f8f10dd69fcf69f8c2d09f18e7ca94e6f634c548c7dbc0de90b3a739",
+    ),
+    ("plugin::eqx.nn.layer_norm", 1): (
+        "prefer_native",
+        "104dcf05ec304ffaffa8a70101d7733eda0996eaac20a4fa0e7e82da4dd78876",
+    ),
+    ("plugin::eqx.nn.layer_norm", 2): (
+        "prefer_native",
+        "a45327c2e574bb95d0fd42a0069281cefd4ba5335f2ee42f608735b796927055",
+    ),
+    ("plugin::eqx.nn.layer_norm", 3): (
+        "prefer_native",
+        "f66bb25c604dbf5adb1ee872790574a8f9d65fc79be94ab259c8d59f02e8d0ce",
+    ),
+    ("plugin::eqx.nn.layer_norm", 4): (
+        "auto",
+        "b56dd5627742da81ea67b092915c74c8bed4097a110441eb2f0eb5817581b49f",
+    ),
+    ("plugin::eqx.nn.layer_norm", 5): (
+        "auto",
+        "454307187d5811af0299b6bd0d12ae845f3ec01b53e4695c6c1a9ac7bfc24e89",
+    ),
+    ("plugin::eqx.nn.layer_norm", 6): (
+        "auto",
+        "f98399e3db626768e407c77eb8ad2c73966b8f7e96e5d07d7c638b062252b68e",
+    ),
+    ("plugin::eqx.nn.layer_norm", 7): (
+        "auto",
+        "864a3c7b45af4131ea30f49afe81cde857995ff97b34c67c43bdeef7f0546d42",
+    ),
+    ("plugin::linen.layer_norm", 0): (
+        "prefer_native",
+        "71b6467a99af2a6f58e2b26b62e29dac42bbb550345aa7b3f72fa64e9e4e1eb8",
+    ),
+    ("plugin::linen.layer_norm", 1): (
+        "prefer_native",
+        "5b5089415168b6603e08d2075f5188b0c128a0aab6c2217ded3fa102a7f0ae02",
+    ),
+    ("plugin::linen.layer_norm", 2): (
+        "prefer_native",
+        "6c4decdd666ecf0d8dea63730f7a4723f9f0c22c5d21e62b0508db7034f09ab8",
+    ),
+    ("plugin::linen.layer_norm", 3): (
+        "prefer_native",
+        "db52bfd292e8cb4ff2c6240ee447ee87f8bca04cd02ecfc95f57539ce569ec55",
+    ),
+    ("plugin::linen.layer_norm", 4): (
+        "auto",
+        "3db21d33e5ec2f326b967b18f73754b0cbf5523c644cdfaee8d69b0caf681c1e",
+    ),
+    ("plugin::linen.layer_norm", 5): (
+        "auto",
+        "8df91168eeccacdf3e1540414d1a27b796b44fa73d1123aec5dace89087764fe",
+    ),
+    ("plugin::linen.layer_norm", 6): (
+        "auto",
+        "3ad6b8677696e7cd025d9b9680e5a00ad834566e3d3391ec22fe325cdd0a4c9c",
+    ),
+    ("plugin::nnx.layer_norm", 0): (
+        "prefer_native",
+        "254030c4ac34a087b4fbeade847306b23b5750b7115d44599662899ca0f2c93f",
+    ),
+    ("plugin::nnx.layer_norm", 1): (
+        "prefer_native",
+        "d5c611a729156ae8707b710f995b01ca4a8baed39aba583b6dce783e21e27e81",
+    ),
+    ("plugin::nnx.layer_norm", 2): (
+        "prefer_native",
+        "96c6e4eb08fb31f8be3e90ceba9b6f1978778bd004fdd06f1233c1062b29d444",
+    ),
+    ("plugin::nnx.layer_norm", 3): (
+        "prefer_native",
+        "4504abf253fc1d80fdbdbb1f00ecd98e0e20f548bffb1c230db64e560ae47305",
+    ),
+    ("plugin::nnx.layer_norm", 4): (
+        "prefer_native",
+        "22268adb8e430c0a05dc77ad0136c31a6dd8045be79e4a626d188f52a4613c8f",
+    ),
+    ("plugin::nnx.layer_norm", 5): (
+        "prefer_native",
+        "860b27aa25b88f2b7da429dd6380be19365c4de8be1b1654c3505329337ad59e",
+    ),
+    ("plugin::nnx.layer_norm", 6): (
+        "auto",
+        "fe7ae2f0c649e7d99ff80c2836a47675a0a71d559a1aac5ede682359f22b2cd6",
+    ),
+    ("plugin::nnx.layer_norm", 7): (
+        "prefer_native",
+        "2af0ee8d7e739bc1428c3c6023ae41843b94d32b975f4f3f6af3afd7e32a7ad2",
+    ),
+    ("plugin::nnx.layer_norm", 8): (
+        "prefer_native",
+        "327795d168c4b85d6ece4f4e9ef1de2ec195e4c6c2727fd88066531204757bd7",
+    ),
+    ("plugin::nnx.layer_norm", 9): (
+        "prefer_native",
+        "2a643d11b23c6ea11924d26d39621dc9fc64446ce877c748fffeb902d7269e40",
+    ),
+    ("plugin::nnx.layer_norm", 10): (
+        "auto",
+        "394b02592af084de76d4b70ff6dda49c01e360645c1bbee5da9f923bd889aace",
+    ),
+    ("plugin::nnx.layer_norm", 11): (
+        "auto",
+        "3f27280807aed5fabcd68b666f97b6c8b608028140b1449792e5287fb0c886c7",
+    ),
+    ("plugin::nnx.layer_norm", 12): (
+        "prefer_native",
+        "b152ddb350f81f72dddd2b59737fe723fccd73771489f5f4ad95af50069aad0b",
+    ),
+    ("plugin::nnx.layer_norm", 13): (
+        "auto",
+        "b82bb9d7b5ded195d42a5e7f9798bd634f4312f2d6b8285b668c5773d9e62563",
+    ),
+    ("plugin::nnx.layer_norm", 14): (
+        "auto",
+        "e0c44bacb403080e55d5f7b9fc14e6fe71099dcf67cd68140bde4bb640f7dfe1",
+    ),
+}
+
+
+def _normalization_registration_source(origin: str, ordinal: int) -> str:
+    path, _ = _NORMALIZATION_MODULES[origin]
+    source = (REPOSITORY_ROOT / path).read_text()
+    rows = [
+        keyword.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == "testcases" and isinstance(keyword.value, ast.List)
+    ]
+    if len(rows) != 1 or not 0 <= ordinal < len(rows[0].elts):
+        raise ValueError("Original normalization registration ordinal changed")
+    segment = ast.get_source_segment(source, rows[0].elts[ordinal])
+    if segment is None:
+        raise ValueError("Original normalization registration source unavailable")
+    return hashlib.sha256(segment.encode()).hexdigest()
 
 
 class _NormalizationExpressions:
@@ -2031,6 +2284,9 @@ class NormalizationCounterpart:
                 "identifier": self.identifier,
                 "case": asdict(self.case),
                 "original_modules": _NORMALIZATION_MODULES,
+                "registration": _NORMALIZATION_REGISTRATIONS[
+                    (self.case.origin, self.case.ordinal)
+                ],
                 "oracle_file_sha256": hashlib.sha256(
                     Path(__file__).read_bytes()
                 ).hexdigest(),
@@ -2070,11 +2326,19 @@ class NormalizationCounterpart:
             },
             unresolved=unresolved,
         )
+        requested_mode, registration_sha256 = _NORMALIZATION_REGISTRATIONS[
+            (self.case.origin, self.case.ordinal)
+        ]
         if (
             fingerprint(contract) != self.case.contract_sha256
-            or metadata.get("normalization_mode", "auto") != "auto"
+            or metadata.get("normalization_mode", "auto") != requested_mode
+            or raw.get("normalization_mode", "auto") != requested_mode
+            or _normalization_registration_source(self.case.origin, self.case.ordinal)
+            != registration_sha256
         ):
-            raise ValueError("Normalization complete raw contract/default mode changed")
+            raise ValueError(
+                "Normalization complete raw contract/mode/registration changed"
+            )
         if unresolved and self.case.origin != "plugin::eqx.nn.layer_norm":
             raise ValueError("Unexpected opaque normalization recipe")
         for path, wanted in _NORMALIZATION_MODULES.values():
@@ -2108,16 +2372,23 @@ class NormalizationCounterpart:
                     )
                 )
                 target = captures["fun"].cell_contents
-            expected_shape = (20, 32) if self.case.ordinal == 5 else (32,)
+            expected_shape = (20, 32) if self.case.ordinal in (1, 5) else (32,)
+            affine = self.case.ordinal != 3
             if (
                 type(target) is not eqx.nn.LayerNorm
                 or target.shape != expected_shape
                 or target.eps != 1e-5
-                or target.use_weight is not True
-                or target.use_bias is not True
+                or target.use_weight is not affine
+                or target.use_bias is not affine
             ):
                 raise ValueError("Original Eqx LayerNorm configuration changed")
             for value, expected in ((target.weight, 1), (target.bias, 0)):
+                if not affine:
+                    if value is not None:
+                        raise ValueError(
+                            "Original Eqx no-affine LayerNorm parameter must be absent"
+                        )
+                    continue
                 array = np.asarray(value)
                 if (
                     array.shape != expected_shape
@@ -2210,6 +2481,23 @@ class NormalizationCounterpart:
         ):
             raise ValueError(
                 "Diagnostic normalization structure cannot certify lowering"
+            )
+        requested_mode = prepared.metadata.get("normalization_mode", "auto")
+        decisions = tuple(
+            item for item in report.adaptations if item.startswith("normalization:")
+        )
+        expected_decisions = (
+            (
+                f"normalization: requested={requested_mode}; effective=typed-native-jax-dag; "
+                "reason=native ONNX normalization has no reviewed source-equivalence proof; "
+                "original constants, casts, accumulation and rounding retained",
+            )
+            if requested_mode == "prefer_native"
+            else ()
+        )
+        if decisions != expected_decisions:
+            raise ValueError(
+                "Normalization report loses the requested/effective representation decision"
             )
         if (
             model.graph.sparse_initializer

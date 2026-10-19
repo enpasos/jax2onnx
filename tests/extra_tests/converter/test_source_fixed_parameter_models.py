@@ -22,7 +22,11 @@ import pytest
 from jax2onnx import user_interface as ui
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
-from jax2onnx.precision import get_precision_report, precision_report_to_json
+from jax2onnx.precision import (
+    CheckStatus,
+    get_precision_report,
+    precision_report_to_json,
+)
 from scripts.source_precision_inventory import canonical_contract, raw_registrations
 from tests.extra_tests.converter.source_precision_support import (
     SourceSettings,
@@ -145,6 +149,15 @@ _CONTRACTS = (
 )
 
 
+# Only this exact immutable raw contract now has an artifact-only expectation.
+# Its None criterion and runtime/numerical UNVERIFIED statuses remain unchanged.
+_EXPECTED_ARTIFACT_CONTRACT = (
+    "example::examples.gpt::GPT_MLP",
+    0,
+    "faf258485b7a1bf4a97e1a56b87e9fb472ad8eba84b973b8e303dd925c69e21a",
+)
+
+
 @pytest.fixture(autouse=True)
 def _configuration() -> Iterator[None]:
     previous = _global_source_configuration()
@@ -222,6 +235,11 @@ def test_exact_original_parameter_model_first_barrier(
     index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     origin, ordinal, expected_digest = _CONTRACTS[index]
+    expected_artifact = (
+        origin,
+        ordinal,
+        expected_digest,
+    ) == _EXPECTED_ARTIFACT_CONTRACT
     registrations, _ = raw_registrations()
     metadata = next(item for name, _, item in registrations if name == origin)
     case = metadata["testcases"][ordinal]
@@ -250,6 +268,9 @@ def test_exact_original_parameter_model_first_barrier(
         "hidden_global_settings": _global_source_configuration(),
         "versions": {"python": platform.python_version(), "jax": jax.__version__},
         "criterion": None,
+        "expected_export_outcome": (
+            "artifact-checked" if expected_artifact else "first-barrier"
+        ),
         "native_reference_acceptance": "UNVERIFIED",
         "runtime": "UNVERIFIED",
         "numerical_acceptance": "UNVERIFIED",
@@ -427,6 +448,47 @@ def test_exact_original_parameter_model_first_barrier(
         report = get_precision_report(artifact)
         assert report is not None and report.profile == "source-static-v1"
         (folder / "report.json").write_text(precision_report_to_json(report))
+        if expected_artifact:
+            assert report.opset == 23
+            checks = {check.category: check.status for check in report.checks}
+            assert checks["representation"] is CheckStatus.VALIDATED
+            assert checks["lowering"] is CheckStatus.VALIDATED
+            assert checks["runtime-execution"] is CheckStatus.UNVERIFIED
+            assert checks["numerical-acceptance"] is CheckStatus.UNVERIFIED
+            assert len(report.inputs) == 2
+            for summary, dtype, shape in zip(
+                report.inputs,
+                ("float32", "bool"),
+                (("B", 1024, 768), ()),
+                strict=True,
+            ):
+                for properties in (
+                    summary.supplied,
+                    summary.normalized,
+                    summary.traced,
+                    summary.exported,
+                ):
+                    assert properties.dtype == dtype and properties.shape == shape
+            assert len(report.traced_outputs) == len(report.exported_outputs) == 1
+            for properties in (*report.traced_outputs, *report.exported_outputs):
+                assert properties.dtype == "float32"
+                assert properties.shape == ("B", 1024, 768)
+            assert [value.name for value in artifact.graph.input] == [
+                "in_0",
+                "deterministic",
+            ]
+            assert len(artifact.graph.output) == 1
+            for value in (artifact.graph.input[0], artifact.graph.output[0]):
+                tensor = value.type.tensor_type
+                assert tensor.elem_type == onnx.TensorProto.FLOAT
+                assert tensor.shape.dim[0].dim_param == "B"
+                assert tuple(dim.dim_value for dim in tensor.shape.dim[1:]) == (
+                    1024,
+                    768,
+                )
+            control = artifact.graph.input[1].type.tensor_type
+            assert control.elem_type == onnx.TensorProto.BOOL
+            assert not control.shape.dim
         record["export"] = {
             "status": "artifact-checked",
             "artifact_sha256": hashlib.sha256(payload).hexdigest(),
@@ -461,15 +523,29 @@ def test_exact_original_parameter_model_first_barrier(
         for binding in trace["bindings"]
     )
     (folder / "ledger.json").write_text(json.dumps(record, sort_keys=True, indent=2))
-    # This bounded binder packet does not admit any unchanged stochastic model.
-    assert record["export"]["status"] == "first-barrier"
-    assert record["export"]["error"]["type"] in {
-        "SourcePrecisionError",
-        "TracerBoolConversionError",
-        "TracerIntegerConversionError",
-        "ValueError",
-        "TypeError",
-    }
+    assert record["criterion"] is None
+    assert all(
+        record[field] == "UNVERIFIED"
+        for field in (
+            "native_reference_acceptance",
+            "runtime",
+            "numerical_acceptance",
+            "product_support",
+        )
+    )
+    assert record["export"]["status"] == record["expected_export_outcome"]
+    if expected_artifact:
+        assert record["export"]["inputs"] == ["in_0", "deterministic"]
+        assert "error" not in record["export"]
+    else:
+        # Every other original contract retains its required first barrier.
+        assert record["export"]["error"]["type"] in {
+            "SourcePrecisionError",
+            "TracerBoolConversionError",
+            "TracerIntegerConversionError",
+            "ValueError",
+            "TypeError",
+        }
 
 
 def test_original_mlp_is_next_dependency_and_static_014_stays_five() -> None:

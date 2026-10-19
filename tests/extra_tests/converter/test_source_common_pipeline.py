@@ -244,7 +244,7 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
     [
         ({"enable_double_precision": True}, "legacy double promotion"),
         ({"jaxpr_validator": None}, "requires a subset validator"),
-        ({"normalization_mode": "prefer_native"}, "does not support normalization"),
+        ({"normalization_mode": "require_native"}, "Unsupported normalization_mode"),
         ({"inputs": [()]}, "requires typed inputs"),
         pytest.param(
             {"inputs": [jax.ShapeDtypeStruct(("B", 2, 3, 4, 5), np.float32)]},

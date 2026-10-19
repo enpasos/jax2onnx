@@ -331,6 +331,16 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             and dtypes[0] == dtypes[1] == dtypes[2]
             and (preferred is None or np.dtype(preferred) == dtypes[2])
         ):
+            rank = len(lhs_var.aval.shape)
+            if len(rhs_var.aval.shape) == 2 and (
+                rank in (3, 4)
+                or (
+                    rank == 2
+                    and params["dimension_numbers"] == (((1,), (0,)), ((), ()))
+                )
+            ):
+                self._lower_source_tensor_matrix(ctx, eqn, numpy_dtype_to_ir(dtypes[2]))
+                return
             shapes = [tuple(var.aval.shape) for var in (*eqn.invars, out_var)]
             contracts = [source_shape_contract(shape) for shape in shapes]
             if any(symbol is not None for _, symbol in contracts):
@@ -389,6 +399,111 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
         output = ctx.allocate_value_for_var(out_var, name_hint="dot_float32")
         result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
         ctx.bind_value_for_var(out_var, result)
+
+    def _lower_source_tensor_matrix(
+        self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType
+    ) -> None:
+        """Emit one typed MatMul for a proven canonical tensor-matrix call."""
+        native_shapes = [tuple(var.aval.shape) for var in (*eqn.invars, *eqn.outvars)]
+        contracts = [source_shape_contract(shape) for shape in native_shapes]
+        (lhs_shape, lhs_symbol), (rhs_shape, rhs_symbol), (out_shape, out_symbol) = (
+            contracts
+        )
+        rank = len(lhs_shape)
+        if (
+            rank not in (2, 3, 4)
+            or len(rhs_shape) != 2
+            or rhs_symbol is not None
+            or any(symbol is not None and symbol[1] is None for _, symbol in contracts)
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: tensor-matrix dimensions are outside the audited private subset"
+            )
+        dimensions = eqn.params["dimension_numbers"]
+        if not (
+            isinstance(dimensions, (tuple, list))
+            and len(dimensions) == 2
+            and all(
+                isinstance(pair, (tuple, list))
+                and len(pair) == 2
+                and all(isinstance(axes, (tuple, list)) for axes in pair)
+                for pair in dimensions
+            )
+        ):
+            raise ValueError("SOURCE dot_general: malformed tensor-matrix axes")
+        (lc, rc), (lb, rb) = (
+            tuple(tuple(axes) for axes in pair) for pair in dimensions
+        )
+        if not (
+            all(
+                all(
+                    isinstance(axis, (int, np.integer))
+                    and not isinstance(axis, (bool, np.bool_))
+                    and 0 <= axis < operand_rank
+                    for axis in contracting + batch
+                )
+                and len(set(contracting + batch)) == len(contracting + batch)
+                for contracting, batch, operand_rank in ((lc, lb, rank), (rc, rb, 2))
+            )
+            and len(lc) == len(rc)
+            and len(lb) == len(rb)
+        ):
+            raise ValueError(
+                "SOURCE dot_general: invalid or overlapping tensor-matrix axes"
+            )
+        if ((lc, rc), (lb, rb)) != (((rank - 1,), (0,)), ((), ())):
+            raise NotImplementedError(
+                "SOURCE dot_general: tensor-matrix axes are outside the audited private subset"
+            )
+        if any(
+            isinstance(dim, (bool, np.bool_))
+            or not isinstance(dim, (int, np.integer))
+            or dim <= 0
+            for dim in (
+                *(lhs_shape if lhs_symbol is None else lhs_shape[1:]),
+                *rhs_shape,
+            )
+        ):
+            raise NotImplementedError(
+                "SOURCE dot_general: tensor-matrix static extents must be positive"
+            )
+        validate_source_shapes(native_shapes)
+        if (
+            lhs_shape[-1] != rhs_shape[0]
+            or out_shape != lhs_shape[:-1] + (rhs_shape[1],)
+            or out_symbol != lhs_symbol
+        ):
+            raise ValueError(
+                "SOURCE dot_general: tensor-matrix result/contracting dimensions or scope differ"
+            )
+        if any(
+            type(var.aval.weak_type) is not bool for var in (*eqn.invars, *eqn.outvars)
+        ) or (
+            eqn.outvars[0].aval.weak_type
+            != all(var.aval.weak_type for var in eqn.invars)
+        ):
+            raise ValueError(
+                "SOURCE dot_general: tensor-matrix result weakness differs"
+            )
+        lhs, rhs = (ctx.require_value_for_var(var) for var in eqn.invars)
+        output = ctx.allocate_value_for_var(
+            eqn.outvars[0], name_hint="dot_tensor_matrix"
+        )
+        for value, expected in (
+            (lhs, lhs_shape),
+            (rhs, rhs_shape),
+            (output, out_shape),
+        ):
+            if (
+                _value_ir_dtype(value) != dtype
+                or value.shape is None
+                or normalized_shape_dimensions(tuple(value.shape)) != expected
+            ):
+                raise ValueError(
+                    "SOURCE dot_general: physical matrix dtype/shape differs from aval"
+                )
+        result = ctx.builder.op("MatMul", [lhs, rhs], output=output)
+        ctx.bind_value_for_var(eqn.outvars[0], result)
 
     def _lower_source_leading_batch(
         self, ctx: NativeLoweringContext, eqn: Any, dtype: ir.DataType

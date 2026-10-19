@@ -730,21 +730,17 @@ def test_source_reports_actual_matrix_widening_without_runtime_claim(
     assert get_precision_report(unrelated).caller_default_matmul_precision == "highest"
 
 
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"normalization_mode": "prefer_native"},
-    ],
-)
-def test_source_deferred_options_are_explicit_internal_migration_gaps(
-    options: dict[str, Any],
-) -> None:
-    with pytest.raises(
-        SourcePrecisionError, match="internal migration gap"
-    ) as captured:
-        _source(lambda x: -x, [()], **options)
-    assert captured.value.category == "profile-exclusion"
-    assert "broader existing functionality" in captured.value.action
+@pytest.mark.parametrize("mode", ["native", "require_native", ""])
+def test_source_rejects_invalid_normalization_modes_before_tracing(mode: str) -> None:
+    called = []
+
+    def model(x: Any) -> Any:
+        called.append(True)
+        return -x
+
+    with pytest.raises(ValueError, match="Unsupported normalization_mode"):
+        _source(model, [()], normalization_mode=mode)
+    assert not called
 
 
 def test_source_named_keyword_uses_real_python_binding_and_typed_port() -> None:

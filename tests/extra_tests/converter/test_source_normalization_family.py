@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+import copy
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -25,7 +26,7 @@ from jax2onnx import onnx_function, user_interface as ui
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.conversion_api import _activate_plugin_worlds
 from jax2onnx.converter.precision_policy import PrecisionPolicy, precision_policy_scope
-from jax2onnx.converter.source_profile import SourcePrecisionError
+from jax2onnx.converter.source_profile import validate_source_jaxpr
 from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.plugins.plugin_system import FunctionPlugin
 from jax2onnx.precision import (
@@ -82,6 +83,11 @@ _ORIGINAL_DEFAULTS = {
     "plugin::nnx.layer_norm": {6, 10, 11, 13, 14},
     "plugin::linen.layer_norm": {4, 5, 6},
     "plugin::eqx.nn.layer_norm": {4, 5, 6, 7},
+}
+_ORIGINAL_OPTIONS = {
+    "plugin::nnx.layer_norm": {0, 1, 2, 3, 4, 5, 7, 8, 9, 12},
+    "plugin::linen.layer_norm": {0, 1, 2, 3},
+    "plugin::eqx.nn.layer_norm": {0, 1, 2, 3},
 }
 _ROW_COUNTS = {
     "plugin::nnx.layer_norm": 15,
@@ -232,7 +238,19 @@ def _retain_export(path: Path) -> Iterator[list[Any]]:
     returned = []
 
     def observe(*args: Any, **kwargs: Any) -> Any:
-        model = original(*args, **kwargs)
+        prepared = args[0]
+        modes = []
+        facade = ui._to_onnx
+
+        def actual_facade(*call_args: Any, **call_kwargs: Any) -> Any:
+            # Observe the real shared facade argument; omission must fail even
+            # when the effective typed DAG happens to be the same as auto.
+            modes.append(call_kwargs["normalization_mode"])
+            return facade(*call_args, **call_kwargs)
+
+        with patch.object(ui, "_to_onnx", actual_facade):
+            model = original(*args, **kwargs)
+        assert modes == [prepared.metadata.get("normalization_mode", "auto")]
         # Retain the returned object before evidence I/O, including on a later
         # signature/counterpart failure. No second export or evaluation occurs.
         returned.append(model)
@@ -387,6 +405,331 @@ def _native_preservation(
     return tuple(compiled_references)
 
 
+_NATIVE_ZERO_CONFLICT_ROWS = {
+    ("plugin::linen.layer_norm", 3, False): (
+        "layer_norm_default_epsilon",
+        "ff13993a7b3a5172ae874ab70056b6c46839631a9b2dbee0448bfca8f43a5f8b",
+    ),
+    ("plugin::linen.layer_norm", 3, True): (
+        "layer_norm_default_epsilon",
+        "ff13993a7b3a5172ae874ab70056b6c46839631a9b2dbee0448bfca8f43a5f8b",
+    ),
+    ("plugin::nnx.layer_norm", 7, False): (
+        "layer_norm_symbolic_batch_seq10_feat3",
+        "15fd8a32e70652890df09b2f530d76b764c1a0525b8d71bc56fd4e0c87e83595",
+    ),
+    ("plugin::nnx.layer_norm", 7, True): (
+        "layer_norm_symbolic_batch_seq10_feat3",
+        "15fd8a32e70652890df09b2f530d76b764c1a0525b8d71bc56fd4e0c87e83595",
+    ),
+    ("plugin::nnx.layer_norm", 8, False): (
+        "layer_norm_symbolic_batch_seq10_feat3_2",
+        "8fc138d204be5a200657ade547ea552d3a0843caf406140a162859b5e6561681",
+    ),
+    ("plugin::nnx.layer_norm", 8, True): (
+        "layer_norm_symbolic_batch_seq10_feat3_2",
+        "8fc138d204be5a200657ade547ea552d3a0843caf406140a162859b5e6561681",
+    ),
+}
+_NATIVE_ZERO_CONFLICT_SAMPLES = {
+    "B=2:signed-zero-nan": (
+        3,
+        (2, 10, 3),
+        (16, 40),
+        "49eb7279a82f4a27d47cebe9193868037c24c70f02b02eec746f55011a2f20ff",
+    ),
+    "B=5:signed-zero-nan": (
+        6,
+        (5, 10, 3),
+        (16, 40, 64, 88, 112, 136),
+        "77a65a6fc3c86bdc94fbc1922f07b5178a0d2a9e4c8537cb678b11f968460906",
+    ),
+}
+
+
+def _native_zero_conflict_mask(eager: np.ndarray, compiled: np.ndarray) -> np.ndarray:
+    assert eager.dtype == compiled.dtype and eager.shape == compiled.shape
+    for predicate in (np.isnan, np.isposinf, np.isneginf, np.isfinite):
+        np.testing.assert_array_equal(predicate(eager), predicate(compiled))
+    assert eager.dtype.kind == "f" and eager.dtype.itemsize in (2, 4, 8)
+    unsigned = {2: np.uint16, 4: np.uint32, 8: np.uint64}[eager.dtype.itemsize]
+    return (
+        np.isfinite(eager)
+        & np.isfinite(compiled)
+        & (eager == 0)
+        & (compiled == 0)
+        & (
+            np.ascontiguousarray(eager).view(unsigned)
+            != np.ascontiguousarray(compiled).view(unsigned)
+        )
+    )
+
+
+def _qualify_native_zero_reference(
+    case: CorpusCase,
+    caller_x64: bool,
+    sample_index: int,
+    label: str,
+    arguments: Any,
+    eager_outputs: Any,
+    compiled_outputs: Any,
+) -> tuple[np.ndarray, ...]:
+    """Admit only the six independently surveyed native contradictions, before export."""
+    assert type(caller_x64) is bool
+    row = _NATIVE_ZERO_CONFLICT_ROWS.get((case.origin, case.ordinal, caller_x64))
+    if row is not None:
+        assert (case.testcase, case.contract_sha256) == row
+    witness = _NATIVE_ZERO_CONFLICT_SAMPLES.get(label) if row is not None else None
+    assert len(eager_outputs) == len(compiled_outputs)
+    if witness is not None:
+        index, shape, positions, input_sha256 = witness
+        assert sample_index == index and len(arguments) == len(eager_outputs) == 1
+        argument = np.asarray(arguments[0])
+        assert argument.dtype == np.dtype("float32") and argument.shape == shape
+        assert hashlib.sha256(argument.tobytes(order="C")).hexdigest() == input_sha256
+    masks = []
+    for output_index, (eager, compiled) in enumerate(
+        zip(eager_outputs, compiled_outputs, strict=True)
+    ):
+        eager, compiled = np.asarray(eager), np.asarray(compiled)
+        conflict = _native_zero_conflict_mask(eager, compiled)
+        expected = np.zeros(eager.shape, dtype=bool)
+        if witness is not None:
+            assert output_index == 0 and eager.dtype == np.dtype("float32")
+            assert eager.shape == shape
+            expected.flat[list(positions)] = True
+            for value, word in ((eager, 0), (compiled, 2147483648)):
+                words = np.ascontiguousarray(value).view(np.uint32).reshape(-1)
+                np.testing.assert_array_equal(words[list(positions)], word)
+        np.testing.assert_array_equal(conflict, expected)
+        conflict.setflags(write=False)
+        masks.append(conflict)
+    return tuple(masks)
+
+
+def _qualify_native_zero_references(
+    case: CorpusCase,
+    caller_x64: bool,
+    prepared: Any,
+    references: Any,
+    compiled_references: Any,
+    directory: Path,
+) -> tuple[tuple[np.ndarray, ...], ...]:
+    masks, samples = [], []
+    for index, (eager, compiled) in enumerate(
+        zip(references, compiled_references, strict=True)
+    ):
+        qualified = _qualify_native_zero_reference(
+            case,
+            caller_x64,
+            index,
+            eager.label,
+            eager.arguments,
+            eager.reference_outputs,
+            compiled.reference_outputs,
+        )
+        masks.append(qualified)
+        outputs = []
+        for a, b, mask in zip(
+            eager.reference_outputs, compiled.reference_outputs, qualified, strict=True
+        ):
+            positions = np.flatnonzero(mask).tolist()
+            outputs.append(
+                {
+                    "dtype": a.dtype.name,
+                    "shape": list(a.shape),
+                    "eager_sha256": hashlib.sha256(a.tobytes()).hexdigest(),
+                    "jit_sha256": hashlib.sha256(b.tobytes()).hexdigest(),
+                    "qualified_native_zero_indices": positions,
+                    "qualified_native_zero_words": [
+                        {
+                            "flat_index": p,
+                            "eager": int(a.reshape(-1).view(np.uint32)[p]),
+                            "jit": int(b.reshape(-1).view(np.uint32)[p]),
+                        }
+                        for p in positions
+                    ],
+                    "jit_zero_sign_status": (
+                        "NATIVE_REFERENCE_CONFLICT_QUALIFIED"
+                        if positions
+                        else "NO_NATIVE_ZERO_CONFLICT"
+                    ),
+                }
+            )
+        samples.append(
+            {
+                "index": index,
+                "label": eager.label,
+                "native_npz_sha256": hashlib.sha256(
+                    (directory / f"native-{index}.npz").read_bytes()
+                ).hexdigest(),
+                "input_sha256": [
+                    hashlib.sha256(np.asarray(a).tobytes()).hexdigest()
+                    for a in eager.arguments
+                ],
+                "outputs": outputs,
+            }
+        )
+    np.savez(
+        directory / "native-zero-masks.npz",
+        **{
+            f"sample-{i}-output-{j}": mask
+            for i, sample in enumerate(masks)
+            for j, mask in enumerate(sample)
+        },
+    )
+    receipt = {
+        "cell": [case.origin, case.ordinal, prepared.scenario.name],
+        "caller_x64": caller_x64,
+        "prepared_settings": asdict(prepared.settings),
+        "raw_contract_sha256": case.contract_sha256,
+        "raw_criteria": {
+            k: prepared.metadata[k] for k in ("rtol", "atol") if k in prepared.metadata
+        },
+        "approved_native_survey_audit_sha256": "f5850ce870a75fecbbc4e684b201b0e3a1bd5a1a181012f5235cb02a19ec670c",
+        "approved_qualification_plan_sha256": "15f7a1b4ce58552cd08b373eede82f22a38404c7bb973e30d1d1e32b54310aa8",
+        "test_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "source_preparation_sha256": hashlib.sha256(
+            Path(source_support.__file__).read_bytes()
+        ).hexdigest(),
+        "registration_module_sha256": hashlib.sha256(
+            (
+                _ROOT
+                / {
+                    "plugin::eqx.nn.layer_norm": "jax2onnx/plugins/equinox/eqx/nn/layer_norm.py",
+                    "plugin::linen.layer_norm": "jax2onnx/plugins/flax/linen/layer_norm.py",
+                    "plugin::nnx.layer_norm": "jax2onnx/plugins/flax/nnx/layer_norm.py",
+                }[case.origin]
+            ).read_bytes()
+        ).hexdigest(),
+        "original_trace_sha256": hashlib.sha256(
+            prepared.original_trace_json.encode()
+        ).hexdigest(),
+        "original_constants": [
+            hashlib.sha256(_payload(a)[2]).hexdigest()
+            for a in prepared.original_jaxpr.consts
+        ],
+        "masks_npz_sha256": hashlib.sha256(
+            (directory / "native-zero-masks.npz").read_bytes()
+        ).hexdigest(),
+        "samples": samples,
+        "qualification_before_export": True,
+        "target_dependent_exception": False,
+        "native_output_hashes_are_provenance_only": True,
+    }
+    (directory / "native-zero-qualification.json").write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+    )
+    return tuple(masks)
+
+
+def _assert_qualified_reference_zeros(
+    actual: Any, eager: Any, compiled: Any, qualified_mask: np.ndarray
+) -> None:
+    actual, eager, compiled = (
+        np.asarray(actual),
+        np.asarray(eager),
+        np.asarray(compiled),
+    )
+    assert actual.dtype == eager.dtype == compiled.dtype
+    assert actual.shape == eager.shape == compiled.shape == qualified_mask.shape
+    assert qualified_mask.dtype == np.dtype(bool)
+    np.testing.assert_array_equal(
+        qualified_mask, _native_zero_conflict_mask(eager, compiled)
+    )
+    eager_zeros = np.isfinite(eager) & (eager == 0)
+    _assert_result(actual[eager_zeros], eager[eager_zeros], "exact")
+    jit_zeros = np.isfinite(compiled) & (compiled == 0) & ~qualified_mask
+    _assert_result(actual[jit_zeros], compiled[jit_zeros], "exact")
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "valid",
+        "forged-mask",
+        "nonzero-subnormal",
+        "reversed-native-words",
+        "extra-native-conflict",
+        "target-wrong-eager-sign",
+        "numeric-equal-input-byte-change",
+    ],
+)
+def test_native_zero_qualification_requires_original_witness(control: str) -> None:
+    """Corrupt an actual saved native witness without constructing or running a model."""
+    payload = (
+        Path(__file__).parent / "fixtures/normalization_native_zero_reference.json"
+    ).read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == (
+        "05057ab8b906a5306198b5bb352c1b18b27b931ed209e720e83892ba1bc3d784"
+    )
+    fixture = json.loads(payload)
+    arrays = {}
+    for name, declaration in fixture["arrays"].items():
+        data = bytes.fromhex(declaration["raw_hex"])
+        assert hashlib.sha256(data).hexdigest() == declaration["sha256"]
+        arrays[name] = np.frombuffer(data, dtype=declaration["dtype"]).reshape(
+            declaration["shape"]
+        )
+    witness = fixture["witness"]
+    case = CorpusCase(
+        witness["origin"],
+        witness["ordinal"],
+        witness["testcase"],
+        witness["contract_sha256"],
+    )
+
+    def qualify(argument: Any, eager: Any, compiled: Any) -> np.ndarray:
+        return _qualify_native_zero_reference(
+            case,
+            witness["caller_x64"],
+            witness["sample_index"],
+            witness["label"],
+            (argument,),
+            (eager,),
+            (compiled,),
+        )[0]
+
+    argument, eager, compiled = (arrays[name] for name in ("input", "eager", "jit"))
+    mask = qualify(argument, eager, compiled)
+    _assert_qualified_reference_zeros(eager, eager, compiled, mask)
+    if control == "valid":
+        return
+    if control == "forged-mask":
+        forged = mask.copy()
+        forged.reshape(-1)[4] = True
+        forged.setflags(write=False)
+        with pytest.raises(AssertionError):
+            _assert_qualified_reference_zeros(eager, eager, compiled, forged)
+        return
+    if control == "target-wrong-eager-sign":
+        target = eager.copy()
+        target.view(np.uint32).reshape(-1)[16] = 2147483648
+        for reference in (eager, compiled):
+            _assert_result(target, reference, _BOUNDS["layer_norm"]["float32"])
+        with pytest.raises(AssertionError):
+            _assert_qualified_reference_zeros(target, eager, compiled, mask)
+        return
+    changed_argument, changed_eager, changed_compiled = (
+        value.copy() for value in (argument, eager, compiled)
+    )
+    if control == "nonzero-subnormal":
+        changed_compiled.view(np.uint32).reshape(-1)[16] = 1
+    elif control == "reversed-native-words":
+        changed_eager.view(np.uint32).reshape(-1)[16] = 2147483648
+        changed_compiled.view(np.uint32).reshape(-1)[16] = 0
+    elif control == "extra-native-conflict":
+        changed_compiled.view(np.uint32).reshape(-1)[4] = 2147483648
+    else:
+        assert control == "numeric-equal-input-byte-change"
+        assert changed_argument.view(np.uint32).reshape(-1)[0] == 2147483648
+        changed_argument.view(np.uint32).reshape(-1)[0] = 0
+        np.testing.assert_array_equal(changed_argument, argument)
+        assert changed_argument.tobytes() != argument.tobytes()
+    with pytest.raises(AssertionError):
+        qualify(changed_argument, changed_eager, changed_compiled)
+
+
 @pytest.mark.parametrize(
     "case",
     NORMALIZATION_CASES,
@@ -404,6 +747,9 @@ def test_original_default_layer_norm_family_source(
     original_fn = prepared.fn
     references = _references(prepared)
     compiled_references = _native_preservation(prepared, references, tmp_path)
+    native_zero_masks = _qualify_native_zero_references(
+        case, caller_x64, prepared, references, compiled_references, tmp_path
+    )
     path = tmp_path / "original-layer-norm.onnx"
     with _deny_runtime(), _retain_export(path) as returned:
         result = run_source_case(
@@ -476,8 +822,8 @@ def test_original_default_layer_norm_family_source(
             == validation.target.inter_op_threads
             == 1
         )
-        for (_, feed, outputs), eager, compiled in zip(
-            actual_runs, references, compiled_references, strict=True
+        for (_, feed, outputs), eager, compiled, qualified_masks in zip(
+            actual_runs, references, compiled_references, native_zero_masks, strict=True
         ):
             assert len(feed) == len(eager.arguments)
             for value, argument in zip(feed.values(), eager.arguments, strict=True):
@@ -501,8 +847,6 @@ def test_original_default_layer_norm_family_source(
                             atol=metadata["atol"],
                             equal_nan=True,
                         )
-                    zeros = np.isfinite(expected) & (expected == 0)
-                    _assert_result(actual[zeros], expected[zeros], "exact")
                     if ":constant" in reference.label:
                         assert np.all(expected == 0)
                 observations.append(
@@ -510,7 +854,16 @@ def test_original_default_layer_norm_family_source(
                         "optimization": optimization,
                         "sample": eager.label,
                         "reference": role,
-                        "status": "PASSED",
+                        "status": (
+                            "NATIVE_ZERO_REFERENCE_QUALIFIED"
+                            if role == "original-fresh-jit"
+                            and any(np.any(mask) for mask in qualified_masks)
+                            else "PASSED"
+                        ),
+                        "numeric_and_nonfinite_checks": "PASSED",
+                        "qualified_native_zero_indices": [
+                            np.flatnonzero(mask).tolist() for mask in qualified_masks
+                        ],
                         "dtype_bound": _BOUNDS["layer_norm"][
                             prepared.traced_outputs[0].dtype
                         ],
@@ -526,15 +879,32 @@ def test_original_default_layer_norm_family_source(
                         ),
                     }
                 )
+            for actual, eager_output, jit_output, mask in zip(
+                outputs,
+                eager.reference_outputs,
+                compiled.reference_outputs,
+                qualified_masks,
+                strict=True,
+            ):
+                _assert_qualified_reference_zeros(
+                    actual, eager_output, jit_output, mask
+                )
         assert model.SerializeToString() == payload
         assert prepared.fn is original_fn
     receipt = {
         "cell": [case.origin, case.ordinal, scenario.name],
         "raw_contract_sha256": case.contract_sha256,
         "raw_callback_status": result.raw_callback_status,
+        "requested_normalization_mode": metadata.get("normalization_mode", "auto"),
+        "representation_decision": [
+            item for item in report.adaptations if item.startswith("normalization:")
+        ],
         "source_counterpart": asdict(result.corpus_structure),
         "artifact_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "native_trace": json.loads(prepared.original_trace_json),
+        "native_zero_qualification_sha256": hashlib.sha256(
+            (tmp_path / "native-zero-qualification.json").read_bytes()
+        ).hexdigest(),
         "native_constants": [
             _payload(value)[:2] + (hashlib.sha256(_payload(value)[2]).hexdigest(),)
             for value in prepared.original_jaxpr.consts
@@ -572,31 +942,36 @@ def test_layer_norm_family_inventory_and_open_options(
         baseline_sha256=hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
     )
     assert len(plan.rows) == 1802 and len(plan.cells) == 3604
-    selected = {(case.origin, case.ordinal) for case in NORMALIZATION_CASES}
-    assert selected == {
+    assert len(inventory["unresolved_recipes"]) == 63
+    defaults = {
         (origin, ordinal)
         for origin, ordinals in _ORIGINAL_DEFAULTS.items()
         for ordinal in ordinals
     }
+    options = {
+        (origin, ordinal)
+        for origin, ordinals in _ORIGINAL_OPTIONS.items()
+        for ordinal in ordinals
+    }
+    assert len(defaults) == 12 and len(options) == 18 and not defaults & options
+    selected = {(case.origin, case.ordinal) for case in NORMALIZATION_CASES}
+    assert selected == defaults | options
     rows = [row for row in plan.rows if row.origin in _ROW_COUNTS]
-    assert len(rows) == 30
+    assert len(rows) == len(selected) == 30
     assert all(
         {row.ordinal for row in rows if row.origin == origin} == set(range(count))
         for origin, count in _ROW_COUNTS.items()
     )
-    assert sum((cell.origin, cell.ordinal) in selected for cell in plan.cells) == 24
-    assert (
-        sum(
-            cell.origin in _ROW_COUNTS and (cell.origin, cell.ordinal) not in selected
-            for cell in plan.cells
-        )
-        == 36
-    )
+    assert sum((cell.origin, cell.ordinal) in defaults for cell in plan.cells) == 24
+    assert sum((cell.origin, cell.ordinal) in options for cell in plan.cells) == 36
     assert sum(cell.origin not in _ROW_COUNTS for cell in plan.cells) == 3544
-    options = []
     contracts = []
+    option_cells = []
     for row in rows:
         metadata = raw_source_case(row.origin, row.ordinal)
+        counterpart = counterpart_for(row.origin, row.ordinal, row.contract_sha256)
+        assert any(counterpart is item for item in NORMALIZATION_COUNTERPARTS)
+        counterpart.check_metadata(metadata)
         unresolved: list[str] = []
         contract = canonical_contract(
             {
@@ -614,6 +989,10 @@ def test_layer_norm_family_inventory_and_open_options(
             scenario.criteria is None and scenario.model_dtype is PRESERVE_FACTORY_DTYPE
             for scenario in scenarios
         )
+        mode = metadata.get("normalization_mode", "auto")
+        assert mode == (
+            "auto" if (row.origin, row.ordinal) in defaults else "prefer_native"
+        )
         contracts.append(
             {
                 "origin": row.origin,
@@ -624,55 +1003,33 @@ def test_layer_norm_family_inventory_and_open_options(
                 "unresolved": unresolved,
             }
         )
-        if (row.origin, row.ordinal) in selected:
-            assert metadata.get("normalization_mode", "auto") == "auto"
-            continue
-        assert metadata["normalization_mode"] != "auto"
-        for scenario in scenarios:
-            with (
-                patch.object(
-                    conversion_api,
-                    "_trace_to_jaxpr",
-                    side_effect=AssertionError(
-                        "option rejection must precede native tracing"
-                    ),
-                ),
-                _deny_runtime(),
-                source_configuration(scenario),
-                pytest.raises(
-                    SourcePrecisionError, match="normalization_mode"
-                ) as caught,
-            ):
-                ui._to_onnx(
-                    metadata["callable"],
-                    scenario.input_specs,
-                    precision_policy=PrecisionPolicy.SOURCE,
-                    normalization_mode=metadata["normalization_mode"],
-                    opset=int(metadata.get("opset_version", 23)),
-                )
-            assert caught.value.category == "profile-exclusion"
-            options.append(
+        if (row.origin, row.ordinal) in options:
+            option_cells.extend(
                 {
                     "cell": [row.origin, row.ordinal, scenario.name],
-                    "stage": caught.value.phase,
-                    "category": "migration-gap",
-                    "detail": str(caught.value),
+                    "requested_mode": mode,
+                    "status": "scheduled-no-runtime-claim",
                 }
+                for scenario in scenarios
             )
-    assert len(options) == 36
+    assert len(option_cells) == 36
     (tmp_path / "complete-raw-plan.json").write_text(
         json.dumps(plan.to_dict(), indent=2, sort_keys=True) + "\n"
     )
     receipt = {
         "raw_rows": 30,
         "raw_cells": 60,
-        "selected_rows": 12,
-        "selected_cells": 24,
-        "open_option_rows": 18,
-        "open_option_cells": options,
+        "selected_rows": 30,
+        "selected_cells": 60,
+        "preserved_default_rows": 12,
+        "preserved_default_cells": 24,
+        "new_option_rows": 18,
+        "new_option_cells": option_cells,
         "complete_raw_contracts": contracts,
         "full_denominator": [1802, 3604],
+        "opaque_records": 63,
         "unselected_cells_unchanged": 3544,
+        "acceptance": "Only retained per-cell family evidence establishes runtime results",
     }
     (tmp_path / "family-ledger.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n"
@@ -1163,3 +1520,285 @@ def test_source_normalization_contract_corruption(
         evidence.source_structure is CheckStatus.FAILED and not evidence.accepted
     ), evidence
     assert original.SerializeToString() == original_payload
+
+
+@pytest.mark.parametrize(
+    ("boundary", "mode"),
+    [
+        pytest.param("facade", "auto", id="facade-auto"),
+        pytest.param("facade", "prefer_native", id="facade-prefer_native"),
+        pytest.param("facade", "force_decomposed", id="facade-force_decomposed"),
+        pytest.param("common", "auto", id="common-auto"),
+        pytest.param("common", "prefer_native", id="common-prefer_native"),
+        pytest.param("common", "force_decomposed", id="common-force_decomposed"),
+        pytest.param("diagnostic", "prefer_native", id="diagnostic-prefer_native"),
+    ],
+)
+def test_original_layer_norm_representation_request_reaches_ir_context(
+    mode: str, boundary: str
+) -> None:
+    case = next(
+        case
+        for case in NORMALIZATION_CASES
+        if (case.origin, case.ordinal) == ("plugin::nnx.layer_norm", 0)
+    )
+    metadata, scenario = _scenario(case, False)
+    prepared = _prepare(metadata, scenario)
+    create = conversion_api._create_ir_context
+    received = []
+
+    def actual_context(**kwargs: Any) -> Any:
+        context = create(**kwargs)
+        received.append((kwargs["normalization_mode"], context.normalization_mode))
+        return context
+
+    with (
+        _deny_runtime(),
+        source_configuration(scenario),
+        patch.object(conversion_api, "_create_ir_context", actual_context),
+    ):
+        if boundary in {"facade", "diagnostic"}:
+            # This supplemental option does not rewrite or accept any raw row.
+            model = source_support._export_prepared(
+                replace(prepared, metadata={**metadata, "normalization_mode": mode}),
+                diagnostic_jaxpr_validator=(
+                    validate_source_jaxpr if boundary == "diagnostic" else None
+                ),
+            )
+            report = get_precision_report(model)
+            decisions = tuple(
+                item for item in report.adaptations if item.startswith("normalization:")
+            )
+            if boundary == "diagnostic":
+                assert report.profile == "source-diagnostic-v1"
+                assert {check.category: check.status for check in report.checks} == {
+                    "representation": CheckStatus.VALIDATED,
+                    "lowering": CheckStatus.UNVERIFIED,
+                    "runtime-execution": CheckStatus.UNVERIFIED,
+                    "numerical-acceptance": CheckStatus.UNVERIFIED,
+                }
+                assert decisions == (
+                    "normalization: requested=prefer_native; effective=UNVERIFIED; "
+                    "source-equivalence=UNVERIFIED; reason=diagnostic export has no lowering audit",
+                )
+            elif mode == "auto":
+                assert not decisions
+            else:
+                reason = (
+                    "native ONNX normalization has no reviewed source-equivalence proof"
+                    if mode == "prefer_native"
+                    else "explicit representation requested"
+                )
+                assert decisions == (
+                    f"normalization: requested={mode}; effective=typed-native-jax-dag; "
+                    f"reason={reason}; original constants, casts, accumulation and rounding retained",
+                )
+        else:
+            import onnx_ir as ir
+
+            model = ir.to_proto(
+                conversion_api._convert_to_ir(
+                    fn=prepared.fn,
+                    inputs=prepared.input_specs,
+                    input_params=prepared.named_specs,
+                    model_name="original_layer_norm_option",
+                    opset=23,
+                    enable_double_precision=False,
+                    record_primitive_calls_file=None,
+                    normalization_mode=mode,
+                    precision_policy=PrecisionPolicy.SOURCE,
+                    jaxpr_validator=validate_source_jaxpr,
+                )
+            )
+        onnx.checker.check_model(model, full_check=True)
+        assert _NormalizationExpressions(
+            model
+        ).outputs() == _NormalizationExpressions.native(prepared.original_jaxpr)
+    assert received == [(mode, mode)]
+    assert (
+        raw_source_case(case.origin, case.ordinal)["normalization_mode"]
+        == "prefer_native"
+    )
+
+
+@pytest.mark.parametrize("corruption", ["omitted", "replaced"])
+def test_original_option_mode_cannot_disappear_in_shared_facade(
+    corruption: str,
+) -> None:
+    case = next(
+        case
+        for case in NORMALIZATION_CASES
+        if (case.origin, case.ordinal) == ("plugin::nnx.layer_norm", 0)
+    )
+    metadata, scenario = _scenario(case, False)
+    prepared = _prepare(metadata, scenario)
+    facade = ui._to_onnx
+    observed = []
+
+    def corrupt(**kwargs: Any) -> Any:
+        assert kwargs["normalization_mode"] == "prefer_native"
+        if corruption == "omitted":
+            kwargs.pop("normalization_mode")
+        else:
+            kwargs["normalization_mode"] = "force_decomposed"
+        observed.append(kwargs.get("normalization_mode", "auto"))
+        return facade(**kwargs)
+
+    with _deny_runtime(), patch.object(ui, "_to_onnx", corrupt):
+        result = run_source_case(
+            metadata,
+            scenario,
+            _prepared=prepared,
+            _corpus_counterpart=_counterpart(case),
+            optimization=None,
+        )
+    assert observed == ["auto" if corruption == "omitted" else "force_decomposed"]
+    assert result.corpus_structure.source_structure is CheckStatus.FAILED
+    assert "requested/effective representation" in result.corpus_structure.source_detail
+    assert result.raw_callback_status == "failed"
+
+
+@pytest.mark.parametrize(
+    "corruption", ["hash-alias", "weight-present", "bias-present", "affine-flags"]
+)
+def test_original_eqx_opaque_collision_keeps_no_affine_configuration(
+    corruption: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    affine_case = next(
+        case
+        for case in NORMALIZATION_CASES
+        if (case.origin, case.ordinal) == ("plugin::eqx.nn.layer_norm", 0)
+    )
+    absent_case = next(
+        case
+        for case in NORMALIZATION_CASES
+        if (case.origin, case.ordinal) == ("plugin::eqx.nn.layer_norm", 3)
+    )
+    assert affine_case.contract_sha256 == absent_case.contract_sha256
+    affine_raw = raw_source_case(affine_case.origin, affine_case.ordinal)
+    absent_raw = raw_source_case(absent_case.origin, absent_case.ordinal)
+    counterpart = _counterpart(absent_case)
+    counterpart.check_metadata(absent_raw)
+    original = absent_raw["callable"]
+    assert original.weight is None and original.bias is None
+    assert original is not affine_raw["callable"]
+    if corruption == "hash-alias":
+        changed = {**absent_raw, "callable": affine_raw["callable"]}
+        with pytest.raises(ValueError, match="callable/callback identity"):
+            counterpart.check_metadata(changed)
+        return
+    copied = copy.copy(original)
+    if corruption == "affine-flags":
+        object.__setattr__(copied, "use_weight", True)
+        object.__setattr__(copied, "use_bias", True)
+        message = "configuration changed"
+    else:
+        object.__setattr__(
+            copied,
+            "weight" if corruption == "weight-present" else "bias",
+            np.full((32,), 1 if corruption == "weight-present" else 0, np.float32),
+        )
+        message = "parameter must be absent"
+    changed = {**absent_raw, "callable": copied}
+    raw = source_support.raw_source_case
+    monkeypatch.setattr(
+        source_support,
+        "raw_source_case",
+        lambda origin, ordinal: (
+            changed
+            if (origin, ordinal) == (absent_case.origin, absent_case.ordinal)
+            else raw(origin, ordinal)
+        ),
+    )
+    with pytest.raises(ValueError, match=message):
+        counterpart.check_metadata(changed)
+    assert original.weight is None and original.bias is None
+    assert original.use_weight is False and original.use_bias is False
+
+
+@pytest.fixture(scope="module", params=[7, 8], ids=["epsilon-1e-5", "epsilon-1e-6"])
+def _original_epsilon_option_artifact(request: Any, tmp_path_factory: Any) -> Any:
+    case = next(
+        case
+        for case in NORMALIZATION_CASES
+        if (case.origin, case.ordinal) == ("plugin::nnx.layer_norm", request.param)
+    )
+    metadata, scenario = _scenario(case, False)
+    prepared = _prepare(metadata, scenario)
+    counterpart = _counterpart(case)
+    path = tmp_path_factory.mktemp(f"original-option-{request.param}") / "source.onnx"
+    with _deny_runtime(), _retain_export(path):
+        result = run_source_case(
+            metadata,
+            scenario,
+            _prepared=prepared,
+            _corpus_counterpart=counterpart,
+            optimization=None,
+        )
+    assert result.audit.status is CheckStatus.VALIDATED, result.audit
+    assert counterpart.check(prepared, result.model).accepted
+    return prepared, counterpart, result.model
+
+
+@pytest.mark.parametrize(
+    "corruption", ["other-original-epsilon", "axis", "consumer", "report-mode"]
+)
+def test_actual_size_three_option_keeps_epsilon_axis_and_consumer(
+    corruption: str, _original_epsilon_option_artifact: Any
+) -> None:
+    prepared, counterpart, original = _original_epsilon_option_artifact
+    model = onnx.ModelProto()
+    model.CopyFrom(original)
+    saved = original.SerializeToString()
+    if corruption == "report-mode":
+        item = next(
+            item for item in model.metadata_props if item.key == PRECISION_METADATA_KEY
+        )
+        report = json.loads(item.value)
+        index = next(
+            i
+            for i, value in enumerate(report["adaptations"])
+            if value.startswith("normalization:")
+        )
+        report["adaptations"][index] = report["adaptations"][index].replace(
+            "requested=prefer_native", "requested=auto"
+        )
+        item.value = json.dumps(report)
+    elif corruption == "consumer":
+        node = next(node for node in model.graph.node if node.op_type == "Sub")
+        node.input[0], node.input[1] = node.input[1], node.input[0]
+    else:
+        tensors = [(tensor.name, tensor) for tensor in model.graph.initializer] + [
+            (node.output[0], attribute.t)
+            for node in model.graph.node
+            if node.op_type == "Constant"
+            for attribute in node.attribute
+            if attribute.name == "value"
+        ]
+        if corruption == "axis":
+            node = next(
+                node for node in model.graph.node if node.op_type == "ReduceSum"
+            )
+            tensor = next(tensor for name, tensor in tensors if name == node.input[1])
+            values = onnx.numpy_helper.to_array(tensor).copy()
+            assert tuple(values.reshape(-1)) == (2,)
+            values.flat[0] = 1
+        else:
+            expected = np.float32(1e-5 if counterpart.case.ordinal == 7 else 1e-6)
+            tensor = next(
+                tensor
+                for _, tensor in tensors
+                if tensor.data_type == onnx.TensorProto.FLOAT
+                and onnx.numpy_helper.to_array(tensor).size == 1
+                and np.array_equal(
+                    onnx.numpy_helper.to_array(tensor).reshape(-1), [expected]
+                )
+            )
+            values = onnx.numpy_helper.to_array(tensor).copy()
+            values.flat[0] = np.float32(1e-6 if counterpart.case.ordinal == 7 else 1e-5)
+        tensor.CopyFrom(onnx.numpy_helper.from_array(values, name=tensor.name))
+    evidence = counterpart.check(prepared, model)
+    assert (
+        evidence.source_structure is CheckStatus.FAILED and not evidence.accepted
+    ), evidence
+    assert original.SerializeToString() == saved

@@ -652,10 +652,54 @@ def test_layout_keeps_x64_conflict_symbolic_normalization_and_primitive_gaps() -
             inputs_as_nchw=[0],
         )
     for mode in ("prefer_native", "force_decomposed"):
-        with pytest.raises(SourcePrecisionError, match="normalization_mode"):
-            _source(
-                lambda x: x, [(1, 2, 3, 4)], inputs_as_nchw=[0], normalization_mode=mode
+        artifact = _source(
+            lambda x: x, [(1, 2, 3, 4)], inputs_as_nchw=[0], normalization_mode=mode
+        )
+        report = get_precision_report(artifact)
+        assert report.profile == "source-static-v1" and report.opset == 23
+        supplied = report.inputs[0].supplied
+        assert supplied.shape == (1, 2, 3, 4)
+        assert supplied.dtype is None and supplied.weak_type is None
+        for properties in (
+            report.inputs[0].normalized,
+            report.inputs[0].traced,
+            report.traced_outputs[0],
+            report.exported_outputs[0],
+        ):
+            assert properties.dtype == "float32" and properties.shape == (1, 2, 3, 4)
+        assert report.inputs[0].exported.dtype == "float32"
+        assert report.inputs[0].exported.shape == (1, 4, 2, 3)
+        normalization = [
+            note for note in report.adaptations if note.startswith("normalization:")
+        ]
+        assert len(normalization) == 1
+        assert f"requested={mode}" in normalization[0]
+        assert "effective=typed-native-jax-dag" in normalization[0]
+        checks = {check.category: check.status for check in report.checks}
+        assert checks["representation"] is CheckStatus.VALIDATED
+        assert checks["lowering"] is CheckStatus.VALIDATED
+        assert checks["runtime-execution"] is CheckStatus.UNVERIFIED
+        assert checks["numerical-acceptance"] is CheckStatus.UNVERIFIED
+        proto = _proto(artifact)
+        onnx.checker.check_model(proto, full_check=True)
+        assert len(proto.graph.input) == len(proto.graph.output) == 1
+        for value, shape in zip(
+            (proto.graph.input[0], proto.graph.output[0]),
+            ((1, 4, 2, 3), (1, 2, 3, 4)),
+            strict=True,
+        ):
+            tensor = value.type.tensor_type
+            assert tensor.elem_type == onnx.TensorProto.FLOAT
+            assert tuple(dim.dim_value for dim in tensor.shape.dim) == shape
+        transposes = [node for node in proto.graph.node if node.op_type == "Transpose"]
+        assert len(transposes) == 1
+        assert tuple(
+            next(
+                attribute.ints
+                for attribute in transposes[0].attribute
+                if attribute.name == "perm"
             )
+        ) == (0, 2, 3, 1)
     with pytest.raises(SourcePrecisionError, match="primitive is outside the profile"):
         _source(lambda x: jnp.clip(x, 0, 1), [(1, 2, 3, 4)], inputs_as_nchw=[0])
     assert active_precision_policy() is PrecisionPolicy.LEGACY

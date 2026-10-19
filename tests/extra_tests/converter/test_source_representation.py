@@ -654,18 +654,61 @@ def test_diagnostic_function_cache_cannot_turn_later_default_export_into_audited
     assert "_pending_relu6" in captured.value.location
 
 
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"opset": 22},
-        {"normalization_mode": "prefer_native"},
-    ],
-)
-def test_diagnostic_retains_existing_opset_and_option_gaps(
-    options: dict[str, Any],
+def test_diagnostic_retains_existing_opset_gap() -> None:
+    with pytest.raises(
+        SourcePrecisionError, match="internal migration gap"
+    ) as captured:
+        _diagnostic(lambda x: x, [jax.ShapeDtypeStruct((2,), np.int32)], opset=22)
+    assert captured.value.opset == 22
+    assert captured.value.phase == "input"
+    assert captured.value.category == "profile-exclusion"
+
+
+def test_diagnostic_prefer_native_keeps_int32_and_unverified_lowering(
+    tmp_path: Path,
 ) -> None:
-    with pytest.raises(SourcePrecisionError, match="internal migration gap"):
-        _diagnostic(lambda x: x, [jax.ShapeDtypeStruct((2,), np.int32)], **options)
+    artifact = _diagnostic(
+        lambda x: x,
+        [jax.ShapeDtypeStruct((2,), np.int32)],
+        normalization_mode="prefer_native",
+    )
+    report = get_precision_report(artifact)
+    assert report.profile == "source-diagnostic-v1" and report.opset == 23
+    assert (
+        len(report.inputs)
+        == len(report.traced_outputs)
+        == len(report.exported_outputs)
+        == 1
+    )
+    for properties in (
+        report.inputs[0].supplied,
+        report.inputs[0].normalized,
+        report.inputs[0].traced,
+        report.inputs[0].exported,
+        report.traced_outputs[0],
+        report.exported_outputs[0],
+    ):
+        assert properties.dtype == "int32" and properties.shape == (2,)
+    checks = {check.category: check for check in report.checks}
+    assert checks["representation"].status is CheckStatus.VALIDATED
+    assert checks["lowering"].status is CheckStatus.UNVERIFIED
+    assert "audit_pending" in checks["lowering"].detail
+    assert checks["runtime-execution"].status is CheckStatus.UNVERIFIED
+    assert checks["numerical-acceptance"].status is CheckStatus.UNVERIFIED
+    normalization = [
+        note for note in report.adaptations if note.startswith("normalization:")
+    ]
+    assert len(normalization) == 1
+    assert "requested=prefer_native" in normalization[0]
+    assert "effective=UNVERIFIED" in normalization[0]
+    assert "source-equivalence=UNVERIFIED" in normalization[0]
+    proto = _serialized(artifact, tmp_path / "diagnostic_prefer_native.onnx")
+    assert get_precision_report(proto) == report
+    assert len(proto.graph.input) == len(proto.graph.output) == 1
+    for value in (*proto.graph.input, *proto.graph.output):
+        tensor = value.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.INT32
+        assert tuple(dim.dim_value for dim in tensor.shape.dim) == (2,)
 
 
 def test_diagnostic_callback_rejects_legacy_route_and_cannot_validate_lowering() -> (
