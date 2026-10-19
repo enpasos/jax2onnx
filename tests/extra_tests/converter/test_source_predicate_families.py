@@ -44,7 +44,6 @@ from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
     _FINITE,
 )
 
-
 _COMPARISONS = ("equal", "not_equal", "greater", "greater_equal", "less", "less_equal")
 _BITWISE_BINARY = ("bitwise_and", "bitwise_or", "bitwise_xor")
 _BITWISE_UNARY = ("bitwise_not", "invert")
@@ -226,6 +225,8 @@ def test_criteria_are_exact_and_separate_nan_class_from_storage() -> None:
 
 
 def test_only_the_sixteen_reviewed_jnp_binders_opt_in() -> None:
+    """Keep the explicit binder guard, including the newly reviewed sqrt."""
+
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
     for path in directory.glob("*.py"):
@@ -242,7 +243,7 @@ def test_only_the_sixteen_reviewed_jnp_binders_opt_in() -> None:
                     assert keyword.value.value is True
                     selected.append(path.stem)
     assert sorted(selected) == sorted(
-        (*_OWNED, "add", "cos", "exp", "maximum", "minimum", "sin")
+        (*_OWNED, "add", "cos", "exp", "maximum", "minimum", "sin", "sqrt")
     )
 
 
@@ -872,7 +873,7 @@ def _composition_implicit_scalar_outer(
 
 
 def test_implicit_scalar_batch_composition_retains_its_temporary_shape_gap() -> None:
-    from jax2onnx.converter.source_profile import SourcePrecisionError
+    """The original scalar composition now retains B through one artifact."""
 
     with jax.enable_x64(True):
         shape = export.symbolic_shape("B, 3")
@@ -894,21 +895,36 @@ def test_implicit_scalar_batch_composition_retains_its_temporary_shape_gap() -> 
             for batch in (2, 5)
             for flag in (False, True)
         ]
-        with pytest.raises(SourcePrecisionError) as error:
-            _artifact(
-                _composition_implicit_scalar_outer, specs, feeds=feeds, named=True
-            )
-        assert error.value.phase == "profile-validation"
-        assert error.value.category == "profile-exclusion"
-        assert error.value.primitive == "mul"
-        assert (
-            error.value.detail
-            == "pointwise operands do not share the same leading-batch shape"
+        _, proto, report, references = _artifact(
+            _composition_implicit_scalar_outer, specs, feeds=feeds, named=True
         )
-        assert (
-            error.value.requirement
-            == "equal rank-two/rank-three tails with the same native B or a literal leading extent 1"
-        )
+        assert len(proto.functions) >= 1
+        assert [value.dtype for value in report.traced_outputs] == [
+            "float32",
+            "bool",
+            "int64",
+            "int64",
+            "int64",
+            "int64",
+        ]
+        assert [value.shape for value in report.traced_outputs] == [
+            ("B", 3),
+            ("B", 3),
+            ("B", 3),
+            ("B", 3),
+            ("B", 3),
+            (1, 3),
+        ]
+        assert [entry.traced.shape for entry in report.inputs] == [
+            ("B", 3),
+            (3, 3),
+            (),
+            ("B", 3),
+            (),
+        ]
+        # Reuse the existing finite Exp criterion. BOOL/integer outputs remain
+        # exact against both native eager and JIT references for all four feeds.
+        _accept(proto, feeds, references, _FINITE["float32"])
 
 
 @onnx_function(name="TypedMaskFloatingInner")

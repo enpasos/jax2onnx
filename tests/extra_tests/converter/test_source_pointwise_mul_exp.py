@@ -712,6 +712,9 @@ def test_symbolic_pointwise_admission_does_not_expand_other_shape_families(
     graph = SimpleNamespace(
         invars=inputs, constvars=(), outvars=[output], eqns=[eqn], effects=()
     )
+    if kind in {"scalar", "tail", "other-symbolic-op"}:
+        validate_source_jaxpr(graph, 23)
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
     assert caught.value.category == "profile-exclusion"

@@ -593,17 +593,37 @@ class IRContext:
         )
         return out
 
-    def bind_const_for_var(self, var: Any, np_array: np.ndarray) -> ir.Value:
-        array = (
-            np.asarray(np_array) if not isinstance(np_array, np.ndarray) else np_array
-        )
-        self._const_folder.register_const(var, array)
+    def bind_const_for_var(self, var: Any, np_array: Any) -> ir.Value:
+        if self.precision_policy is PrecisionPolicy.SOURCE:
+            aval = _maybe_aval(var)
+            logical = (
+                np_array
+                if aval is None
+                and hasattr(np_array, "dtype")
+                and hasattr(np_array, "shape")
+                else np.asarray(np_array) if aval is None else aval
+            )
+            representation = representation_for_aval(logical)
+            array = representation.encode_array(np_array)
+            self._const_folder.register_const(
+                var,
+                (
+                    array
+                    if representation.encoding == "threefry-key-words"
+                    else np.asarray(np_array)
+                ),
+            )
+        else:
+            array = (
+                np.asarray(np_array)
+                if not isinstance(np_array, np.ndarray)
+                else np_array
+            )
+            self._const_folder.register_const(var, array)
         promote_flag = self.builder.enable_double_precision
         keep_float32 = self._keep_function_float32
         if self.precision_policy is PrecisionPolicy.SOURCE:
-            aval = _maybe_aval(var)
-            representation = representation_for_aval(array if aval is None else aval)
-            array = representation.encode_array(array)
+            pass  # Already encoded before any NumPy coercion of a typed key.
         elif self._function_mode:
             aval = _maybe_aval(var)
             aval_np_dtype = _maybe_dtype(aval)
@@ -726,13 +746,15 @@ class IRContext:
         shp = _maybe_shape(aval)
         if shp is None:
             raise TypeError("Aval missing shape")
-        aval_dtype = _maybe_dtype(aval)
-        if aval_dtype is None:
-            raise TypeError("Aval missing dtype")
+        aval_dtype: np.dtype[Any] | None
         if self.precision_policy is PrecisionPolicy.SOURCE:
             representation = representation_for_aval(aval)
             aval_dtype = representation.physical_dtype
             shp = representation.physical_shape
+        else:
+            aval_dtype = _maybe_dtype(aval)
+            if aval_dtype is None:
+                raise TypeError("Aval missing dtype")
         promote_flag = self.builder.enable_double_precision
         if (
             self._function_mode
@@ -848,7 +870,7 @@ class IRContext:
         source_shape = None
         if self.precision_policy is PrecisionPolicy.SOURCE:
             source_aval = _maybe_aval(var)
-            if source_aval is None or _maybe_dtype(source_aval) is None:
+            if source_aval is None or not hasattr(source_aval, "dtype"):
                 raise TypeError("Source output aval missing dtype")
             representation = representation_for_aval(source_aval)
             source_type = ir.TensorType(representation.ir_dtype)
@@ -879,7 +901,11 @@ class IRContext:
         aval = _maybe_aval(var)
         if aval is None:
             raise TypeError(f"Unsupported var type: {type(var)}")
-        aval_dtype = _maybe_dtype(aval)
+        aval_dtype = (
+            representation.physical_dtype
+            if self.precision_policy is PrecisionPolicy.SOURCE
+            else _maybe_dtype(aval)
+        )
         if aval_dtype is None:
             raise TypeError("Aval missing dtype")
         if (

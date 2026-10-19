@@ -305,8 +305,40 @@ def test_symbolic_preparation_keeps_declared_shapes_and_explicit_concrete_sample
     result = run_source_case(metadata, scenario)
     assert result.prepared.reference_outputs[0].shape == (2, 3)
     assert result.prepared.traced_inputs[0].shape == ("B", 3)
-    assert result.stage == "profile-admission"
-    assert result.audit.status is CheckStatus.UNVERIFIED
+    assert result.prepared.traced_outputs[0].shape == ("B", 3)
+    assert result.prepared.arguments[0].shape == (2, 3)
+    assert (
+        result.prepared.traced_inputs[0].dtype
+        == result.prepared.traced_outputs[0].dtype
+        == "float32"
+    )
+    assert (
+        result.prepared.reference_outputs[0].tobytes()
+        == (-np.asarray(result.prepared.arguments[0])).tobytes()
+    )
+    assert result.stage == "runtime-checked" and result.category == "runtime-evidence"
+    assert (
+        result.schema
+        is result.audit.status
+        is result.numerical_status
+        is CheckStatus.VALIDATED
+    )
+    assert result.model is not None and result.validation is not None
+    assert len(result.model.graph.input) == len(result.model.graph.output) == 1
+    for port in (*result.model.graph.input, *result.model.graph.output):
+        tensor = port.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert len(tensor.shape.dim) == 2
+        assert tensor.shape.dim[0].dim_param == "B"
+        assert tensor.shape.dim[1].dim_value == 3
+    assert len(result.validation.samples) == 1
+    sample = result.validation.samples[0]
+    assert sample.criteria == result.prepared.criteria == SampleCriteria("exact")
+    assert sample.status is CheckStatus.VALIDATED
+    for evidence in (*sample.inputs, *sample.references, *sample.outputs):
+        assert evidence.shape == (2, 3) and evidence.dtype == "float32"
+    assert sample.references[0].sha256 == sample.outputs[0].sha256
+    result.validation.require_sample_acceptance(result.model)
 
 
 def test_existing_raw_registry_case_runs_without_legacy_oracle_seams(

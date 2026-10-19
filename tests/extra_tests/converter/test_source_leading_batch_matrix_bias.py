@@ -48,7 +48,6 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
     typed_trace_manifest,
 )
 
-
 _CASES = (
     (
         "plugin::jax.numpy.matmul",
@@ -517,7 +516,7 @@ def test_rank_three_stale_boundaries_fail_before_target_session(
 def test_local_setting_failure_restores_hidden_and_effective_source_state() -> None:
     specs = _specs([("B", 3, 4)])
 
-    def unsupported(x: Any) -> Any:
+    def original(x: Any) -> Any:
         with (
             jax.enable_x64(True),
             jax.default_matmul_precision("highest"),
@@ -527,6 +526,30 @@ def test_local_setting_failure_restores_hidden_and_effective_source_state() -> N
             return jax.lax.neg(x)
 
     before = _globals(), _settings()
+    native = jax.make_jaxpr(original)(*specs)
+    validate_source_jaxpr(native, 23)
+    assert _signature(_body(native).outvars) == (("float32", ("B", 3, 4), False),)
+    _, proto, _ = _artifact(original, specs)
+    assert [node.op_type for node in proto.graph.node] == ["Neg"]
+    for value in (*proto.graph.input, *proto.graph.output):
+        tensor = value.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert [dim.dim_param or dim.dim_value for dim in tensor.shape.dim] == [
+            "B",
+            3,
+            4,
+        ]
+    assert (_globals(), _settings()) == before
+
+    def unsupported(x: Any) -> Any:
+        with (
+            jax.enable_x64(True),
+            jax.default_matmul_precision("highest"),
+            jax.numpy_dtype_promotion("strict"),
+            jax.numpy_rank_promotion("raise"),
+        ):
+            return jax.lax.reduce_sum(x, axes=(0,))
+
     with pytest.raises(SourcePrecisionError, match="symbolic operation"):
         _artifact(unsupported, specs)
     assert (_globals(), _settings()) == before

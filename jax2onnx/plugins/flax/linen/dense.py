@@ -9,6 +9,7 @@ from flax import linen as nn
 import onnx_ir as ir
 
 from jax2onnx._compat.jax import Primitive, ShapedArray
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -441,7 +442,7 @@ class DensePlugin(PrimitiveLeafPlugin):
                 raise RuntimeError("flax.linen.Dense.__call__ is not available.")
             return orig_fn(self, x)
 
-        def patched(self: Any, x: Any) -> Any:
+        def legacy(self: Any, x: Any) -> Any:
             # Access pre-initialized parameters directly from the module's scope
             # This avoids calling self.param() which would try to compute shapes
             # from traced inputs during JAX tracing.
@@ -474,6 +475,13 @@ class DensePlugin(PrimitiveLeafPlugin):
 
             # Fallback to original behavior for init or when params not available
             return call_orig(self, x)
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("flax.linen.Dense.__call__ is not available.")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

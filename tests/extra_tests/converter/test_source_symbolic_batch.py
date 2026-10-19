@@ -640,15 +640,41 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
 
 
 def test_symbolic_subtract_and_reduce_sum_remain_explicit_exclusions() -> None:
-    for fn in (
-        lambda x, y: jax.lax.sub(x, y),
-        lambda x, y: jax.lax.reduce_sum(x, axes=(0,)),
-    ):
-        with pytest.raises(
-            SourcePrecisionError, match="symbolic operation is outside"
-        ) as error:
-            _source(fn)
-        assert error.value.phase == "profile-validation"
+    """Subtraction is admitted; reduction over the symbolic batch stays excluded."""
+
+    def subtract(x: Any, y: Any) -> Any:
+        return jax.lax.sub(x, y)
+
+    samples = _samples(subtract)
+    model = _source(subtract)
+    onnx.checker.check_model(model, full_check=True)
+    report = get_precision_report(model)
+    assert report is not None and report.profile == "source-static-v1"
+    assert all(
+        value.shape == ("B", 3)
+        and value.dtype == "float32"
+        and value.weak_type is False
+        for value in (
+            *(entry.traced for entry in report.inputs),
+            *report.traced_outputs,
+        )
+    )
+    assert [node.op_type for node in model.graph.node] == ["Sub"]
+    for value in (*model.graph.input, *model.graph.output):
+        tensor = value.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert tensor.shape.dim[0].dim_param == "B"
+        assert tensor.shape.dim[1].dim_value == 3
+    payload = model.SerializeToString()
+    _check_samples(model, samples)
+    assert model.SerializeToString() == payload
+
+    with pytest.raises(
+        SourcePrecisionError, match="symbolic operation is outside"
+    ) as error:
+        _source(lambda x, y: jax.lax.reduce_sum(x, axes=(0,)))
+    assert error.value.phase == "profile-validation"
+    assert error.value.primitive == "reduce_sum"
 
 
 def test_symbolic_constant_cond_accepts_original_batch_scope() -> None:
@@ -663,12 +689,39 @@ def test_symbolic_constant_cond_accepts_original_batch_scope() -> None:
 
 
 def test_symbolic_add_operand_broadcast_remains_an_explicit_exclusion() -> None:
-    with pytest.raises(
-        SourcePrecisionError,
-        match="pointwise operands do not share the same leading-batch shape",
-    ) as error:
-        _source(inputs=[("B", 3), ("B", 1)])
-    assert error.value.category == "profile-exclusion"
+    """The reviewed singleton tail now broadcasts without specializing B."""
+
+    samples = []
+    for batch in (2, 5):
+        x, y = _values(batch)
+        values = (x, y[:, :1])
+        samples.append(
+            SourceSample(values, _reference(_add, values), SampleCriteria("bitwise"))
+        )
+    model = _source(inputs=[("B", 3), ("B", 1)])
+    onnx.checker.check_model(model, full_check=True)
+    report = get_precision_report(model)
+    assert report is not None and report.profile == "source-static-v1"
+    assert [entry.traced.shape for entry in report.inputs] == [("B", 3), ("B", 1)]
+    assert report.traced_outputs[0].shape == ("B", 3)
+    assert all(
+        value.dtype == "float32" and value.weak_type is False
+        for value in (
+            *(entry.traced for entry in report.inputs),
+            *report.traced_outputs,
+        )
+    )
+    assert [node.op_type for node in model.graph.node] == ["Add"]
+    for value, tail in zip(
+        (*model.graph.input, *model.graph.output), (3, 1, 3), strict=True
+    ):
+        tensor = value.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert tensor.shape.dim[0].dim_param == "B"
+        assert tensor.shape.dim[1].dim_value == tail
+    payload = model.SerializeToString()
+    _check_samples(model, samples)
+    assert model.SerializeToString() == payload
 
 
 @pytest.mark.parametrize(

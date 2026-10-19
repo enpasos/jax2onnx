@@ -42,7 +42,6 @@ from tests.extra_tests.converter.test_source_dropout_parameters import (
     DropoutDiagnosticValidator,
 )
 
-
 _BITWISE = SampleCriteria("bitwise")
 
 
@@ -456,14 +455,75 @@ def test_original_invalid_select_predicates_keep_source_or_profile_errors(
         )
 
 
-def test_named_declaration_does_not_admit_symbolic_subtraction() -> None:
-    with pytest.raises(SourcePrecisionError, match="symbolic operation") as captured:
-        _source(
-            lambda x, *, value: x - value,
-            [jax.ShapeDtypeStruct(("B", 3), np.float32)],
-            {"value": jax.ShapeDtypeStruct(("B", 3), np.float32)},
+def test_named_declaration_does_not_admit_symbolic_subtraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admitted subtraction keeps its actual named runtime operand and B."""
+
+    def fn(x: Any, *, value: Any) -> Any:
+        return x - value
+
+    samples = []
+    for batch in (2, 5):
+        x = np.arange(batch * 3, dtype=np.float32).reshape(batch, 3)
+        value = np.full((batch, 3), 2, np.float32)
+        eager = np.asarray(fn(jnp.asarray(x), value=jnp.asarray(value)))
+        compiled = np.asarray(jax.jit(fn)(jnp.asarray(x), value=jnp.asarray(value)))
+        assert eager.shape == compiled.shape == (batch, 3)
+        assert eager.dtype == compiled.dtype == np.float32
+        assert eager.tobytes() == compiled.tobytes()
+        samples.append(
+            SourceSample({"features": x, "value": value}, (eager,), _BITWISE)
         )
-    assert captured.value.primitive == "sub"
+    before = SourceSettings.observe()
+    traces = []
+    original = conversion_api._trace_to_jaxpr
+
+    def observe(**kwargs: Any) -> Any:
+        trace = original(**kwargs)
+        traces.append(trace)
+        return trace
+
+    monkeypatch.setattr(conversion_api, "_trace_to_jaxpr", observe)
+    artifact = _source(
+        fn,
+        [jax.ShapeDtypeStruct(("B", 3), np.float32)],
+        {"value": jax.ShapeDtypeStruct(("B", 3), np.float32)},
+        input_names=["features"],
+    )
+    onnx.checker.check_model(artifact, full_check=True)
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.frozen_params == {}
+    assert [binding.keyword_name for binding in trace.source_inputs] == [None, "value"]
+    assert all(
+        binding.var is var
+        for binding, var in zip(trace.source_inputs, trace.jaxpr.invars, strict=True)
+    )
+    assert trace.sds_list[0].shape[0] is trace.sds_list[1].shape[0]
+    report = get_precision_report(artifact)
+    assert report is not None and report.profile == "source-static-v1"
+    assert [entry.exported.name for entry in report.inputs] == ["features", "value"]
+    assert all(
+        value.shape == ("B", 3)
+        and value.dtype == "float32"
+        and value.weak_type is False
+        for value in (
+            *(entry.traced for entry in report.inputs),
+            *report.traced_outputs,
+        )
+    )
+    assert [node.op_type for node in artifact.graph.node] == ["Sub"]
+    payload = artifact.SerializeToString()
+    for optimization in ("disabled", "all"):
+        result = validate_source_samples(
+            artifact, samples=samples, optimization=optimization
+        )
+        assert result.status is CheckStatus.VALIDATED
+        assert len(result.samples) == 2
+        result.require_sample_acceptance()
+    assert artifact.SerializeToString() == payload
+    assert SourceSettings.observe() == before
 
 
 def test_named_disabled_x64_fails_before_trace_or_artifact(tmp_path: Path) -> None:

@@ -191,7 +191,7 @@ class JnpSqrtPlugin(PrimitiveLeafPlugin):
     @classmethod
     def binding_specs(cls) -> list[AssignSpec | MonkeyPatchSpec]:
         specs: list[AssignSpec | MonkeyPatchSpec] = jnp_binding_specs(
-            cls._PRIM, cls._FUNC_NAME
+            cls._PRIM, cls._FUNC_NAME, source_native=True
         )
         return specs
 

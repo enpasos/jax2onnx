@@ -37,7 +37,12 @@ import jax.tree_util as jtu
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
+from jax2onnx.plugins._patching import (
+    AssignSpec,
+    MonkeyPatchSpec,
+    _snapshot_attribute,
+    apply_patches,
+)
 from jax2onnx.plugins._function_keys import (
     snapshot_static_value,
     source_static_value_key,
@@ -50,11 +55,13 @@ from jax2onnx._compat.jax import (
     JaxprEqn,
     Literal,
     Primitive,
+    PRNGKeyDType,
     ShapedArray,
     Tracer,
     Var,
     batching,
     ensure_batching_not_mapped_attr,
+    is_selected_prng_key_dtype,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.precision_policy import (
@@ -1331,11 +1338,35 @@ class FunctionPlugin(PrimitivePlugin):
             and tuple(var.aval for var in body.outvars) != source_trace.output_avals
         ):
             raise ValueError("Source function retracing changed its result signature")
-        for var, value in zip(body.constvars, closed.consts):
-            scope.ctx.bind_const_for_var(var, np.asarray(value))
-        for var, value in zip(body.invars, child_values):
-            scope.ctx.bind_value_for_var(var, value)
         try:
+            for index, (var, value) in enumerate(zip(body.constvars, closed.consts)):
+                if ctx.precision_policy is PrecisionPolicy.SOURCE:
+                    aval = var.aval
+                    if (
+                        isinstance(aval, ShapedArray)
+                        and isinstance(aval.dtype, PRNGKeyDType)
+                        and not is_selected_prng_key_dtype(aval.dtype)
+                    ):
+                        raise SourcePrecisionError(
+                            "typed key implementation is outside the selected threefry2x32 packet",
+                            phase="profile-validation",
+                            category="profile-exclusion",
+                            location=f"constant {index}",
+                            requested_dtypes=(str(aval.dtype),),
+                            opset=ctx.opset,
+                            requirement="an actual scalar threefry2x32 typed key with two physical uint32 words",
+                            action="use the audited key implementation or add audited representation support",
+                        )
+                scope.ctx.bind_const_for_var(
+                    var,
+                    (
+                        value
+                        if ctx.precision_policy is PrecisionPolicy.SOURCE
+                        else np.asarray(value)
+                    ),
+                )
+            for var, value in zip(body.invars, child_values):
+                scope.ctx.bind_value_for_var(var, value)
             lower_jaxpr_with_plugins(
                 ctx=scope.ctx,
                 jaxpr=body,
@@ -1616,19 +1647,24 @@ def apply_monkey_patches() -> Iterator[None]:
     stays pristine once conversion finishes.
     """
     touched: list[tuple[Any, str]] = []
-    for patch_fn, targets, attr in _iter_patch_specs():
-        for tgt in targets:
-            key = (tgt, attr)
-            st = _PATCH_STATE.get(key)
-            if st is None:
-                orig = getattr(tgt, attr)
-                new = patch_fn(orig)
-                setattr(tgt, attr, new)
-                _PATCH_STATE[key] = {"orig": orig, "count": 1}
-            else:
-                st["count"] += 1
-            touched.append(key)
     try:
+        for patch_fn, targets, attr in _iter_patch_specs():
+            for tgt in targets:
+                key = (tgt, attr)
+                st = _PATCH_STATE.get(key)
+                if st is None:
+                    orig = getattr(tgt, attr)
+                    snapshot = _snapshot_attribute(tgt, attr, orig)
+                    new = patch_fn(orig)
+                    setattr(tgt, attr, new)
+                    _PATCH_STATE[key] = {
+                        "orig": orig,
+                        "snapshot": snapshot,
+                        "count": 1,
+                    }
+                else:
+                    st["count"] += 1
+                touched.append(key)
         yield
     finally:
         for key in reversed(touched):
@@ -1639,7 +1675,7 @@ def apply_monkey_patches() -> Iterator[None]:
             if st["count"] == 0:
                 tgt, attr = key
                 try:
-                    setattr(tgt, attr, st["orig"])
+                    st["snapshot"].restore(tgt, attr)
                 finally:
                     _PATCH_STATE.pop(key, None)
 

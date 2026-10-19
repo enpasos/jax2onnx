@@ -731,7 +731,15 @@ def _bind_closed_jaxpr_constants(
     source_precision = ctx.precision_policy is PrecisionPolicy.SOURCE
     for cv, cval in zip(jpr.constvars, consts, strict=source_precision):
         if source_precision:
-            ctx.bind_const_for_var(cv, np.asarray(cval, dtype=cv.aval.dtype))
+            representation = representation_for_aval(cv.aval)
+            ctx.bind_const_for_var(
+                cv,
+                (
+                    cval
+                    if representation.encoding == "threefry-key-words"
+                    else np.asarray(cval, dtype=cv.aval.dtype)
+                ),
+            )
             continue
         np_c = np.asarray(cval)
         target_dtype = None

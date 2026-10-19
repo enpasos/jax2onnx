@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - compatibility with older JAX versions
 from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.interpreters import ad, batching
+from jax._src.random.prng import KeyTy as PRNGKeyDType
 
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
@@ -71,6 +72,64 @@ def native_jit_boolean_inline_hints() -> tuple[object, object]:
     if inline is None:
         return False, True
     return inline.AUTO, inline.JAX_LATE
+
+
+def is_selected_threefry_impl(value: object) -> bool:
+    """Require the installed implementation object, never an equal descriptor."""
+    from jax._src.random.threefry2x32 import threefry_prng_impl
+
+    return value is threefry_prng_impl
+
+
+def is_selected_prng_key_dtype(dtype: object) -> bool:
+    """Recognize only the native scalar-key element type selected by this packet."""
+    return type(dtype) is PRNGKeyDType and is_selected_threefry_impl(
+        cast(PRNGKeyDType, dtype)._impl
+    )
+
+
+def selected_prng_key_words(value: Any) -> Any:
+    """Unwrap an actual selected typed key before NumPy attempts conversion."""
+    from jax import random
+
+    if not is_selected_prng_key_dtype(getattr(value, "dtype", None)):
+        raise ValueError("requires the actual native threefry2x32 typed key")
+    if tuple(value.shape) != ():
+        raise ValueError("requires a scalar logical key with two uint32 words")
+    return random.key_data(value)
+
+
+def selected_prng_key_from_words(words: Any) -> Any:
+    """Restore the selected logical key from its explicitly declared storage."""
+    from jax import random
+    from jax._src.random.threefry2x32 import threefry_prng_impl
+
+    return random.wrap_key_data(words, impl=threefry_prng_impl)
+
+
+def is_unpartitioned_prng_placement(value: object, rank: int) -> bool:
+    """Recognize the actual absent or empty AbstractMesh native placement."""
+    from jax.sharding import NamedSharding, PartitionSpec
+    from jax._src.mesh import AbstractMesh
+
+    return value is None or (
+        isinstance(value, NamedSharding)
+        and type(value) is NamedSharding
+        and type(value.mesh) is AbstractMesh
+        and value.mesh.empty
+        and value.spec == PartitionSpec(*(None for _ in range(rank)))
+    )
+
+
+def has_selected_prng_context(eqn: object) -> bool:
+    """Require actual native equation provenance for the partitionable algorithm."""
+    from jax._src.core import JaxprEqnContext
+
+    context = getattr(eqn, "ctx", None)
+    return (
+        type(context) is JaxprEqnContext
+        and cast(JaxprEqnContext, context).threefry_partitionable is True
+    )
 
 
 def _resolve_literal_type() -> type[Any]:

@@ -18,7 +18,13 @@ from typing import Any, Literal, cast
 import numpy as np
 import onnx_ir as ir
 
-from jax2onnx._compat.jax import atomic_symbolic_dimension
+from jax2onnx._compat.jax import (
+    PRNGKeyDType,
+    atomic_symbolic_dimension,
+    is_selected_prng_key_dtype,
+    selected_prng_key_from_words,
+    selected_prng_key_words,
+)
 
 
 def normalized_shape_dimensions(shape: Sequence[object]) -> tuple[int | str, ...]:
@@ -91,17 +97,27 @@ def validate_source_shapes(shapes: Sequence[Sequence[object]]) -> object | None:
 
 @dataclass(frozen=True)
 class ValueRepresentation:
-    logical_dtype: np.dtype[Any]
+    logical_dtype: np.dtype[Any] | PRNGKeyDType
     logical_shape: tuple[object, ...]
-    encoding: Literal["identity", "complex-real-pair"]
+    encoding: Literal["identity", "complex-real-pair", "threefry-key-words"]
     boundary_layout: Literal["NCHW"] | None = None
     physical_dtype: np.dtype[Any] = field(init=False)
     physical_shape: tuple[object, ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        dtype = np.dtype(self.logical_dtype)
         shape = tuple(self.logical_shape)
-        if self.encoding == "complex-real-pair":
+        dtype: np.dtype[Any] | PRNGKeyDType
+        physical_dtype: np.dtype[Any]
+        physical_shape: tuple[object, ...]
+        if self.encoding == "threefry-key-words":
+            if not is_selected_prng_key_dtype(self.logical_dtype) or shape != ():
+                raise ValueError("requires the actual scalar threefry2x32 key dtype")
+            if self.boundary_layout is not None:
+                raise ValueError("typed key storage has no image boundary layout")
+            dtype = self.logical_dtype
+            physical_dtype, physical_shape = np.dtype(np.uint32), (2,)
+        elif self.encoding == "complex-real-pair":
+            dtype = np.dtype(self.logical_dtype)
             if dtype == np.dtype(np.complex64):
                 physical_dtype = np.dtype(np.float32)
             elif dtype == np.dtype(np.complex128):
@@ -112,6 +128,7 @@ class ValueRepresentation:
                 )
             physical_shape = (*shape, 2)
         elif self.encoding == "identity":
+            dtype = np.dtype(self.logical_dtype)
             physical_dtype, physical_shape = dtype, shape
         else:
             raise ValueError(f"Unknown value representation: {self.encoding}")
@@ -134,6 +151,8 @@ class ValueRepresentation:
     def input_permutation(self) -> tuple[int, ...]:
         """Restore canonical storage while leaving any complex pair axis last."""
         if self.boundary_layout is None:
+            if self.encoding == "threefry-key-words":
+                return (0,)
             return tuple(
                 range(len(self.logical_shape) + (self.encoding == "complex-real-pair"))
             )
@@ -156,8 +175,13 @@ class ValueRepresentation:
         except ValueError:
             return False
 
-    def encode_array(self, array: np.ndarray[Any, np.dtype[Any]]) -> np.ndarray:
+    def encode_array(self, array: Any) -> np.ndarray:
         """Copy a correctly typed logical array into its declared storage layout."""
+        if self.encoding == "threefry-key-words":
+            words = np.asarray(selected_prng_key_words(array))
+            if words.dtype != self.physical_dtype or words.shape != (2,):
+                raise ValueError("typed key payload requires exactly two uint32 words")
+            return cast(np.ndarray, words.copy(order="C"))
         array = np.asarray(array)
         if array.dtype != self.logical_dtype or array.shape != self.logical_shape:
             raise ValueError(
@@ -173,7 +197,7 @@ class ValueRepresentation:
             encoded = np.transpose(encoded, self.output_permutation)
         return cast(np.ndarray, encoded.copy(order="C"))
 
-    def decode_array(self, array: np.ndarray[Any, np.dtype[Any]]) -> np.ndarray:
+    def decode_array(self, array: np.ndarray[Any, np.dtype[Any]]) -> Any:
         """Recover logical values without complex arithmetic or implicit casts."""
         array = np.asarray(array)
         if array.dtype != self.physical_dtype or array.shape != self.physical_shape:
@@ -183,6 +207,8 @@ class ValueRepresentation:
             )
         if self.boundary_layout is not None:
             array = np.transpose(array, self.input_permutation)
+        if self.encoding == "threefry-key-words":
+            return selected_prng_key_from_words(array.copy(order="C"))
         if self.encoding == "identity":
             return array.copy(order="C")
         result = cast(np.ndarray, np.empty(array.shape[:-1], dtype=self.logical_dtype))
@@ -195,6 +221,16 @@ def representation_for_aval(
     aval: Any, *, boundary_layout: Literal["NCHW"] | None = None
 ) -> ValueRepresentation:
     """Select storage from a logical aval/declaration, never from a pair shape."""
+    if isinstance(aval.dtype, PRNGKeyDType) and not is_selected_prng_key_dtype(
+        aval.dtype
+    ):
+        raise ValueError(
+            "typed key implementation is outside the selected threefry2x32 packet"
+        )
+    if is_selected_prng_key_dtype(aval.dtype):
+        return ValueRepresentation(
+            aval.dtype, tuple(aval.shape), "threefry-key-words", boundary_layout
+        )
     dtype = np.dtype(aval.dtype)
     encoding: Literal["identity", "complex-real-pair"] = (
         "complex-real-pair" if np.issubdtype(dtype, np.complexfloating) else "identity"

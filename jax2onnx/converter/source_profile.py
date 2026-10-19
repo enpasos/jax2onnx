@@ -4,8 +4,8 @@
 
 The persisted identifier includes finite rank-two/rank-three leading-batch
 Add/Mul/Exp and canonical MatMul, plus static native Where, typed plain-JIT
-carriers, the static bias reshape, actual named Function bodies and returned
-aliases. Other symbolic rules remain separate work.
+carriers, static singleton reshapes, real square/maximum, actual named Function
+bodies and returned aliases. Other symbolic rules remain separate work.
 
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns typed input normalization and x64 conflicts. Ordinary
@@ -32,6 +32,9 @@ from jax2onnx._compat.jax import (
     is_empty_jit_mesh,
     is_unspecified_jit_sharding,
     native_jit_boolean_inline_hints,
+    PRNGKeyDType,
+    is_selected_prng_key_dtype,
+    selected_prng_key_words,
 )
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
@@ -190,9 +193,21 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
         "ordinary ShapedArray values without refs, tokens, or high-level types",
     )
     try:
-        dtype = np.dtype(var.aval.dtype).name
         shape = tuple(var.aval.shape)
         weak_type = var.aval.weak_type
+        if isinstance(var.aval.dtype, PRNGKeyDType):
+            site.require(
+                is_selected_prng_key_dtype(var.aval.dtype)
+                and shape == ()
+                and weak_type is False,
+                "typed key implementation or shape is outside the selected packet",
+                "the actual scalar threefry2x32 typed key with two physical uint32 words",
+            )
+            dtype = "key<fry>"
+        else:
+            dtype = np.dtype(var.aval.dtype).name
+    except SourcePrecisionError:
+        raise
     except (AttributeError, TypeError, ValueError) as exc:
         site.fail(
             f"invalid traced tensor metadata: {exc}",
@@ -201,7 +216,7 @@ def _tensor(var: Any, site: _Site) -> _Tensor:
             category="lowering-defect",
         )
     site.require(
-        dtype in _VALUE_DTYPES,
+        dtype in _VALUE_DTYPES | {"key<fry>"},
         f"dtype {dtype} is outside the profile",
         "ordinary Boolean, integer, floating, or static complex64/complex128 values",
     )
@@ -535,7 +550,7 @@ def _validate_leading_batch_dot(
     _same_shape(result.shape, lhs.shape[:-1] + (rhs.shape[-1],), site)
 
 
-def _validate_bias_reshape(
+def _validate_singleton_reshape(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
     _arity(eqn, 1, 1, site)
@@ -551,32 +566,82 @@ def _validate_bias_reshape(
         and eqn.params.get("out_sharding") is None
         and eqn.params["dimensions"] is None,
         "reshape attributes or placement are outside the profile",
-        "only a static unpermuted bias reshape with unspecified placement",
+        "only a static unpermuted singleton reshape with unspecified placement",
     )
     source, target = inputs[0], outputs[0]
     _float_values((source, target), site)
+    expected = eqn.params["new_sizes"]
     site.require(
-        len(source.shape) == 1
-        and isinstance(source.shape[0], int)
-        and source.shape[0] > 0,
-        "reshape dimensions are outside the profile",
-        "a positive static floating bias [N] reshaped to [1,N]",
-    )
-    expected = (1, source.shape[0])
-    site.require(
-        eqn.params["new_sizes"] == expected
-        and all(type(dim) is int for dim in eqn.params["new_sizes"]),
+        isinstance(expected, tuple)
+        and all(type(dim) is int and dim > 0 for dim in expected),
         "reshape sizes are outside the profile",
-        "resolved new_sizes=(1,N) with positive static N",
+        "resolved positive static new_sizes for a singleton-only reshape",
+    )
+    _same_shape(target.shape, expected, site)
+    site.require(
+        source.symbol is None
+        and target.symbol is None
+        and all(type(dim) is int and dim > 0 for dim in (*source.shape, *target.shape))
+        and tuple(dim for dim in source.shape if dim != 1)
+        == tuple(dim for dim in target.shape if dim != 1),
+        "reshape dimensions are outside the profile",
+        "positive static floating extents with only singleton insertion/removal and unchanged non-singleton order",
     )
     site.require(
         source.dtype == target.dtype
         and bool(eqn.invars[0].aval.weak_type) == bool(eqn.outvars[0].aval.weak_type),
-        "bias reshape result dtype or weakness differs from its operand",
+        "singleton reshape result dtype or weakness differs from its operand",
         "the original floating dtype and native weakness",
         category="lowering-defect",
     )
-    _same_shape(target.shape, expected, site)
+
+
+def _validate_square(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1, 1, site)
+    _params(eqn, set(), site)
+    site.require(
+        all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+        "square placement is outside the profile",
+        "native real square with unspecified placement",
+    )
+    source, target = inputs[0], outputs[0]
+    _float_values((source, target), site)
+    site.require(
+        target.dtype == source.dtype
+        and eqn.outvars[0].aval.weak_type == eqn.invars[0].aval.weak_type,
+        "square result dtype or weakness differs from its operand",
+        "the exact native real floating dtype and weakness",
+        category="lowering-defect",
+    )
+    _same_shape(target.shape, source.shape, site)
+
+
+def _validate_max(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 2, 1, site)
+    _params(eqn, set(), site)
+    site.require(
+        site.opset == 23
+        and all(
+            value.dtype in {"float16", "float32", "float64"}
+            for value in (*inputs, *outputs)
+        )
+        and all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+        "maximum types, opset or placement are outside the audited SOURCE route",
+        "equal FP16/FP32/FP64 maximum at opset 23 with unspecified placement",
+    )
+    site.require(
+        len({value.dtype for value in (*inputs, *outputs)}) == 1
+        and eqn.outvars[0].aval.weak_type
+        == all(var.aval.weak_type for var in eqn.invars),
+        "maximum result dtype or weakness differs from its operands",
+        "the common native floating dtype and pointwise weakness",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, outputs[0], site)
 
 
 def _signature(variables: Sequence[Any], site: _Site) -> tuple[Any, ...]:
@@ -584,23 +649,40 @@ def _signature(variables: Sequence[Any], site: _Site) -> tuple[Any, ...]:
 
 
 def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) -> None:
-    """Reuse the same actual-B/equal-tail proof across typed pointwise families."""
+    """Prove native leading-B broadcasting before labels lose their scope."""
     symbolic_inputs = [value for value in inputs if value.symbol is not None]
     if symbolic_inputs:
         batch = symbolic_inputs[0]
         site.require(
             all(
-                value.shape == batch.shape
-                and value.symbol == batch.symbol
-                or value.symbol is None
-                and value.shape == (1, *batch.shape[1:])
+                value.symbol in (None, batch.symbol)
+                and len(value.shape) <= len(batch.shape)
+                and (value.symbol is None or len(value.shape) == len(batch.shape))
                 for value in inputs
             )
             and result.symbol == batch.symbol,
             "pointwise operands do not share the same leading-batch shape",
-            "equal rank-two/rank-three tails with the same native B or a literal leading extent 1",
+            "one actual native B/scope, with scalar or static trailing dimensions",
         )
-        shape = batch.shape
+        shapes = [
+            (1,) * (len(batch.shape) - len(value.shape)) + value.shape
+            for value in inputs
+        ]
+        site.require(
+            all(shape[0] in (1, batch.shape[0]) for shape in shapes),
+            "static leading extent cannot broadcast to the native batch",
+            "a scalar/static channel operand or literal leading extent 1",
+        )
+        tail = []
+        for axis in range(1, len(batch.shape)):
+            dimensions = {shape[axis] for shape in shapes if shape[axis] != 1}
+            site.require(
+                len(dimensions) <= 1,
+                "incompatible pointwise operand tails",
+                "equal positive trailing extents or singleton dimensions",
+            )
+            tail.append(next(iter(dimensions), 1))
+        shape = (batch.shape[0], *tail)
     else:
         site.require(
             result.symbol is None,
@@ -617,6 +699,42 @@ def _pointwise_shape(inputs: Sequence[_Tensor], result: _Tensor, site: _Site) ->
                 category="lowering-defect",
             )
     _same_shape(result.shape, shape, site)
+
+
+def _validate_normalization_activation_unary(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    _arity(eqn, 1, 1, site)
+    cubic = site.primitive == "integer_pow"
+    _params(
+        eqn, {"y"} if cubic else {"accuracy"}, site, required={"y"} if cubic else set()
+    )
+    site.require(
+        (
+            type(eqn.params.get("y")) is int and eqn.params["y"] == 3
+            if cubic
+            else eqn.params.get("accuracy") is None
+        )
+        and all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+        "normalization/activation parameters are outside the audited native expression",
+        "native rsqrt/tanh without explicit accuracy/placement, or integer_pow with y=3",
+    )
+    source, target = inputs[0], outputs[0]
+    _float_values((source,), site)
+    site.require(
+        target.dtype == source.dtype
+        and bool(eqn.outvars[0].aval.weak_type) == bool(eqn.invars[0].aval.weak_type),
+        "normalization/activation result dtype or weakness differs from its operand",
+        "the exact native floating dtype and weakness",
+        category="lowering-defect",
+    )
+    _same_shape(target.shape, source.shape, site)
+    site.require(
+        target.symbol == source.symbol,
+        "normalization/activation result scope differs from its operand",
+        "the verified native leading-batch scope",
+        category="lowering-defect",
+    )
 
 
 def _validate_predicate(
@@ -812,6 +930,12 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
     )
     body = closed.jaxpr  # JAX 0.11 returns self; never repeatedly unwrap it.
     site.require(
+        id(body) not in ancestors and len(ancestors) < 32,
+        "cyclic or excessively nested JIT body",
+        "an acyclic bounded tree of actual native scopes",
+        category="lowering-defect",
+    )
+    site.require(
         not getattr(body, "is_high", False),
         "high-level JIT bodies are outside the profile",
         "a low-level pure tensor Jaxpr",
@@ -899,16 +1023,35 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
             "a concrete numeric payload without conversion hooks",
             category="lowering-defect",
         )
+        selected_key = is_selected_prng_key_dtype(var.aval.dtype)
         array = np.asarray(
-            value
+            selected_prng_key_words(value) if selected_key else value
         )  # Never use jnp.asarray: ambient x64 must not recanonicalize it.
         site.require(
-            array.dtype == np.dtype(var.aval.dtype)
-            and array.shape == tuple(var.aval.shape),
+            array.dtype
+            == (np.dtype(np.uint32) if selected_key else np.dtype(var.aval.dtype))
+            and array.shape == ((2,) if selected_key else tuple(var.aval.shape)),
             f"JIT constant {index} payload dtype or shape disagrees with its aval",
             "exact payload dtype/shape while retaining declared weakness and bytes",
             category="lowering-defect",
         )
+    from jax2onnx.plugins.jax.random._source_prng import (
+        NativePRNGExclusion,
+        native_bernoulli_uniform,
+        prove_native_uniform,
+    )
+
+    try:
+        if prove_native_uniform(eqn) is not None:
+            return
+        uniform = native_bernoulli_uniform(eqn)
+    except NativePRNGExclusion as exc:
+        site.fail(
+            str(exc), "the selected native PRNG algorithm, context and empty placement"
+        )
+    if uniform is not None:
+        _validate_jit(uniform, site, ancestors | {id(body)})
+        return
     try:
         _validate_scope(body, site.opset, ancestors)
     except SourcePrecisionError as exc:
@@ -938,7 +1081,14 @@ def _validate_equation(
         or name
         in {
             "add",
+            "sub",
             "mul",
+            "div",
+            "neg",
+            "sqrt",
+            "rsqrt",
+            "tanh",
+            "integer_pow",
             "exp",
             "dot_general",
             "jit",
@@ -956,6 +1106,7 @@ def _validate_equation(
             "convert_element_type",
             "broadcast_in_dim",
             "cond",
+            "random_bits",
         }
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
@@ -963,6 +1114,25 @@ def _validate_equation(
     )
     if name == "jit":
         _validate_jit(eqn, site, ancestors)
+    elif name in {
+        "random_seed",
+        "random_wrap",
+        "random_unwrap",
+        "random_fold_in",
+        "random_bits",
+    }:
+        from jax2onnx.plugins.jax.random._source_prng import (
+            NativePRNGExclusion,
+            validate_selected_random_equation,
+        )
+
+        try:
+            validate_selected_random_equation(eqn)
+        except NativePRNGExclusion as exc:
+            site.fail(
+                str(exc),
+                "the selected native PRNG algorithm, context and empty placement",
+            )
     elif name == "select_n":
         _validate_select(eqn, inputs, outputs, site)
     elif name in {"eq", "ne", "lt", "le", "gt", "ge"}:
@@ -973,6 +1143,12 @@ def _validate_equation(
         _validate_complex_foundation(eqn, inputs, outputs, site)
     elif name == "exp":
         _validate_exp(eqn, inputs, outputs, site)
+    elif name == "square":
+        _validate_square(eqn, inputs, outputs, site)
+    elif name == "max":
+        _validate_max(eqn, inputs, outputs, site)
+    elif name in {"rsqrt", "tanh", "integer_pow"}:
+        _validate_normalization_activation_unary(eqn, inputs, outputs, site)
     elif name in {"add", "sub", "mul", "div", "neg", "sqrt", "jax.numpy.sqrt"}:
         unary = name in {"neg", "sqrt", "jax.numpy.sqrt"}
         _arity(eqn, 1 if unary else 2, 1, site)
@@ -993,6 +1169,22 @@ def _validate_equation(
                 "multiplication placement is outside the profile",
                 "native floating Mul with unspecified placement",
             )
+        if name == "add" and all(
+            value.dtype == "uint32" for value in (*inputs, *outputs)
+        ):
+            site.require(
+                all(
+                    value.shape == () and value.symbol is None
+                    for value in (*inputs, *outputs)
+                )
+                and not eqn.params
+                and all(
+                    var.aval.weak_type is False for var in (*eqn.invars, *eqn.outvars)
+                ),
+                "integer addition is outside the selected scalar state-word family",
+                "strong scalar uint32 addition with native modulo-2**32 semantics",
+            )
+            return
         _float_values(inputs, site)
         site.require(
             len({value.dtype for value in inputs}) == 1,
@@ -1103,7 +1295,7 @@ def _validate_equation(
     elif name == "dot_general":
         _validate_dot(eqn, inputs, outputs, site)
     elif name == "reshape":
-        _validate_bias_reshape(eqn, inputs, outputs, site)
+        _validate_singleton_reshape(eqn, inputs, outputs, site)
     elif name == "bitcast_convert_type":
         _arity(eqn, 1, 1, site)
         _params(eqn, {"new_dtype"}, site, required={"new_dtype"})
@@ -1272,8 +1464,8 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             and len(eqn.invars) == len(eqn.outvars) == 1
         ):
             if (
-                np.dtype(eqn.invars[0].aval.dtype).name == "bool"
-                and np.dtype(eqn.outvars[0].aval.dtype).name == "int32"
+                str(eqn.invars[0].aval.dtype) == "bool"
+                and str(eqn.outvars[0].aval.dtype) == "int32"
             ):
                 selector_producers.add(id(eqn.outvars[0]))
     for role, variables in (("input", jaxpr.invars), ("constant", jaxpr.constvars)):

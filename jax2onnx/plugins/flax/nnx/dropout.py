@@ -7,7 +7,7 @@ import numpy.typing as npt
 import logging
 from jax2onnx._compat.jax import AbstractValue, JaxprEqn, Primitive, ShapedArray
 from jax2onnx.converter.typing_support import LoweringContextProtocol
-from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     construct_and_call,
@@ -433,9 +433,7 @@ class DropoutPlugin(PrimitiveLeafPlugin):
 
     @staticmethod
     def _make_patch(orig_fn: Callable[..., Any] | None) -> Callable[..., Any]:
-        del orig_fn
-
-        def patched(self: nnx.Dropout, x: Any, deterministic: Any | None = None) -> Any:
+        def legacy(self: nnx.Dropout, x: Any, deterministic: Any | None = None) -> Any:
             if deterministic is None:
                 # init-params path
                 det = self.deterministic
@@ -447,6 +445,13 @@ class DropoutPlugin(PrimitiveLeafPlugin):
             return DropoutPlugin._dropout(
                 x, det, rate=float(self.rate), call_time=call_time
             )
+
+        def patched(self: nnx.Dropout, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError("flax.nnx.Dropout.__call__ is not available.")
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

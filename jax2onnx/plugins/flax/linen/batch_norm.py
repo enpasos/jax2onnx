@@ -8,6 +8,7 @@ import numpy as np
 from flax import linen as nn
 
 from jax2onnx._compat.jax import Primitive
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec
 from jax2onnx.plugins.flax.nnx import batch_norm as nnx_batch_norm
 from jax2onnx.plugins.flax.test_utils import linen_to_nnx
@@ -208,7 +209,7 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
                 raise RuntimeError("flax.linen.BatchNorm.__call__ is not available.")
             return orig_fn(self, x, use_running_average=use_running_average, mask=mask)
 
-        def patched(
+        def legacy(
             self: Any,
             x: Any,
             use_running_average: Any | None = None,
@@ -315,6 +316,15 @@ class BatchNormPlugin(nnx_batch_norm.BatchNormPlugin):
                 scale_is_default=scale_is_default,
                 bias_is_default=bias_is_default,
             )
+
+        def patched(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                if orig_fn is None:
+                    raise RuntimeError(
+                        "flax.linen.BatchNorm.__call__ is not available."
+                    )
+                return orig_fn(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         return patched
 

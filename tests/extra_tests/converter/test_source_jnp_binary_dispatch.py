@@ -315,6 +315,8 @@ def test_native_error_is_propagated_once_without_retry(monkeypatch: Any) -> None
 
 
 def test_only_the_sixteen_reviewed_callers_opt_in() -> None:
+    """Keep the explicit binder guard, including the newly reviewed sqrt."""
+
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
     for path in directory.glob("*.py"):
@@ -339,6 +341,7 @@ def test_only_the_sixteen_reviewed_callers_opt_in() -> None:
             "maximum",
             "minimum",
             "sin",
+            "sqrt",
             "equal",
             "greater",
             "greater_equal",
@@ -657,15 +660,112 @@ def test_nonselected_binder_and_existing_profile_exclusions_remain() -> None:
         native = policy is PrecisionPolicy.SOURCE
         assert _leaves(trace)[0][0] == ("exp" if native else "jax.numpy.exp")
         assert _signature(_body(trace).outvars) == (("float32", (), native),)
-    for name in ("minimum", "maximum"):
-        with pytest.raises(SourcePrecisionError) as failure:
-            user_interface._to_onnx(
-                _target(name),
-                list(map(_spec, _values("same"))),
-                precision_policy=PrecisionPolicy.SOURCE,
-            )
-        assert failure.value.category == "profile-exclusion"
-        assert failure.value.primitive in {"min", "max"}
+    values = _values("same")
+    proto, eager, compiled = _export(_target("maximum"), values, diagnostic=False)
+    report = get_precision_report(proto)
+    assert report is not None and report.opset == 23
+    assert all(
+        value.dtype == "float32" and value.shape == (2,) and value.weak_type is False
+        for value in (
+            *(entry.traced for entry in report.inputs),
+            *report.traced_outputs,
+        )
+    )
+    nodes = list(proto.graph.node)
+    assert [node.op_type for node in nodes] == [
+        "Max",
+        "Equal",
+        "Equal",
+        "And",
+        "Add",
+        "Unsqueeze",
+        "Unsqueeze",
+        "Concat",
+        "Cast",
+        "Unsqueeze",
+        "GatherElements",
+        "Squeeze",
+    ]
+    assert not proto.functions
+    assert len(proto.graph.input) == 2 and len(proto.graph.output) == 1
+    for value in (*proto.graph.input, *proto.graph.output):
+        tensor = value.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert len(tensor.shape.dim) == 1
+        assert tensor.shape.dim[0].dim_value == 2
+    initializers = {
+        value.name: onnx.numpy_helper.to_array(value)
+        for value in proto.graph.initializer
+    }
+    assert len(initializers) == 2
+    zero = next(
+        name
+        for name, value in initializers.items()
+        if value.dtype == np.dtype(np.float32) and value.shape == ()
+    )
+    axis = next(
+        name
+        for name, value in initializers.items()
+        if value.dtype == np.dtype(np.int64) and value.shape == (1,)
+    )
+    assert initializers[zero].tobytes() == np.asarray(0.0, np.float32).tobytes()
+    assert initializers[axis].tobytes() == np.asarray([0], np.int64).tobytes()
+    assert all(not node.domain and len(node.output) == 1 for node in nodes)
+    outputs = [node.output[0] for node in nodes]
+    assert len(set(outputs)) == len(outputs)
+    left, right = (value.name for value in proto.graph.input)
+    expected_inputs = [
+        (left, right),
+        (left, zero),
+        (right, zero),
+        (outputs[1], outputs[2]),
+        (left, right),
+        (outputs[0], axis),
+        (outputs[4], axis),
+        (outputs[5], outputs[6]),
+        (outputs[3],),
+        (outputs[8], axis),
+        (outputs[7], outputs[9]),
+        (outputs[10], axis),
+    ]
+    expected_attributes = [
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {"axis": 0},
+        {"to": onnx.TensorProto.INT64},
+        {},
+        {"axis": 0},
+        {},
+    ]
+    for node, inputs, attributes in zip(
+        nodes, expected_inputs, expected_attributes, strict=True
+    ):
+        assert tuple(node.input) == inputs
+        assert {
+            attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute
+        } == attributes
+    assert proto.graph.output[0].name == outputs[11]
+    payload = proto.SerializeToString()
+    for reference in (eager, compiled):
+        for optimization in ("disabled", "all"):
+            _samples(
+                proto, values, reference, mode=optimization
+            ).require_sample_acceptance()
+    assert proto.SerializeToString() == payload
+
+    with pytest.raises(SourcePrecisionError) as failure:
+        user_interface._to_onnx(
+            _target("minimum"),
+            list(map(_spec, values)),
+            precision_policy=PrecisionPolicy.SOURCE,
+        )
+    assert failure.value.category == "profile-exclusion"
+    assert failure.value.primitive == "min"
 
 
 def test_where_full_adapters_and_dynamic_arange_compatibility_remain() -> None:

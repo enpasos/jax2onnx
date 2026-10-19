@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import gc
+import inspect
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 import weakref
 
@@ -38,6 +39,7 @@ from jax2onnx.plugins.plugin_system import (
     apply_monkey_patches,
     onnx_function,
 )
+from jax2onnx.plugins._patching import AssignSpec, MonkeyPatchSpec, apply_patches
 from jax2onnx.user_interface import _is_floating_dtype, _run_allclose, _to_numpy_input
 
 
@@ -582,3 +584,321 @@ def test_function_instance_stale_callback_preserves_successor(
     assert plugin_system._FUNCTION_INSTANCE_IDENTITIES[reused_address] is successor
     assert plugin_system._register_function_instance(new) == new_key
     assert INSTANCE_MAP2[new_key] is new
+
+
+def _restoration_target(kind: str) -> tuple[Any, str]:
+    def original(*args: Any) -> None:
+        pass
+
+    class Parent:
+        target = original
+
+    class Target(Parent):
+        pass
+
+    if kind == "inherited":
+        return Target, "target"
+    if kind == "inherited-classmethod":
+        Parent.target = classmethod(original)
+        return Target, "target"
+    if kind == "metaclass":
+
+        class Meta(type):
+            __call__ = original
+
+        class MetaTarget(metaclass=Meta):
+            pass
+
+        return MetaTarget, "__call__"
+    if kind == "ordinary":
+        Target.target = original
+    elif kind == "staticmethod":
+        Target.target = staticmethod(original)
+    elif kind == "classmethod":
+        Target.target = classmethod(original)
+    elif kind == "module":
+        module = ModuleType("restoration_target")
+        module.target = original
+        return module, "target"
+    else:
+        raise AssertionError(kind)
+    return Target, "target"
+
+
+def _assert_restored_attribute(
+    owner: Any, attr: str, raw: Any, local: bool, resolved: Any
+) -> None:
+    assert (attr in vars(owner)) is local
+    assert inspect.getattr_static(owner, attr) is raw
+    current = getattr(owner, attr)
+    assert current is resolved or (
+        inspect.ismethod(current)
+        and inspect.ismethod(resolved)
+        and current.__func__ is resolved.__func__
+        and current.__self__ is resolved.__self__
+    )
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "inherited",
+        "inherited-classmethod",
+        "metaclass",
+        "ordinary",
+        "staticmethod",
+        "classmethod",
+        "module",
+    ],
+)
+def test_patch_context_restores_exact_namespace_and_descriptor_after_nested_exception(
+    monkeypatch: pytest.MonkeyPatch, context: str, kind: str
+) -> None:
+    owner, attr = _restoration_target(kind)
+    raw, local, resolved = (
+        inspect.getattr_static(owner, attr),
+        attr in vars(owner),
+        getattr(owner, attr),
+    )
+    parent = (
+        type(owner)
+        if kind == "metaclass"
+        else (owner.__bases__[0] if inspect.isclass(owner) else None)
+    )
+    parent_namespace = dict(vars(parent)) if parent is not None else None
+    calls = []
+    replacement = object()
+
+    def factory(original: Any) -> Any:
+        calls.append(original)
+        return replacement
+
+    if context == "function":
+        assert not plugin_system._PATCH_STATE
+        monkeypatch.setattr(
+            plugin_system, "_iter_patch_specs", lambda: iter([(factory, [owner], attr)])
+        )
+        activate = apply_monkey_patches
+    else:
+
+        def activate():
+            return apply_patches([MonkeyPatchSpec(owner, attr, factory)])
+
+    with pytest.raises(RuntimeError, match="body failure"):
+        with activate():
+            assert getattr(owner, attr) is replacement
+            with activate():
+                assert getattr(owner, attr) is replacement
+                if context == "function":
+                    assert plugin_system._PATCH_STATE[(owner, attr)]["count"] == 2
+            assert getattr(owner, attr) is replacement
+            raise RuntimeError("body failure")
+    assert len(calls) == (1 if context == "function" else 2)
+    _assert_restored_attribute(owner, attr, raw, local, resolved)
+    if parent_namespace is not None:
+        assert set(vars(parent)) == set(parent_namespace)
+        assert all(
+            vars(parent)[key] is value for key, value in parent_namespace.items()
+        )
+    assert not plugin_system._PATCH_STATE
+
+
+@pytest.mark.parametrize(
+    "kind", ["instance", "slot", "missing-instance", "missing-module"]
+)
+@pytest.mark.parametrize("spec_kind", ["assign", "factory"])
+@pytest.mark.parametrize("delete_if_missing", [False, True])
+def test_leaf_patch_preserves_instance_slot_and_missing_attribute_semantics(
+    kind: str, spec_kind: str, delete_if_missing: bool
+) -> None:
+    original, replacement = object(), object()
+    if kind == "slot":
+
+        class Target:
+            __slots__ = ("target",)
+
+        owner = Target()
+        owner.target = original
+    elif kind == "missing-module":
+        owner = ModuleType("missing_restoration_target")
+    else:
+        owner = SimpleNamespace()
+        if kind == "instance":
+            owner.target = original
+    missing = kind.startswith("missing")
+    calls = []
+
+    def factory(value: Any) -> Any:
+        calls.append(value)
+        assert value is (None if missing else original)
+        return replacement
+
+    spec = (
+        AssignSpec(owner, "target", replacement, delete_if_missing)
+        if spec_kind == "assign"
+        else MonkeyPatchSpec(owner, "target", factory, delete_if_missing)
+    )
+    with apply_patches([spec]):
+        assert owner.target is replacement
+    assert len(calls) == (0 if spec_kind == "assign" else 1)
+    if missing:
+        assert not hasattr(owner, "target")
+    else:
+        assert owner.target is original
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+def test_patch_context_unwinds_earlier_targets_when_later_factory_raises(
+    monkeypatch: pytest.MonkeyPatch, context: str
+) -> None:
+    first, attr = _restoration_target("inherited")
+    second, _ = _restoration_target("classmethod")
+    snapshots = [
+        (
+            owner,
+            inspect.getattr_static(owner, attr),
+            attr in vars(owner),
+            getattr(owner, attr),
+        )
+        for owner in (first, second)
+    ]
+    calls = []
+    replacement = object()
+
+    def first_factory(original: Any) -> Any:
+        calls.append("first")
+        return replacement
+
+    def failing_factory(original: Any) -> Any:
+        calls.append("second")
+        assert getattr(first, attr) is replacement
+        raise RuntimeError("entry failure")
+
+    if context == "function":
+        monkeypatch.setattr(
+            plugin_system,
+            "_iter_patch_specs",
+            lambda: iter(
+                [(first_factory, [first], attr), (failing_factory, [second], attr)]
+            ),
+        )
+        active = apply_monkey_patches()
+    else:
+        active = apply_patches(
+            [
+                MonkeyPatchSpec(first, attr, first_factory),
+                MonkeyPatchSpec(second, attr, failing_factory),
+            ]
+        )
+    with pytest.raises(RuntimeError, match="entry failure"):
+        with active:
+            raise AssertionError("Entry failure must occur before yielding")
+    assert calls == ["first", "second"]
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, attr, raw, local, resolved)
+    assert not plugin_system._PATCH_STATE
+
+
+def test_leaf_duplicate_target_stack_restores_original_in_reverse_order() -> None:
+    original, first, second = object(), object(), object()
+    owner = SimpleNamespace(target=original)
+    calls = []
+
+    def factory(value: Any) -> Any:
+        calls.append(value)
+        assert value is first
+        return second
+
+    with pytest.raises(RuntimeError, match="duplicate body failure"):
+        with apply_patches(
+            [
+                AssignSpec(owner, "target", first),
+                MonkeyPatchSpec(owner, "target", factory),
+            ]
+        ):
+            assert owner.target is second
+            raise RuntimeError("duplicate body failure")
+    assert len(calls) == 1 and calls[0] is first
+    assert owner.target is original
+
+
+@pytest.mark.parametrize("context", ["function", "leaf"])
+def test_patch_context_propagates_inherited_shadow_restoration_failure(
+    monkeypatch: pytest.MonkeyPatch, context: str
+) -> None:
+    rejection = {"active": False}
+
+    class Meta(type):
+        def __delattr__(cls, name: str) -> None:
+            if name == "target" and rejection["active"]:
+                raise RuntimeError("restore failure")
+            super().__delattr__(name)
+
+    class Parent:
+        target = object()
+
+    class Target(Parent, metaclass=Meta):
+        pass
+
+    def factory(original: Any) -> Any:
+        return object()
+
+    if context == "function":
+        monkeypatch.setattr(
+            plugin_system,
+            "_iter_patch_specs",
+            lambda: iter([(factory, [Target], "target")]),
+        )
+        active = apply_monkey_patches()
+    else:
+        active = apply_patches([MonkeyPatchSpec(Target, "target", factory)])
+    try:
+        with pytest.raises(RuntimeError, match="restore failure"):
+            with active:
+                rejection["active"] = True
+    finally:
+        rejection["active"] = False
+        if "target" in vars(Target):
+            type.__delattr__(Target, "target")
+    assert not plugin_system._PATCH_STATE
+
+
+def test_real_patch_targets_keep_exact_namespaces_after_activation_and_legacy_export() -> (
+    None
+):
+    plugin_system.import_all_plugins()
+    from flax import linen
+    from jax2onnx.plugins.examples.eqx.dino import DinoRoPE as EqxDinoRoPE
+    from jax2onnx.plugins.examples.nnx.dinov3 import DinoRoPE as NnxDinoRoPE
+
+    targets = [
+        EqxDinoRoPE,
+        NnxDinoRoPE,
+        linen.Conv,
+        linen.ConvLocal,
+        linen.MultiHeadAttention,
+    ]
+    snapshots = [
+        (
+            owner,
+            inspect.getattr_static(owner, "__call__"),
+            "__call__" in vars(owner),
+            getattr(owner, "__call__"),
+        )
+        for owner in targets
+    ]
+    assert all(not local for _, _, local, _ in snapshots)
+    with apply_monkey_patches():
+        assert all("__call__" in vars(owner) for owner in targets[:3])
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, "__call__", raw, local, resolved)
+    model = jax2onnx.to_onnx(
+        lambda x: x + jnp.asarray(1, dtype=jnp.float32),
+        inputs=[jax.ShapeDtypeStruct((2, 3), np.float32)],
+        opset=23,
+    )
+    assert len(model.graph.input) == len(model.graph.output) == 1
+    assert any(node.op_type == "Add" for node in model.graph.node)
+    for owner, raw, local, resolved in snapshots:
+        _assert_restored_attribute(owner, "__call__", raw, local, resolved)
