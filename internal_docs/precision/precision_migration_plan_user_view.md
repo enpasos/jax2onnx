@@ -35,11 +35,15 @@ stacks, and the fresh complete primary suite passes **8,772 tests**. Code commit
 remains recorded; its original cause was not observed. A separate older-stack
 FP16 benchmark failure is unchanged from the accepted baseline and remains unresolved.
 
-Exact-copy probes also show a finite way to preserve the selected floating-point
-bits. Its isolated implementation has runtime validation pending. The unchanged
-MLP work is also released for implementation, preserving both runtime choices
-and actual state/randomness. A production Where fix and complete MLP support
-are not yet accepted or integrated.
+A [reviewed private selection repair](poc/source_integration_findings.md#exact-floating-selection)
+now copies the chosen FP16/FP32/FP64 value without changing its bits. The bounded
+checks preserve negative zero and tested NaN payloads, at the cost of extra
+memory for both choices and their indices. Integration review and focused checks
+pass on both stacks. The complete primary suite passes all 8,819 cases, and
+code commit `778dce3c` passes all seven repository hooks. This does not establish
+complete model support. The separate unchanged MLP implementation is not yet
+integrated; both runtime choices and actual state/randomness remain required
+parts of its acceptance.
 
 Public export calls and both existing double-precision options keep their
 behavior. The full transition still requires unchanged model sources, working
@@ -70,9 +74,10 @@ beneath a local override; 89 fresh main checks pass on each stack with
 independent integration acceptance. The fresh complete primary-stack suite
 passes **7,236 tests**. Code commit `ae820b1a` passes all seven repository hooks.
 
-Some strict floating-point samples still lose the sign of negative zero on the
-measured CPUs. Those samples remain failed and cannot pass sample acceptance;
-passing ordinary finite or Boolean examples does not change that result. The
+The earlier Where checkpoint recorded strict samples that lost the sign of
+negative zero on the measured CPUs. Those failed records remain unchanged;
+the later private copy-based repair is described above. Ordinary finite or
+Boolean results alone did not establish that repair. The
 original gather example preserves the complete native trace, but still fails
 its unchanged graph check. The later diagnostic counterpart is described above;
 it adds no runtime or numerical acceptance. Further operator families and the

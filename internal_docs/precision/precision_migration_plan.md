@@ -51,12 +51,26 @@ errors or skips (13,773 warnings; 570.05 pytest seconds). Every previous 8,766
 identity and six lifetime regressions are present. All seven actual code hooks
 pass without bypass; frozen source/checkpoint/document bytes stay unchanged.
 
-Standalone copy-selection probes establish finite exact-byte feasibility and
-favor INT32 GatherElements over the measured alternatives. Its isolated
-implementation has runtime validation pending. The unchanged NNX/Linen MLP
-closure is also released for implementation, including required state/PRNG work
-and floating-criterion approval. Neither workstream has an accepted or integrated
-production fix; current Where failures and model barriers remain unchanged.
+The [exact floating-selection update](poc/source_integration_findings.md#exact-floating-selection) repairs the already-admitted
+SOURCE Boolean-selector, two-arm FP16/FP32/FP64 case by copying the selected
+bits through INT32 GatherElements. Native calls, admission and other dtype/scope
+boundaries stay unchanged. The reviewed owner packet passes 179 cases per stack,
+including strict zero-sign and NaN-payload checks. It adds 38 cases while
+retaining the original test anchors and strict criteria. The two-arm stack and
+index tensor have substantial memory cost. Historical direct-Where failures remain recorded.
+
+Independent review accepts the integrated selection repair and the strict
+current Gather graph oracle. The original Gather graph and failed first full
+run remain recorded; this tooling update adds no Gather numerical acceptance.
+Actual MAIN focused checks pass 1,911 cases per stack. Style, configured typing
+and both inventory checks pass; the inventory has 220 files, 1,372 functions
+and 620 migration additions, retaining all earlier anchors and raw rows.
+The complete primary suite passes all 8,819 expected cases without errors,
+failures or skips. Code commit `778dce3c` passes all seven actual hooks without
+bypass, with the six changed paths and all frozen source/document hashes
+preserved. The separate unchanged NNX/Linen MLP implementation remains outside
+MAIN, with model runtime and numerical acceptance pending. Complete model
+coverage and the public transition remain open.
 
 The preceding [Typed checkpoint](poc/typed_values_and_masks_findings.md) retains
 its independent acceptance, 8,659-test full result and code commit `0d8f9d19`.
@@ -94,8 +108,8 @@ passes all seven actual repository hooks; all seven checkpoint paths and 864 Pyt
 
 Public LEGACY precision policy, both double-precision options and report schema
 1 retain their meanings. The existing audited SOURCE profile is unchanged.
-Strict Where zero-sign failures remain failed, and BF16 structural evidence
-still does not establish runtime support. Coherent typed operator families,
+That checkpoint’s strict Where zero-sign failures remain recorded, and BF16
+structural evidence still does not establish runtime support. Coherent typed operator families,
 broader model coverage and the full B–F transition remain unfinished.
 
 The preceding [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
@@ -128,8 +142,10 @@ or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
 Code commit `ae820b1a` passes all seven actual repository hooks; the tested
 checkpoint hashes remain unchanged after commit.
 
-Strict Where negative-zero samples remain **FAILED** for FP16/FP32/FP64 in both
-CPU settings on both measured stacks; their acceptance guard still raises.
+At that checkpoint, strict Where negative-zero samples were **FAILED** for
+FP16/FP32/FP64 in both CPU settings on both measured stacks, with a raising
+acceptance guard. Those original records remain unchanged; the later copy-based
+SOURCE repair is described above.
 Ordinary finite/BOOL success and BF16 structural evidence are separate. The
 original gather source now has matching complete native/activated typed traces,
 but its unchanged raw callback still rejects the false constant's broadcast
@@ -379,12 +395,15 @@ reports and physical sample feeds. Its finite scope does not close the models
 that use it. The preparation proof makes an explicit selected numerical change;
 a general fixed-source preparation mechanism remains required work before F.
 
-The reviewed MLP plan and static state/PRNG supplement are released from code
-`8f823ac3` for isolated implementation. Eight existing production paths and
-three new tests are initially owned; the required measured PRNG extension and
-floating-criterion approval remain part of full-model closure. The separate
-exact-copy selection implementation has runtime validation pending. Neither
-workstream has accepted or integrated model/production results.
+The reviewed MLP plan is released from code `8f823ac3` for isolated
+implementation. Its native preparation preserves the complete original branches
+and actual RNG state; finite floating criteria are frozen before target runs.
+Implementation and whole-model numerical acceptance remain separate gates.
+The exact floating-selection repair and strict Gather tooling are committed as
+`778dce3c`, with accepted MAIN integration, passing focused checks, the complete
+8,819-case primary suite and all seven actual hooks. Their bounded scope and
+retained failures are recorded in the
+[selection findings](poc/source_integration_findings.md#exact-floating-selection).
 
 The next coherent implementation follows unchanged NNX MLP ordinal 2 through
 BatchNorm → Dropout → GELU and its two Linear calls, with Linen Dense and the
@@ -427,8 +446,8 @@ The immediate review follow-ups have reached this checkpoint:
 | Export wider normalization | The actual JAX callable passes inline/function/conditional serialization and CPU checks, including exact variance `8388609`. | This is model-chosen FP64 work on selected samples, not general normalization support or adoption of a legacy accuracy policy. |
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
 | Preserve typed representations | Logical/physical descriptors retain actual payloads; the Typed checkpoint adds audited bounded BOOL/integer operations and static complex construction/extraction. Input canonicalization still fails before tracing. | General integer/complex arithmetic, symbolic complex and broader loops remain open; diagnostic and sample results keep their separate status. |
-| Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the observed CPU Where negative-zero failure remains failed under its bitwise sample criterion. |
-| Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | Strict CPU zero-sign failures remain failed; broader JIT, complex selection and general symbolic shapes remain open. |
+| Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the earlier direct-Where negative-zero failure remains recorded under its bitwise criterion; the finite copy-based selection repair does not close broader loop contracts. |
+| Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | The finite FP16/FP32/FP64 copy-based repair is committed at `778dce3c` after integration, full-suite and hook acceptance; direct-Where history, broader JIT, complex selection and general symbolic shapes remain separate. |
 | Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
 
 The [accepted work plan](precision_implementation_work_plan.md) connects this
