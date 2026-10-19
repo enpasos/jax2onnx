@@ -1,10 +1,369 @@
 # Private source-policy integration
 
-Local implementation and review, updated 2026-10-18, beyond `main` at `fae17822`.
+Local implementation and review, updated 2026-10-19, beyond `main` at `fae17822`.
 The converter has a private SOURCE policy. Public options and legacy defaults
 retain their meanings; no public source mode or release is established.
-The review defects described below are repaired locally. Known runtime rounding
-failures remain separate failed numerical acceptance cases.
+Code checkpoint `7d74a200` has accepted primary-full, secondary affected-area
+and finite dual-stack runtime results, with all seven actual commit hooks
+passing. The record distinguishes those accepted scopes from earlier failures
+and the open full migration. Known runtime rounding failures remain separate
+failed numerical acceptance cases.
+
+## MLP state and bounded normalization acceptance
+
+The 2026-10-19 checkpoint has independent acceptance for the finite original
+NNX/Linen MLP runtime matrix and selected static normalization examples. Public
+behavior remains LEGACY. These results do not complete the existing-functionality
+inventory or authorize the final public transition.
+
+The original ordinal-2 MLPs retain seed 17, dimensions 30 → 20 → 10,
+running-stat BatchNorm, positive Dropout rate 0.1, the original GELU choice,
+parameters and factory dtypes. External pure whole-model preparation exposes
+actual state/RNG inputs and outputs while preserving both original branches.
+Four independent reference roles are captured before SOURCE activation/export:
+original eager, original NNX JIT with its static flag, prepared eager and
+prepared JIT. Linen retains its original bridge and key contract.
+
+The finite target matrix covers x64-off FP32, x64-on FP32 and x64-on FP64,
+original zero and meaningful nonzero inputs, and B=2/5 where declared. Each
+serialized artifact is reused with `ORT_DISABLE_ALL` and `ORT_ENABLE_ALL` on
+CPU, on both supported stacks. T/F/F/T controls feed actual returned state into
+the next call, with resets and replay. Every production output is compared
+with each of the four native references using the original preapproved absolute
+bounds, `rtol=0` and no NaN equivalence. All values are finite and retain exact
+dtype/shape; zero outputs have exact positive-zero bits. UINT32 state words and
+the separately observed Dropout masks match the original native values exactly.
+The accepted Phase B packet contains 12 production/diagnostic model pairs and
+40 selected PRNG artifacts across both stacks: 128 sessions and 2,144 calls.
+Diagnostic Y has an ABI-only contract; direct-mask acceptance does not confer
+numerical acceptance on that diagnostic output.
+
+The tracked [permanent runtime regression](../../../tests/extra_tests/converter/test_source_mlp_runtime_acceptance.py)
+passes its six NNX/Linen × x64/dtype cases on each stack. Each actual run has six
+exports, twelve CPU sessions and 192 target calls, using B=2 and the same four
+reference roles, state-feedback/reset/replay checks and frozen criteria. This
+minimal CI test does not repeat the separate direct-mask matrix. Source,
+configuration, PRNG, callable, policy and observer restoration checks pass for
+the recorded successful runs; neither finite packet is a universal PRNG or
+model-support guarantee.
+
+The [variance/std checks](../../../tests/extra_tests/converter/test_source_square_variance.py)
+and [LayerNorm checks](../../../tests/extra_tests/converter/test_source_layer_norm_exports.py)
+add finite static FP16/FP32/FP64 evidence for native square, variance/std and
+NNX/Linen/Equinox LayerNorm. They check actual serialized dataflow through
+mean/variance, epsilon, square root, reciprocal, affine and residual operations,
+including selected inline, named Function and conditional boundaries. Fourteen
+valid-ONNX wiring mutations are rejected. The named-boundary proof evaluates the
+same captured exported `ClosedJaxpr` eagerly and with fresh JIT against its
+preactivation native references, including both conditional inputs.
+
+That proof establishes **actual exported-body eager/JIT equality**. Whole-carrier
+JIT equality remains unestablished; the named residual conditional's activated
+eager call also triggers compilation and retains its missing-MLIR
+`NOT_ESTABLISHED` result. The original failed epoch exits 1 with zero target
+sessions/runs. Outer serialized wiring and full-model target comparisons for
+both selectors have separate acceptance. Normalized zero rows use their existing
+exact signed-zero comparator; nonzero bounds remain unchanged. The two actual
+85-case runs are v4 executions (116 sessions/170 calls per stack); v5 acceptance
+adds only the independently verified annotation-equivalent change. These results
+do not establish complete normalization-family or Functions014/015 acceptance.
+
+The earlier local integration brought 28 reviewed source/test paths and the
+manual inventory update into MAIN. Its independent source/inventory review
+verified the 880-file source freeze and all prior inventory anchors. The first
+joined focused runs recorded 1,027 passes and the same one stale expectation
+failure on each stack: the preparation test still expected profile admission
+failure after the bounded implementation reached runtime checking. That failed
+epoch remains in the record. The narrow companion repair has independent source
+acceptance. The later full failure and repairs are recorded separately below;
+the earlier review does not certify subsequently changed source bytes.
+
+Frozen acceptance receipts are retained under `/tmp` as local review evidence;
+the tracked tests have no dependency on those paths:
+
+| Accepted scope | Independent receipt |
+| --- | --- |
+| Finite MLP/selected-PRNG target matrix | `/tmp/jax2onnx-mlp-phaseB-actual-result-astra-review-v1/verification.json` |
+| Permanent MLP runtime regression | `/tmp/jax2onnx-mlp-permanent-ci-astra-runtime-review-v1/verification.json` |
+| Static normalization and actual-body proof | `/tmp/jax2onnx-normalization-candidate-v4-astra-review-v1/verification.json` |
+| Local MAIN source and inventory only | `/tmp/jax2onnx-mlp-normalization-MAIN-astra-review-v1/verification.json` |
+
+Earlier sections below retain their original checkpoint evidence. Historical
+barriers and failed criteria are not retroactively changed by later acceptance.
+
+## Full-suite failure and finite repair status
+
+The first full primary integration run is **FAILED**: 9,191 passed and 33 failed
+out of 9,224 collected tests, with no skips or errors. All 27,672 setup/call/
+teardown phases ran. Its actual terminal is session `73239`, chunk `845246`,
+exit 1. The follow-up classification records eight stale expectations, three
+non-Dropout product defects and twenty-two Dropout control failures. The frozen
+failure receipt and source postimages remain historical evidence; later finite
+passes do not change this run's result.
+
+### Accepted finite non-Dropout repair
+
+The actual v6 packet passes the same 57 cases and all 171 phases on each
+supported stack. Each run records eleven successful exports, five expected
+structured exclusions, twenty-four CPU sessions, sixty-eight target calls and
+twenty-four validation reports. Actual terminals are primary `59789/c41a76`
+and secondary `8795/2cb28f`, both exit 0. Independent review accepts this finite
+packet. Its offline audit checks all 136 saved calls and 296 output leaves
+against the original criteria: all observed leaves are byte-identical to their
+references, including the thirty-two leaves whose approved comparisons remain
+tolerant. No tolerance was changed.
+
+The repairs cover the exact native uniform `0`/`1` literal proof for weak FP64,
+the selected static rank-one PRNG width of 32, named initializer handling,
+malformed-reshape diagnostic classification, and captured typed keys in actual
+Functions. Actual key values remain logical source values; selected valid-key
+mathematics is unchanged. Unsupported `rbg` keys retain a structured nested
+profile exclusion. The rank-one width restriction is a private migration gap
+outside this finite implementation, not an ONNX limitation.
+
+Captured-key Function/If artifacts retain the actual key constant and required
+nested dataflow. Source/settings/PRNG/policy/callable/observer restoration checks
+pass for these actual runs. The earlier failed v4 and v5 epochs remain in the
+closed packet, including the raw `ValueError` preceding the structured-error
+repair. A subsequent path-header comment is AST-equivalent but was not executed
+by v6. Finite diagnostic numerical validation does not establish general product
+admission, complete PRNG support or whole-checkpoint acceptance.
+
+### Explicit Dropout state preparation: first runtime failure
+
+The new internal [state preparation helper](../../../tests/extra_tests/converter/source_state_preparation.py)
+and expanded [Dropout checks](../../../tests/extra_tests/converter/test_source_dropout_parameters.py)
+define an explicit adapter for the declared NNX and Linen Dropout owners. The
+helper retains the actual original target code, body, defaults and nonowner
+captures. Only the declared NNX owner closure cell is rebound to an owner
+reconstructed from its real graph, fixed state, key and counter. Linen retains
+its original fixed external key, rather than replacing it with a new state input.
+
+The prepared workflow threads actual returned state through Function, If and
+Loop calls. Its independent references use sequential calls to the original
+native step, and the unchanged whole original eager/JIT model wherever valid.
+Raw positive-rate NNX training with captured mutable state in If/Loop is natively
+invalid and remains a separate prerequisite failure. For those cases, sequential
+original-step and prepared eager/JIT comparisons supply the later finite evidence;
+whole-original native execution is not established. Equinox retains diagnostic
+sample-property criteria, without an exact JAX stochastic-mask claim.
+
+The combined 53-case contract plans 67 exports, 134 CPU sessions and 2,308
+target calls per stack. The first actual primary run is **FAILED**: 53 cases
+were collected, seven executed, six passed and one failed; forty-six remained
+unexecuted. All twenty-one phases of those seven cases ran. The actual terminal
+is session `17295`, chunk `019246`, exit 1; pytest reported 95.95 seconds.
+
+The original positive case
+`test_dropout_uses_real_named_operand_through_nested_scope[positive-rate-if-nnx]`
+failed while constructing its first `ORT_DISABLE_ALL` session at x64-off.
+ORT reported nested If/Function `TypeInferenceError` at
+`_inlfunc__dropout_state_named_node_If_2`, output `cond_then_0/cond_capture_2`:
+inferred rank 0 versus declared rank 1. That epoch exposed a representation/
+capture defect. The subsequent source-reviewed repair then needed runtime
+validation; its later accepted result is recorded below. The original failure
+does not establish an ONNX limitation.
+
+The failed run retained thirteen returned exports, twenty-five session
+construction attempts (twenty-four returned and one raised) and 384 actual target
+calls. No secondary run or rerun followed that epoch, and no source edit was
+made as part of closing it. The original numerical comparisons before failure
+have not received independent acceptance. The planned full-matrix counts were
+not reached, and that failed epoch supplies no runtime acceptance for the
+combined packet.
+
+The failure record confirms unchanged 881 guarded Python files, 29 Markdown
+files, generated artifacts, dependencies and inventory. Settings, PRNG, policy,
+watched callables, original/rebound target captures and the original preparation
+body were restored. The observer itself was restored, but its separate
+`all_actual_patch_targets_restored` flag is **false**. At that epoch the
+original observer did not retain individual differences for its 590 targets;
+the later diagnostic below provides separate evidence.
+The aggregate `all_sessions_CPU_threads1` flag is also **false** and includes
+the failed constructor. That epoch did not resolve its cause; this flag alone
+does not establish incorrect thread settings. No all-restoration or all-sessions
+acceptance is claimed for that failed epoch.
+
+The helper remains an explicit finite preparation mechanism, not a generic
+automatic adapter for arbitrary opaque fixed sources. Supporting unchanged
+third-party JAX sources through honest explicit preparation remains part of the
+full completion contract. The first failed epoch must remain visible beside
+any later repair and successful execution.
+
+### Source-reviewed naming and restoration repairs
+
+A separate actual primary restoration diagnostic executes one case and all
+three phases successfully, with two exports, four sessions and sixty-four target
+calls. Its outer terminal is nevertheless **FAILED**, session `76426`, chunk
+`477293`, exit 1: inherited attributes were restored as new local shadows.
+The original record identifies two resolved-identity mismatches in DinoRoPE
+classes; the read-only addendum identifies five namespace/descriptor leaks in
+total, including three whose resolved identity appeared unchanged. This is a
+real restoration defect. The diagnostic's passing pytest case does not establish
+numerical or integration acceptance, and its failed outer result is retained.
+
+Naming v2 and restoration v1 now have independent **source-component acceptance**;
+their production postimages are retained in local MAIN, with the later reviewed
+two-line test-only public-call correction described below. Naming assigns collision-free
+local namespaces while preserving external Values and names, and detaches the
+shared proto-backed tensor storage whose name setter would otherwise mutate
+another owner. Nested owned definitions retain distinct names without changing
+stable formals or free captures. The rejected naming v1 and its occupied-name/
+shared-storage blockers remain part of the review history.
+
+Restoration now snapshots raw direct class/module attributes, removes introduced
+inherited shadows and unwinds leaf patch contexts in reverse order. Factories
+still receive resolved originals; the protected activation block also covers
+entry failures. Existing instance/slot behavior and Function reference counting
+remain intact. The source review used static and standard-library stand-in
+checks; it did not execute the proposed real IR or numerical regressions.
+
+The joined 101-case packet combines the original 53 cases with twelve naming
+and thirty-six restoration cases. Its first two attempts each record 35 passes,
+one failure and 65 unexecuted cases (108 phases). The v3 attempt passes a private
+`precision_policy` keyword to public `to_onnx`, which rejects it before any
+export/session/run. An independently reviewed two-line test-only deletion
+restores the ordinary public call; it changes no production API.
+
+The v4 attempt reaches one delegated serialization and saves its protobuf,
+but returns no UI export and opens no session or target call. The external
+observer incorrectly requires the entire public IR to remain unchanged during
+serialization and records a mismatched inherited-child baseline first observed
+while its ancestor patch was active. Its saved BEFORE includes an unnamed
+initializer tensor; the installed serializer assigns initializer tensor names.
+No actual AFTER snapshot was saved in that failed epoch, so the complete delta
+is unestablished. It cannot be retrospectively certified as a name-only change.
+These test/observer failures establish neither a new production defect nor an
+ONNX limitation. Both original failed closures remain unchanged.
+
+The amended external observer now records actual BEFORE/AFTER transitions,
+separate delegate/wrapper outcomes and proven inherited-target baseline lineage.
+Its exact v5 prerequisites have independent acceptance. Two installed-IR-only
+toy serializations on each stack provide separate observer-mechanics evidence;
+they neither reconstruct the missing AFTER nor establish model results.
+The subsequent actual dual-stack result and its separate independent acceptance
+are recorded next.
+
+### Accepted dual-stack finite runtime result
+
+Independent actual-result review accepts the exact joined101 packet on both
+supported stacks. Each completes **101 cases / 303 phases**, with 73 returned
+exports (72 protobuf and one IR), 74 serializations, 141 CPU sessions, 2,364
+target runs, 18 samples, six validations, eight LEGACY comparisons and 507
+original target-factory constructions. The primary terminal is `30813/10bda9`,
+secondary `61217/6ec45d`, both exit 0. These actual counts supersede planned
+counts for this successful packet; they do not relabel any earlier failure.
+
+The independent audit checks every saved target run against its original
+criterion, including 4,096 exact NNX/Linen target-to-original output comparisons
+per stack. It preserves original sequential-step, prepared eager/fresh-JIT and
+valid whole-body references, T/F/F/T controls, reset/replay and returned UINT32
+key/counter chains through Function, If and Loop. Linen's fixed original key
+remains `[0,31]`. Equinox training retains its original zero/scaling property
+criterion; exact native stochastic-mask equality is not claimed. NNX whole-body
+JIT uses the owner-aware route, and raw captured mutable training If/Loop remains
+an invalid native prerequisite. The explicit state helper is still finite,
+without a generic adapter for arbitrary fixed sources.
+
+All 74 actual serialization transitions and 141 model-blob lineages per stack
+pass the frozen contract. The installed serializer synchronizes initializer
+`Tensor.name` with `Value.name`; 1,128 permitted name assignments per stack are
+witnessed. Returned IR is accepted through its actual same-model transition
+chain, without claiming raw IR metadata immutability. Snapshots cover selected
+identity, wiring and metadata fields, not arbitrary payload/metadata equality.
+The missing actual AFTER snapshot from the earlier v4 failure stays missing.
+
+Restoration passes for 638 canonical patch targets across 44,023 saved records
+per stack, using exact local ownership, descriptors, resolved binding and
+recorded ancestor provenance. A stricter supplementary snapshot comparison
+initially failed on one marshaled-code digest. That diagnostic FAIL remains
+recorded: the same function/code identities and every frozen restoration field
+match, and stdlib controls on both exact Python runtimes reproduce unstable
+marshal digests for unchanged code objects. Actual target marshal byte streams
+were not saved, so their precise byte-level cause is unestablished. No frozen
+restoration criterion was relaxed. Full current lookup-lineage arrays were not
+saved; the audit reconstructs expected lineage from first-seen/ancestor records,
+checks current targeted ancestors, and retains the original runtime assertions
+for untouched ancestor namespaces.
+
+The eight LEGACY reference arrays were computed after the target runs; their
+original tolerant comparisons pass. The named subtraction test retains its
+passing separate JIT assertion, while only its eager reference was saved for
+independent array review. These limits stay separate from the exact state and
+output evidence above. The dual-run closure retains its original pending-review
+label; the separate `verification.json` records the later independent **ACCEPT**.
+This finite result does not complete all model, PRNG, normalization or deployment
+coverage.
+
+### Integration and inventory gates
+
+After the five naming/restoration postimages, actual standalone configured
+typing passes for 543 production files plus the RNG trace check. Global Ruff
+and pinned Black checking of all 41 changed Python paths also pass. These v4
+results apply to the current repaired source; earlier v3 check receipts retain
+their original scope. Standalone checks remain separate from actual final hooks.
+The fresh primary full run now passes **9,296 tests and all 27,888 phases**
+across four workers, with zero failures, errors, skips or omitted cases. It
+retains every identity from the earlier 9,036-test baseline, 9,224-test failed
+full run and original 1,028 focused cases. Its actual terminal is `58291/4947b5`,
+exit 0. The secondary affected-area run passes **1,052 tests and all 3,156
+phases**, including every original focused identity, at `27310/5f8aed`, exit 0.
+Independent review accepts those actual integration gates and their exact
+source/inventory binding. It does not claim a full secondary-stack suite.
+
+The primary audit binds source and test identities; the secondary additionally
+checks its recorded settings, PRNG, policy and watched-callable restoration.
+All 881 Python, 29 protected Markdown, 26 generated and three dependency files
+match the accepted freeze. Earlier failed epochs remain failed history.
+The separate actual configured-hook run passes all seven hooks with no source,
+documentation, inventory, dependency or staged-path changes (`31329/e7942a`,
+exit 0). The subsequent normal local code commit
+`7d74a2001ef0a8e20a08151e7d67e20b1ae64150`, parent
+`d960d2c50c39da275af364ddadadc7f98d18b1b1`, contains exactly the 42 reviewed
+paths and passes all seven actual commit-time hooks without skips or bypass.
+Its terminal is `72344/418bb2`, exit 0. Verification confirms matching tested
+bytes, unchanged 881 source files, 29 precision Markdown files, 26 generated
+files, three dependency files and inventory, with a clean worktree. The code
+commit establishes a local checkpoint; no push, release or public transition is
+claimed. The strict public MkDocs build also passes on the accepted code with
+its 45 public documentation/configuration inputs unchanged. These eight internal
+precision documents are outside that build; their content/link review, application
+and separate documentation commit remain subsequent gates.
+
+The reviewed inventory is now applied: **228 manual files, 1,460 functions and
+708 migration additions**, exactly candidate `bbecd123b81855d694e42e59be2f18126c6fe88e0f1a0bb044ddabfc668fdc53`.
+Actual integration review verifies every preceding 1,440 and intermediate 1,448
+function identity plus all 752 original anchors, with zero removals. Only manual
+rows/provenance and their function count change; all 1,802 raw rows/3,604 cells
+and nonmanual fields remain exact. Applied inventory and integration acceptance
+and the separately accepted finite runtime result leave the full migration
+gates open.
+
+| Evidence scope | Local receipt |
+| --- | --- |
+| Failed full primary epoch | `/tmp/jax2onnx-mlp-normalization-MAIN-integration-v2/full-primary-failed-verified-v1.json` |
+| Accepted actual finite non-Dropout v6 | `/tmp/jax2onnx-full-v2-non-dropout-actual-astra-review-v1/verification.json` |
+| Closed dual packet, including v4/v5 failures | `/tmp/jax2onnx-full-v2-bounded-repairs-v1/non-dropout-dual-v6-closed.json` |
+| Original combined Dropout contract | `/tmp/jax2onnx-dropout-state-preparation-runtime-v1/closure.json` |
+| Failed first combined Dropout primary epoch | `/tmp/jax2onnx-dropout-state-preparation-runtime-v1/combined53-primary-v1-terminal-failed.json` |
+| Failed restoration diagnostic and five-leak addendum | `/tmp/jax2onnx-dropout-observer-candidate-v3/restoration-probe1-primary-v1-terminal-failed.json`, `restoration-probe1-five-namespace-leaks-addendum.json` |
+| Naming/restoration source components only | `/tmp/jax2onnx-scope-restoration-source-astra-review-v1/verification.json` |
+| Current standalone typing, Ruff and Black | `/tmp/jax2onnx-full-v2-bounded-repairs-v1/ROOT-configured-typing-v4-result.json`, `ROOT-style-v4-results.json` |
+| Failed joined101 test and observer epochs | `/tmp/jax2onnx-dropout-state-preparation-runtime-v3/joined101-primary-v1-terminal-failed.json`, `/tmp/jax2onnx-dropout-state-preparation-runtime-v4/joined101-primary-v2-terminal-failed.json` |
+| Reviewed public-call test correction | `/tmp/jax2onnx-public-legacy-test-correction-astra-v1/verification.json` |
+| Joined101 v5 prerequisites only | `/tmp/jax2onnx-joined101-v5-astra-review-v1/verification.json` |
+| Actual primary-full/secondary integration and applied inventory | `/tmp/jax2onnx-mlp-normalization-MAIN-actual-integration-astra-v3/verification.json` |
+| Seven actual configured hooks | `/tmp/jax2onnx-mlp-normalization-MAIN-integration-v3/ROOT-actual-configured-hooks-v1-terminal.json` |
+| Actual joined101 dual execution | `/tmp/jax2onnx-dropout-state-preparation-runtime-v5/joined101-dual-v3-closed.json` |
+| Independent finite dual result ACCEPT | `/tmp/jax2onnx-joined101-actual-result-astra-v1/verification.json` |
+| Verified 42-path code commit and seven commit hooks | `/tmp/jax2onnx-mlp-normalization-MAIN-integration-v3/ROOT-code-commit-v1-verified.json` |
+
+These local receipt paths support review; tracked code has no dependency on
+them. The full B–F contract remains open: all existing functionality, remaining
+models and optional environments, wider scope/export combinations, and evidence
+for claimed browser or other execution targets must be addressed before the
+public transition. The final ordinary `to_onnx(...)` call has one source-preserving
+contract, without a public profile choice or primitive-specific legacy fallback.
 
 ## What is implemented
 
@@ -345,9 +704,11 @@ remain historical evidence.
 The older-stack FP16 decoder benchmark remains an independently established
 baseline failure. This repair does not close it, general selection/provider
 support, unchanged MLP training/state behavior or the full precision migration.
-The separate MLP work has native preparation, a measured PRNG ownership review
-and floating criteria frozen before target runs. Its implementation is not yet
-integrated into MAIN, and model runtime/numerical acceptance remains pending.
+At that checkpoint, the separate MLP work had native preparation, a measured
+PRNG ownership review and floating criteria frozen before target runs. Its
+implementation was outside MAIN and model runtime/numerical acceptance was
+pending. The later finite result is recorded in the current acceptance section
+above.
 
 | Frozen evidence | SHA256 |
 | --- | --- |
@@ -372,6 +733,10 @@ integrated into MAIN, and model runtime/numerical acceptance remains pending.
 
 
 ## LayerNorm and mean native forwarding
+
+This section records the preceding forwarding-only checkpoint. The later
+[MLP and bounded normalization result](#mlp-state-and-bounded-normalization-acceptance)
+has separate acceptance and explicit limits.
 
 Independent source/evidence review accepts the finite five-path forwarding
 checkpoint. The three framework LayerNorm wrappers and `jax.numpy.mean` now call
@@ -438,20 +803,21 @@ barriers, source programs, inputs, bitwise native criteria and older findings ar
 retained. This additional mean export progress does not establish LayerNorm
 export or new runtime/numerical support.
 
-Actual default-audited SOURCE LayerNorm export still stops at these native operations on
-both stacks:
+At this forwarding-only checkpoint, default-audited SOURCE LayerNorm export
+stopped at these native operations on both stacks:
 
-| Framework | Current first barrier |
+| Framework | First barrier at that checkpoint |
 | --- | --- |
 | NNX | `square`, equation 2 |
 | Linen | `square`, equation 0 |
 | Equinox | `square`, equation 3 / JIT body / equation 4 |
 
-The profile remains unchanged. These are remaining implementation dependencies,
-not evidence that ONNX cannot represent the models. Original Functions014/015,
-whole-model export, runtime and numerical acceptance remain **UNVERIFIED**. The
-separate MLP implementation remains outside MAIN and requires its own acceptance
-and integration before its prerequisites can be used for those model checks.
+The profile was unchanged at that checkpoint. These barriers identified
+implementation dependencies, not ONNX impossibilities. Original Functions014/015
+and whole-model export/runtime/numerical acceptance were **UNVERIFIED**. The
+separate MLP implementation was then outside MAIN; its later finite acceptance
+and the subsequent bounded normalization result are recorded above. Complete
+Functions014/015 acceptance remains open.
 The final goal remains every existing capability through one ordinary call that
 preserves the source computation, including explicit external JAX preparation
 for fixed-source workflows; no permanent public mixture of precision policies
@@ -606,11 +972,11 @@ values, policy, 61 callable identities and observer wrappers restore on each sta
 the 47 public PRNG checks remain identity checks only. The 873 Python, 29 precision
 and 76 total Markdown hashes remain unchanged during these composition runs.
 
-MAIN now contains the four-path Sum code checkpoint `2d1ea944`, whose parent is
-`21ad27b4`. The separate MLP source remains outside MAIN and was not a prerequisite
-for this Sum integration.
-Default SOURCE LayerNorm exports still encounter `square`. Phases B–F and their
-full existing-functionality gates remain open. The final goal is one ordinary
+The four-path Sum code checkpoint `2d1ea944` has parent `21ad27b4`. The MLP
+source was outside MAIN and was not a prerequisite for that integration. Default
+SOURCE LayerNorm exports then encountered `square`; the later finite MLP and
+normalization acceptance is recorded above. Phases B–F and their full
+existing-functionality gates remain open. The final goal is one ordinary
 source-preserving `to_onnx(...)` call across all existing functionality, including
 fixed JAX model sources configured or prepared externally. No public precision
 mode or permanent partial-profile choice is introduced.
@@ -656,7 +1022,7 @@ the identical already-applied sources without changing a criterion. Code commit
 `2d1ea944adb17f477b76f4951d74aa59cc028cdb` contains exactly the four accepted paths
 and passes all seven actual repository hooks without bypass. Its terminal receipt
 records a clean MAIN worktree and exact 873 Python, four checkpoint and 29 Markdown
-hashes. The documentation remains a separate external draft: review by a different
-Astra, ROOT application and documentation build/checks, and a documentation commit
-are still pending. These completed code gates do not establish new target/model
+hashes. At that Sum-only snapshot, its companion documentation was a separate
+external draft awaiting review, application, build/checks and its own commit.
+Those completed code gates do not establish new target/model
 numerical support or complete phases B–F.

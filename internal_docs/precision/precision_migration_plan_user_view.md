@@ -14,171 +14,14 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The latest committed [Sum change](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
-keeps the original JAX calculation and its reduction options. Comparisons and
-integration checks pass, while two protected examples still encounter a later
-bit-conversion requirement and two matrix examples retain their separate
-precision restriction. Those exports remain blocked; the change adds no target
-numerical or complete-model support. The earlier failed experiment remains in
-the evidence record. This is a step toward the same ordinary export call across
-all existing functionality, including fixed model sources prepared through
-external JAX configuration. Public export behavior has not changed.
-
-The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
-advances that plan by preserving the original tested NNX, Linen and Equinox
-LayerNorm calculations and their mean. Comparisons with ordinary and freshly
-compiled JAX execution pass on both supported stacks, retaining the earlier
-Equinox regressions. Independent review accepts the forwarding, integration and
-regression checks, and the code is committed. Complete LayerNorm model export
-still stops at `square`; running those exported models and checking their
-numerical results remain open. The linked findings record the validation details.
-The unchanged MLP work remains a separate pending step.
-
-The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
-lets the private migration path trace declared keyword values as real inputs
-through the whole calculation. Selected examples retain the same model artifact
-when the batch size or Boolean control changes. This removes a shared parameter
-guard; complete model support still depends on the operations and state used by
-each model. At that checkpoint, the unchanged NNX and Linen MLPs reached their
-normalization or Dense barriers, and GPT reached Dropout.
-
-The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
-separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
-a different FP64 computation with its own reference. It also reuses actual stored
-weights when changing a model's computation dtype. The original eleven-test
-checks passed per stack; this finite tool does not automatically prepare arbitrary
-models.
-
-A reviewed cache repair now keeps each live model instance's tracing identity
-separate from later objects that reuse its address. Focused checks pass on both
-stacks, and the fresh complete primary suite passes **8,772 tests**. Code commit
-`8f823ac3` passes all seven repository hooks. The first full run's DINO failure
-remains recorded; its original cause was not observed. A separate older-stack
-FP16 benchmark failure is unchanged from the accepted baseline and remains unresolved.
-
-A [reviewed private selection repair](poc/source_integration_findings.md#exact-floating-selection)
-now copies the chosen FP16/FP32/FP64 value without changing its bits. The bounded
-checks preserve negative zero and tested NaN payloads, at the cost of extra
-memory for both choices and their indices. Integration review and focused checks
-pass on both stacks. The complete primary suite passes all 8,819 cases, and
-code commit `778dce3c` passes all seven repository hooks. This does not establish
-complete model support. The separate unchanged MLP implementation is not yet
-integrated; both runtime choices and actual state/randomness remain required
-parts of its acceptance.
-
-Public export calls and both existing double-precision options keep their
-behavior. The full transition still requires unchanged model sources, working
-runtime controls and state, and compatible precision preparation. The preceding
-[Typed results](poc/typed_values_and_masks_findings.md), including their retained
-numerical failures, are unchanged.
-
-The preceding [Gather diagnostic checkpoint](poc/gather_counterpart_findings.md) checks
-a saved ONNX representation for one unchanged indexing-and-trigonometry example.
-It preserves the original JAX call, input values and types, and reference result.
-The example’s original graph check still fails; a separate source-structure
-check validates the specific representation. This is diagnostic progress, with
-runtime behavior and numerical accuracy still unverified.
-The diagnostic tooling is committed and independently reviewed. Both supported
-stacks pass 249 focused checks, and the fresh complete primary-stack suite
-passes 7,326 tests.
-
-Public export calls and both existing double-precision options keep their
-meanings. The diagnostic result does not establish general Gather support or
-complete model coverage.
-
-The preceding [Where and JIT checkpoint](poc/where_jit_admission_findings.md) adds reviewed
-private support for selected conditional calculations and compiled JAX bodies.
-It keeps the original JAX call, input types, constants and actual branch inputs.
-Both supported stacks pass 2,661 main checks before a separately reviewed
-repair of shared x64 state restoration. That repair preserves caller settings
-beneath a local override; 89 fresh main checks pass on each stack with
-independent integration acceptance. The fresh complete primary-stack suite
-passes **7,236 tests**. Code commit `ae820b1a` passes all seven repository hooks.
-
-The earlier Where checkpoint recorded strict samples that lost the sign of
-negative zero on the measured CPUs. Those failed records remain unchanged;
-the later private copy-based repair is described above. Ordinary finite or
-Boolean results alone did not establish that repair. The
-original gather example preserves the complete native trace, but still fails
-its unchanged graph check. The later diagnostic counterpart is described above;
-it adds no runtime or numerical acceptance. Further operator families and the
-final transition remain unfinished.
-
-The preceding [Exp and multiplication checkpoint](poc/pointwise_mul_exp_findings.md)
-adds reviewed private support for selected exponential and multiplication
-calculations, including a shared variable batch size. The source’s input types,
-weak typing, casts and explicit broadcasting are preserved. Main checks pass
-1,489 cases on each supported stack, with independent integration acceptance.
-Selected FP32/FP64 CPU samples pass their fixed criteria; this does not promise
-identical results for every value or support on every device.
-The complete primary-stack run passes **6,933 tests**. Commit `7c68300b`
-passes all seven repository hooks.
-Public calls and both existing double-precision options keep their behavior.
-Its historical results remain unchanged; broader model coverage is unfinished.
-
-The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
-adds reviewed private support for selected matrix and bias calculations with a
-shared variable batch size. It keeps the five original MatMul, GPT Add and
-Linear examples, including their real parameters and runtime inputs. Focused
-checks pass on both stacks, and integration on the local branch is independently
-accepted. Fresh artifacts also pass the selected FP32 samples at batch sizes two
-and five in both CPU settings; independent review accepts these samples.
-That checkpoint’s complete primary-stack run passes **6,816 tests**; commit `718f448e` passes
-all seven repository hooks. These five examples do not establish support for
-every symbolic shape or complete model. Public calls and defaults keep their
-existing behavior.
-
-Reviewed private work now covers names, reports, file formats, typed constants,
-selected noncomplex and complex loops, local promotion settings and required
-finalization failures. The new focused repairs and diagnostic tooling passed
-independent review and are committed locally with repository hooks passing.
-Private recording and web-file packaging now have reviewed coverage, alongside
-native JAX promotion for `where`/`full` and selected Boolean results. These
-[bounded changes](poc/option_and_array_creation_findings.md) are committed with
-repository hooks passing; public behavior and audited operation admission stay
-unchanged. Real scalar-Boolean runtime binding and native `arange`/`linspace`
-binding now also have reviewed private coverage. Selected ordinary FP32/FP64
-matrix calculations and a shared Dropout cleanup repair are now reviewed and
-committed too. That complete run passed **6,183 tests**. The subsequent
-[layout and native-binary checkpoint](poc/layout_and_native_binary_findings.md)
-has accepted binder/Mul checks. Its initial full run failed ten regressions;
-the corrected layout/observer packet passes focused review on both stacks.
-The fresh complete primary-stack run passes **6,351 tests**, and the three code
-commits passed actual repository hooks. The refreshed inventory
-retains every original contract and test anchor; these results do not complete
-source coverage.
-
-The committed private shared-batch implementation has passed focused review on both
-stacks: one Add/named-function artifact runs with batch sizes two and five, and
-validation rejects inconsistent batches. Its complete primary-stack run passes
-**6,391 tests**, and the code commit passed actual repository hooks.
-The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md) retain that
-evidence. The [preceding checkpoint](poc/minmax_and_corpus_replay_findings.md),
-`fc3f9323`, commits the private Min/Max zero-sign correction and repaired
-artifact-only corpus tooling. Both stacks pass 323 focused checks; the complete
-primary-stack run passes **6,466 tests**, and all actual hooks pass. This
-checkpoint changes no default operation admission or numerical criteria.
-
-The [ordinary-matrix findings](poc/ordinary_matrix_admission_findings.md) record
-the bounded implementation: static FP32/FP64 matrices reach
-audited SOURCE export. Both stacks pass 750 main checks; fresh artifacts pass
-the fixed FP32 samples in 48 CPU runs per stack. Old diagnostic records and
-exact subnormal failures remain intact. Independent post-run review accepts
-these samples. The full primary-stack run passes **6,728 tests**; commit `45881d8d`
-passes all seven actual hooks. Broader matrix, symbolic and
-model acceptance remain separate work. The [preceding numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md)
-retains its scoped sample results, original criteria and failures.
-
-The [first corpus batch](poc/source_corpus_findings.md) measured 36 source scenarios
-per stack, producing 26 checked artifacts while retaining ten failed or pending
-outcomes. No runtime or numerical acceptance was claimed. The
-[fixed-source review](poc/fixed_source_compatibility_findings.md) classifies all 22
-parameterized models so their existing runtime controls and static settings can
-be preserved without editing the supplied implementation. The subsequent
-private diagnostic pass produces three checked artifacts and 19 pending cases
-per stack, with no ONNX Runtime executions or numerical acceptance. Broader operation,
-option and full-model acceptance remain unfinished. There is no new public
-precision choice.
+The private implementation now preserves the tested original NNX/Linen MLP
+controls and random state, selected static normalization, and explicit Dropout
+state preparation on both supported stacks. Its code checkpoint and integration
+checks are complete. The next work extends normalization to the original dynamic
+batch cases, then validates the remaining complete Function models. The
+[technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+retain the limits and earlier failures. These milestones leave the full
+normal-call contract and support for fixed third-party sources as required work.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -324,12 +167,13 @@ configuration; it does not replace a working runtime control.
 The [22-model classification](poc/fixed_source_compatibility_findings.md) now
 identifies which controls are dynamic, flag-insensitive or static. It does not
 establish numerical or stochastic SOURCE acceptance. The reviewed private binder now
-uses real typed named inputs across the whole trace. Its fresh model ledger
-records progress past the parameter guard, with no model numerical acceptance.
-The next model work follows the unchanged NNX MLP through normalization,
-dropout and GELU, with the corresponding Linen path and then Function examples.
-It must preserve real runtime flags through one artifact, including variable
-batches where the original model declares them. A successful
+uses real typed named inputs across the whole trace. The earlier parameter-only
+ledger recorded progress past the guard without model numerical acceptance.
+The original NNX/Linen MLPs now have finite model/state acceptance. Next, the
+implementation must preserve the original default LayerNorm cases with dynamic
+batch sizes and their declared ONNX versions, then validate the complete
+Functions014/015 models. Each declared runtime flag must remain live through one
+artifact, including variable batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution
 of the complete model succeeds. Training behavior needs separate checks of the
 model's actual keys, repeated calls and state changes. A live Dropout operation

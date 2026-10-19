@@ -1,296 +1,18 @@
 # Source Precision Implementation Work Plan
 
-Status: accepted implementation contract, 2026-10-18. Completion means consistent
+Status: accepted implementation contract, 2026-10-19. Completion means consistent
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
-The committed [native Sum checkpoint](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
-`2d1ea944` has independent source, companion-test and MAIN integration acceptance,
-with the full suite and actual code hooks completed. The original primary
-99-pass/one-failure/one-unexecuted composition remains recorded; the separately
-frozen corrected composition passes on both stacks. The PoC, native criteria,
-target schedule and opset 23 remain unchanged. The linked findings bind the
-four-path integration and its completed checks. This checkpoint contains no
-pending MLP source and does not close the broader migration gates.
-
-The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
-has independent native-forwarding acceptance and is committed to MAIN.
-It preserves original calls across NNX, Linen and Equinox without admitting new
-operations. Complete default SOURCE LayerNorm exports still encounter `square`; original
-Functions014/015 and all other model/runtime/numerical gates remain open. Keep
-this checkpoint separate from the MLP implementation outside MAIN. Accepted
-integration, full-suite and actual code-hook/commit receipts are recorded in the
-linked findings.
-
-The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
-removes the private facade's blanket parameter exclusion. Positional and named
-values now share actual typed root arguments, native signature binding, symbolic
-scope, exported names, reports and sample feeds. The independently reviewed
-owner packet passes **1,026 affected-area cases per stack**. Finite FP32/BOOL
-samples exercise root, Function and If scopes at B=2/5 with True/False/True:
-each stack records six validation-API sessions/36 runs and six separate direct
-capture sessions/36 runs. Those observations do not establish complete models.
-
-The closed owner ledger preserves all 22 original model contracts and their
-actual first barriers, with criteria None and runtime, numerics and product
-support unverified. Its zero-input/B=1 native references measure tracing progress.
-NNX MLP now reaches BatchNorm, Linen MLP reaches Dense, and GPT full/embeddings
-reach zero-rate Dropout; the old before-factory parameter guard is no longer
-these models' current first barrier. Original missing-key and immutable-state
-errors remain recorded.
-
-The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
-packages a finite, explicitly authorized pretrace cast change and actual NNX
-parameter configuration. At that checkpoint, its 11 maintained tests passed on
-each stack. Each stack recorded twelve ordinary audited export attempts and four
-actual CPU runs of the two exact witnesses, with eight sum/mean/HIGHEST profile
-barriers. This shows
-bounded preparation feasibility, not a generic transformer or all-model support.
-
-Code checkpoint `8f823ac3` commits the named binder, portable preparation proof
-and reviewed instance-lifetime cache repair: fourteen code/inventory paths,
-with 871 Python files and all 27 existing precision documents bound. MAIN focused checks pass **2,191 cases and 6,573
-setup/call/teardown phases per stack**, with settings, callables and source bytes
-restored. The inventory records **220 manual files, 1,363 functions and 611
-migration additions**; all 1,357 immediate predecessor functions and 752 original
-anchors remain. Raw 1,802 rows/3,604 cells and nonmanual fields are unchanged.
-Both inventory CLIs and the configured style/type checks pass.
-
-The first complete run retains **8,765 passes and one DINO B14 failure**. A
-controlled instance-address reuse defect is repaired, but address reuse in that
-original event was not observed. The older-stack FP16 decoder benchmark also
-remains failed; pristine-baseline comparison proves that specific failure
-predates this packet. Details and separate owner counts are in the
-[retained failure record](poc/named_runtime_parameters_findings.md#instance-lifetime-and-retained-failures).
-The fresh complete primary suite passes **8,772 tests** with no failures,
-errors or skips (13,773 warnings; 570.05 pytest seconds). Every previous 8,766
-identity and six lifetime regressions are present. All seven actual code hooks
-pass without bypass; frozen source/checkpoint/document bytes stay unchanged.
-
-The [exact floating-selection update](poc/source_integration_findings.md#exact-floating-selection) repairs the already-admitted
-SOURCE Boolean-selector, two-arm FP16/FP32/FP64 case by copying the selected
-bits through INT32 GatherElements. Native calls, admission and other dtype/scope
-boundaries stay unchanged. The reviewed owner packet passes 179 cases per stack,
-including strict zero-sign and NaN-payload checks. It adds 38 cases while
-retaining the original test anchors and strict criteria. The two-arm stack and
-index tensor have substantial memory cost. Historical direct-Where failures remain recorded.
-
-Independent review accepts the integrated selection repair and the strict
-current Gather graph oracle. The original Gather graph and failed first full
-run remain recorded; this tooling update adds no Gather numerical acceptance.
-Actual MAIN focused checks pass 1,911 cases per stack. Style, configured typing
-and both inventory checks pass; the inventory has 220 files, 1,372 functions
-and 620 migration additions, retaining all earlier anchors and raw rows.
-The complete primary suite passes all 8,819 expected cases without errors,
-failures or skips. Code commit `778dce3c` passes all seven actual hooks without
-bypass, with the six changed paths and all frozen source/document hashes
-preserved. The separate unchanged NNX/Linen MLP implementation remains outside
-MAIN, with model runtime and numerical acceptance pending. Complete model
-coverage and the public transition remain open.
-
-The preceding [Typed checkpoint](poc/typed_values_and_masks_findings.md) retains
-its independent acceptance, 8,659-test full result and code commit `0d8f9d19`.
-Its RAW65, cast/subnormal, Where and matrix-context results remain unchanged.
-Public LEGACY behavior and both double-precision options are unchanged. The
-full B–F migration still requires complete model/control coverage, compatible
-fixed-source preparation and one ordinary source-preserving public call.
-
-The preceding [Gather diagnostic counterpart](poc/gather_counterpart_findings.md) checks one unchanged
-`plugin::gather`, ordinal 0, source and its actual FP64/INT64 inputs, reference,
-native traces and saved ONNX representation. Its exact graph of twenty nodes
-and thirteen constants retains native broadcasts, index adaptation and the existing
-FP64 cosine expansion `1 - 2*Sin(shared*0.5)^2`. It does not contain a direct Cos
-node. The original raw callback still reports **FAILED**; the separate SOURCE
-structure check is **VALIDATED**. Diagnostic schema/reload checks pass under
-`source-diagnostic-v1`, while product admission, lowering, runtime and numerical
-acceptance remain **UNVERIFIED**. The x64-off configuration conflict is unchanged.
-
-The six-file tooling/test implementation has independent semantic acceptance.
-Owner focused checks pass 249 cases on each stack, including ninety new Gather
-cases. Both existing 26-cell replays and ordinary two-cell probes preserve
-raw outcomes and historical provenance with zero ORT attempts. Criteria and
-optimization remain None; no numerical approval or historical repin occurs.
-Independent review also accepts the saved owner artifact observations on both
-stacks, without numerical acceptance. Actual MAIN integration is independently
-accepted: both stacks pass the same 249 focused cases and reproduce the bounded Gather diagnostic in the 26-cell
-replay and separate ordinary probes, with all 864 Python hashes unchanged.
-Eight other matrix cells per stack have unresolved fresh reference differences;
-Gather’s own reference and artifact remain byte-identical to the owner evidence.
-That Gather checkpoint’s inventory records **214 files, 1,264 functions and 512 migration
-additions**, preserving all 752 original functions, zero removals and 1,802 raw
-rows/3,604 cells. Both inventory CLI checks pass. The fresh complete primary-stack suite passes **7,326 tests** (13,130 warnings,
-442.22 pytest seconds), with no failures, errors or skips. Code commit `e60ba9ab`
-passes all seven actual repository hooks; all seven checkpoint paths and 864 Python hashes remain unchanged after commit.
-
-Public LEGACY precision policy, both double-precision options and report schema
-1 retain their meanings. The existing audited SOURCE profile is unchanged.
-That checkpoint’s strict Where zero-sign failures remain recorded, and BF16
-structural evidence still does not establish runtime support. Coherent typed operator families,
-broader model coverage and the full B–F transition remain unfinished.
-
-The preceding [native Where and typed JIT checkpoint](poc/where_jit_admission_findings.md)
-has independent semantic and actual-main acceptance. The private SOURCE path
-preserves original `jnp.where` calls and admits bounded floating/BOOL selection,
-static BOOL inputs and recursively validated pure closed JIT bodies. Actual
-constants, formal bindings, weak types and native symbol scopes are checked
-before lowering; version-sensitive inline hints use the compatibility layer.
-Public LEGACY precision policy, `source-static-v1` and report schema 1 remain
-unchanged.
-
-Before the shared x64 restoration repair, both actual-main selections pass
-**2,661 cases**, including the complete prior
-2,658 and 1,489 selections. Each records 7,983 passing test phases and all 49
-observed test modules: 44 from MAIN and five frozen external files. All 862
-Python hashes, settings, original callables and policy are preserved. The
-independent selection passes 200 cases per stack; the packet adds 216 permanent
-cases. These overlapping counts are not additive. The separately reviewed
-shared x64 repair preserves the hidden global beneath caller-local overrides
-and adds 87 permanent cases. Both post-repair main selections
-pass 89 cases with hidden x64 True; five actual MAIN imports, all 863 Python
-hashes and restored state are verified. Independent integration review accepts
-these results.
-
-That checkpoint’s inventory records **213 files, 1,254 functions and 502 additions**,
-retaining all 752 original anchors, zero removals and 1,802 raw rows/3,604 cells.
-Both inventory CLI checks pass. The fresh complete primary-stack suite passes
-**7,236 tests** (13,130 warnings, 400.95 pytest seconds), with no failures, errors
-or skips. All fourteen checkpoint paths and all 863 Python hashes stay exact.
-Code commit `ae820b1a` passes all seven actual repository hooks; the tested
-checkpoint hashes remain unchanged after commit.
-
-At that checkpoint, strict Where negative-zero samples were **FAILED** for
-FP16/FP32/FP64 in both CPU settings on both measured stacks, with a raising
-acceptance guard. Those original records remain unchanged; the later copy-based
-SOURCE repair is described above.
-Ordinary finite/BOOL success and BF16 structural evidence are separate. The
-original gather source now has matching complete native/activated typed traces,
-but its unchanged raw callback still rejects the false constant's broadcast
-shape. That supplement added no accepted artifact or ORT result and kept its None
-criterion.
-At that checkpoint, the separate Gather counterpart was still being authored.
-Its later diagnostic result is recorded above; coherent typed operator families,
-broader symbolic/model coverage and the full B–F migration remain unfinished.
-
-The preceding [native Exp and Leading-B Mul checkpoint](poc/pointwise_mul_exp_findings.md)
-has independent semantic and actual-main acceptance. Native `jnp.exp` now keeps
-the original SOURCE call and weak typing; the private audited profile validates
-floating Exp and finite static/shared-batch Mul composition. Source casts and
-explicit broadcasts remain visible. Main checks pass **1,489 cases per stack**,
-including all previous 990 cases, fourteen frozen review guards and 117 new
-permanent cases. The separate independent selection passes 153 cases per stack;
-these overlapping counts are not additive.
-
-That checkpoint’s inventory records **210 files, 1,217 functions and 465 additions**, with
-all 752 original anchors, zero original removals and 1,802 raw contracts/3,604
-cells retained. Both inventory CLI checks pass. The complete primary-stack suite passes **6,933 tests** (13,130
-warnings, 403.51 seconds). Commit `7c68300b` passes all seven actual hooks;
-all five code/inventory paths and all 860 Python hashes remain unchanged.
-The fixed Exp/Mul samples establish bounded CPU evidence; BF16 structural
-checks do not establish a working CPU kernel. Neither the five-row Leading-B
-nor the twelve-row numerical packet is rerun or repinned. Public LEGACY,
-`source-static-v1` and report schema 1 remain unchanged. Where/JIT was still
-pending at that checkpoint; its bounded follow-up is recorded above. Broader
-phases D/E/F remain unfinished.
-
-The preceding [Leading-B matrix/bias checkpoint](poc/leading_batch_matrix_bias_findings.md)
-extends the private audited path to one actual leading symbolic batch at ranks
-two/three: canonical FP32/FP64 MatMul, equal-tail Add with a shared B or a static
-leading one, and the native static bias reshape. The five original MatMul,
-GPT Add and NNX Linear anchors keep their callables, weights, bias and runtime
-operand ports. Production semantics, repaired tooling and actual-main binding
-have independent acceptance; main checks pass **990 cases per stack**. The
-preceding owner run passes 1,004 cases per stack, including those 990 permanent
-cases and 14 frozen review guards; these overlapping counts are not additive.
-
-The separately released v3 observation records ten symbolic artifacts, twenty
-sessions and forty actual runs per stack; all three approved FP32 predicates
-pass for every output; independent result review accepts these samples. Earlier
-preparation failures and a later wrapper reporting error remain recorded.
-That checkpoint’s inventory records **209 files, 1,197 functions and 445 additions**,
-retaining all 752 original anchors and 1,802 raw contracts. Both inventory CLI
-checks pass. The complete primary-stack suite passes **6,816 tests** (13,130
-warnings, 431.98 seconds). Commit `718f448e` passes all seven actual hooks;
-the twelve frozen code/inventory files and all 859 Python hashes are unchanged.
-Public LEGACY, `source-static-v1` and report schema 1 stay unchanged. Broader acceptance across
-the 310 symbolic rows and final phase F remain unfinished.
-
-The bounded private facade, canonical initializer repair, and deterministic
-attention fixtures are reviewed and committed; inventory/reference infrastructure
-is committed. A fixed
-source-scenario plan, logical/physical boundary checks, exact discrete sample
-comparison, and finite noncomplex loop repairs have passed independent review;
-the repairs are committed and that checkpoint's integrated run passes all
-5,363 tests. The scenario plan is committed at `158ce625`.
-Further promotion-context, complex-loop and strict-finalization repairs are
-committed at `ea6a8da7`, `8ba3c681` and `f1ee71b3`. B3 diagnostics, the reviewed
-metadata-ownership repair and inventory additions are committed at `3dbec1b8`.
-All four commits passed actual repository hooks. C4a recording/web packaging is
-committed at `8a82d510`; D1a array-promotion repairs and the reviewed manual
-inventory refresh are committed at `223f24bf`, also with independent review and
-actual hooks passing. C4c scalar-BOOL binding is committed at `4c1c57fe`; D1b
-native sequence binding is committed at `05037961`. Both passed independent
-review and actual hooks. The shared Dropout optimizer repair is committed at
-`c528a894`; D2a ordinary FP32/FP64 matrices are committed at `2011b140`, also with
-independent review and actual hooks passing. That complete primary-stack
-run passed **6,183 tests**. Native add/min/max binding and the separate Mul-None
-diagnostic dependency are committed at `258e90d6`; the shared observer/naming
-repair is committed at `f02c0b4c` and C4b static layout at `7609fc2e`. All passed
-independent review and actual configured hooks. After ten regressions in the
-initial full run, the corrected complete primary-stack run passes **6,351 tests**
-(13,110 warnings, 466.07 seconds).
-The [layout/binary findings](poc/layout_and_native_binary_findings.md) retain
-those distinctions. Shared-B packet `80cb68b2` has 697 owner and 241 independent
-focused passes per stack, including 40 new cases. Its complete primary-stack run
-passes **6,391 tests** (13,110 warnings, 444.36 seconds), and actual configured
-hooks pass. The [shared-batch findings](poc/symbolic_batch_and_minmax_findings.md)
-retain that checkpoint. The [preceding findings](poc/minmax_and_corpus_replay_findings.md)
-record their joint commit `fc3f9323`: 323 main focused passes per stack, both
-26-cell artifact replays and inventory comparisons, and **6,466 full-suite passes**
-(13,110 warnings, 413.65 seconds). Typing (542 files plus RNG), global Ruff and all
-seven actual configured hooks pass. An earlier failed preflight exposed raw metadata
-mutation, now repaired; a later preflight was deliberately interrupted after
-typing exposed defects.
-Interrupted runs are not counted as passing.
-
-The [ordinary-matrix admission findings](poc/ordinary_matrix_admission_findings.md)
-record the preceding static audit: same-type FP32/FP64 ordinary dots with positive
-static ranks 2–4, valid ordered paired axes and default precision now use the
-actual audited SOURCE profile. Main checks pass **750 tests per stack**.
-The separate fresh numerical packet creates 24 audited artifacts and records
-48 CPU runs per stack; all three unchanged FP32 sample predicates pass with
-zero pending cells. Historical diagnostic reports and failed raw Gemm callbacks
-remain unchanged. These results do not establish general numerical acceptance;
-strict subnormal failures and their raising gates remain.
-
-That checkpoint’s inventory records **207 files, 1,175 functions and 423 additions**,
-with all 752 original anchors, zero removals and 1,802 raw contracts/3,604 cells
-retained.
-Typing (542 files plus RNG), global Ruff, pinned-source Black and both inventory
-CLI comparisons and independent numerical post-run review pass. The integrated
-primary-stack run passes **6,728 tests** (13,120 warnings, 370.40 seconds).
-Commit `45881d8d` passes all seven actual hooks on the first attempt, with the
-24 frozen source hashes unchanged. The preceding
-[Linear/reshape checkpoint](poc/native_linear_reshape_findings.md), `791664f8`,
-retains its 6,620-test full pass and unchanged native adapter prerequisite.
-Public LEGACY, the private profile identifier and report schema are unchanged.
-
-The preceding [trig/numerical checkpoint](poc/native_trig_and_corpus_numerics_findings.md),
-`d2292b89`, retains its 6,579-test full pass, actual hooks and scoped numerical
-observations: 96 recorded outputs and 288 approved comparisons across both
-stacks. Its failures, criteria and unverified general lowering remain unchanged.
-The first 36-cell diagnostic batch has run on both stacks, with every
-lowering/runtime/numerical gate still unverified. Broader source-corpus execution
-and migration remain open.
-The completed normal `to_onnx` call will have one source-preserving contract.
-The bounded source path remains internal during migration. The committed public
-facade still has legacy behavior; no release version is assigned.
-
-The [target contract](precision_target_state.md) defines the numerical semantics.
-The [migration plan](precision_migration_plan.md) retains implementation history,
-and its [user view](precision_migration_plan_user_view.md) explains adoption.
-The bounded `source-static-v1` work is phase A of this plan. Completing that
-phase does not complete the migration or its persistent goal.
+Code checkpoint `7d74a200` has independent finite MLP, static normalization,
+non-Dropout repair and joined Dropout/naming/restoration runtime acceptance.
+Primary full integration passes 9,296 tests, secondary affected-area integration
+passes 1,052, and the finite runtime suite passes 101 cases on each stack.
+All seven actual commit hooks pass. The
+[canonical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+retain the exact scope, inventory and earlier failed epochs. Public behavior
+remains LEGACY; the completion contract and all phases below remain required.
 
 ## Completion contract
 
@@ -367,6 +89,11 @@ factory configuration, supplied-value fingerprints, and numerical criteria;
 unchanged names or presence bits cannot certify an unchanged capability.
 Keep original regression identities separate from migration tests added after
 the baseline revision. Opaque recipes remain visible and require review.
+
+The current manual-test inventory at code checkpoint `7d74a200` has 228 files,
+1,460 functions and 708 migration additions. It retains all 752 original manual
+anchors. The 1,802 raw rows / 3,604 caller-x64 cells remain unchanged; these are
+coverage obligations, not counts of SOURCE-accepted cases.
 
 The initial live inventory finds 605 registry names, including 104 without
 metadata; 501 metadata entries and 110 example entries produce 1,802 raw
@@ -627,6 +354,7 @@ planning work is separate from production-code ownership.
 | Shared named runtime binding | Preserve native positional/named argument binding, typed variables/scopes, reports and physical feeds through the audited facade. | Independent owner/core/all-22 progress and MAIN acceptance; 1,026 owner affected-area cases per stack, 144 finite observed runs across both stacks; all-22 model criteria remain None | `8f823ac3`; combined MAIN 2,191 per stack, fresh full 8,772 and all seven actual code hooks pass |
 | Portable fixed-source preparation proof | Package the authorized pretrace cast change and actual captured-weight configuration, retaining protected semantics and profile barriers. | Eleven maintained tests per stack; two exact witnesses/four actual CPU runs per stack; eight audited barriers retained; no generic transformer or whole-model acceptance | `8f823ac3`; same combined full/hooks checkpoint, with independent PoC acceptance |
 | Instance-lifetime cache identity | Keep a stable key for each identical live object; use weak ownership and protect successors from stale cleanup. | Six new normal-wrapper/lifetime regressions, seventeen owned tests per stack; controlled ABA defect fixed; original DINO-event address reuse unobserved; baseline-identical secondary FP16 failure remains FAILED | `8f823ac3`; combined full and seven actual hooks pass; failed epochs retained |
+| Original MLP, bounded normalization and integration repairs | Finite original NNX/Linen model/state, static normalization, non-Dropout repairs and joined Dropout/naming/restoration acceptance; actual exported-body proof and native-state limits remain explicit. | Independently accepted: 9,296-test primary full, 1,052-test secondary affected-area and 101-case finite runtime suite on each stack. All seven actual commit hooks pass. [Canonical status](poc/source_integration_findings.md#full-suite-failure-and-finite-repair-status) retains every earlier failed epoch and the full migration gaps. | `7d74a200` |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -802,55 +530,70 @@ v1's two helper defects and interrupted history alongside the accepted v2 repair
 The two-file [preparation PoC](poc/fixed_source_preparation_findings.md) is a
 portable finite witness, not a generic production transformer.
 
-The reviewed MLP plan is released from code `8f823ac3` for isolated
-implementation. Its native preparation preserves the complete original branches
-and actual RNG state; finite floating criteria are frozen before target runs.
-Implementation and whole-model numerical acceptance remain separate gates.
-The exact floating-selection repair and strict Gather tooling are committed as
-`778dce3c`, with accepted MAIN integration, passing focused checks, the complete
-8,819-case primary suite and all seven actual hooks. Their bounded scope and
-retained failures are recorded in the
-[selection findings](poc/source_integration_findings.md#exact-floating-selection).
+The [MLP and bounded normalization checkpoint](poc/source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
+now has independent finite acceptance. The original NNX/Linen MLPs retain their
+30/20/10 dimensions, seed 17, positive Dropout rate 0.1, running-stat BatchNorm,
+GELU choice, captured parameters and original factory dtypes. External pure
+whole-model preparation exposes actual state and RNG inputs/outputs without
+editing the model source. Recorded runtime sequences preserve state feedback,
+reset/replay and both controls against all four frozen JAX references. The
+permanent regression covers six cases on both stacks. This closes that finite
+model matrix, not the all-model or all-PRNG contract.
 
-The four-path Sum checkpoint is committed at `2d1ea944` after independent
-integration acceptance, completed tests and actual hooks. Keep the fixed PoC at
-opset 23, retain its protected BitCast and HIGHEST-dot diagnostics, and preserve
-all original native criteria and target schedules. Its current representation
-limit does not justify a profile bypass or an unmeasured opset-26 runtime claim.
-The separate MLP lane below remains outside MAIN. Phases B–F and their full
-existing-functionality acceptance requirements remain open.
+Static square, variance/std and LayerNorm support now have bounded acceptance,
+including the recorded inline, named Function and conditional examples. The
+named-boundary proof establishes actual exported-body eager/JIT equality;
+whole-carrier equality retains its explicit missing-MLIR limit. Functions014/015
+still need complete original-model export, state and numerical acceptance.
+Preserve their parameters, dimensions, decorators, LayerNorm → Linear → exact
+GELU → Dropout → Linear → Dropout composition and both live Dropout sites. Keep
+Function014's fixed B=5 and exercise each declared symbolic-B artifact at B=2/5.
 
-The separate MLP work continues through the unchanged NNX BatchNorm → Dropout →
-GELU chain and Linen Dense/counterparts. Preserve original dimensions, weights,
-positive rates,
-running statistics, actual GELU approximation and precision/accumulation choices.
-NNX/Linen SOURCE interception must expose native computations, not exporter
-identity stand-ins. A pure whole-model wrapper must make actual state/RNG
-inputs and outputs explicit through the existing API. Selected PRNG/state
-lowering remains mandatory before declaring both-control model completion.
+The next implementation package extends the shared leading-B shape contract
+from ranks two/three to ranks one through four and deliberately adds four
+symbolic handlers: floating `reduce_sum` over static tail axes with B retained,
+`square`, `max`, and singleton-only `reshape` preserving B and static-axis order.
+Audit all 27 existing symbolic handlers for newly reachable ranks; retain the
+operation-specific matrix and PRNG restrictions. Preserve native scope identity,
+dtype, weak type, positive static tails and the existing rejected boundaries.
+The shared rank change also needs a coordinate-sensitive symbolic NCHW check;
+it must not silently widen unrelated operations or complex/layout contracts.
 
-Freeze original zero plus meaningful nonzero native references, both flags and
-B=2/5 where the source declares B. Native eager/JIT must start from the same
-state, with post-state recorded. Preserve fixed-key and stream behavior, key
-correlations, inference consumption, missing-key errors and repeat semantics.
-Neither live Dropout structure nor distribution-only checks establish equivalence;
-no universal bitwise random-stream guarantee is added. Leave unresolved
-model-specific criteria unverified without blocking correct shared binding.
-Independent code, sample, actual-main and release checks remain separate gates.
+Use the existing corpus preparation and sample-validation machinery for the
+**12 original default LayerNorm rows / 24 raw x64 cells** across NNX, Linen and
+Equinox. Retain the complete 30-row/60-cell ledger and its 18 nondefault-option
+gaps. Preserve original factories, shapes, parameters and opsets, including the
+six original opset-16 cells. The current private SOURCE entry/recursive profile
+supports only opsets 23/26: opset 16 requires deliberate per-operation/type
+eligibility and a reviewed Max representation, including nested bodies and
+PRNG/JIT early-return guards. It cannot be enabled by changing one opset tuple.
 
-The independently accepted LayerNorm/mean forwarding step exposes the native
-operations needed by Functions014/015. It does not close those models. Native
-variance forwarding and the remaining LayerNorm operations are future work;
-their source-preservation evidence must remain separate from profile admission
-and model execution. Coordinate any shared profile changes with the MLP lane.
-After separate MLP acceptance and integration, use its exact reviewed prerequisites
-and map the actual remaining normalization graph. Add the missing native
-operation support with its own evidence; do not bypass validation or classify
-unfinished `square`/`rsqrt` support as an ONNX impossibility. Preserve the complete
-original LayerNorm → Linear → exact GELU → Dropout → Linear → Dropout composition,
-parameters, dimensions, decorators and both live Dropout sites. Retain static
-Function014 B=5 and the original symbolic B contracts, with the same symbolic
-artifacts exercised at B=2/5, before requesting whole-model acceptance.
+Freeze the new sample criteria before execution on both supported stacks. Reuse
+one artifact/session at B=2/5 for each symbolic case and optimization setting;
+check actual Function bodies, both conditional consumers, retained constants,
+rounding boundaries and deliberate corruptions. Current static acceptance is
+not acceptance of these new shapes. Then follow the three original
+Functions014/015 contracts through complete native, artifact, state and numerical
+checks, preserving both live Dropout sites and the existing static/symbolic batch
+schedule. Record any remaining barrier without replacing the original model.
+
+Carry the accepted prerequisites through the shared private pipeline. Retain
+fixed-source external preparation, original native criteria, actual runtime
+controls and state, and explicit unresolved contracts. A source rewrite,
+synthetic flag, admission bypass or per-operation legacy fallback does not close
+the remaining models. Protected PoC BitCast/opset-23 and HIGHEST-dot diagnostics
+remain as recorded in the
+[Sum findings](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition).
+
+The code checkpoint and the joined 101-case runtime suite now have independent
+acceptance on both stacks, retaining the original-step references and explicit
+native limits. The primary full and secondary affected-area integration checks
+and seven actual commit hooks also pass. The
+[current integration status](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+preserves every failed diagnostic/runtime epoch. The next package above remains
+planned work and does not inherit runtime acceptance from this checkpoint.
+The final public transition still requires all existing functionality across
+phases B–F, including general fixed-source preparation beyond these finite owners.
 
 C4a is committed at `8a82d510`. Exactly three SOURCE guard removals enable
 recording and web packaging through the existing logger and serializer. Exact
@@ -1174,9 +917,9 @@ x64 conflict and None criteria. Independent MAIN review accepts the dual 249-cas
 artifact-only replays; product and numerical acceptance remain open.
 The subsequent Typed checkpoint has independent semantic and actual-main
 acceptance, with 8,659 full-suite passes and all actual hooks passing. The reviewed named
-binder and finite preparation proof advance shared prerequisites. Complete the
-unchanged MLP dependency chain and actual training state/PRNG behavior next;
-complete product/runtime Gather validation separately. Diagnostic structure is not
+binder and finite preparation proof advance shared prerequisites. Retain the
+accepted finite MLP state/runtime result while completing the remaining original
+model contracts; complete product/runtime Gather validation separately. Diagnostic structure is not
 product admission. Keep strict
 signed-zero failures and historical criteria unchanged. Shared
 representation and validation rules guide the remaining work; individual
