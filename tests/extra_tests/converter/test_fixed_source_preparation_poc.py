@@ -4,14 +4,22 @@
 
 from contextlib import ExitStack
 import json
+import re
 
 import jax
 from jax._src import config as jax_config
 import jax.numpy as jnp
 import numpy as np
+import onnx
 import pytest
 
 from internal_docs.precision.poc import fixed_source_preparation as poc
+from jax2onnx.precision import (
+    CheckStatus,
+    SOURCE_PRECISION_PROFILE,
+    get_precision_report,
+    precision_report_to_json,
+)
 
 
 def test_explicit_pretrace_edit_keeps_original_and_its_repeated_calls_untouched():
@@ -169,7 +177,13 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
         for name, row in report["cases"].items()
         if row["export"] == "source-rejected"
     }
-    assert len(barriers) == 8
+    expected_barriers = {
+        "exact_original_protected": "jax.numpy.sum",
+        "exact_prepared_protected": "jax.numpy.sum",
+        "linear_original": "dot_general",
+        "linear_prepared": "dot_general",
+    }
+    assert barriers.keys() == expected_barriers.keys()
     for name, row in barriers.items():
         assert row["native"] == "validated" and row["runtime"] == []
         assert row["numerical_target_acceptance"] is None
@@ -177,11 +191,89 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
         assert barrier["type"] == "SourcePrecisionError"
         assert barrier["fields"]["phase"] == "profile-validation"
         assert barrier["fields"]["category"] == "profile-exclusion"
-        assert barrier["fields"]["primitive"] == (
-            "dot_general"
-            if name.startswith("linear_")
-            else "jax.numpy.mean" if name.startswith("minimum_") else "jax.numpy.sum"
+        assert barrier["fields"]["primitive"] == expected_barriers[name]
+    for input_dtype, input_type, output_dtype, output_type in (
+        ("float16", onnx.TensorProto.FLOAT16, "float32", onnx.TensorProto.FLOAT),
+        ("bfloat16", onnx.TensorProto.BFLOAT16, "float32", onnx.TensorProto.FLOAT),
+        ("float32", onnx.TensorProto.FLOAT, "float32", onnx.TensorProto.FLOAT),
+        ("float64", onnx.TensorProto.DOUBLE, "float64", onnx.TensorProto.DOUBLE),
+    ):
+        name = "minimum_" + input_dtype
+        row = report["cases"][name]
+        assert row["native"] == "validated" and row["export"] == "admitted"
+        assert row["runtime"] == [] and row["numerical_target_acceptance"] is None
+        assert (
+            row["criterion"] == contract["cases"][name]["native_criterion"] == "bitwise"
         )
+        assert row["ordinary_default_audited_validator"] is True
+        assert row["schema_and_serialization_roundtrip"] is True
+        artifact = output / row["artifact"]["path"]
+        assert poc.digest(artifact.read_bytes()) == row["artifact"]["sha256"]
+        model = onnx.load_model(artifact, load_external_data=False)
+        onnx.checker.check_model(model, full_check=True)
+        assert model.SerializeToString() == artifact.read_bytes()
+        assert len(model.graph.input) == len(model.graph.output) == 1
+        for port, dtype in (
+            (model.graph.input[0], input_type),
+            (model.graph.output[0], output_type),
+        ):
+            assert port.type.tensor_type.elem_type == dtype
+            assert [dim.dim_value for dim in port.type.tensor_type.shape.dim] == [1, 4]
+        precision = get_precision_report(model)
+        assert precision is not None and precision.profile == SOURCE_PRECISION_PROFILE
+        assert json.loads(precision_report_to_json(precision)) == json.loads(
+            (output / row["precision_report"]).read_text()
+        )
+        assert {check.category: check.status for check in precision.checks} == {
+            "representation": CheckStatus.VALIDATED,
+            "lowering": CheckStatus.VALIDATED,
+            "runtime-execution": CheckStatus.UNVERIFIED,
+            "numerical-acceptance": CheckStatus.UNVERIFIED,
+        }
+        assert (
+            len(precision.inputs)
+            == len(precision.traced_outputs)
+            == len(precision.exported_outputs)
+            == 1
+        )
+        assert (
+            row["input"]["dtype"],
+            row["input"]["shape"],
+            row["input"]["weak_type"],
+        ) == (input_dtype, [1, 4], False)
+        for stage in ("supplied", "normalized", "traced", "exported"):
+            properties = getattr(precision.inputs[0], stage)
+            assert (properties.dtype, properties.shape) == (input_dtype, (1, 4))
+            if stage != "exported":
+                assert properties.weak_type == row["input"]["weak_type"]
+        references = []
+        for mode in ("eager", "jit"):
+            assert len(row[mode]) == 1
+            reference = np.load(output / row[mode][0]["path"], allow_pickle=False)
+            assert (str(reference.dtype), reference.shape) == (output_dtype, (1, 4))
+            assert (row[mode][0]["dtype"], row[mode][0]["shape"]) == (
+                output_dtype,
+                [1, 4],
+            )
+            expected = contract["cases"][name]["known_expected_output"]
+            assert (expected["dtype"], expected["shape"]) == (output_dtype, [1, 4])
+            assert reference.tobytes().hex() == expected["bytes_hex"]
+            references.append(reference)
+        assert poc.same_bits(*references)
+        for properties in (precision.traced_outputs[0], precision.exported_outputs[0]):
+            assert (properties.dtype, properties.shape) == (
+                str(references[0].dtype),
+                references[0].shape,
+            )
+        assert precision.traced_outputs[0].weak_type == row["eager"][0]["weak_type"]
+        assert row["trace"]["status"] == "captured"
+        trace = (output / row["trace"]["path"]).read_text()
+        operations = re.findall(r"= ([a-z_][a-z_.]*)(?:\[|\s)", trace)
+        native_operations = ["reduce_sum", "broadcast_in_dim", "div", "sub"]
+        if input_dtype in {"float16", "bfloat16"}:
+            native_operations.insert(0, "convert_element_type")
+            assert "new_dtype=float32" in trace
+        assert operations == native_operations
     for name in ("exact_original_intermediates", "exact_prepared_intermediates"):
         assert report["cases"][name]["export"] == "admitted"
         assert report["cases"][name]["runtime"] == []
