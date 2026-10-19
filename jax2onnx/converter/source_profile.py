@@ -2,10 +2,10 @@
 
 """Pure Jaxpr admission checks for the internal ``source-static-v1`` milestone.
 
-The persisted identifier includes finite rank-two/rank-three leading-batch
-Add/Mul/Exp and canonical MatMul, plus static native Where, typed plain-JIT
-carriers, static singleton reshapes, real square/maximum, actual named Function
-bodies and returned aliases. Other symbolic rules remain separate work.
+The persisted identifier includes shared leading-batch ranks one through four
+for reviewed pointwise and normalization operations. Matrix and native PRNG
+families retain their own narrower shape proofs. Actual named Function bodies,
+typed plain-JIT carriers and returned aliases retain the same scope checks.
 
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns typed input normalization and x64 conflicts. Ordinary
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import prod
 from typing import Any, Final, Literal, NoReturn
 
 import jax
@@ -287,6 +288,72 @@ def _float_values(values: Sequence[_Tensor], site: _Site) -> None:
         "nonfloating arithmetic or conversion is outside the profile",
         "floating arithmetic and explicit floating conversions",
     )
+
+
+def _validate_opset16_equation(
+    inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Finite normalization operations/types; recursive carriers keep their checks."""
+    if site.opset != 16:
+        return
+    name = site.primitive
+    if name in {"jit", "cond"} or bool(name and name.startswith("onnx_fn::")):
+        return
+    if name in {
+        "random_seed",
+        "random_wrap",
+        "random_unwrap",
+        "random_fold_in",
+        "random_bits",
+        "bitcast_convert_type",
+    }:
+        # Their owning branches provide precise PRNG/BitCast version diagnostics.
+        return
+    site.require(
+        name
+        in {
+            "add",
+            "sub",
+            "mul",
+            "div",
+            "neg",
+            "sqrt",
+            "jax.numpy.sqrt",
+            "rsqrt",
+            "square",
+            "max",
+            "reduce_sum",
+            "reshape",
+            "broadcast_in_dim",
+            "convert_element_type",
+            "select_n",
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge",
+            "and",
+            "or",
+            "xor",
+            "not",
+            "exp",
+            "tanh",
+            "integer_pow",
+        }
+        and all(
+            value.dtype in {"float16", "float32", "float64", "bool", "int32", "int64"}
+            for value in (*inputs, *outputs)
+        ),
+        "operation or dtype is outside the audited opset-16 normalization subset",
+        "the reviewed normalization operation/type intersection at the original opset",
+    )
+    if name in {"and", "or", "xor", "not"}:
+        site.require(
+            all(value.dtype == "bool" for value in (*inputs, *outputs)),
+            "integer bitwise emission is outside the audited opset-16 subset",
+            "Boolean And/Or/Xor/Not at 16; integer Bitwise operations require their separately audited version",
+        )
 
 
 def _validate_exp(
@@ -566,33 +633,62 @@ def _validate_singleton_reshape(
         and eqn.params.get("out_sharding") is None
         and eqn.params["dimensions"] is None,
         "reshape attributes or placement are outside the profile",
-        "only a static unpermuted singleton reshape with unspecified placement",
+        "an unpermuted static or shared-B singleton reshape with unspecified placement",
     )
     source, target = inputs[0], outputs[0]
     _float_values((source, target), site)
     expected = eqn.params["new_sizes"]
     site.require(
-        isinstance(expected, tuple)
-        and all(type(dim) is int and dim > 0 for dim in expected),
+        isinstance(expected, tuple),
         "reshape sizes are outside the profile",
-        "resolved positive static new_sizes for a singleton-only reshape",
+        "a resolved new_sizes tuple",
     )
-    _same_shape(target.shape, expected, site)
+    try:
+        declared_shape, declared_symbol = source_shape_contract(expected)
+    except ValueError as exc:
+        site.fail("reshape sizes are outside the profile", str(exc))
+    _same_shape(target.shape, declared_shape, site)
     site.require(
-        source.symbol is None
-        and target.symbol is None
-        and all(type(dim) is int and dim > 0 for dim in (*source.shape, *target.shape))
-        and tuple(dim for dim in source.shape if dim != 1)
-        == tuple(dim for dim in target.shape if dim != 1),
-        "reshape dimensions are outside the profile",
-        "positive static floating extents with only singleton insertion/removal and unchanged non-singleton order",
+        target.symbol == declared_symbol,
+        "reshape sizes and result have different native symbolic scopes",
+        "the actual resolved new_sizes and result aval with identical scope",
+        category="lowering-defect",
     )
     site.require(
         source.dtype == target.dtype
         and bool(eqn.invars[0].aval.weak_type) == bool(eqn.outvars[0].aval.weak_type),
-        "singleton reshape result dtype or weakness differs from its operand",
+        "reshape result dtype or weakness differs from its operand",
         "the original floating dtype and native weakness",
         category="lowering-defect",
+    )
+    if source.symbol is None and target.symbol is None:
+        site.require(
+            all(type(dim) is int and dim > 0 for dim in (*source.shape, *target.shape)),
+            "static reshape dimensions are outside the profile",
+            "fully resolved positive static floating extents",
+        )
+        site.require(
+            prod(source.shape) == prod(target.shape),
+            "static reshape source and result element counts differ",
+            "equal exact Python-integer element counts without permutation",
+            category="lowering-defect",
+        )
+        return
+    site.require(
+        source.symbol == target.symbol
+        and all(
+            dim == value.shape[0]
+            and axis == 0
+            and value.symbol is not None
+            or type(dim) is int
+            and dim > 0
+            for value in (source, target)
+            for axis, dim in enumerate(value.shape)
+        )
+        and tuple(dim for dim in source.shape if dim != 1)
+        == tuple(dim for dim in target.shape if dim != 1),
+        "reshape dimensions are outside the profile",
+        "the unchanged leading native B and positive static tails, with only singleton insertion/removal and unchanged non-singleton order",
     )
 
 
@@ -624,14 +720,14 @@ def _validate_max(
     _arity(eqn, 2, 1, site)
     _params(eqn, set(), site)
     site.require(
-        site.opset == 23
+        site.opset in (16, 23)
         and all(
             value.dtype in {"float16", "float32", "float64"}
             for value in (*inputs, *outputs)
         )
         and all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
         "maximum types, opset or placement are outside the audited SOURCE route",
-        "equal FP16/FP32/FP64 maximum at opset 23 with unspecified placement",
+        "equal FP16/FP32/FP64 maximum at opset 16 or 23 with unspecified placement",
     )
     site.require(
         len({value.dtype for value in (*inputs, *outputs)}) == 1
@@ -1039,10 +1135,12 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
         NativePRNGExclusion,
         native_bernoulli_uniform,
         prove_native_uniform,
+        require_native_prng_opset,
     )
 
     try:
         if prove_native_uniform(eqn) is not None:
+            require_native_prng_opset(site.opset, eqn)
             return
         uniform = native_bernoulli_uniform(eqn)
     except NativePRNGExclusion as exc:
@@ -1050,6 +1148,7 @@ def _validate_jit(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
             str(exc), "the selected native PRNG algorithm, context and empty placement"
         )
     if uniform is not None:
+        require_native_prng_opset(site.opset, eqn)
         _validate_jit(uniform, site, ancestors | {id(body)})
         return
     try:
@@ -1075,6 +1174,7 @@ def _validate_equation(
         "the same atomic batch variable and scope as actual formals",
     )
     name = site.primitive
+    _validate_opset16_equation(inputs, outputs, site)
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
         not symbolic
@@ -1107,6 +1207,10 @@ def _validate_equation(
             "broadcast_in_dim",
             "cond",
             "random_bits",
+            "reduce_sum",
+            "square",
+            "max",
+            "reshape",
         }
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
@@ -1124,9 +1228,11 @@ def _validate_equation(
         from jax2onnx.plugins.jax.random._source_prng import (
             NativePRNGExclusion,
             validate_selected_random_equation,
+            require_native_prng_opset,
         )
 
         try:
+            require_native_prng_opset(site.opset, eqn)
             validate_selected_random_equation(eqn)
         except NativePRNGExclusion as exc:
             site.fail(
@@ -1270,7 +1376,8 @@ def _validate_equation(
         axes = eqn.params.get("axes", ())
         source, target = inputs[0], outputs[0]
         site.require(
-            all(
+            isinstance(axes, tuple)
+            and all(
                 isinstance(axis, (int, np.integer))
                 and not isinstance(axis, bool)
                 and 0 <= axis < len(source.shape)
@@ -1282,15 +1389,32 @@ def _validate_equation(
             category="lowering-defect",
         )
         site.require(
-            source.dtype == target.dtype,
-            "reduction result dtype differs from its operand",
-            "explicit conversion before a wider reduction",
+            source.dtype == target.dtype
+            and eqn.invars[0].aval.weak_type == eqn.outvars[0].aval.weak_type,
+            "reduction result dtype or weakness differs from its operand",
+            "the exact native dtype and weakness, with an explicit conversion before a wider reduction",
             category="lowering-defect",
+        )
+        site.require(
+            all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+            "reduction placement is outside the profile",
+            "native floating reduction with unspecified placement",
+        )
+        site.require(
+            source.symbol is None or 0 not in axes,
+            "reduction over the symbolic batch is outside the profile",
+            "reduce only positive static tail axes while retaining native B",
         )
         _same_shape(
             target.shape,
             tuple(size for axis, size in enumerate(source.shape) if axis not in axes),
             site,
+        )
+        site.require(
+            target.symbol == source.symbol,
+            "reduction result symbolic scope differs from its operand",
+            "the same retained atomic native leading B",
+            category="lowering-defect",
         )
     elif name == "dot_general":
         _validate_dot(eqn, inputs, outputs, site)
@@ -1434,9 +1558,9 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             category="lowering-defect",
         )
     site.require(
-        opset in (23, 26),
+        opset in (16, 23, 26),
         f"opset {opset} is outside the profile",
-        "explicit opset 23 or 26",
+        "explicit opset 16, 23 or 26 with operation-specific eligibility",
     )
     # Attribute an actual effectful dot to its equation before the graph-wide
     # purity guard. Effects elsewhere retain the existing profile exclusion.
@@ -1539,6 +1663,29 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
                 "report this tracing/lowering defect with a minimal reproduction",
                 category="lowering-defect",
             )
+    # Check even unused native formals/captures. Recursive carrier equations
+    # delegate their type checks to the actual child scope, and an alias-only
+    # scope has no primitive on which to enforce the finite version boundary.
+    # Do this after equations so owning PRNG/BitCast diagnostics stay precise.
+    if opset == 16:
+        for role, variables in (
+            ("input", jaxpr.invars),
+            ("constant", jaxpr.constvars),
+            ("output", jaxpr.outvars),
+        ):
+            for index, var in enumerate(variables):
+                boundary_site = _Site(
+                    f"{role} {index}",
+                    opset,
+                    requested_dtypes=(str(var.aval.dtype),),
+                )
+                value = _tensor(var, boundary_site)
+                boundary_site.require(
+                    value.dtype
+                    in {"float16", "float32", "float64", "bool", "int32", "int64"},
+                    "scope dtype is outside the audited opset-16 normalization subset",
+                    "reviewed Boolean/int32/int64/FP16/FP32/FP64 scope types at 16",
+                )
     for index, var in enumerate(jaxpr.outvars):
         boundary_site = _Site(
             f"output {index}", opset, requested_dtypes=(str(var.aval.dtype),)

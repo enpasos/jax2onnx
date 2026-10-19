@@ -173,6 +173,34 @@ def test_one_audited_add_artifact_runs_two_batches_without_specialization(
     assert hashlib.sha256(model.SerializeToString()).hexdigest() == digest
 
 
+@pytest.mark.parametrize("tail", [(), (3, 2, 2)], ids=["rank-one", "rank-four"])
+def test_shared_batch_rank_one_and_four_keep_one_artifact(
+    tail: tuple[int, ...],
+) -> None:
+    samples = []
+    for batch in (2, 5):
+        shape = (batch, *tail)
+        left = (np.arange(np.prod(shape)).reshape(shape) - 3).astype(np.float32)
+        right = np.flip(left, axis=0).copy() / np.float32(4)
+        values = (left, right)
+        samples.append(
+            SourceSample(values, _reference(_add, values), SampleCriteria("bitwise"))
+        )
+    model = _source(inputs=[("B", *tail), ("B", *tail)])
+    onnx.checker.check_model(model, full_check=True)
+    report = get_precision_report(model)
+    assert report is not None
+    assert all(entry.traced.shape == ("B", *tail) for entry in report.inputs)
+    assert report.exported_outputs[0].shape == ("B", *tail)
+    for value in (*model.graph.input, *model.graph.output):
+        dims = value.type.tensor_type.shape.dim
+        assert dims[0].dim_param == "B"
+        assert tuple(dim.dim_value for dim in dims[1:]) == tail
+    payload = model.SerializeToString()
+    _check_samples(model, samples)
+    assert model.SerializeToString() == payload
+
+
 @pytest.mark.parametrize("native_first", [False, True])
 def test_mixed_declarations_share_verified_native_scope_in_both_orders(
     native_first: bool,
@@ -626,7 +654,8 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
         (other,) = export.symbolic_shape("B")
         shapes = [(batch, 3), (other, 3)]
     elif kind == "rank":
-        shapes = [("B", 3, 2, 2)] * 2
+        # Keep the original parameter ID; rank four now has positive coverage.
+        shapes = [("B", 3, 2, 2, 2)] * 2
     elif kind == "K-zero":
         shapes = [("B", 0)] * 2
     else:
@@ -670,7 +699,7 @@ def test_symbolic_subtract_and_reduce_sum_remain_explicit_exclusions() -> None:
     assert model.SerializeToString() == payload
 
     with pytest.raises(
-        SourcePrecisionError, match="symbolic operation is outside"
+        SourcePrecisionError, match="reduction over the symbolic batch"
     ) as error:
         _source(lambda x, y: jax.lax.reduce_sum(x, axes=(0,)))
     assert error.value.phase == "profile-validation"

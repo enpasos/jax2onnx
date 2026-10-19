@@ -55,10 +55,10 @@ def source_shape_contract(
     if static:
         return normalized_shape_dimensions(dims), None
     requirement = (
-        "static nonnegative integer dimensions or rank-two/rank-three shapes "
+        "static nonnegative integer dimensions or rank-one through rank-four shapes "
         "with one atomic leading batch variable and positive static tails"
     )
-    if len(dims) not in (2, 3) or any(
+    if len(dims) not in (1, 2, 3, 4) or any(
         isinstance(dim, bool) or not isinstance(dim, (int, np.integer)) or dim <= 0
         for dim in dims[1:]
     ):

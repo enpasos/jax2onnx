@@ -51,6 +51,26 @@ def _supported(condition: bool, message: str) -> None:
         raise NativePRNGExclusion(f"selected native PRNG: {message}")
 
 
+def require_native_prng_opset(opset: int, eqn: Any) -> None:
+    """Keep this emitter's audited version boundary at every direct entry."""
+    if opset not in (23, 26):
+        from jax2onnx.converter.source_profile import SourcePrecisionError
+
+        raise SourcePrecisionError(
+            "selected native PRNG emission is outside the audited opset packet",
+            phase="profile-validation",
+            category="profile-exclusion",
+            location="native PRNG entry",
+            primitive=eqn.primitive.name,
+            requested_dtypes=tuple(
+                str(var.aval.dtype) for var in (*eqn.invars, *eqn.outvars)
+            ),
+            opset=opset,
+            requirement="the selected native PRNG lowering audited at opset 23 or 26",
+            action="retain the original opset and report this unaudited operation/version intersection; export never upgrades the opset",
+        )
+
+
 def _shape_signature(shape: Any) -> Any:
     return source_shape_contract(tuple(shape))
 
@@ -248,7 +268,11 @@ def validate_selected_random_equation(eqn: Any) -> None:
             and has_selected_prng_context(eqn),
             "requires recorded native partitionable=True context and unchanged selected ambient mode",
         )
-        _shape_signature(shape)
+        _, symbol = _shape_signature(shape)
+        _supported(
+            symbol is None or len(shape) in (2, 3),
+            "symbolic random bits retain the audited rank-two/rank-three packet",
+        )
         if all(isinstance(dim, (int, np.integer)) for dim in shape):
             _require(
                 math.prod(shape) <= np.iinfo(np.int64).max,
@@ -602,6 +626,7 @@ class _Words:
 
 
 def emit_fold_in(ctx: NativeLoweringContext, eqn: Any) -> None:
+    require_native_prng_opset(ctx.opset, eqn)
     validate_selected_random_equation(eqn)
     words = _Words(ctx)
     data = words.cast(ctx.require_value_for_var(eqn.invars[1]), ir.DataType.INT64)
@@ -626,6 +651,7 @@ def emit_fold_in(ctx: NativeLoweringContext, eqn: Any) -> None:
 
 
 def emit_seed(ctx: NativeLoweringContext, eqn: Any) -> None:
+    require_native_prng_opset(ctx.opset, eqn)
     validate_selected_random_equation(eqn)
     words = _Words(ctx)
     source = ctx.require_value_for_var(eqn.invars[0])
@@ -667,6 +693,7 @@ def _random_words(
 
 
 def emit_bits(ctx: NativeLoweringContext, eqn: Any) -> None:
+    require_native_prng_opset(ctx.opset, eqn)
     validate_selected_random_equation(eqn)
     words = _Words(ctx)
     high, low = _random_words(
@@ -694,6 +721,7 @@ def emit_native_uniform(ctx: NativeLoweringContext, eqn: Any) -> bool:
     proof = prove_native_uniform(eqn)
     if proof is None:
         return False
+    require_native_prng_opset(ctx.opset, eqn)
     words = _Words(ctx)
     high, low = _random_words(
         words, ctx.require_value_for_var(eqn.invars[0]), proof.shape
@@ -745,6 +773,7 @@ def emit_native_bernoulli(ctx: NativeLoweringContext, eqn: Any) -> bool:
     uniform = native_bernoulli_uniform(eqn)
     if uniform is None:
         return False
+    require_native_prng_opset(ctx.opset, eqn)
     body = eqn.params["jaxpr"].jaxpr
     for inner, outer in zip(body.invars, eqn.invars, strict=True):
         ctx.bind_value_for_var(inner, ctx.require_value_for_var(outer))

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import jax
+from jax import export
 import jax.numpy as jnp
 import numpy as np
 import onnx
@@ -14,6 +15,7 @@ import onnx_ir as ir
 import pytest
 
 from jax2onnx import onnx_function
+from jax2onnx._compat.jax import ClosedJaxpr
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import (
@@ -73,6 +75,40 @@ def _graph(
     return SimpleNamespace(
         invars=invars, constvars=(), outvars=outvars, eqns=[eqn], effects=()
     )
+
+
+@pytest.mark.parametrize("boundary", ["root", "jit"])
+@pytest.mark.parametrize("role", ["formal", "constant"])
+def test_opset16_rejects_unused_native_scope_types(boundary: str, role: str) -> None:
+    """Unused captured/formal BF16 still belongs to the actual native scope."""
+    unused = _spec((2,), jnp.bfloat16)
+    kept = _spec((2,), np.float32)
+
+    def target(ignored: Any, value: Any) -> Any:
+        return value
+
+    trace = jax.make_jaxpr(
+        jax.jit(target, keep_unused=True) if boundary == "jit" else target
+    )(unused, kept)
+    body = trace.jaxpr
+    if role == "constant":
+        # Rebind an actual unused native formal as an actual captured constant;
+        # no output/equation is changed and the FP32 identity stays independent.
+        body = body.replace(invars=body.invars[1:], constvars=body.invars[:1])
+        trace = ClosedJaxpr(body, [np.zeros((2,), dtype=jnp.bfloat16)])
+    validate_source_jaxpr(trace.jaxpr, 23)
+    validate_source_jaxpr(trace.jaxpr, 26)
+    with pytest.raises(SourcePrecisionError) as captured:
+        validate_source_jaxpr(trace.jaxpr, 16)
+    error = captured.value
+    assert error.category == "profile-exclusion" and error.opset == 16
+    assert error.requested_dtypes == ("bfloat16",)
+    assert "scope dtype" in str(error)
+    if boundary == "jit":
+        assert "/jit body" in error.location
+        assert "input 0" in error.location
+    else:
+        assert error.location == ("input 0" if role == "formal" else "constant 0")
 
 
 def _dot(x: jax.Array, w: jax.Array, **kwargs: Any) -> jax.Array:
@@ -423,8 +459,12 @@ def test_profile_accepts_integer_data_and_requires_boolean_cond_origin() -> None
 
 
 def test_profile_rejects_symbolic_shapes_and_unsupported_opsets() -> None:
-    graph = _graph("neg", [jax.ShapeDtypeStruct(("B",), np.float32)], [_spec((2,))])
-    with pytest.raises(SourcePrecisionError, match="rank-two") as captured:
+    graph = _graph(
+        "neg", [jax.ShapeDtypeStruct(("B", 2, 3, 4, 5), np.float32)], [_spec((2,))]
+    )
+    with pytest.raises(
+        SourcePrecisionError, match="rank-one through rank-four"
+    ) as captured:
         validate_source_jaxpr(graph, 23)
     assert captured.value.location == "input 0"
     assert captured.value.requested_dtypes == ("float32",)
@@ -438,3 +478,61 @@ def test_profile_rejects_unaudited_arithmetic_attributes() -> None:
         validate_source_jaxpr(graph, 23)
     assert captured.value.category == "profile-exclusion"
     assert captured.value.precision_params == {"accuracy": "'highest'"}
+
+
+@pytest.mark.parametrize("primitive", ["and", "or", "xor", "not"])
+def test_opset16_distinguishes_boolean_and_integer_bitwise(primitive: str) -> None:
+    arity = 1 if primitive == "not" else 2
+    boolean = _graph(
+        primitive, [_spec((2, 3), np.bool_)] * arity, [_spec((2, 3), np.bool_)]
+    )
+    integer = _graph(
+        primitive, [_spec((2, 3), np.int32)] * arity, [_spec((2, 3), np.int32)]
+    )
+    for opset in (16, 23, 26):
+        validate_source_jaxpr(boolean, opset)
+    for opset in (23, 26):
+        validate_source_jaxpr(integer, opset)
+    with pytest.raises(
+        SourcePrecisionError, match="integer bitwise.*opset-16"
+    ) as caught:
+        validate_source_jaxpr(integer, 16)
+    assert caught.value.primitive == primitive
+    assert caught.value.opset == 16
+    assert caught.value.category == "profile-exclusion"
+
+
+def test_opset16_keeps_bitcast_26_only() -> None:
+    trace = _trace(lambda x: jax.lax.bitcast_convert_type(x, jnp.uint32), _spec((2,)))
+    validate_source_jaxpr(trace, 26)
+    for opset in (16, 23):
+        with pytest.raises(
+            SourcePrecisionError, match="BitCast requires opset 26"
+        ) as caught:
+            validate_source_jaxpr(trace, opset)
+        assert caught.value.primitive == "bitcast_convert_type"
+        assert caught.value.opset == opset
+        assert caught.value.category == "representation-limit"
+
+
+@pytest.mark.parametrize("rank", [1, 4])
+def test_shared_shape_widening_does_not_admit_other_symbolic_matrix_ranks(
+    rank: int,
+) -> None:
+    (batch,) = export.symbolic_shape("B")
+    left = (batch,) if rank == 1 else (batch, 2, 3, 4)
+    right = (batch,) if rank == 1 else (4, 5)
+    result = () if rank == 1 else (batch, 2, 3, 5)
+    graph = _graph(
+        "dot_general",
+        [
+            jax.ShapeDtypeStruct(left, np.float32),
+            jax.ShapeDtypeStruct(right, np.float32),
+        ],
+        [jax.ShapeDtypeStruct(result, np.float32)],
+        {"dimension_numbers": (((rank - 1,), (0,)), ((), ()))},
+    )
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 23)
+    assert caught.value.primitive == "dot_general"
+    assert caught.value.category == "profile-exclusion"

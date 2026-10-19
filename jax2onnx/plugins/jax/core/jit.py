@@ -18,6 +18,7 @@ from jax2onnx.plugins.jax.random._source_prng import (
     emit_native_uniform,
     native_bernoulli_uniform,
     prove_native_uniform,
+    require_native_prng_opset,
 )
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._control_flow_utils import lower_jaxpr_eqns
@@ -115,6 +116,7 @@ class JitPlugin(PrimitiveLeafPlugin):
             prove_native_uniform(eqn) is not None
             or native_bernoulli_uniform(eqn) is not None
         ):
+            require_native_prng_opset(ctx.opset, eqn)
             # The shared proof reads the actual body and every caller binding.
             # Freshen its variables just as for all other inlined JIT bodies.
             source_params = dict(eqn.params)

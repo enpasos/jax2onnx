@@ -614,7 +614,7 @@ def _source_batch_boundaries(
         labels = [dim for dim in item.shape if isinstance(dim, str)]
         if labels:
             if (
-                len(item.shape) not in (2, 3)
+                len(item.shape) not in (1, 2, 3, 4)
                 or len(labels) != 1
                 or item.shape[0] != labels[0]
                 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", labels[0]) is None
@@ -678,18 +678,49 @@ def _source_batch_boundaries(
                 raise PrecisionReportError(
                     "SOURCE report boundary name, order, dtype or shape differs from artifact"
                 )
+
+    def preserves_representation(
+        logical: TensorProperties, physical: TensorProperties, role: str, index: int
+    ) -> bool:
+        if logical.dtype != physical.dtype:
+            return False
+        if logical.shape == physical.shape:
+            return True
+        # This is the existing explicit image boundary adapter. Logical source
+        # declarations remain NHWC; the artifact and feeds use declared NCHW.
+        # Require its exact report provenance as well as the fixed permutation.
+        return (
+            len(logical.shape) == 4
+            and physical.shape == tuple(logical.shape[axis] for axis in (0, 3, 1, 2))
+            and (
+                # The exporter formats native DimExpr tuples, whose symbolic
+                # extents have unquoted reprs; report shapes use string labels.
+                f"{role} {index}: logical NHWC ({', '.join(map(str, logical.shape))}) "
+                f"uses external NCHW storage ({', '.join(map(str, physical.shape))})"
+            )
+            in report.adaptations
+        )
+
     for index, entry in enumerate(report.inputs):
-        if entry.index != index or any(
-            item.shape != entry.exported.shape
-            or (item.dtype is not None and item.dtype != entry.exported.dtype)
-            for item in (entry.supplied, entry.normalized, entry.traced)
+        if (
+            entry.index != index
+            or any(
+                item.shape != entry.traced.shape
+                or (item.dtype is not None and item.dtype != entry.traced.dtype)
+                for item in (entry.supplied, entry.normalized, entry.traced)
+            )
+            or not preserves_representation(
+                entry.traced, entry.exported, "input", index
+            )
         ):
             raise PrecisionReportError(
                 "SOURCE input report does not preserve its declared batch contract"
             )
     if len(report.traced_outputs) != len(outputs) or any(
-        (traced.shape, traced.dtype) != (exported.shape, exported.dtype)
-        for traced, exported in zip(report.traced_outputs, outputs, strict=True)
+        not preserves_representation(traced, exported, "output", index)
+        for index, (traced, exported) in enumerate(
+            zip(report.traced_outputs, outputs, strict=True)
+        )
     ):
         raise PrecisionReportError(
             "SOURCE output report does not preserve its declared batch contract"

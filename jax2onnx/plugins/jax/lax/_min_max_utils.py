@@ -1,6 +1,6 @@
 # jax2onnx/plugins/jax/lax/_min_max_utils.py
 
-"""Finite SOURCE zero-tie signs for equal floating Min/Max at opset 23.
+"""Finite SOURCE zero-tie signs for floating Max at 16/23 and Min at 23.
 
 GatherElements preserves selected negative zeros on the measured CPU targets.
 This bounded representation does not settle other opsets, BF16, subnormal
@@ -25,7 +25,9 @@ def lower_source_min_max(
     ctx: NativeLoweringContext, eqn: JaxprEqn, *, operation: Literal["Min", "Max"]
 ) -> bool:
     """Emit the reviewed dense selection only for the finite eligible route."""
-    if ctx.precision_policy is not PrecisionPolicy.SOURCE or ctx.opset != 23:
+    if ctx.precision_policy is not PrecisionPolicy.SOURCE or not (
+        ctx.opset == 23 or operation == "Max" and ctx.opset == 16
+    ):
         return False
     out_var = eqn.outvars[0]
     dtype = np.dtype(out_var.aval.dtype)

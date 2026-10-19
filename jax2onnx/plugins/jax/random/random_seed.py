@@ -16,6 +16,7 @@ from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.plugins.jax.random._source_prng import (
     emit_seed,
+    require_native_prng_opset,
     validate_selected_random_equation,
 )
 from jax2onnx.plugins._ir_shapes import DimInput
@@ -169,6 +170,7 @@ class RandomUnwrapPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            require_native_prng_opset(ctx.opset, eqn)
             validate_selected_random_equation(eqn)
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]
@@ -195,6 +197,7 @@ class RandomWrapPlugin(PrimitiveLeafPlugin):
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            require_native_prng_opset(ctx.opset, eqn)
             validate_selected_random_equation(eqn)
         key_var = eqn.invars[0]
         out_var = eqn.outvars[0]

@@ -183,6 +183,10 @@ and value metadata, and copies node metadata to the replacement node. It uses
 `graph.insert_before`, `ir.convenience.replace_all_uses_with` with
 `replace_graph_outputs=True`, and `graph.remove` to keep use-def links and
 outputs connected. A shared or observable Sigmoid output retains its node.
+After rewiring a redundant Cast, use `graph.remove(..., safe=True)` to detach
+the removed node's input uses. Otherwise a detached consumer can keep an unused
+initializer alive during later dead-code removal. Preserve observed
+intermediates and nested captures before removing any Cast pair.
 Discovery receives the live graph even while mutation iterates over a snapshot.
 An IR rewrite operates on graph values directly; the JAX-var binding pattern
 belongs to the [canonical plugin example](../plugin_system.md#primitive-plugins).

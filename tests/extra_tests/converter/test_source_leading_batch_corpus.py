@@ -363,7 +363,7 @@ def test_only_explicit_counterpart_types_can_supply_structure() -> None:
     )
     assert result.model is None and result.audit.status is CheckStatus.FAILED
     assert (
-        "actual reviewed DotCounterpart, LinearCounterpart or GatherCounterpart"
+        "actual reviewed DotCounterpart, LinearCounterpart, GatherCounterpart or NormalizationCounterpart"
         in result.audit.detail
     )
 

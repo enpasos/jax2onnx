@@ -679,9 +679,9 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
                                     graph, out_val
                                 ) or _nested_graph_references_value(nodes, out_val)
                                 if intermediate_is_observed:
-                                    graph.remove(next_node)
+                                    graph.remove(next_node, safe=True)
                                 else:
-                                    graph.remove([n, next_node])
+                                    graph.remove([n, next_node], safe=True)
                                 changed = True
                                 break
                 if DEBUG:
@@ -698,7 +698,7 @@ def remove_redundant_casts_ir(graph: ir.Graph) -> None:
             ir.convenience.replace_all_uses_with(
                 out_val, src_val, replace_graph_outputs=True
             )
-            graph.remove(n)
+            graph.remove(n, safe=True)
             changed = True
             break
     return

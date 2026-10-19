@@ -64,6 +64,7 @@ from tests.extra_tests.converter.source_precision_corpus_oracles import (  # noq
     GATHER_COUNTERPARTS,
     HISTORICAL_BASELINE_SHA256,
     CorpusStructureEvidence,
+    NormalizationCounterpart,
     counterpart_for,
     selector_manifest,
     criterion_proposal_ledger,
@@ -474,18 +475,41 @@ def execute_probe_plan(
             continue
         selected += 1
         row = rows[(cell.origin, cell.ordinal)]
-        if row.unresolved_recipes:
+        finite_counterpart = counterpart_for(
+            row.origin, row.ordinal, row.contract_sha256
+        )
+        normalization = (
+            finite_counterpart
+            if type(finite_counterpart) is NormalizationCounterpart
+            else None
+        )
+        if row.unresolved_recipes and normalization is None:
             cells.append(cell)
             continue
         environment = ProbeEnvironment.observe()
         try:
             metadata = _resolve_case(row, registered)
+            if normalization is not None:
+                # This exact finite counterpart binds the original registered
+                # Eqx object/parameters without rewriting its opaque raw recipe.
+                # Other opaque rows retain their original pending status.
+                normalization.check_metadata(metadata)
             scenarios = raw_source_scenarios(
                 metadata,
                 SourceProvenance(row.origin, row.ordinal),
                 criteria=row.criteria,
             )
             declared = scenarios[SCENARIOS.index(cell.scenario)]
+            if normalization is not None and any(
+                "B" in shape for shape in metadata.get("input_shapes", ())
+            ):
+                declared = replace(
+                    declared,
+                    concrete_shapes=tuple(
+                        tuple(2 if dim == "B" else dim for dim in shape)
+                        for shape in metadata["input_shapes"]
+                    ),
+                )
         except (ValueError, TypeError, IndexError) as exc:
             cells.append(replace(cell, stage="preparation-pending", detail=str(exc)))
             continue
@@ -513,6 +537,11 @@ def execute_probe_plan(
                 "specs": [
                     asdict(_properties(spec)) for spec in declared.input_specs or ()
                 ],
+                **(
+                    {"concrete_shapes": declared.concrete_shapes}
+                    if normalization is not None
+                    else {}
+                ),
                 "supplied": [asdict(value) for value in supplied],
                 "generation_provenance": [row.origin, row.ordinal],
                 "criteria": asdict(row.criteria) if row.criteria is not None else None,
@@ -582,7 +611,7 @@ def execute_probe_plan(
                 _corpus_counterpart=(
                     counterpart_for(row.origin, row.ordinal, row.contract_sha256)
                     if _corpus_replay
-                    else None
+                    else normalization
                 ),
             )
             corpus_structure = result.corpus_structure
@@ -919,7 +948,7 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
             or structure.get("counterpart_identifier")
             != "static-dot-source-counterpart-v2:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
-            != "728bb9aee21727ef18f885bcf5f86a8184d6b6db6d871644559552318558eac4"
+            != "804e40007771d93d2c4e2f2fbd6746c0d79c0eaa2755dca212e4127a6e4ca1c7"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

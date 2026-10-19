@@ -19,7 +19,13 @@ from jax2onnx import user_interface as ui
 from jax2onnx.converter import conversion_api
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.converter.source_profile import SourcePrecisionError
-from jax2onnx.precision import CheckStatus, get_precision_report
+from jax2onnx.precision import (
+    CheckStatus,
+    SampleCriteria,
+    SourceSample,
+    get_precision_report,
+    validate_source_samples,
+)
 from tests.extra_tests.converter.source_precision_diagnostics import DiagnosticValidator
 
 
@@ -65,6 +71,17 @@ def _preferred_matrix(x: jax.Array, w: jax.Array) -> jax.Array:
     return jax.lax.dot_general(
         x, w, (((1,), (0,)), ((), ())), preferred_element_type=jnp.float32
     )
+
+
+@onnx_function
+class _Opset16ExcludedFunction:
+    """A real module-level Function boundary around the unchanged leaf."""
+
+    def __init__(self, leaf: Callable[[Any], Any]):
+        self.leaf = leaf
+
+    def __call__(self, x: Any) -> Any:
+        return self.leaf(x)
 
 
 @onnx_function(name="NamedDiagnosticLeaf")
@@ -572,9 +589,19 @@ def test_source_rejects_invalid_or_pending_raw_shape_before_tracing(
         called.append(True)
         return -x
 
-    with pytest.raises(SourcePrecisionError, match="static nonnegative integer"):
-        _source(model, [(dimension,)])
-    assert not called
+    if dimension == "B":
+        # Retain this original parameter ID as the rank-one positive replacement.
+        artifact = _source(model, [(dimension,)])
+        report = get_precision_report(artifact)
+        assert report is not None
+        assert (
+            report.inputs[0].traced.shape == report.exported_outputs[0].shape == ("B",)
+        )
+        assert called == [True]
+    else:
+        with pytest.raises(SourcePrecisionError, match="static nonnegative integer"):
+            _source(model, [(dimension,)])
+        assert not called
 
 
 def test_source_metadata_serializes_numpy_integer_shape_dimensions() -> None:
@@ -780,3 +807,120 @@ def test_source_facade_empty_layout_selection_is_the_ordinary_noop(
     report = get_precision_report(artifact)
     assert report is not None
     assert report.inputs[0].exported.shape == (2,)
+
+
+@pytest.mark.parametrize("primitive", ["and", "or", "xor", "not"])
+def test_opset16_boolean_bitwise_uses_original_model_and_report_version(
+    primitive: str, tmp_path: Path
+) -> None:
+    operation = {
+        "and": jax.lax.bitwise_and,
+        "or": jax.lax.bitwise_or,
+        "xor": jax.lax.bitwise_xor,
+        "not": jax.lax.bitwise_not,
+    }[primitive]
+    values = (
+        np.asarray([[False, True, True], [True, False, False]]),
+        np.asarray([[True, False, True], [True, False, True]]),
+    )[: 1 if primitive == "not" else 2]
+    expected = tuple(np.asarray(v) for v in jax.tree.leaves(operation(*values)))
+    compiled = tuple(
+        np.asarray(v) for v in jax.tree.leaves(jax.jit(operation)(*values))
+    )
+    for actual, reference in zip(compiled, expected, strict=True):
+        np.testing.assert_array_equal(actual, reference, strict=True)
+    artifact = _source(
+        operation,
+        [jax.ShapeDtypeStruct(value.shape, value.dtype) for value in values],
+        opset=16,
+    )
+    path = tmp_path / "boolean-opset16.onnx"
+    onnx.save_model(_proto(artifact), path)
+    model = onnx.load_model(path)
+    onnx.checker.check_model(model, full_check=True)
+    report = get_precision_report(model)
+    assert report is not None and report.opset == 16
+    assert next(item.version for item in model.opset_import if item.domain == "") == 16
+    assert [node.op_type for node in model.graph.node] == [
+        {"and": "And", "or": "Or", "xor": "Xor", "not": "Not"}[primitive]
+    ]
+    for optimization in ("disabled", "all"):
+        result = validate_source_samples(
+            model,
+            samples=[SourceSample(values, expected, SampleCriteria("bitwise"))],
+            optimization=optimization,
+        )
+        result.require_sample_acceptance()
+
+
+@pytest.mark.parametrize("kind", ["integer-bitwise", "uniform", "bernoulli"])
+@pytest.mark.parametrize("boundary", ["inline", "jit", "function", "untaken-if"])
+def test_opset16_rejects_unreviewed_operations_recursively_before_lowering(
+    kind: str, boundary: str
+) -> None:
+    if kind == "integer-bitwise":
+
+        def leaf(x: Any) -> Any:
+            return jax.lax.bitwise_xor(x, np.int32(3))
+
+        spec = jax.ShapeDtypeStruct((2, 3), np.int32)
+    else:
+        key = jax.random.key(17, impl="threefry2x32")
+
+        def leaf(x: Any) -> Any:
+            if kind == "uniform":
+                return jax.random.uniform(key, x.shape, dtype=np.float32)
+            return jax.random.bernoulli(key, np.float32(0.25), x.shape)
+
+        spec = jax.ShapeDtypeStruct((2, 3), np.float32)
+
+    if boundary == "inline":
+        model = leaf
+    elif boundary == "jit":
+        model = jax.jit(leaf)
+    elif boundary == "function":
+        model = _Opset16ExcludedFunction(leaf)
+    else:
+
+        def model(x: Any) -> Any:
+            # The offending branch is traced and audited despite being untaken.
+            alternative = (
+                (lambda value: value > np.float32(0))
+                if kind == "bernoulli"
+                else (lambda value: value)
+            )
+            return jax.lax.cond(np.bool_(False), leaf, alternative, x)
+
+    with pytest.raises(SourcePrecisionError) as caught:
+        _source(model, [spec], opset=16)
+    error = caught.value
+    assert error.opset == 16 and error.category == "profile-exclusion"
+    if kind == "integer-bitwise":
+        assert error.primitive == "xor"
+        assert "integer bitwise" in str(error) and "opset-16" in str(error)
+    elif boundary == "untaken-if":
+        # Native cond carries the fixed key through both actual branches. The
+        # unselected safe branch still has an unused key formal, and its finite
+        # version/type boundary is checked before the random branch is visited.
+        assert error.primitive is None
+        assert error.location == "equation 0/branch 0/input 0"
+        assert error.requested_dtypes == (str(key.dtype),)
+        assert (
+            error.detail
+            == "scope dtype is outside the audited opset-16 normalization subset"
+        )
+    else:
+        assert error.primitive in {
+            "jit",
+            "random_seed",
+            "random_wrap",
+            "random_unwrap",
+            "random_fold_in",
+            "random_bits",
+        }
+        assert "selected native PRNG emission" in str(error)
+    if boundary == "untaken-if":
+        assert "/branch " in error.location
+    if boundary == "function":
+        assert "_Opset16ExcludedFunction" in error.location
+    assert active_precision_policy() is PrecisionPolicy.LEGACY

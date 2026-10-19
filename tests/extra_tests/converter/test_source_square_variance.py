@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import patch
 
 import jax
+from jax import export
 import jax.numpy as jnp
 from jax.extend.core import jaxpr_as_fun
 import numpy as np
@@ -33,6 +34,7 @@ from jax2onnx.converter.source_profile import (
     SourcePrecisionError,
     validate_source_jaxpr,
 )
+from jax2onnx.converter.source_representation import normalized_shape_dimensions
 from jax2onnx.precision import CheckStatus, get_precision_report
 from jax2onnx.plugins.plugin_system import FunctionPlugin
 from tests.extra_tests.converter.source_precision_diagnostics import (
@@ -149,7 +151,11 @@ def _callee_identity(fn: Any) -> tuple[Any, Any]:
 
 
 def _aval(var: Any) -> tuple[Any, ...]:
-    return str(var.aval.dtype), tuple(var.aval.shape), bool(var.aval.weak_type)
+    return (
+        str(var.aval.dtype),
+        normalized_shape_dimensions(var.aval.shape),
+        bool(var.aval.weak_type),
+    )
 
 
 def _carriers(closed: Any) -> list[Any]:
@@ -198,30 +204,31 @@ def _function_outer(native: Any, source: Any, reference: Any, boundary: str) -> 
         assert len(branches) == 2
         for index, branch in enumerate(branches):
             body = branch.jaxpr
-            assert len(body.invars) == len(body.outvars) == 1
+            assert len(body.invars) == 1
+            assert len(body.outvars) == len(reference.jaxpr.outvars)
             assert not body.constvars
             carriers = _carriers(branch)
             assert len(carriers) == 1
             call = carriers[0]
             if index == 1:
                 assert len(body.eqns) == 1
-                assert (
-                    call.invars[0] is body.invars[0]
-                    and call.outvars[0] is body.outvars[0]
+                assert call.invars[0] is body.invars[0] and list(call.outvars) == list(
+                    body.outvars
                 )
             else:
                 assert [e.primitive.name for e in body.eqns] == [
                     "neg",
                     call.primitive.name,
-                    "neg",
+                    *("neg" for _ in body.outvars),
                 ]
-                before, _, after = body.eqns
+                before, _, *after = body.eqns
                 assert before.invars[0] is body.invars[0]
                 assert call.invars[0] is before.outvars[0]
-                assert (
-                    after.invars[0] is call.outvars[0]
-                    and after.outvars[0] is body.outvars[0]
-                )
+                for negation, result, output in zip(
+                    after, call.outvars, body.outvars, strict=True
+                ):
+                    assert negation.invars[0] is result
+                    assert negation.outvars[0] is output
     assert all(
         set(call.params) <= {"instance_key", "__jax2onnx_source_trace"}
         for call in _carriers(source)
@@ -661,9 +668,13 @@ def _exercise(
     record_property: Any,
     *,
     function_body: Any = None,
+    function_body_specs: Any = None,
+    function_body_feeds: Any = None,
     boundary: str = "inline",
     exact_zero_output: int | None = None,
     serialized_check: Any = None,
+    declared_specs: Any = None,
+    opset: int = 23,
 ) -> Any:
     """Capture native first, compare the full active world, export with default audit."""
     attempts = []
@@ -674,9 +685,11 @@ def _exercise(
 
     references = []
     body_reference = None
+    body_export_reference = None
     body_observations: list[Any] = []
     exported_bodies: list[Any] = []
     native_body_payloads: list[Any] = []
+    native_symbolic_body_payloads: list[Any] = []
     carrier_execution: list[Any] = []
     body_context = None
     body_identity = None
@@ -700,6 +713,11 @@ def _exercise(
             tmp_path / "native-constants.npz",
             **{f"const{i}": np.asarray(v) for i, v in enumerate(native.consts)},
         )
+        symbolic_native = (
+            jax.make_jaxpr(_fresh(fn))(*declared_specs)
+            if declared_specs is not None
+            else None
+        )
         for index, values in enumerate(feeds):
             eager = tuple(np.asarray(v) for v in jax.tree.leaves(fn(*values)))
             compiled = tuple(
@@ -722,8 +740,17 @@ def _exercise(
             body_identity = _callee_identity(body_fn)
             body_state = state()
             body_reference = jax.make_jaxpr(_fresh(body_fn))(*body_values)
-            body_feeds = [body_values]
-            if boundary == "cond":
+            body_export_reference = (
+                body_reference
+                if function_body_specs is None
+                else jax.make_jaxpr(_fresh(body_fn))(*function_body_specs)
+            )
+            body_feeds = (
+                [body_values]
+                if function_body_feeds is None
+                else list(function_body_feeds)
+            )
+            if boundary == "cond" and function_body_feeds is None:
                 assert len(body_values) == 1
                 body_feeds.append((-body_values[0],))
             for index, values in enumerate(body_feeds):
@@ -764,27 +791,84 @@ def _exercise(
                         repr(body_state).encode()
                     ).hexdigest(),
                     "context": body_context,
-                    "ordered_formals": [_aval(v) for v in body_reference.jaxpr.invars],
-                    "ordered_results": [_aval(v) for v in body_reference.jaxpr.outvars],
+                    "ordered_formals": [
+                        _aval(v) for v in body_export_reference.jaxpr.invars
+                    ],
+                    "ordered_results": [
+                        _aval(v) for v in body_export_reference.jaxpr.outvars
+                    ],
                     "dynamic_capture_order": [],
                     "result_trees": [str(v[0]) for v in native_body_payloads],
-                    "feed_order": ["x", "Neg(x)"] if boundary == "cond" else ["x"],
+                    "feed_order": (
+                        (["x", "Neg(x)"] if boundary == "cond" else ["x"])
+                        if function_body_feeds is None
+                        else [
+                            {"index": i, "shapes": [list(v.shape) for v in values]}
+                            for i, values in enumerate(body_feeds)
+                        ]
+                    ),
                 },
             )
             _json(
                 tmp_path / "native-function-body.json",
-                typed_trace_manifest(body_reference),
+                typed_trace_manifest(body_export_reference),
             )
             np.savez(
                 tmp_path / "native-function-constants.npz",
                 **{
                     f"const{i}": np.asarray(v)
-                    for i, v in enumerate(body_reference.consts)
+                    for i, v in enumerate(body_export_reference.consts)
                 },
             )
+            if function_body_specs is not None:
+                original_manifest = typed_trace_manifest(body_export_reference)
+                original_constants = tuple(
+                    _payload(v) for v in body_export_reference.consts
+                )
+                original_formals = tuple(
+                    jax.ShapeDtypeStruct(
+                        var.aval.shape, var.aval.dtype, weak_type=var.aval.weak_type
+                    )
+                    for var in body_export_reference.jaxpr.invars
+                )
+                original_compiled_body = export.export(
+                    jax.jit(jaxpr_as_fun(body_export_reference))
+                )(*original_formals)
+                for index, values in enumerate(body_feeds):
+                    outputs = tuple(original_compiled_body.call(*values))
+                    native_symbolic_body_payloads.append(outputs)
+                    np.savez(
+                        tmp_path / f"native-symbolic-body-compiled-{index}.npz",
+                        **{f"output{i}": np.asarray(v) for i, v in enumerate(outputs)},
+                    )
+                assert typed_trace_manifest(body_export_reference) == original_manifest
+                assert (
+                    tuple(_payload(v) for v in body_export_reference.consts)
+                    == original_constants
+                )
         with precision_policy_scope(PrecisionPolicy.SOURCE), _activate_plugin_worlds():
             activated = jax.make_jaxpr(_fresh(fn))(*feeds[0])
             _json(tmp_path / "SOURCE-trace.json", typed_trace_manifest(activated))
+            if symbolic_native is not None:
+                symbolic_activated = jax.make_jaxpr(_fresh(fn))(*declared_specs)
+                if body_reference is None:
+                    assert typed_trace_manifest(
+                        symbolic_activated
+                    ) == typed_trace_manifest(symbolic_native)
+                    assert [_payload(v) for v in symbolic_activated.consts] == [
+                        _payload(v) for v in symbolic_native.consts
+                    ]
+                else:
+                    _function_outer(
+                        symbolic_native,
+                        symbolic_activated,
+                        body_export_reference,
+                        boundary,
+                    )
+                _json(
+                    tmp_path / "symbolic-native-trace.json",
+                    typed_trace_manifest(symbolic_native),
+                )
             if body_reference is None:
                 assert typed_trace_manifest(activated) == manifest
                 assert [_payload(v) for v in activated.consts] == [
@@ -838,12 +922,16 @@ def _exercise(
                     finally:
                         _json(tmp_path / "activated-execution.json", carrier_execution)
     assert attempts == []
-    specs = [
-        jax.ShapeDtypeStruct(
-            v.shape, v.dtype, weak_type=bool(getattr(v, "weak_type", False))
-        )
-        for v in feeds[0]
-    ]
+    specs = (
+        declared_specs
+        if declared_specs is not None
+        else [
+            jax.ShapeDtypeStruct(
+                v.shape, v.dtype, weak_type=bool(getattr(v, "weak_type", False))
+            )
+            for v in feeds[0]
+        ]
+    )
     original_method = FunctionPlugin._trace_function_body
 
     def observe_body(
@@ -910,9 +998,9 @@ def _exercise(
             tmp_path / f"actual-function-constants-{len(body_observations)}.npz",
             **{f"const{i}": np.asarray(v) for i, v in enumerate(result.consts)},
         )
-        assert actual == typed_trace_manifest(body_reference)
+        assert actual == typed_trace_manifest(body_export_reference)
         assert [_payload(v) for v in result.consts] == [
-            _payload(v) for v in body_reference.consts
+            _payload(v) for v in body_export_reference.consts
         ]
         assert _context() == body_context and state() == body_state
         return result
@@ -928,7 +1016,7 @@ def _exercise(
                 specs,
                 precision_policy=PrecisionPolicy.SOURCE,
                 return_mode="proto",
-                opset=23,
+                opset=opset,
             )
     finally:
         assert FunctionPlugin._trace_function_body is original_method
@@ -944,15 +1032,35 @@ def _exercise(
                 repr((trace_before, constants_before)).encode()
             ).hexdigest()
             evaluator = jaxpr_as_fun(closed)
+            if function_body_specs is not None:
+                # Compile each retained body in its own native symbolic scope.
+                # This is a compiled symbolic-body comparison, not a claim that
+                # raw eval_jaxpr or the outer onnx_fn carrier has an MLIR rule.
+                formals = tuple(
+                    jax.ShapeDtypeStruct(
+                        var.aval.shape, var.aval.dtype, weak_type=var.aval.weak_type
+                    )
+                    for var in closed.jaxpr.invars
+                )
+                actual_compiled_body = export.export(jax.jit(evaluator))(*formals)
             for feed_index, (values, (tree, eager, compiled)) in enumerate(
                 zip(body_feeds, native_body_payloads, strict=True)
             ):
-                for mode, runner, expected in zip(
-                    ("eager", "jit"),
-                    (evaluator, jax.jit(_fresh(evaluator))),
-                    (eager, compiled),
-                    strict=True,
-                ):
+                comparisons = (
+                    (
+                        (
+                            "compiled-symbolic-body",
+                            actual_compiled_body.call,
+                            native_symbolic_body_payloads[feed_index],
+                        ),
+                    )
+                    if function_body_specs is not None
+                    else (
+                        ("eager", evaluator, eager),
+                        ("jit", jax.jit(_fresh(evaluator)), compiled),
+                    )
+                )
+                for mode, runner, expected in comparisons:
                     outputs = runner(*values)
                     assert len(outputs) == tree.num_leaves
                     assert jax.tree.structure(jax.tree.unflatten(tree, outputs)) == tree
@@ -961,9 +1069,21 @@ def _exercise(
                         / f"exported-body-{body_index}-{feed_index}-{mode}.npz",
                         **{f"output{i}": np.asarray(v) for i, v in enumerate(outputs)},
                     )
-                    assert tuple(_payload(v) for v in outputs) == tuple(
-                        _payload(v) for v in expected
-                    )
+                    if function_body_specs is None:
+                        assert tuple(_payload(v) for v in outputs) == tuple(
+                            _payload(v) for v in expected
+                        )
+                    else:
+                        for output_index, (actual, original) in enumerate(
+                            zip(outputs, expected, strict=True)
+                        ):
+                            selected = (
+                                criteria
+                                if criteria == "exact"
+                                or isinstance(criteria[0], (float, int))
+                                else criteria[output_index]
+                            )
+                            _assert_result(actual, original, selected)
                     exact_zero(outputs, expected)
                     body_evidence.append(
                         {
@@ -971,7 +1091,11 @@ def _exercise(
                             "feed": feed_index,
                             "mode": mode,
                             "returned_closed_jaxpr_id": id(closed),
-                            "status": "EXACT",
+                            "status": (
+                                "EXACT"
+                                if function_body_specs is None
+                                else "COMPILED_SYMBOLIC_BODY_CRITERIA_PASSED"
+                            ),
                             "native_result_tree": str(tree),
                             "ordered_formals": [_aval(v) for v in closed.jaxpr.invars],
                             "ordered_results": [_aval(v) for v in closed.jaxpr.outvars],
@@ -994,7 +1118,11 @@ def _exercise(
         _json(
             tmp_path / "exported-body-eager-jit-equality.json",
             {
-                "boundary": "actual exported-body eager/JIT equality; whole-carrier JIT equality NOT_ESTABLISHED",
+                "boundary": (
+                    "actual exported-body eager/JIT equality; whole-carrier JIT equality NOT_ESTABLISHED"
+                    if function_body_specs is None
+                    else "retained original/actual exported symbolic-body compiled-call comparison; raw symbolic eager and whole-carrier JIT NOT_ESTABLISHED"
+                ),
                 "amendment_sha256": "aa64a4bbe0372cb5ff0aa435f927d1f76ddc08e0566a18fe53419d0866655acf",
                 "observations": body_evidence,
             },
@@ -1010,20 +1138,29 @@ def _exercise(
         serialized_check(model, body_observations)
     report = get_precision_report(model)
     assert report is not None and report.profile == "source-static-v1"
+    assert report.opset == opset
+    assert (
+        next(item.version for item in model.opset_import if item.domain == "") == opset
+    )
     checks = {c.category: c.status for c in report.checks}
     assert (
         checks["runtime-execution"]
         is checks["numerical-acceptance"]
         is CheckStatus.UNVERIFIED
     )
-    for value, expected in zip(model.graph.output, references[0][0], strict=True):
+    for value, expected, declared in zip(
+        model.graph.output, references[0][0], report.exported_outputs, strict=True
+    ):
         assert value.type.tensor_type.elem_type == onnx.helper.np_dtype_to_tensor_dtype(
             expected.dtype
         )
-        assert (
-            tuple(d.dim_value for d in value.type.tensor_type.shape.dim)
-            == expected.shape
+        dimensions = tuple(
+            d.dim_param if d.HasField("dim_param") else d.dim_value
+            for d in value.type.tensor_type.shape.dim
         )
+        assert dimensions == declared.shape
+        if declared_specs is None:
+            assert dimensions == expected.shape
     _json(tmp_path / "precision-report.json", asdict(report))
     observations, failures = [], []
     for optimize in (False, True):
@@ -1091,7 +1228,11 @@ def _exercise(
         "target_failures": len(failures),
         "activated_execution": carrier_execution,
         "named_payload_boundary": (
-            "actual exported-body eager/JIT equality; whole-carrier JIT equality NOT_ESTABLISHED"
+            (
+                "actual exported-body eager/JIT equality; whole-carrier JIT equality NOT_ESTABLISHED"
+                if function_body_specs is None
+                else "retained original/actual exported symbolic-body compiled-call comparison; raw symbolic eager and whole-carrier JIT NOT_ESTABLISHED"
+            )
             if body_reference is not None
             else "complete activated eager/JIT equality"
         ),
@@ -1261,7 +1402,7 @@ def _graph(name: str, source: Any, target: Any, params: Any = None) -> Any:
     outputs = [SimpleNamespace(aval=target)]
     equation = SimpleNamespace(
         primitive=SimpleNamespace(name=name),
-        invars=inputs,
+        invars=list(inputs),
         outvars=outputs,
         params=dict(params or {}),
         effects=(),
@@ -1348,6 +1489,10 @@ def test_singleton_reshape_rejects_other_transforms(corruption: str) -> None:
     if corruption == "regroup":
         params["new_sizes"] = (6, 1)
         target = target.update(shape=(6, 1))
+        # Preserve the original parameter ID as its now-audited static positive.
+        for opset in (16, 23):
+            validate_source_jaxpr(_graph("reshape", source, target, params), opset)
+        return
     elif corruption == "permute":
         params["dimensions"] = (1, 0)
     elif corruption == "zero":
@@ -1362,8 +1507,128 @@ def test_singleton_reshape_rejects_other_transforms(corruption: str) -> None:
         target = target.update(weak_type=True)
     else:
         params["new_sizes"] = (2, 3, 1)
-    with pytest.raises(SourcePrecisionError):
+    with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(_graph("reshape", source, target, params), 23)
+    assert caught.value.primitive == "reshape"
+    if corruption in {"dtype", "weakness", "sizes"}:
+        assert caught.value.category == "lowering-defect"
+
+
+@pytest.mark.parametrize(
+    "source,target",
+    [((2, 3, 4), (4, 6)), ((24,), (2, 3, 4)), ((2, 6), (3, 4))],
+    ids=["flatten-tail", "split-vector", "regroup-coordinates"],
+)
+@pytest.mark.parametrize("dtype", ["float16", "float32", "float64"])
+@pytest.mark.parametrize("opset", [16, 23])
+def test_static_reshape_preserves_arbitrary_floating_payload_bits(
+    source: tuple[int, ...],
+    target: tuple[int, ...],
+    dtype: str,
+    opset: int,
+    tmp_path: Path,
+    record_property: Any,
+) -> None:
+    dt = np.dtype(dtype)
+    unsigned, payload = {
+        "float16": (np.uint16, (0x8000, 0, 0x7C00, 0xFC00, 0x7E01, 0xFE02)),
+        "float32": (
+            np.uint32,
+            (0x80000000, 0, 0x7F800000, 0xFF800000, 0x7FC00001, 0xFFC00002),
+        ),
+        "float64": (
+            np.uint64,
+            (
+                0x8000000000000000,
+                0,
+                0x7FF0000000000000,
+                0xFFF0000000000000,
+                0x7FF8000000000001,
+                0xFFF8000000000002,
+            ),
+        ),
+    }[dtype]
+    values = np.arange(np.prod(source), dtype=np.int32).astype(dt) / dt.type(
+        8
+    ) - dt.type(1)
+    values.view(unsigned)[: len(payload)] = np.asarray(payload, dtype=unsigned)
+    arrays = (values.reshape(source), values[::-1].copy().reshape(source))
+
+    def reshape(x: Any) -> Any:
+        return jax.lax.reshape(x, target)
+
+    model = _exercise(
+        reshape,
+        [(jnp.asarray(value),) for value in arrays],
+        tmp_path,
+        "exact",
+        record_property,
+        opset=opset,
+    )
+    assert any(node.op_type == "Reshape" for node in _nodes(model))
+    report = get_precision_report(model)
+    assert report.inputs[0].traced.shape == source
+    assert report.exported_outputs[0].shape == target
+    for index, value in enumerate(arrays):
+        expected = np.reshape(value, target)
+        with np.load(tmp_path / f"native-{index}.npz") as native:
+            for role in ("eager", "jit"):
+                actual = native[f"{role}-0"]
+                assert actual.dtype == dt and actual.shape == target
+                assert actual.tobytes(order="C") == expected.tobytes(order="C")
+        for role in ("eager", "jit"):
+            with np.load(tmp_path / f"SOURCE-{role}-{index}.npz") as activated:
+                actual = activated["output0"]
+                assert actual.dtype == dt and actual.shape == target
+                assert actual.tobytes(order="C") == expected.tobytes(order="C")
+        for optimized in (False, True):
+            with np.load(tmp_path / f"target-{optimized}-{index}.npz") as observed:
+                actual = observed["output0"]
+                assert actual.dtype == dt and actual.shape == target
+                assert actual.tobytes(order="C") == expected.tobytes(order="C")
+    evidence = {
+        "comparison": "all C-order payload bytes including NaN payload/sign, infinities and signed zeros",
+        "dtype": dtype,
+        "source_shape": source,
+        "target_shape": target,
+        "opset": opset,
+        "feeds": 2,
+        "optimization_modes": ["disabled", "all"],
+    }
+    _json(tmp_path / "reshape-bit-preservation.json", evidence)
+    record_property("reshape-bit-preservation", json.dumps(evidence, sort_keys=True))
+
+
+@pytest.mark.parametrize("opset", [16, 23])
+@pytest.mark.parametrize(
+    "corruption",
+    ["element-count", "overflow-count", "result-sizes", "dtype", "weakness"],
+)
+def test_static_reshape_rejects_inconsistent_native_metadata(
+    corruption: str,
+    opset: int,
+) -> None:
+    source = jax.core.ShapedArray((2, 3), np.float32)
+    target = source.update(shape=(3, 2))
+    params: dict[str, Any] = {"new_sizes": target.shape, "dimensions": None}
+    if corruption == "element-count":
+        target = target.update(shape=(7,))
+        params["new_sizes"] = target.shape
+    elif corruption == "overflow-count":
+        # Both products wrap to zero in uint64; Python integer counts differ.
+        source = source.update(shape=(2**32, 2**32))
+        target = target.update(shape=(2**32, 2**33))
+        params["new_sizes"] = target.shape
+    elif corruption == "result-sizes":
+        params["new_sizes"] = (6,)
+    elif corruption == "dtype":
+        target = target.update(dtype=np.dtype(np.float64))
+    else:
+        target = target.update(weak_type=True)
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(_graph("reshape", source, target, params), opset)
+    assert caught.value.primitive == "reshape"
+    assert caught.value.category == "lowering-defect"
 
 
 @pytest.mark.parametrize(
@@ -1430,3 +1695,198 @@ def test_sqrt_forwards_original_trace_context_errors_and_restores(dtype: str) ->
                 jnp.sqrt("invalid")
             assert str(forwarded.value) == str(error.value)
         assert jnp.sqrt is original and _context() == before
+
+
+@pytest.mark.parametrize("rank", [1, 2, 3, 4])
+@pytest.mark.parametrize("operation", ["square", "max", "reduce_sum", "reshape"])
+@pytest.mark.parametrize("opset", [16, 23])
+def test_symbolic_normalization_primitives_keep_one_artifact_and_original_rounding(
+    rank: int, operation: str, opset: int, tmp_path: Path, record_property: Any
+) -> None:
+    tail = {1: (), 2: (3,), 3: (1, 3), 4: (1, 3, 1)}[rank]
+    feeds = []
+    for batch in (2, 5):
+        shape = (batch, *tail)
+        values = (np.arange(np.prod(shape)).reshape(shape) % 9 - 4).astype(
+            np.float32
+        ) / 4
+        if operation in {"square", "max"}:
+            values = np.resize(
+                np.asarray([-0.0, 0.0, -2, 4, np.nan, np.inf, -np.inf], np.float32),
+                shape,
+            )
+        feeds.append((jnp.asarray(values),))
+    if operation == "square":
+        fn = jax.lax.square
+    elif operation == "max":
+
+        def fn(x: Any) -> Any:
+            return jax.lax.max(x, -x)
+
+    elif operation == "reduce_sum":
+
+        def fn(x: Any) -> Any:
+            return jax.lax.reduce_sum(x, axes=tuple(range(1, rank)))
+
+    else:
+
+        def fn(x: Any) -> Any:
+            shape = (
+                (x.shape[0], 1)
+                if rank == 1
+                else ((x.shape[0], 1, 3) if rank == 2 else (x.shape[0], 3))
+            )
+            return jax.lax.reshape(x, shape)
+
+    (batch,) = export.symbolic_shape("B")
+    specs = [jax.ShapeDtypeStruct((batch, *tail), np.float32)]
+    model = _exercise(
+        fn,
+        feeds,
+        tmp_path,
+        "exact",
+        record_property,
+        declared_specs=specs,
+        opset=opset,
+    )
+    report = get_precision_report(model)
+    assert report is not None and report.inputs[0].traced.shape == ("B", *tail)
+    assert report.exported_outputs[0].shape[0] == "B"
+    operations = [node.op_type for node in _nodes(model)]
+    if operation == "square":
+        assert "Mul" in operations
+    elif operation == "max":
+        assert "Max" in operations and "GatherElements" in operations
+    elif operation == "reduce_sum" and rank > 1:
+        assert "ReduceSum" in operations
+    assert "LayerNormalization" not in operations
+
+
+@pytest.mark.parametrize("operation", ["square", "max", "reduce_sum", "reshape"])
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "foreign-scope",
+        "derived-batch",
+        "result-shape",
+        "dtype",
+        "weakness",
+        "parameter",
+        "placement",
+    ],
+)
+def test_symbolic_normalization_rejects_changed_native_contracts(
+    operation: str, corruption: str
+) -> None:
+    (batch,) = export.symbolic_shape("B")
+    source = jax.core.ShapedArray((batch, 3, 1), np.float32)
+    target = source
+    params: dict[str, Any] = {}
+    if operation == "reduce_sum":
+        target = source.update(shape=(batch,))
+        params = {"axes": (1, 2)}
+    elif operation == "reshape":
+        target = source.update(shape=(batch, 3))
+        params = {"new_sizes": target.shape, "dimensions": None}
+    if corruption == "foreign-scope":
+        (other,) = export.symbolic_shape("B")
+        target = target.update(shape=(other, *target.shape[1:]))
+    elif corruption == "derived-batch":
+        target = target.update(shape=(2 * batch, *target.shape[1:]))
+    elif corruption == "result-shape":
+        target = target.update(shape=(batch, 4))
+    elif corruption == "dtype":
+        target = target.update(dtype=np.dtype(np.float64))
+    elif corruption == "weakness":
+        target = target.update(weak_type=True)
+    elif corruption == "parameter":
+        params["invented"] = True
+    else:
+        params["out_sharding"] = "placed"
+    graph = _graph(operation, source, target, params)
+    if operation == "max":
+        graph.eqns[0].invars.append(graph.invars[0])
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 23)
+    assert caught.value.primitive == operation
+
+
+@pytest.mark.parametrize("axes", [(0,), (0, 2), (1, 1), (3,)])
+def test_symbolic_tail_reduction_rejects_batch_and_malformed_axes(
+    axes: tuple[int, ...],
+) -> None:
+    (batch,) = export.symbolic_shape("B")
+    source = jax.core.ShapedArray((batch, 3, 2), np.float32)
+    shape = tuple(dim for axis, dim in enumerate(source.shape) if axis not in axes)
+    graph = _graph("reduce_sum", source, source.update(shape=shape), {"axes": axes})
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 23)
+    assert caught.value.primitive == "reduce_sum"
+    assert caught.value.category == (
+        "profile-exclusion" if 0 in axes else "lowering-defect"
+    )
+
+
+@pytest.mark.parametrize(
+    "corruption", ["regroup", "permute", "shift-batch", "rank-five", "zero-tail"]
+)
+def test_symbolic_singleton_reshape_retains_transform_exclusions(
+    corruption: str,
+) -> None:
+    (batch,) = export.symbolic_shape("B")
+    source = jax.core.ShapedArray((batch, 2, 3), np.float32)
+    shape: tuple[Any, ...] = (batch, 1, 2, 3)
+    dimensions = None
+    if corruption == "regroup":
+        shape = (batch, 6)
+    elif corruption == "permute":
+        dimensions = (0, 2, 1)
+        shape = (batch, 3, 2)
+    elif corruption == "shift-batch":
+        shape = (1, batch, 2, 3)
+    elif corruption == "rank-five":
+        shape = (batch, 1, 2, 3, 1)
+    else:
+        source = source.update(shape=(batch, 0, 3))
+        shape = (batch, 1, 0, 3)
+    graph = _graph(
+        "reshape",
+        source,
+        source.update(shape=shape),
+        {"new_sizes": shape, "dimensions": dimensions},
+    )
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 23)
+    if corruption == "regroup":
+        assert caught.value.primitive == "reshape"
+        assert caught.value.category == "profile-exclusion"
+
+
+def test_symbolic_singleton_reshape_distinguishes_bad_result_metadata() -> None:
+    (batch,) = export.symbolic_shape("B")
+    source = jax.core.ShapedArray((batch, 3), np.float32)
+    graph = _graph(
+        "reshape",
+        source,
+        source.update(shape=(batch, 1, 3)),
+        {"new_sizes": (batch, 3, 1), "dimensions": None},
+    )
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, 23)
+    assert caught.value.primitive == "reshape"
+    assert caught.value.category == "lowering-defect"
+
+
+@pytest.mark.parametrize("rank", [1, 4])
+@pytest.mark.parametrize("opset", [16, 23])
+def test_symbolic_min_remains_outside_the_reviewed_max_packet(
+    rank: int, opset: int
+) -> None:
+    (batch,) = export.symbolic_shape("B")
+    source = jax.core.ShapedArray((batch, *(2 for _ in range(rank - 1))), np.float32)
+    graph = _graph("min", source, source)
+    graph.eqns[0].invars.append(graph.invars[0])
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(graph, opset)
+    assert caught.value.primitive == "min"
+    assert caught.value.category == "profile-exclusion"

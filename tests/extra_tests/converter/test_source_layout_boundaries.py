@@ -582,8 +582,75 @@ def test_layout_keeps_x64_conflict_symbolic_normalization_and_primitive_gaps() -
                 inputs_as_nchw=[0],
             )
         assert not jax.config.x64_enabled
-    with pytest.raises(SourcePrecisionError, match="static"):
-        _source(lambda x: x, [("B", 2, 3, 4)], inputs_as_nchw=[0])
+    # Preserve the original identity model while exercising each layout direction
+    # with distinct coordinates and two batches on the same exported artifact.
+    for selected_input, selected_output in ((True, False), (False, True), (True, True)):
+        arrays = [_coordinates(shape=(batch, 2, 3, 4)) for batch in (2, 5)]
+        references = [
+            _native(lambda x: x, (jnp.asarray(value),))[0] for value in arrays
+        ]
+        artifact = _source(
+            lambda x: x,
+            [("B", 2, 3, 4)],
+            inputs_as_nchw=[0] if selected_input else None,
+            outputs_as_nchw=[0] if selected_output else None,
+        )
+        report = get_precision_report(artifact)
+        assert report is not None
+        assert (
+            report.inputs[0].supplied.shape
+            == report.inputs[0].normalized.shape
+            == report.inputs[0].traced.shape
+            == report.traced_outputs[0].shape
+            == ("B", 2, 3, 4)
+        )
+        input_shape = ("B", 4, 2, 3) if selected_input else ("B", 2, 3, 4)
+        output_shape = ("B", 4, 2, 3) if selected_output else ("B", 2, 3, 4)
+        assert report.inputs[0].exported.shape == input_shape
+        assert report.exported_outputs[0].shape == output_shape
+        proto = _proto(artifact)
+        for value, shape in zip(
+            (proto.graph.input[0], proto.graph.output[0]),
+            (input_shape, output_shape),
+            strict=True,
+        ):
+            assert value.type.tensor_type.elem_type == onnx.TensorProto.FLOAT
+            dims = value.type.tensor_type.shape.dim
+            assert dims[0].dim_param == "B"
+            assert tuple(dim.dim_value for dim in dims[1:]) == shape[1:]
+        # With one selected boundary the serialized transpose exposes its direction.
+        if selected_input != selected_output:
+            transposes = [
+                node for node in proto.graph.node if node.op_type == "Transpose"
+            ]
+            assert len(transposes) == 1
+            permutation = next(
+                a.ints for a in transposes[0].attribute if a.name == "perm"
+            )
+            assert tuple(permutation) == (
+                (0, 2, 3, 1) if selected_input else (0, 3, 1, 2)
+            )
+        payload = proto.SerializeToString()
+        _check_samples(
+            artifact,
+            [
+                SourceSample(
+                    (_physical(value, selected_input),),
+                    (_physical(reference, selected_output),),
+                    SampleCriteria("bitwise"),
+                )
+                for value, reference in zip(arrays, references, strict=True)
+            ],
+        )
+        assert _proto(artifact).SerializeToString() == payload
+    with pytest.raises(SourcePrecisionError, match="rank-one through rank-four"):
+        _source(lambda x: x, [("B", 2, 3, 4, 2)], inputs_as_nchw=[0])
+    with pytest.raises(SourcePrecisionError):
+        _source(
+            lambda x: x,
+            [jax.ShapeDtypeStruct(("B", 2, 3, 4), np.complex64)],
+            inputs_as_nchw=[0],
+        )
     for mode in ("prefer_native", "force_decomposed"):
         with pytest.raises(SourcePrecisionError, match="normalization_mode"):
             _source(

@@ -10,7 +10,7 @@ functionality stays explicit migration work. Runtime acceptance is sample-only.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -54,6 +54,7 @@ if TYPE_CHECKING:
         DotCounterpart,
         GatherCounterpart,
         LinearCounterpart,
+        NormalizationCounterpart,
     )
 
 
@@ -221,6 +222,18 @@ class SourceCaseResult:
             and all(status is CheckStatus.VALIDATED for status in numerical)
             else CheckStatus.UNVERIFIED
         )
+
+
+@dataclass(frozen=True)
+class PreparedSourceReference:
+    """One native sample of the retained prepared callable, without retracing it."""
+
+    prepared: PreparedSourceCase = field(repr=False, compare=False)
+    label: str
+    arguments: tuple[jax.Array, ...]
+    reference_outputs: tuple[np.ndarray, ...]
+    input_evidence: tuple[SourceValueEvidence, ...]
+    reference_evidence: tuple[SourceValueEvidence, ...]
 
 
 class SourcePreparationError(ValueError):
@@ -752,6 +765,205 @@ def prepare_source_case(
         )
 
 
+def prepared_source_reference(
+    prepared: PreparedSourceCase,
+) -> PreparedSourceReference:
+    """Reuse the original prepared sample without another native invocation."""
+    return PreparedSourceReference(
+        prepared,
+        "original-prepared-sample",
+        prepared.all_arguments,
+        prepared.reference_outputs,
+        prepared.input_evidence,
+        prepared.reference_evidence,
+    )
+
+
+def prepare_source_reference(
+    prepared: PreparedSourceCase,
+    *,
+    label: str,
+    input_values: Sequence[Any],
+    parameter_values: Mapping[str, Any] | None = None,
+) -> PreparedSourceReference:
+    """Evaluate this exact model instance for another declared concrete sample.
+
+    No factory, Jaxpr trace, activation, export or runtime session is created.
+    Typed values keep their original dtype and weakness; one shared binding is
+    checked across all inputs and independent native outputs.
+    """
+    if not label or len(input_values) != len(prepared.input_specs):
+        raise SourcePreparationError("A labeled sample needs the original input arity")
+    supplied = (
+        prepared.named_arguments if parameter_values is None else parameter_values
+    )
+    if tuple(supplied) != tuple(prepared.named_specs):
+        raise SourcePreparationError("Sample named bindings changed names/order")
+    with source_configuration(prepared.scenario):
+        if SourceSettings.observe() != prepared.settings:
+            raise SourcePreparationError(
+                "Native sample settings differ from preparation"
+            )
+        positional = tuple(
+            _argument(value, spec)
+            for value, spec in zip(input_values, prepared.input_specs, strict=True)
+        )
+        named = {
+            name: _argument(supplied[name], spec)
+            for name, spec in prepared.named_specs.items()
+        }
+        arguments = (*positional, *named.values())
+        bindings: dict[str, int] = {}
+        for spec, value in zip(prepared.all_input_specs, arguments, strict=True):
+            _bind_source_shape(
+                tuple(value.shape), tuple(spec.shape), bindings, bind=True
+            )
+        result = jax.device_get(prepared.fn(*positional, **named))
+        outputs, tree = jax.tree_util.tree_flatten(result)
+        if str(tree) != prepared.output_tree or len(outputs) != len(
+            prepared.traced_outputs
+        ):
+            raise SourcePreparationError("Native sample output tree/arity changed")
+        references = []
+        for output, properties in zip(outputs, prepared.traced_outputs, strict=True):
+            array = np.array(output, copy=True)
+            _bind_source_shape(array.shape, properties.shape, bindings, bind=False)
+            if array.dtype.name != properties.dtype:
+                raise SourcePreparationError("Native sample output dtype changed")
+            array.setflags(write=False)
+            references.append(array)
+        if SourceSettings.observe() != prepared.settings:
+            raise SourcePreparationError("Native sample changed caller settings")
+        return PreparedSourceReference(
+            prepared,
+            label,
+            arguments,
+            tuple(references),
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(
+                    arguments, prepared.traced_inputs, strict=True
+                )
+            ),
+            tuple(
+                value_evidence(value, properties)
+                for value, properties in zip(
+                    references, prepared.traced_outputs, strict=True
+                )
+            ),
+        )
+
+
+def _source_sample_from_reference(
+    prepared: PreparedSourceCase,
+    model: onnx.ModelProto,
+    reference: PreparedSourceReference,
+) -> SourceSample:
+    if reference.prepared is not prepared or prepared.criteria is None:
+        raise SourcePreparationError(
+            "A sample needs this retained prepared model and reviewed criteria"
+        )
+    if len(reference.arguments) != len(prepared.all_input_specs) or len(
+        reference.reference_outputs
+    ) != len(prepared.traced_outputs):
+        raise SourcePreparationError(
+            "Native sample arity differs from its original trace"
+        )
+    if reference.input_evidence != tuple(
+        value_evidence(value, properties)
+        for value, properties in zip(
+            reference.arguments, prepared.traced_inputs, strict=True
+        )
+    ):
+        raise SourcePreparationError("Native sample input evidence changed")
+    if reference.reference_evidence != tuple(
+        value_evidence(value, properties)
+        for value, properties in zip(
+            reference.reference_outputs, prepared.traced_outputs, strict=True
+        )
+    ):
+        raise SourcePreparationError("Native sample reference evidence changed")
+    bindings: dict[str, int] = {}
+    for spec, value in zip(prepared.all_input_specs, reference.arguments, strict=True):
+        _bind_source_shape(tuple(value.shape), tuple(spec.shape), bindings, bind=True)
+
+    def encode(value: Any, properties: TensorProperties) -> np.ndarray:
+        array = np.asarray(value)
+        shape = _bind_source_shape(array.shape, properties.shape, bindings, bind=False)
+        return representation_for_aval(replace(properties, shape=shape)).encode_array(
+            array
+        )
+
+    return SourceSample(
+        {
+            port.name: encode(value, _properties(spec))
+            for port, spec, value in zip(
+                model.graph.input,
+                prepared.all_input_specs,
+                reference.arguments,
+                strict=True,
+            )
+        },
+        tuple(
+            encode(value, properties)
+            for properties, value in zip(
+                prepared.traced_outputs, reference.reference_outputs, strict=True
+            )
+        ),
+        prepared.criteria,
+    )
+
+
+def validate_prepared_source_samples(
+    result: SourceCaseResult,
+    references: Sequence[PreparedSourceReference],
+    *,
+    optimization: Literal["disabled", "all"],
+) -> SourceCaseResult:
+    """Run all samples on the same audited artifact; never instantiate/export."""
+    from jax2onnx.precision import _artifact_bytes
+
+    if (
+        result.model is None
+        or result.prepared is None
+        or result.validation is None
+        or result.validation.artifact_sha256 is None
+        or result.audit.status is not CheckStatus.VALIDATED
+        or result.schema is not CheckStatus.VALIDATED
+    ):
+        raise SourcePreparationError(
+            "Runtime samples require the actual audited saved artifact"
+        )
+    if not references:
+        raise SourcePreparationError("Runtime acceptance requires native samples")
+    audited_digest = result.validation.artifact_sha256
+    if _artifact_bytes(result.model)[1] != audited_digest:
+        raise SourcePreparationError(
+            "Artifact changed after its original audited export"
+        )
+    validation = validate_source_samples(
+        result.model,
+        samples=[
+            _source_sample_from_reference(result.prepared, result.model, item)
+            for item in references
+        ],
+        optimization=optimization,
+    )
+    if (
+        validation.artifact_sha256 != audited_digest
+        or _artifact_bytes(result.model)[1] != audited_digest
+    ):
+        raise SourcePreparationError(
+            "Runtime samples did not retain the original audited artifact"
+        )
+    return replace(
+        result,
+        stage="runtime-checked",
+        category="runtime-evidence",
+        validation=validation,
+    )
+
+
 def _export_prepared(
     prepared: PreparedSourceCase,
     *,
@@ -861,7 +1073,11 @@ def run_source_case(
     diagnostic_jaxpr_validator: Callable[[Any, int], None] | None = None,
     _prepared: PreparedSourceCase | None = None,
     _corpus_counterpart: (
-        DotCounterpart | LinearCounterpart | GatherCounterpart | None
+        DotCounterpart
+        | LinearCounterpart
+        | GatherCounterpart
+        | NormalizationCounterpart
+        | None
     ) = None,
 ) -> SourceCaseResult:
     prepared = _prepared
@@ -1074,15 +1290,17 @@ def run_source_case(
                 DotCounterpart,
                 GatherCounterpart,
                 LinearCounterpart,
+                NormalizationCounterpart,
             )
 
             if type(_corpus_counterpart) not in (
                 DotCounterpart,
                 LinearCounterpart,
                 GatherCounterpart,
+                NormalizationCounterpart,
             ):
                 raise SourcePreparationError(
-                    "Corpus structure requires an actual reviewed DotCounterpart, LinearCounterpart or GatherCounterpart"
+                    "Corpus structure requires an actual reviewed DotCounterpart, LinearCounterpart, GatherCounterpart or NormalizationCounterpart"
                 )
             if type(_corpus_counterpart) is GatherCounterpart and (
                 diagnostic_jaxpr_validator is None or optimization is not None
@@ -1150,46 +1368,15 @@ def run_source_case(
         or bool(metadata.get("skip_numeric_validation"))
         or prepared.criteria is None
     )
-    samples = []
-    if not skipped:
-        assert prepared.criteria is not None
-        bindings: dict[str, int] = {}
-        for spec, value in zip(
-            prepared.all_input_specs, prepared.all_arguments, strict=True
-        ):
-            _bind_source_shape(
-                tuple(value.shape), tuple(spec.shape), bindings, bind=True
+    samples = (
+        []
+        if skipped
+        else [
+            _source_sample_from_reference(
+                prepared, model, prepared_source_reference(prepared)
             )
-
-        def encode(value: Any, properties: TensorProperties) -> np.ndarray:
-            array = np.asarray(value)
-            shape = _bind_source_shape(
-                array.shape, properties.shape, bindings, bind=False
-            )
-            return representation_for_aval(
-                replace(properties, shape=shape)
-            ).encode_array(array)
-
-        samples.append(
-            SourceSample(
-                {
-                    port.name: encode(value, _properties(spec))
-                    for port, spec, value in zip(
-                        model.graph.input,
-                        prepared.all_input_specs,
-                        prepared.all_arguments,
-                        strict=True,
-                    )
-                },
-                tuple(
-                    encode(value, properties)
-                    for properties, value in zip(
-                        prepared.traced_outputs, prepared.reference_outputs, strict=True
-                    )
-                ),
-                prepared.criteria,
-            )
-        )
+        ]
+    )
     validation = validate_source_samples(
         model,
         samples=samples,

@@ -511,7 +511,7 @@ def _source_input_properties(
             requested_dtypes=() if dtype is None else (dtype,),
             opset=opset,
             requirement=str(exc),
-            action="use static inputs or the audited shared leading rank-two/rank-three batch declaration; broader symbolic migration remains pending",
+            action="use static inputs or the audited shared leading rank-one through rank-four batch declaration; broader symbolic migration remains pending",
         ) from exc
     return TensorProperties(
         None,
@@ -527,12 +527,21 @@ def _validate_source_inputs(
     for index, spec in enumerate(inputs):
         assert isinstance(spec, jax.ShapeDtypeStruct)
         validate_source_input_dtype(spec.dtype, index=index, opset=opset)
-    if opset not in (23, 26):
+    if opset not in (16, 23, 26):
         _source_migration_gap(f"opset={opset}", opset)
     for index, spec in enumerate(inputs):
         assert isinstance(spec, jax.ShapeDtypeStruct)
         dtype = np.dtype(spec.dtype).name
         shape = tuple(spec.shape)
+        if opset == 16 and dtype not in {
+            "float16",
+            "float32",
+            "float64",
+            "bool",
+            "int32",
+            "int64",
+        }:
+            _source_migration_gap(f"opset=16 input dtype={dtype}", opset)
         requirement = "ordinary Boolean/integer/floating static or shared leading-batch inputs, or static complex64/complex128 inputs"
         action = "use typed inputs within the finite audited shape contract; symbolic complex shapes remain pending"
         if not diagnostic and dtype not in {

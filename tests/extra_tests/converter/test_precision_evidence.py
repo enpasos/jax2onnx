@@ -3,7 +3,7 @@
 """Public provenance is distinct from bounded, artifact-bound CPU evidence."""
 
 from collections.abc import Iterator
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 import json
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,7 @@ from jax2onnx.precision import (
     get_precision_report,
     precision_report_to_json,
     validate_source_samples,
+    _source_batch_boundaries,
 )
 from tests.extra_tests.converter.precision_test_support import export_source_dtypes
 
@@ -98,6 +99,179 @@ def _report() -> PrecisionReport:
             ),
         ),
     )
+
+
+def _symbolic_boundary_model(
+    rank: int, *, nchw_input: bool = False, nchw_output: bool = False
+) -> onnx.ModelProto:
+    logical = ("B",) if rank == 1 else ("B", 2, 3, 4)
+    physical = tuple(logical[axis] for axis in (0, 3, 1, 2)) if rank == 4 else logical
+    input_shape = physical if nchw_input else logical
+    output_shape = physical if nchw_output else logical
+    if nchw_input == nchw_output:
+        node = onnx.helper.make_node("Identity", ["x"], ["y"])
+    else:
+        node = onnx.helper.make_node(
+            "Transpose",
+            ["x"],
+            ["y"],
+            perm=(0, 2, 3, 1) if nchw_input else (0, 3, 1, 2),
+        )
+    model = onnx.helper.make_model(
+        onnx.helper.make_graph(
+            [node],
+            "symbolic-sample-boundary",
+            [
+                onnx.helper.make_tensor_value_info(
+                    "x", onnx.TensorProto.FLOAT, input_shape
+                )
+            ],
+            [
+                onnx.helper.make_tensor_value_info(
+                    "y", onnx.TensorProto.FLOAT, output_shape
+                )
+            ],
+        ),
+        ir_version=10,
+        opset_imports=[onnx.helper.make_opsetid("", 23)],
+    )
+    properties = TensorProperties(None, logical, "float32", False)
+    report = replace(
+        _report(),
+        inputs=(
+            PrecisionInputSummary(
+                0,
+                replace(properties, dtype=None),
+                properties,
+                properties,
+                TensorProperties("x", input_shape, "float32"),
+            ),
+        ),
+        traced_outputs=(properties,),
+        exported_outputs=(TensorProperties("y", output_shape, "float32"),),
+        adaptations=tuple(
+            # Exact existing native-DimExpr annotation, independently spelled
+            # out instead of deriving its syntax from the boundary validator.
+            f"{role} 0: logical NHWC (B, 2, 3, 4) uses external NCHW storage (B, 4, 2, 3)"
+            for role, selected in (("input", nchw_input), ("output", nchw_output))
+            if selected
+        ),
+    )
+    attach_precision_report(model, report)
+    return model
+
+
+@pytest.mark.parametrize(
+    "rank,nchw_input,nchw_output",
+    [
+        (1, False, False),
+        (4, False, False),
+        (4, True, False),
+        (4, False, True),
+        (4, True, True),
+    ],
+)
+def test_shared_rank_sample_boundary_binds_logical_and_physical_storage(
+    rank: int, nchw_input: bool, nchw_output: bool
+) -> None:
+    model = _symbolic_boundary_model(
+        rank, nchw_input=nchw_input, nchw_output=nchw_output
+    )
+    report = get_precision_report(model)
+    assert report is not None
+    assert _source_batch_boundaries(model) == (
+        tuple(item.exported for item in report.inputs),
+        report.exported_outputs,
+    )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "rank-five",
+        "batch-axis",
+        "derived-label",
+        "zero-tail",
+        "foreign-batch",
+        "missing-layout-note",
+        "wrong-permutation",
+        "logical-input",
+        "artifact-input",
+        "output-layout",
+        "physical-dtype",
+    ],
+)
+def test_shared_rank_sample_boundary_keeps_exact_contract_guards(
+    corruption: str,
+) -> None:
+    model = _symbolic_boundary_model(4, nchw_input=True, nchw_output=True)
+    report = get_precision_report(model)
+    assert report is not None
+    entry = report.inputs[0]
+    if corruption in {"rank-five", "batch-axis", "derived-label", "zero-tail"}:
+        shape = {
+            "rank-five": ("B", 2, 3, 4, 5),
+            "batch-axis": (2, "B", 3, 4),
+            "derived-label": ("2*B", 2, 3, 4),
+            "zero-tail": ("B", 0, 3, 4),
+        }[corruption]
+        report = replace(
+            report,
+            inputs=(replace(entry, supplied=replace(entry.supplied, shape=shape)),),
+        )
+    elif corruption == "foreign-batch":
+        report = replace(
+            report,
+            traced_outputs=(replace(report.traced_outputs[0], shape=("C", 2, 3, 4)),),
+        )
+    elif corruption == "missing-layout-note":
+        report = replace(report, adaptations=())
+    elif corruption == "wrong-permutation":
+        shape = ("B", 3, 4, 2)
+        report = replace(
+            report,
+            inputs=(replace(entry, exported=replace(entry.exported, shape=shape)),),
+            adaptations=(
+                "input 0: logical NHWC (B, 2, 3, 4) uses external NCHW storage (B, 3, 4, 2)",
+                *report.adaptations[1:],
+            ),
+        )
+        for dimension, extent in zip(
+            model.graph.input[0].type.tensor_type.shape.dim[1:], shape[1:], strict=True
+        ):
+            dimension.dim_value = extent
+    elif corruption == "logical-input":
+        report = replace(
+            report,
+            inputs=(
+                replace(entry, supplied=replace(entry.supplied, shape=("B", 3, 2, 4))),
+            ),
+        )
+    elif corruption == "artifact-input":
+        model.graph.input[0].type.tensor_type.shape.dim[1].dim_value = 9
+    elif corruption == "physical-dtype":
+        report = replace(
+            report,
+            exported_outputs=(replace(report.exported_outputs[0], dtype="float64"),),
+        )
+        model.graph.output[0].type.tensor_type.elem_type = onnx.TensorProto.DOUBLE
+    else:
+        shape = ("B", 2, 4, 3)
+        report = replace(
+            report,
+            exported_outputs=(replace(report.exported_outputs[0], shape=shape),),
+            adaptations=(
+                *report.adaptations[:1],
+                "output 0: logical NHWC (B, 2, 3, 4) uses external NCHW storage (B, 2, 4, 3)",
+            ),
+        )
+        for dimension, extent in zip(
+            model.graph.output[0].type.tensor_type.shape.dim[1:], shape[1:], strict=True
+        ):
+            dimension.dim_value = extent
+    attach_precision_report(model, report)
+    with pytest.raises(PrecisionReportError):
+        _source_batch_boundaries(model)
 
 
 @pytest.mark.parametrize("representation", ["proto", "ir", "file"])

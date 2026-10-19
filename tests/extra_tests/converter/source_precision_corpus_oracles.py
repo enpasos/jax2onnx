@@ -1085,11 +1085,22 @@ GATHER_COUNTERPARTS: Final[tuple[GatherCounterpart, ...]] = (
 
 def counterpart_for(
     origin: str, ordinal: int, contract_sha256: str
-) -> DotCounterpart | LinearCounterpart | GatherCounterpart | None:
+) -> (
+    DotCounterpart
+    | LinearCounterpart
+    | GatherCounterpart
+    | NormalizationCounterpart
+    | None
+):
     return next(
         (
             item
-            for item in (*DOT_COUNTERPARTS, *LINEAR_COUNTERPARTS, *GATHER_COUNTERPARTS)
+            for item in (
+                *DOT_COUNTERPARTS,
+                *LINEAR_COUNTERPARTS,
+                *GATHER_COUNTERPARTS,
+                *NORMALIZATION_COUNTERPARTS,
+            )
             if (item.case.origin, item.case.ordinal, item.case.contract_sha256)
             == (origin, ordinal, contract_sha256)
         ),
@@ -1153,3 +1164,1161 @@ def criterion_proposal_ledger() -> dict[str, Any]:
         "rows": proposals,
         "gather": policy["gather_separate_pending_audit"],
     }
+
+
+NORMALIZATION_ORACLE_VERSION: Final = "shared-b-original-layer-norm-v1"
+NORMALIZATION_CASES: Final[tuple[CorpusCase, ...]] = (
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        4,
+        "layer_norm_decomposed",
+        "a07527a499f1abf95d9f1b56b92027a104114ce1f39d385ceba9a0248e483f63",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        5,
+        "layer_norm_multiaxis_decomposed",
+        "b14f78c4bb2d86952c05640b57fc81183312a93bdbd163429c7076021db73490",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        6,
+        "batched_layer_norm_decomposed",
+        "0c5954fef8e22b60e77f92e6ded9f109b70ccbe7653a91e5909a0d5eb13603e1",
+    ),
+    CorpusCase(
+        "plugin::eqx.nn.layer_norm",
+        7,
+        "layer_norm_opset16",
+        "30dc566db5aad41865ea1b7bc8150fc87eeb29d8c59c65f62992eae6db8d48fb",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        4,
+        "layer_norm_decomposed",
+        "b33fe40a63fe66a7997d9ec6088908fa58a531d3a6857cc8eb65dd4d3190b3f5",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        5,
+        "layer_norm_multiaxis_decomposed",
+        "0b66d4068a2ce766b392387bcdc51ea684757682182620c0816c1c50db09926f",
+    ),
+    CorpusCase(
+        "plugin::linen.layer_norm",
+        6,
+        "layer_norm_opset16",
+        "0894c287c2e9b96a3ecd20343ef698385245dc9e72f3bcf7cfd517d2d9055127",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        6,
+        "layer_norm_symbolic_batch",
+        "f1134007ba577dcd5eb18f6d36cb7b8cac45f7492e89ebac09bc9c14b8545c11",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        10,
+        "layer_norm_decomposed",
+        "4da28f77eea76c24629b71bc9acf38c5ad1aec7cc2280c6f21017d25346eb573",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        11,
+        "layer_norm_slow_variance_decomposed",
+        "f547213d45d32caa75dcfa0cbe55c27b84bce9bd9ae6eea66efde23ae0fdb2fc",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        13,
+        "layer_norm_multiaxis_decomposed",
+        "51a7863a574225600a8c0f435accfae27ed08870e7dbddde1ebd0a196b24eeaf",
+    ),
+    CorpusCase(
+        "plugin::nnx.layer_norm",
+        14,
+        "layer_norm_opset16",
+        "64b58523eb0e0fb14e5b095a7b40f91cf91ab69286c51326c29640b39d62c1c1",
+    ),
+)
+
+_NORMALIZATION_MODULES: Final = {
+    "plugin::nnx.layer_norm": (
+        "jax2onnx/plugins/flax/nnx/layer_norm.py",
+        "6219dd00d62677cac1c99739121ec6efb1f11167cc0101135b2a2e7a25a6bd09",
+    ),
+    "plugin::linen.layer_norm": (
+        "jax2onnx/plugins/flax/linen/layer_norm.py",
+        "6611cc7a7dbbf77669e6ffe0fbd964bc4cd378e106c8cc894440e5dd7993b59d",
+    ),
+    "plugin::eqx.nn.layer_norm": (
+        "jax2onnx/plugins/equinox/eqx/nn/layer_norm.py",
+        "2e6481dc8951d838355492a5c714f67d906be75ea419ce6844ff5027af1905cd",
+    ),
+}
+
+
+class _NormalizationExpressions:
+    """Finite normalization DAG comparison, preserving every typed arithmetic edge.
+
+    Shape construction and the audited dense selection are representation steps;
+    arithmetic is never reassociated, fused or compared through sampled values.
+    Unknown operations/attributes remain explicit counterpart failures.
+    """
+
+    @staticmethod
+    def constant(value: Any, dtype: Any | None = None) -> tuple[Any, ...]:
+        array = np.asarray(value)
+        if dtype is not None:
+            declared = np.dtype(dtype)
+            if isinstance(value, (np.ndarray, np.generic)) and array.dtype != declared:
+                raise ValueError(
+                    "Native normalization constant payload/aval dtype differs"
+                )
+            array = np.asarray(value, dtype=declared)
+        return (
+            "constant",
+            array.dtype.name,
+            tuple(array.shape),
+            array.tobytes(order="C").hex(),
+        )
+
+    @staticmethod
+    def node(
+        operation: str,
+        dtype: str,
+        shape: tuple[Any, ...],
+        inputs: tuple[Any, ...],
+        attributes: tuple[Any, ...] = (),
+    ) -> tuple[Any, ...]:
+        if operation in {
+            "add",
+            "sub",
+            "mul",
+            "div",
+            "neg",
+            "sqrt",
+            "max",
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge",
+            "and",
+            "or",
+            "xor",
+            "not",
+        }:
+            # ONNX implicit broadcasting and native explicit broadcasting carry
+            # the same edge. No arithmetic is folded or reassociated here.
+            inputs = tuple(
+                _NormalizationExpressions.broadcast(value, shape) for value in inputs
+            )
+        return (operation, dtype, shape, inputs, attributes)
+
+    @classmethod
+    def array(cls, value: Any) -> Any:
+        if value[0] != "constant":
+            raise ValueError("Expected an actual normalization constant payload")
+        return np.frombuffer(bytes.fromhex(value[3]), dtype=value[1]).reshape(value[2])
+
+    @classmethod
+    def cast(cls, value: Any, dtype: str, shape: tuple[Any, ...]) -> Any:
+        if value[2] != shape:
+            raise ValueError("Normalization Cast changes shape")
+        if value[1] == dtype:
+            return value
+        if value[0] == "constant":
+            # Existing broadcast lowering can materialize an explicit literal
+            # Cast. Preserve its exact destination payload, not arithmetic folds.
+            return cls.constant(np.asarray(cls.array(value), dtype=dtype))
+        return cls.node("cast", dtype, shape, (value,))
+
+    @classmethod
+    def reshape(cls, value: Any, shape: tuple[Any, ...]) -> Any:
+        if value[2] == shape:
+            return value
+        if value[0] == "reshape":
+            value = value[3][0]
+            if value[2] == shape:
+                return value
+        static = all(type(dim) is int and dim > 0 for dim in (*value[2], *shape))
+        if static:
+            # Match ordinary native C-order static reshape, including affine
+            # parameter unpacking. Use Python integers rather than a fixed-width
+            # NumPy reduction so a malformed large count cannot wrap around.
+            from math import prod
+
+            if prod(value[2]) != prod(shape):
+                raise ValueError("Normalization static reshape element counts differ")
+        elif tuple(dim for dim in value[2] if dim != 1) != tuple(
+            dim for dim in shape if dim != 1
+        ):
+            raise ValueError("Normalization counterpart forbids shared-B regrouping")
+        if value[0] == "constant":
+            return cls.constant(cls.array(value).reshape(shape))
+        return cls.node("reshape", value[1], shape, (value,))
+
+    @classmethod
+    def broadcast(
+        cls,
+        value: Any,
+        shape: tuple[Any, ...],
+        dimensions: tuple[int, ...] | None = None,
+    ) -> Any:
+        dimensions = (
+            tuple(range(len(shape) - len(value[2]), len(shape)))
+            if dimensions is None
+            else dimensions
+        )
+        if (
+            len(dimensions) != len(value[2])
+            or tuple(sorted(set(dimensions))) != dimensions
+        ):
+            raise ValueError("Normalization broadcast mapping differs")
+        inserted: list[Any] = [1] * len(shape)
+        for source, axis in zip(value[2], dimensions, strict=True):
+            if axis < 0 or axis >= len(shape) or source not in (1, shape[axis]):
+                raise ValueError("Normalization broadcast changes an existing extent")
+            inserted[axis] = source
+        reshaped = cls.reshape(value, tuple(inserted))
+        if reshaped[0] == "constant" and all(isinstance(dim, int) for dim in shape):
+            return cls.constant(np.broadcast_to(cls.array(reshaped), shape))
+        return (
+            reshaped
+            if tuple(inserted) == shape
+            else cls.node("broadcast", value[1], shape, (reshaped,))
+        )
+
+    @classmethod
+    def native(
+        cls, closed: Any, arguments: tuple[Any, ...] | None = None
+    ) -> tuple[Any, ...]:
+        from jax2onnx._compat.jax import Literal
+        from jax2onnx.converter.source_representation import normalized_shape_dimensions
+
+        body = getattr(closed, "jaxpr", closed)
+
+        def properties(var: Any) -> tuple[str, tuple[Any, ...]]:
+            return np.dtype(var.aval.dtype).name, normalized_shape_dimensions(
+                var.aval.shape
+            )
+
+        env = {}
+        for var, value in zip(
+            body.constvars, getattr(closed, "consts", ()), strict=True
+        ):
+            env[id(var)] = cls.constant(value, var.aval.dtype)
+        supplied = (
+            arguments
+            if arguments is not None
+            else tuple(
+                ("input", *properties(var), index)
+                for index, var in enumerate(body.invars)
+            )
+        )
+        for var, value in zip(body.invars, supplied, strict=True):
+            if (value[1], value[2]) != properties(var):
+                raise ValueError("Native nested normalization port differs")
+            env[id(var)] = value
+
+        def use(var: Any) -> Any:
+            return (
+                cls.constant(var.val, var.aval.dtype)
+                if isinstance(var, Literal)
+                else env[id(var)]
+            )
+
+        for equation in body.eqns:
+            name = equation.primitive.name
+            args = tuple(use(var) for var in equation.invars)
+            if name == "jit":
+                child = equation.params.get("jaxpr", equation.params.get("call_jaxpr"))
+                if child is None:
+                    raise ValueError("Native normalization JIT body unavailable")
+                child_body = getattr(child, "jaxpr", child)
+                for caller, formal in zip(
+                    (*equation.invars, *equation.outvars),
+                    (*child_body.invars, *child_body.outvars),
+                    strict=True,
+                ):
+                    if properties(caller) != properties(formal) or bool(
+                        caller.aval.weak_type
+                    ) != bool(formal.aval.weak_type):
+                        raise ValueError(
+                            "Native normalization JIT formal/result dtype/shape/weakness differs"
+                        )
+                outputs = cls.native(child, args)
+                for var, value in zip(equation.outvars, outputs, strict=True):
+                    if properties(var) != (value[1], value[2]):
+                        raise ValueError("Native normalization JIT result differs")
+                    env[id(var)] = value
+                continue
+            if len(equation.outvars) != 1:
+                raise ValueError(
+                    "Normalization counterpart requires single-result native primitives"
+                )
+            dtype, shape = properties(equation.outvars[0])
+            attrs: tuple[Any, ...] = ()
+            if name == "convert_element_type":
+                result = cls.cast(args[0], dtype, shape)
+            elif name == "reshape":
+                if equation.params.get("dimensions") is not None:
+                    raise ValueError("Normalization reshape permutation differs")
+                result = cls.reshape(args[0], shape)
+            elif name == "broadcast_in_dim":
+                result = cls.broadcast(
+                    args[0], shape, tuple(equation.params["broadcast_dimensions"])
+                )
+            elif name == "square":
+                result = cls.node("mul", dtype, shape, (args[0], args[0]))
+            elif name == "rsqrt":
+                result = cls.node(
+                    "div",
+                    dtype,
+                    shape,
+                    (
+                        cls.constant(np.asarray(1, dtype=dtype)),
+                        cls.node("sqrt", dtype, shape, args),
+                    ),
+                )
+            elif name == "select_n":
+                result = cls.node(
+                    "select", dtype, shape, (cls.broadcast(args[0], shape), *args[1:])
+                )
+            elif name in {
+                "add",
+                "sub",
+                "mul",
+                "div",
+                "neg",
+                "sqrt",
+                "max",
+                "eq",
+                "ne",
+                "lt",
+                "le",
+                "gt",
+                "ge",
+                "and",
+                "or",
+                "xor",
+                "not",
+                "reduce_sum",
+            }:
+                if name == "reduce_sum":
+                    attrs = tuple(equation.params["axes"])
+                    result = (
+                        args[0]
+                        if not attrs
+                        else cls.node(name, dtype, shape, args, attrs)
+                    )
+                else:
+                    result = cls.node(name, dtype, shape, args)
+            else:
+                raise ValueError(
+                    f"Native normalization operation {name} lacks a counterpart"
+                )
+            env[id(equation.outvars[0])] = result
+        return tuple(use(var) for var in body.outvars)
+
+    def __init__(self, model: onnx.ModelProto):
+        if model.functions:
+            raise ValueError(
+                "Original LayerNorm family counterpart forbids unexplained Functions"
+            )
+        self.model = model
+        self.graph = model.graph
+        self.nodes = {}
+        self.types = {}
+        self.declared_types = {}
+        self.shape_types = {}
+        self.resolving_shape_types: set[str] = set()
+        self.constants = {
+            tensor.name: onnx.numpy_helper.to_array(tensor)
+            for tensor in self.graph.initializer
+        }
+        if len(self.constants) != len(self.graph.initializer):
+            raise ValueError("Duplicate normalization initializer names")
+        self.visited: set[str] = set()
+        self.memo = {}
+        for value in (*self.graph.input, *self.graph.value_info, *self.graph.output):
+            if value.type.WhichOneof("value") not in {None, "tensor_type"}:
+                raise ValueError("Normalization requires tensor value metadata")
+            tensor = value.type.tensor_type
+            dtype = (
+                np.dtype(onnx.helper.tensor_dtype_to_np_dtype(tensor.elem_type)).name
+                if tensor.elem_type
+                else None
+            )
+            shape = (
+                tuple(
+                    dim.dim_param if dim.HasField("dim_param") else dim.dim_value
+                    for dim in tensor.shape.dim
+                )
+                if tensor.HasField("shape")
+                else None
+            )
+            prior = self.declared_types.get(value.name, (None, None))
+            if any(
+                old is not None and new is not None and old != new
+                for old, new in zip(prior, (dtype, shape), strict=True)
+            ):
+                raise ValueError("Conflicting normalization value metadata")
+            declared = tuple(
+                old if new is None else new
+                for old, new in zip(prior, (dtype, shape), strict=True)
+            )
+            self.declared_types[value.name] = declared
+            if None not in declared:
+                self.types[value.name] = declared
+        for name, array in self.constants.items():
+            self.bind_type(name, (array.dtype.name, tuple(array.shape)))
+        for node in self.graph.node:
+            if (
+                node.domain
+                or len(node.output) != 1
+                or node.output[0] in self.nodes
+                or node.output[0] in self.constants
+                or node.output[0] in {value.name for value in self.graph.input}
+            ):
+                raise ValueError(
+                    "Normalization counterpart requires standard-domain single-definition nodes"
+                )
+            self.nodes[node.output[0]] = node
+            if node.op_type == "Constant":
+                if node.input:
+                    raise ValueError("Normalization Constant must have zero inputs")
+                attrs = self.attributes(node, {"value"})
+                if set(attrs) != {"value"}:
+                    raise ValueError(
+                        "Normalization Constant requires its exact tensor payload"
+                    )
+                array = onnx.numpy_helper.to_array(attrs["value"])
+                self.bind_type(node.output[0], (array.dtype.name, tuple(array.shape)))
+        for value in (*self.graph.input, *self.graph.output):
+            if value.name not in self.types:
+                raise ValueError(
+                    "Normalization boundary requires actual dtype and shape"
+                )
+        for index, value in enumerate(self.graph.input):
+            self.memo[value.name] = ("input", *self.types[value.name], index)
+
+    def bind_type(self, name: str, actual: tuple[str, tuple[Any, ...]]) -> None:
+        declared = self.declared_types.get(name, (None, None))
+        if any(
+            expected is not None and expected != observed
+            for expected, observed in zip(declared, actual, strict=True)
+        ) or (name in self.types and self.types[name] != actual):
+            raise ValueError("Normalization payload/derived type and metadata differ")
+        self.types[name] = actual
+
+    def shape_type(self, name: str) -> tuple[str, tuple[Any, ...]]:
+        """Derive missing metadata only through the consumed INT64 shape grammar."""
+        if name in self.shape_types:
+            return self.shape_types[name]
+        if name in self.resolving_shape_types:
+            raise ValueError("Cyclic normalization shape metadata")
+        self.resolving_shape_types.add(name)
+        try:
+            if name in self.constants:
+                array = self.constants[name]
+                actual = (array.dtype.name, tuple(array.shape))
+            else:
+                node = self.nodes.get(name)
+                if node is None:
+                    raise ValueError("Missing normalization shape producer")
+                if node.op_type == "Constant":
+                    actual = self.types[name]
+                elif node.op_type == "Shape":
+                    attrs = self.attributes(node, {"start", "end"})
+                    if len(node.input) != 1 or node.input[0] not in self.types:
+                        raise ValueError("Shape requires actual typed data input")
+                    shape = self.types[node.input[0]][1]
+                    actual = (
+                        "int64",
+                        (
+                            len(
+                                shape[
+                                    attrs.get("start", 0) : attrs.get("end", len(shape))
+                                ]
+                            ),
+                        ),
+                    )
+                elif node.op_type == "Gather":
+                    if (
+                        len(node.input) != 2
+                        or self.attributes(node, {"axis"}).get("axis", 0) != 0
+                    ):
+                        raise ValueError("Shape Gather arity/axis differs")
+                    data = self.shape_type(node.input[0])
+                    indices = self.shape_type(node.input[1])
+                    if (
+                        data[0] != "int64"
+                        or len(data[1]) != 1
+                        or indices[0] != "int64"
+                        or len(indices[1]) > 1
+                    ):
+                        raise ValueError(
+                            "Shape Gather requires INT64 vector/scalar indices"
+                        )
+                    actual = ("int64", indices[1])
+                elif node.op_type in {"Unsqueeze", "Squeeze"}:
+                    if len(node.input) != 2 or self.attributes(node, set()):
+                        raise ValueError("Shape scalar/vector promotion arity differs")
+                    operand = self.shape_type(node.input[0])
+                    self.shape_type(node.input[1])
+                    if self.vector(node.input[1]) != (0,) or self.types[
+                        node.input[1]
+                    ] != ("int64", (1,)):
+                        raise ValueError("Shape promotion axes must be INT64[1] zero")
+                    expected = () if node.op_type == "Unsqueeze" else (1,)
+                    if operand != ("int64", expected):
+                        raise ValueError(
+                            "Shape promotion requires INT64 scalar/one-vector"
+                        )
+                    actual = ("int64", (1,) if node.op_type == "Unsqueeze" else ())
+                elif node.op_type == "Concat":
+                    if not node.input or self.attributes(node, {"axis"}) != {"axis": 0}:
+                        raise ValueError("Shape Concat requires axis zero and operands")
+                    operands = tuple(self.shape_type(operand) for operand in node.input)
+                    if any(
+                        dtype != "int64"
+                        or len(shape) != 1
+                        or type(shape[0]) is not int
+                        or shape[0] < 0
+                        for dtype, shape in operands
+                    ):
+                        raise ValueError("Shape Concat requires resolved INT64 vectors")
+                    actual = ("int64", (sum(shape[0] for _, shape in operands),))
+                else:
+                    raise ValueError(
+                        f"Unaudited normalization shape producer {node.op_type}"
+                    )
+            if actual[0] != "int64" or len(actual[1]) > 1:
+                raise ValueError("Normalization shape edge must be INT64 scalar/vector")
+            self.bind_type(name, actual)
+            self.shape_types[name] = actual
+            return actual
+        finally:
+            self.resolving_shape_types.remove(name)
+
+    def attributes(self, node: Any, allowed: set[str]) -> dict[str, Any]:
+        if len(node.attribute) != len({item.name for item in node.attribute}) or any(
+            item.name not in allowed for item in node.attribute
+        ):
+            raise ValueError("Unreviewed normalization node attributes")
+        return {
+            item.name: onnx.helper.get_attribute_value(item) for item in node.attribute
+        }
+
+    def take(self, name: str, operation: str, arity: int) -> Any:
+        node = self.nodes.get(name)
+        if node is None or node.op_type != operation or len(node.input) != arity:
+            raise ValueError(f"Disconnected normalization {operation} producer")
+        self.visited.add(name)
+        return node
+
+    def vector(self, name: str) -> tuple[Any, ...]:
+        self.visited.add(name)
+        self.shape_type(name)
+        if name in self.constants:
+            array = self.constants[name]
+            if array.dtype != np.dtype(np.int64) or array.ndim > 1:
+                raise ValueError(
+                    "Shape/axis constant must retain exact INT64 scalar/vector storage"
+                )
+            return tuple(array.reshape(-1).tolist())
+        node = self.nodes[name]
+        if node.op_type == "Constant":
+            return tuple(self.array(self.expression(name)).reshape(-1).tolist())
+        if node.op_type == "Shape":
+            attrs = self.attributes(node, {"start", "end"})
+            if len(node.input) != 1:
+                raise ValueError("Shape input arity differs")
+            self.expression(node.input[0])
+            shape = self.types[node.input[0]][1]
+            return shape[attrs.get("start", 0) : attrs.get("end", len(shape))]
+        if node.op_type == "Gather":
+            if self.attributes(node, {"axis"}).get("axis", 0) != 0:
+                raise ValueError("Shape Gather axis differs")
+            vector = self.vector(node.input[0])
+            return tuple(vector[index] for index in self.vector(node.input[1]))
+        if node.op_type == "Concat":
+            if self.attributes(node, {"axis"}) != {"axis": 0}:
+                raise ValueError("Shape Concat axis differs")
+            return tuple(dim for operand in node.input for dim in self.vector(operand))
+        if node.op_type in {"Unsqueeze", "Squeeze"}:
+            if self.attributes(node, set()) or self.vector(node.input[1]) != (0,):
+                raise ValueError("Shape scalar/vector promotion differs")
+            return self.vector(node.input[0])
+        raise ValueError(f"Unaudited normalization shape producer {node.op_type}")
+
+    def axis_zero(self, name: str) -> None:
+        if self.vector(name) != (0,) or self.types[name] != ("int64", (1,)):
+            raise ValueError("Dense selection axes must be exact INT64[1] zero")
+
+    def selection(self, name: str) -> Any:
+        squeeze = self.take(name, "Squeeze", 2)
+        self.attributes(squeeze, set())
+        self.axis_zero(squeeze.input[1])
+        gather = self.take(squeeze.input[0], "GatherElements", 2)
+        if self.attributes(gather, {"axis"}) != {"axis": 0}:
+            raise ValueError("Dense selection GatherElements axis differs")
+        choices = self.take(gather.input[0], "Concat", 2)
+        if self.attributes(choices, {"axis"}) != {"axis": 0}:
+            raise ValueError("Dense selection Concat axis differs")
+        arms = []
+        for operand in choices.input:
+            arm = self.take(operand, "Unsqueeze", 2)
+            self.attributes(arm, set())
+            self.axis_zero(arm.input[1])
+            arms.append(arm.input[0])
+        indices = self.take(gather.input[1], "Unsqueeze", 2)
+        self.attributes(indices, set())
+        self.axis_zero(indices.input[1])
+        dtype, shape = self.types[name]
+        cast_name = indices.input[0]
+        expansion = self.nodes.get(cast_name)
+        if expansion is not None and expansion.op_type == "Expand":
+            expansion = self.take(cast_name, "Expand", 2)
+            self.attributes(expansion, set())
+            if self.vector(expansion.input[1]) != shape:
+                raise ValueError("Dense selection index Expand uses another shape")
+            cast_name = expansion.input[0]
+        else:
+            expansion = None
+        cast = self.take(cast_name, "Cast", 1)
+        target = self.attributes(cast, {"to"}).get("to")
+        if target not in {onnx.TensorProto.INT32, onnx.TensorProto.INT64}:
+            raise ValueError("Dense selection index Cast is not INT32/INT64")
+        selector_dtype, selector_shape = self.types[cast.input[0]]
+        index_dtype = np.dtype(onnx.helper.tensor_dtype_to_np_dtype(target)).name
+        if selector_dtype != "bool" or self.types[cast.output[0]] != (
+            index_dtype,
+            selector_shape,
+        ):
+            raise ValueError(
+                "Dense selection Cast must preserve actual BOOL selector extents"
+            )
+        if expansion is not None and self.types[expansion.output[0]] != (
+            index_dtype,
+            shape,
+        ):
+            raise ValueError("Dense selection expanded indices dtype/shape differs")
+        if expansion is None and selector_shape != shape:
+            raise ValueError("Dense selection indices lack required broadcast")
+        for output in (choices.output[0],):
+            if self.types[output] != (dtype, (2, *shape)):
+                raise ValueError("Dense selection choices type/shape differs")
+        for output in (
+            gather.output[0],
+            *(self.nodes[operand].output[0] for operand in choices.input),
+        ):
+            if self.types[output] != (dtype, (1, *shape)):
+                raise ValueError("Dense selection data type/shape differs")
+        if self.types[indices.output[0]] != (index_dtype, (1, *shape)):
+            raise ValueError("Dense selection index type/shape differs")
+        first = self.nodes.get(arms[0])
+        if first is not None and first.op_type == "Max":
+            if target != onnx.TensorProto.INT64 or expansion is not None:
+                raise ValueError(
+                    "Max signed-zero route must retain its INT64 unexpanded indices"
+                )
+            base = self.take(arms[0], "Max", 2)
+            self.attributes(base, set())
+            correction = self.take(arms[1], "Add", 2)
+            self.attributes(correction, set())
+            if self.types[base.output[0]] != (dtype, shape) or self.types[
+                correction.output[0]
+            ] != (dtype, shape):
+                raise ValueError(
+                    "Max correction does not retain exact source/result dtype/shape"
+                )
+            if tuple(base.input) != tuple(correction.input):
+                raise ValueError(
+                    "Max zero correction operands differ from the consumed Max"
+                )
+            tie = self.take(cast.input[0], "And", 2)
+            self.attributes(tie, set())
+            if self.types[tie.output[0]] != ("bool", shape):
+                raise ValueError("Max tie predicate dtype/shape differs")
+            for condition, operand in zip(tie.input, base.input, strict=True):
+                equal = self.take(condition, "Equal", 2)
+                self.attributes(equal, set())
+                if self.types[equal.output[0]] != ("bool", self.types[operand][1]):
+                    raise ValueError("Max Equal predicate dtype/shape differs")
+                if equal.input[0] != operand:
+                    raise ValueError("Max zero predicate consumes another operand")
+                if self.expression(equal.input[1]) != self.constant(
+                    np.asarray(0, dtype=dtype)
+                ):
+                    raise ValueError(
+                        "Max tie constant is not original positive zero in result dtype"
+                    )
+            return self.node(
+                "max",
+                dtype,
+                shape,
+                tuple(self.expression(operand) for operand in base.input),
+            )
+        if target != onnx.TensorProto.INT32:
+            raise ValueError(
+                "Original native select_n route must retain its INT32 selector Cast"
+            )
+        selector = self.broadcast(self.expression(cast.input[0]), shape)
+        return self.node(
+            "select",
+            dtype,
+            shape,
+            (selector, *(self.expression(operand) for operand in arms)),
+        )
+
+    def expression(self, name: str) -> Any:
+        self.visited.add(name)
+        if name in self.memo:
+            return self.memo[name]
+        if name in self.constants:
+            result = self.constant(self.constants[name])
+        else:
+            node = self.nodes[name]
+            if name not in self.types:
+                raise ValueError(
+                    "Normalization arithmetic requires actual dtype and shape metadata"
+                )
+            dtype, shape = self.types[name]
+            operation = node.op_type
+            if operation == "Constant":
+                attrs = self.attributes(node, {"value"})
+                if set(attrs) != {"value"}:
+                    raise ValueError(
+                        "Normalization Constant requires its actual tensor payload"
+                    )
+                result = self.constant(onnx.numpy_helper.to_array(attrs["value"]))
+            elif operation == "Identity":
+                self.attributes(node, set())
+                result = self.expression(node.input[0])
+                if (result[1], result[2]) != (dtype, shape):
+                    raise ValueError("Identity alias changes normalization type/shape")
+            elif operation == "Cast":
+                attrs = self.attributes(node, {"to"})
+                if attrs.get("to") != onnx.helper.np_dtype_to_tensor_dtype(
+                    np.dtype(dtype)
+                ):
+                    raise ValueError("Normalization Cast attribute and result differ")
+                operand = self.expression(node.input[0])
+                result = self.cast(operand, dtype, shape)
+            elif operation in {"Reshape", "Expand"}:
+                attrs = self.attributes(
+                    node, {"allowzero"} if operation == "Reshape" else set()
+                )
+                if (
+                    attrs.get("allowzero", 0) != 0
+                    or self.vector(node.input[1]) != shape
+                ):
+                    raise ValueError(
+                        "Normalization shape input differs from the consumed result"
+                    )
+                operand = self.expression(node.input[0])
+                result = (
+                    self.reshape(operand, shape)
+                    if operation == "Reshape"
+                    else self.broadcast(operand, shape)
+                )
+            elif operation == "Squeeze":
+                result = self.selection(name)
+            elif operation == "Where":
+                self.attributes(node, set())
+                selector, true_value, false_value = (
+                    self.expression(operand) for operand in node.input
+                )
+                result = self.node(
+                    "select",
+                    dtype,
+                    shape,
+                    (self.broadcast(selector, shape), false_value, true_value),
+                )
+            elif operation == "ReduceSum":
+                attrs = self.attributes(node, {"keepdims", "noop_with_empty_axes"})
+                axes = self.vector(node.input[1])
+                operand = self.expression(node.input[0])
+                if attrs.get("keepdims", 1) != 0 or attrs.get(
+                    "noop_with_empty_axes", 0
+                ) not in {0, 1}:
+                    raise ValueError("Normalization reduction attributes differ")
+                result = (
+                    operand
+                    if not axes and attrs.get("noop_with_empty_axes") == 1
+                    else self.node("reduce_sum", dtype, shape, (operand,), axes)
+                )
+            else:
+                names = {
+                    "Add": "add",
+                    "Sub": "sub",
+                    "Mul": "mul",
+                    "Div": "div",
+                    "Neg": "neg",
+                    "Sqrt": "sqrt",
+                    "Equal": "eq",
+                    "Less": "lt",
+                    "LessOrEqual": "le",
+                    "Greater": "gt",
+                    "GreaterOrEqual": "ge",
+                    "And": "and",
+                    "Or": "or",
+                    "Xor": "xor",
+                    "Not": "not",
+                }
+                if operation not in names:
+                    raise ValueError(
+                        f"Unexplained serialized normalization operation {operation}"
+                    )
+                self.attributes(node, set())
+                result = self.node(
+                    names[operation],
+                    dtype,
+                    shape,
+                    tuple(self.expression(operand) for operand in node.input),
+                )
+            if (result[1], result[2]) != (dtype, shape):
+                raise ValueError("Normalization logical expression type/shape differs")
+        self.memo[name] = result
+        return result
+
+    def outputs(self) -> tuple[Any, ...]:
+        result = tuple(self.expression(value.name) for value in self.graph.output)
+        disconnected = (
+            set(self.nodes)
+            | set(self.constants)
+            | {value.name for value in self.graph.input}
+        ) - self.visited
+        if disconnected:
+            details = [
+                {
+                    "name": name,
+                    "op": (
+                        self.nodes[name].op_type
+                        if name in self.nodes
+                        else "initializer"
+                    ),
+                    "inputs": (
+                        list(self.nodes[name].input) if name in self.nodes else []
+                    ),
+                    "type": self.types.get(name),
+                }
+                for name in sorted(disconnected)
+            ]
+            raise ValueError(
+                "Normalization graph contains disconnected producers/constants: "
+                + repr(details)
+            )
+        return result
+
+
+@dataclass(frozen=True)
+class NormalizationCounterpart:
+    case: CorpusCase
+
+    @property
+    def identifier(self) -> str:
+        return f"{NORMALIZATION_ORACLE_VERSION}:{self.case.origin}:{self.case.ordinal}"
+
+    @property
+    def sha256(self) -> str:
+        return fingerprint(
+            {
+                "identifier": self.identifier,
+                "case": asdict(self.case),
+                "original_modules": _NORMALIZATION_MODULES,
+                "oracle_file_sha256": hashlib.sha256(
+                    Path(__file__).read_bytes()
+                ).hexdigest(),
+            }
+        )
+
+    def descriptor(self) -> dict[str, Any]:
+        return {
+            "identifier": self.identifier,
+            "sha256": self.sha256,
+            "case": asdict(self.case),
+        }
+
+    def check_metadata(self, metadata: dict[str, Any]) -> None:
+        from tests.extra_tests.converter.source_precision_support import raw_source_case
+
+        if type(self) is not NormalizationCounterpart or not any(
+            self is item for item in NORMALIZATION_COUNTERPARTS
+        ):
+            raise ValueError("Unreviewed normalization counterpart mapping")
+        raw = raw_source_case(self.case.origin, self.case.ordinal)
+        if (
+            metadata.get("testcase") != self.case.testcase
+            or metadata.get("callable") is not raw.get("callable")
+            or metadata.get("post_check_onnx_graph")
+            is not raw.get("post_check_onnx_graph")
+        ):
+            raise ValueError(
+                "Normalization original registered callable/callback identity changed"
+            )
+        unresolved: list[str] = []
+        contract = canonical_contract(
+            {
+                key: value
+                for key, value in metadata.items()
+                if key not in {"testcase", "description", "context", "component"}
+            },
+            unresolved=unresolved,
+        )
+        if (
+            fingerprint(contract) != self.case.contract_sha256
+            or metadata.get("normalization_mode", "auto") != "auto"
+        ):
+            raise ValueError("Normalization complete raw contract/default mode changed")
+        if unresolved and self.case.origin != "plugin::eqx.nn.layer_norm":
+            raise ValueError("Unexpected opaque normalization recipe")
+        for path, wanted in _NORMALIZATION_MODULES.values():
+            if (
+                hashlib.sha256((REPOSITORY_ROOT / path).read_bytes()).hexdigest()
+                != wanted
+            ):
+                raise ValueError(
+                    "Original normalization registration/source module changed"
+                )
+        if self.case.origin == "plugin::eqx.nn.layer_norm":
+            import equinox as eqx
+
+            target = raw["callable"]
+            # Follow only the original fixed vmap fun capture, never invoke it.
+            for _ in range(4):
+                if type(target) is eqx.nn.LayerNorm:
+                    break
+                if (
+                    not inspect.isfunction(target)
+                    or "fun" not in target.__code__.co_freevars
+                ):
+                    raise ValueError(
+                        "Original opaque Eqx vmap/LayerNorm binding changed"
+                    )
+                captures = dict(
+                    zip(
+                        target.__code__.co_freevars,
+                        target.__closure__ or (),
+                        strict=True,
+                    )
+                )
+                target = captures["fun"].cell_contents
+            expected_shape = (20, 32) if self.case.ordinal == 5 else (32,)
+            if (
+                type(target) is not eqx.nn.LayerNorm
+                or target.shape != expected_shape
+                or target.eps != 1e-5
+                or target.use_weight is not True
+                or target.use_bias is not True
+            ):
+                raise ValueError("Original Eqx LayerNorm configuration changed")
+            for value, expected in ((target.weight, 1), (target.bias, 0)):
+                array = np.asarray(value)
+                if (
+                    array.shape != expected_shape
+                    or array.dtype not in (np.dtype(np.float32), np.dtype(np.float64))
+                    or array.tobytes(order="C")
+                    != np.full(expected_shape, expected, dtype=array.dtype).tobytes(
+                        order="C"
+                    )
+                ):
+                    raise ValueError(
+                        "Original Eqx LayerNorm affine parameter bytes changed"
+                    )
+
+    def check_source(self, prepared: PreparedSourceCase) -> None:
+        from jax2onnx.converter.source_representation import normalized_shape_dimensions
+        from tests.extra_tests.converter.source_precision_diagnostics import (
+            typed_trace_manifest,
+        )
+        from tests.extra_tests.converter.source_precision_support import (
+            PRESERVE_FACTORY_DTYPE,
+        )
+
+        self.check_metadata(dict(prepared.metadata))
+        provenance = prepared.scenario.provenance
+        if (
+            provenance is None
+            or (provenance.origin, provenance.ordinal)
+            != (self.case.origin, self.case.ordinal)
+            or prepared.scenario.model_dtype is not PRESERVE_FACTORY_DTYPE
+        ):
+            raise ValueError(
+                "Normalization original raw provenance/factory policy changed"
+            )
+        if prepared.identity != (
+            prepared.metadata["context"],
+            prepared.metadata["component"],
+            self.case.testcase,
+        ):
+            raise ValueError("Normalization original source display identity changed")
+        # Eqx's raw recipe stays opaque in the inventory. Exact registered object,
+        # configuration, affine bytes and retained native trace bind this finite
+        # counterpart; this does not resolve other opaque metadata recipes.
+        observed = json.loads(json.dumps(typed_trace_manifest(prepared.original_jaxpr)))
+        if observed != json.loads(prepared.original_trace_json):
+            raise ValueError("Retained original normalization trace/constants changed")
+        if (
+            len(prepared.traced_inputs) != 1
+            or len(prepared.traced_outputs) != 1
+            or prepared.traced_inputs[0].shape != prepared.traced_outputs[0].shape
+        ):
+            raise ValueError("Original LayerNorm family input/output contract changed")
+        body = prepared.original_jaxpr.jaxpr
+        for properties, var in zip(
+            (*prepared.traced_inputs, *prepared.traced_outputs),
+            (*body.invars, *body.outvars),
+            strict=True,
+        ):
+            if (properties.dtype, properties.shape, properties.weak_type) != (
+                np.dtype(var.aval.dtype).name,
+                normalized_shape_dimensions(var.aval.shape),
+                bool(var.aval.weak_type),
+            ):
+                raise ValueError(
+                    "Normalization retained native port dtype/shape/weakness changed"
+                )
+        if prepared.settings.default_matmul_precision is not None:
+            raise ValueError("Normalization raw matmul context changed")
+
+    def _check_model(
+        self, prepared: PreparedSourceCase, model: onnx.ModelProto
+    ) -> None:
+        from jax2onnx.precision import get_precision_report
+
+        report = get_precision_report(model)
+        opset = int(prepared.metadata.get("opset_version", 23))
+        imports = {item.domain: item.version for item in model.opset_import}
+        if (
+            report is None
+            or report.profile not in {"source-static-v1", "source-diagnostic-v1"}
+            or report.opset != opset
+            or imports.get("") != opset
+            or set(imports) != {""}
+            or len(imports) != len(model.opset_import)
+            or opset not in (16, 23)
+        ):
+            raise ValueError("Normalization raw/report/actual graph opsets differ")
+        if report.profile == "source-diagnostic-v1" and any(
+            check.category == "lowering" and check.status is not CheckStatus.UNVERIFIED
+            for check in report.checks
+        ):
+            raise ValueError(
+                "Diagnostic normalization structure cannot certify lowering"
+            )
+        if (
+            model.graph.sparse_initializer
+            or len(model.graph.input) != 1
+            or len(model.graph.output) != 1
+        ):
+            raise ValueError(
+                "Normalization actual boundary has extra ports or sparse constants"
+            )
+        if (
+            report.caller_x64_enabled != prepared.settings.x64_enabled
+            or report.caller_default_matmul_precision
+            != prepared.settings.default_matmul_precision
+            or report.caller_numpy_dtype_promotion
+            != prepared.settings.numpy_dtype_promotion
+            or report.caller_numpy_rank_promotion
+            != prepared.settings.numpy_rank_promotion
+        ):
+            raise ValueError("Normalization report loses original caller settings")
+        for source, value in zip(
+            (*prepared.traced_inputs, *prepared.traced_outputs),
+            (*model.graph.input, *model.graph.output),
+            strict=True,
+        ):
+            tensor = value.type.tensor_type
+            dtype = np.dtype(
+                onnx.helper.tensor_dtype_to_np_dtype(tensor.elem_type)
+            ).name
+            shape = tuple(
+                dim.dim_param if dim.HasField("dim_param") else dim.dim_value
+                for dim in tensor.shape.dim
+            )
+            if dtype != source.dtype or shape != source.shape:
+                raise ValueError(
+                    "Normalization actual boundary dtype/shape differs from native ports"
+                )
+        if (
+            len(report.inputs) != 1
+            or len(report.traced_outputs) != 1
+            or len(report.exported_outputs) != 1
+        ):
+            raise ValueError("Normalization report port arity differs")
+        for source, reported in (
+            (prepared.traced_inputs[0], report.inputs[0].traced),
+            (prepared.traced_outputs[0], report.traced_outputs[0]),
+            (prepared.traced_outputs[0], report.exported_outputs[0]),
+        ):
+            if (reported.dtype, reported.shape) != (source.dtype, source.shape):
+                raise ValueError("Normalization report boundary dtype/shape differs")
+        if (
+            report.inputs[0].traced.weak_type != prepared.traced_inputs[0].weak_type
+            or report.traced_outputs[0].weak_type
+            != prepared.traced_outputs[0].weak_type
+        ):
+            raise ValueError("Normalization report native port weakness differs")
+        if any(
+            node.op_type in {"LayerNormalization", "RMSNormalization"}
+            for node in model.graph.node
+        ):
+            raise ValueError(
+                "Normalization counterpart forbids a fused replacement of original arithmetic"
+            )
+        native = _NormalizationExpressions.native(prepared.original_jaxpr)
+        serialized = _NormalizationExpressions(model).outputs()
+        if native != serialized:
+            raise ValueError(
+                "Consumed normalization typed DAG/constants/axes/casts/ports differ from the actual original native computation"
+            )
+
+    def check(
+        self, prepared: PreparedSourceCase, model: onnx.ModelProto
+    ) -> CorpusStructureEvidence:
+        callback = prepared.metadata.get("post_check_onnx_graph")
+        raw_status, raw_detail = "absent", "No original structural callback"
+        if callback is not None:
+            try:
+                passed = bool(callback(model))
+                raw_status = "passed" if passed else "failed"
+                raw_detail = "Original raw callback returned " + str(passed)
+            except Exception as exc:
+                raw_status, raw_detail = "error", f"{type(exc).__name__}: {exc}"
+        try:
+            self.check_source(prepared)
+            self._check_model(prepared, model)
+            status, detail = (
+                CheckStatus.VALIDATED,
+                "Original raw LayerNorm typed consumed DAG and exact constant/axis/opset correspondence; numerical evidence remains separate",
+            )
+        except Exception as exc:
+            status, detail = CheckStatus.FAILED, str(exc)
+        return CorpusStructureEvidence(
+            self.identifier, self.sha256, raw_status, raw_detail, status, detail
+        )
+
+
+NORMALIZATION_COUNTERPARTS: Final[tuple[NormalizationCounterpart, ...]] = tuple(
+    NormalizationCounterpart(case) for case in NORMALIZATION_CASES
+)
+
+
+def normalization_counterpart_for(
+    origin: str, ordinal: int, contract_sha256: str
+) -> NormalizationCounterpart | None:
+    return next(
+        (
+            item
+            for item in NORMALIZATION_COUNTERPARTS
+            if (item.case.origin, item.case.ordinal, item.case.contract_sha256)
+            == (origin, ordinal, contract_sha256)
+        ),
+        None,
+    )

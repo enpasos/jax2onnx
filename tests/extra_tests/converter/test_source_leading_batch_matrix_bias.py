@@ -550,8 +550,14 @@ def test_local_setting_failure_restores_hidden_and_effective_source_state() -> N
         ):
             return jax.lax.reduce_sum(x, axes=(0,))
 
-    with pytest.raises(SourcePrecisionError, match="symbolic operation"):
+    with pytest.raises(SourcePrecisionError) as caught:
         _artifact(unsupported, specs)
+    assert caught.value.primitive == "reduce_sum"
+    assert caught.value.category == "profile-exclusion"
+    assert (
+        caught.value.detail
+        == "reduction over the symbolic batch is outside the profile"
+    )
     assert (_globals(), _settings()) == before
 
 

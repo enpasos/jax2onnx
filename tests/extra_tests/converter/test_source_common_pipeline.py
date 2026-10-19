@@ -246,9 +246,10 @@ def test_common_source_path_isolates_function_cache_from_legacy_conversion() -> 
         ({"jaxpr_validator": None}, "requires a subset validator"),
         ({"normalization_mode": "prefer_native"}, "does not support normalization"),
         ({"inputs": [()]}, "requires typed inputs"),
-        (
-            {"inputs": [jax.ShapeDtypeStruct(("B",), np.float32)]},
-            "rank-two",
+        pytest.param(
+            {"inputs": [jax.ShapeDtypeStruct(("B", 2, 3, 4, 5), np.float32)]},
+            "rank-one through rank-four",
+            id="options4-rank-two",
         ),
     ],
 )
@@ -264,6 +265,35 @@ def test_common_source_path_rejects_unaudited_options_before_tracing(
     with pytest.raises(ValueError, match=message):
         _source_convert(model, **options)
     assert not called
+
+
+def test_common_source_rank_one_identity_keeps_original_symbolic_binding() -> None:
+    from jax2onnx.converter.source_profile import validate_source_jaxpr
+
+    called = []
+    traces = []
+
+    def model(x: jax.Array) -> jax.Array:
+        called.append(True)
+        return x
+
+    model_ir = _source_convert(
+        model,
+        inputs=[jax.ShapeDtypeStruct(("B",), np.float32)],
+        jaxpr_validator=validate_source_jaxpr,
+        trace_observer=traces.append,
+    )
+    assert called == [True]
+    assert len(traces) == 1
+    assert traces[0].source_inputs[0].var is traces[0].jaxpr.invars[0]
+    assert traces[0].jaxpr.invars[0] is traces[0].jaxpr.outvars[0]
+    proto = ir.to_proto(model_ir)
+    onnx.checker.check_model(proto, full_check=True)
+    for value in (*proto.graph.input, *proto.graph.output):
+        assert value.type.tensor_type.elem_type == onnx.TensorProto.FLOAT
+        assert len(value.type.tensor_type.shape.dim) == 1
+        assert value.type.tensor_type.shape.dim[0].dim_param == "B"
+    assert active_precision_policy() is PrecisionPolicy.LEGACY
 
 
 def test_common_source_named_keyword_keeps_python_errors_and_real_operands() -> None:

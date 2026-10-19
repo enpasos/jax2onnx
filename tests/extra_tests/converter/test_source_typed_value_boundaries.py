@@ -341,6 +341,7 @@ def test_x64_configuration_conflict_precedes_any_typed_trace(dtype: Any) -> None
         "integer_add",
         "complex_add",
         "shift",
+        "rank_five",
     ],
 )
 def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> None:
@@ -350,13 +351,15 @@ def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> No
         spec = jax.ShapeDtypeStruct((batch, 3), np.complex64)
     elif kind == "rank_one":
         spec = jax.ShapeDtypeStruct((batch,), bool)
+    elif kind == "rank_five":
+        spec = jax.ShapeDtypeStruct((batch, 2, 3, 4, 5), bool)
     elif kind == "integer_switch":
         spec = jax.ShapeDtypeStruct((), np.int32)
     elif kind == "complex_add":
         spec = jax.ShapeDtypeStruct((2,), np.complex64)
 
     def fn(x: Any) -> Any:
-        if kind in {"symbolic_complex", "rank_one"}:
+        if kind in {"symbolic_complex", "rank_one", "rank_five"}:
             return x
         if kind == "integer_switch":
             return jax.lax.switch(
@@ -366,6 +369,21 @@ def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> No
             return jax.lax.shift_left(x, np.asarray([1, 1], np.int32))
         return x + x
 
+    if kind == "rank_one":
+        # Keep the original BOOL(B,) identity and parameter ID as its positive
+        # counterpart, sharing one artifact across both concrete batch sizes.
+        feeds = [(np.arange(size) % 3 == 1,) for size in (2, 5)]
+        _, proto, report, references = _artifact(fn, [spec], feeds=feeds)
+        assert (
+            report.inputs[0].traced.shape == report.exported_outputs[0].shape == ("B",)
+        )
+        assert (
+            report.inputs[0].traced.dtype == report.exported_outputs[0].dtype == "bool"
+        )
+        assert proto.graph.input[0].type.tensor_type.elem_type == 9
+        assert proto.graph.output[0].type.tensor_type.elem_type == 9
+        _accept_declared_storage(proto, feeds, references)
+        return
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(fn, [spec], precision_policy=PrecisionPolicy.SOURCE)
     assert error.value.category == "profile-exclusion"

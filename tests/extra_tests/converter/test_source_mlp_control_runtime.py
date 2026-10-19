@@ -3,6 +3,7 @@
 """Declared MLP control/state boundaries, before numerical runtime approval."""
 
 from typing import Any
+from types import SimpleNamespace
 
 from flax import nnx
 import jax
@@ -37,9 +38,19 @@ from jax2onnx._compat.jax import (
     is_unpartitioned_prng_placement,
 )
 from jax2onnx.plugins.jax.random._source_prng import (
+    NativePRNGExclusion,
+    emit_bits,
+    emit_fold_in,
+    emit_native_bernoulli,
+    emit_native_uniform,
+    emit_seed,
     native_bernoulli_uniform,
     prove_native_uniform,
+    require_native_prng_opset,
+    validate_selected_random_equation,
 )
+from jax2onnx.plugins.jax.core.jit import JitPlugin
+from jax2onnx.plugins.jax.random.random_seed import RandomSeedPlugin
 from jax2onnx.plugins.flax.nnx.dropout import DropoutPlugin
 from tests.extra_tests.converter.test_source_mlp_state_preparation import (
     PreparedMLP,
@@ -340,14 +351,16 @@ def test_mixed_uniform_bounds_reject_inexact_payloads_and_metadata(
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("shape", [(32,), (31,), (33,), ("B",), (2, 3, 4, 5)])
+@pytest.mark.parametrize(
+    "shape", [(32,), (31,), (33,), ("B",), (2, 3, 4, 5), ("B", 2, 3, 4)]
+)
 def test_native_rank_one_uniform_is_limited_to_original_static_dropout_extent(
     dtype: Any,
     shape: tuple[Any, ...],
 ) -> None:
     with jax.enable_x64(True):
-        if shape == ("B",):
-            shape = (jax_export.symbolic_shape("B")[0],)
+        if shape[0] == "B":
+            shape = (jax_export.symbolic_shape("B")[0], *shape[1:])
 
         def original(x: Any, words: Any, low: Any, high: Any) -> Any:
             return jax.random.uniform(
@@ -374,6 +387,125 @@ def test_native_rank_one_uniform_is_limited_to_original_static_dropout_extent(
             with pytest.raises(SourcePrecisionError) as caught:
                 validate_source_jaxpr(graph, 23)
             assert caught.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize("symbolic", [False, True])
+@pytest.mark.parametrize("rank", [1, 2, 3, 4])
+def test_native_random_bits_keeps_its_own_symbolic_rank_limit(
+    symbolic: bool, rank: int
+) -> None:
+    leading = jax_export.symbolic_shape("B")[0] if symbolic else 2
+    shape = (leading, *(3 for _ in range(rank - 1)))
+
+    def original(x: Any, words: Any) -> Any:
+        key = jax.random.wrap_key_data(words, impl="threefry2x32")
+        return jax.random.bits(key, x.shape, dtype=np.uint32)
+
+    graph = jax.make_jaxpr(original)(
+        jax.ShapeDtypeStruct(shape, np.float32),
+        jax.ShapeDtypeStruct((2,), np.uint32),
+    )
+    bits = next(eqn for eqn in graph.eqns if eqn.primitive.name == "random_bits")
+    if symbolic and rank not in (2, 3):
+        with pytest.raises(NativePRNGExclusion, match="rank-two/rank-three"):
+            validate_selected_random_equation(bits)
+        with pytest.raises(SourcePrecisionError) as caught:
+            validate_source_jaxpr(graph, 23)
+        assert caught.value.primitive == "random_bits"
+        assert caught.value.category == "profile-exclusion"
+    else:
+        validate_selected_random_equation(bits)
+        for opset in (23, 26):
+            validate_source_jaxpr(graph, opset)
+
+
+@pytest.mark.parametrize("rank", [1, 2, 3, 4])
+def test_native_bernoulli_retains_symbolic_rank_two_and_three(rank: int) -> None:
+    batch = jax_export.symbolic_shape("B")[0]
+
+    def original(x: Any, words: Any, probability: Any) -> Any:
+        return jax.random.bernoulli(
+            jax.random.wrap_key_data(words, impl="threefry2x32"),
+            probability,
+            x.shape,
+        )
+
+    graph = jax.make_jaxpr(original)(
+        jax.ShapeDtypeStruct((batch, *(3 for _ in range(rank - 1))), np.float32),
+        jax.ShapeDtypeStruct((2,), np.uint32),
+        jax.ShapeDtypeStruct((), np.float32),
+    )
+    if rank in (2, 3):
+        for opset in (23, 26):
+            validate_source_jaxpr(graph, opset)
+    else:
+        with pytest.raises(SourcePrecisionError) as caught:
+            validate_source_jaxpr(graph, 23)
+        assert caught.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "seed",
+        "fold-in",
+        "bits",
+        "uniform",
+        "bernoulli",
+        "seed-plugin",
+        "jit-uniform",
+        "jit-bernoulli",
+    ],
+)
+def test_opset16_rejects_every_independent_native_prng_emitter_before_builder_access(
+    entry: str,
+) -> None:
+    if entry in {"uniform", "jit-uniform"}:
+        graph, equation = _native_uniform_graph(np.float32)
+        emitter = emit_native_uniform
+    elif entry in {"bernoulli", "jit-bernoulli"}:
+        graph, equation, _, _ = _native_bernoulli_graph()
+        validate_source_jaxpr(graph, 23)
+        emitter = emit_native_bernoulli
+    else:
+
+        def original(seed: Any, words: Any, data: Any) -> Any:
+            seeded = jax.random.key(seed, impl="threefry2x32")
+            folded = jax.random.fold_in(
+                jax.random.wrap_key_data(words, impl="threefry2x32"), data
+            )
+            return seeded, folded, jax.random.bits(folded, (2, 3), dtype=np.uint32)
+
+        graph = jax.make_jaxpr(original)(
+            jax.ShapeDtypeStruct((), np.int32),
+            jax.ShapeDtypeStruct((2,), np.uint32),
+            jax.ShapeDtypeStruct((), np.uint32),
+        )
+        primitive, emitter = {
+            "seed": ("random_seed", emit_seed),
+            "seed-plugin": ("random_seed", emit_seed),
+            "fold-in": ("random_fold_in", emit_fold_in),
+            "bits": ("random_bits", emit_bits),
+        }[entry]
+        equation = next(eqn for eqn in graph.eqns if eqn.primitive.name == primitive)
+        validate_selected_random_equation(equation)
+    for opset in (23, 26):
+        require_native_prng_opset(opset, equation)
+    # An incomplete context deliberately has no builder, values or binding hooks.
+    # The version diagnostic must precede every one of those emission operations.
+    context = SimpleNamespace(opset=16, precision_policy=PrecisionPolicy.SOURCE)
+    with pytest.raises(
+        SourcePrecisionError, match="selected native PRNG emission"
+    ) as caught:
+        if entry.startswith("jit-"):
+            JitPlugin.lower(None, context, equation)
+        elif entry == "seed-plugin":
+            RandomSeedPlugin.lower(None, context, equation)
+        else:
+            emitter(context, equation)
+    assert caught.value.opset == 16
+    assert caught.value.primitive == equation.primitive.name
+    assert caught.value.category == "profile-exclusion"
 
 
 @onnx_function(name="SourceCapturedFixedKeyInner")
