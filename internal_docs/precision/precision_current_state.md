@@ -11,7 +11,17 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The committed [native Sum checkpoint](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+`2d1ea944` forwards the captured original before legacy dtype, axis, mask,
+initial-value or integer-promotion handling. Its full-plugin-world tests preserve
+native JAX behavior on both stacks, and independent review accepts the completed
+MAIN integration. Both protected preparation examples reach the float32-to-uint32
+BitCast representation check at unchanged opset 23. Their exports remain rejected,
+and the two HIGHEST-dot profile exclusions remain. The existing profile, public
+defaults and precision flags are unchanged. The linked findings record completed
+validation separately from unresolved whole-model and target numerical support.
+
+The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
 preserves the original calls for NNX, Linen and Equinox under the private SOURCE
 policy. SOURCE now reaches native normalization and reduction before the legacy
 wrappers can cast inputs, select axes or replace the computation. A retained NNX
@@ -44,9 +54,10 @@ errors remain recorded.
 
 The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
 packages a finite, explicitly authorized pretrace cast change and actual NNX
-parameter configuration. Its 11 maintained tests pass on each stack. Each stack
-records twelve ordinary audited export attempts and four actual CPU runs of the
-two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+parameter configuration. At that checkpoint, its 11 maintained tests passed on
+each stack. Each stack recorded twelve ordinary audited export attempts and four
+actual CPU runs of the two exact witnesses, with eight sum/mean/HIGHEST profile
+barriers. This shows
 bounded preparation feasibility, not a generic transformer or all-model support.
 
 Code checkpoint `8f823ac3` commits the named binder, portable preparation proof

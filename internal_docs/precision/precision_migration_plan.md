@@ -8,7 +8,16 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The committed [native Sum checkpoint](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+`2d1ea944` continues preservation of original JAX calls without changing profile
+admission or public precision choices. Source, companion-test and MAIN integration
+reviews accept this finite step; its full-suite and actual code-hook gates pass.
+The protected examples retain the BitCast representation limit at opset 23, and
+the HIGHEST-dot exclusions remain. No target or model acceptance is added. The
+checkpoint uses the committed LayerNorm/mean prerequisites and contains no
+pending MLP code.
+
+The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
 adds independently accepted native forwarding for NNX, Linen and Equinox to the
 private SOURCE path. It removes a source-interception defect without extending
 the audited profile: actual default LayerNorm exports still encounter `square`. Complete
@@ -34,9 +43,10 @@ errors remain recorded.
 
 The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
 packages a finite, explicitly authorized pretrace cast change and actual NNX
-parameter configuration. Its 11 maintained tests pass on each stack. Each stack
-records twelve ordinary audited export attempts and four actual CPU runs of the
-two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+parameter configuration. At that checkpoint, its 11 maintained tests passed on
+each stack. Each stack recorded twelve ordinary audited export attempts and four
+actual CPU runs of the two exact witnesses, with eight sum/mean/HIGHEST profile
+barriers. This shows
 bounded preparation feasibility, not a generic transformer or all-model support.
 
 Code checkpoint `8f823ac3` commits the named binder, portable preparation proof
@@ -461,6 +471,7 @@ The immediate review follow-ups have reached this checkpoint:
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
 | Preserve typed representations | Logical/physical descriptors retain actual payloads; the Typed checkpoint adds audited bounded BOOL/integer operations and static complex construction/extraction. Input canonicalization still fails before tracing. | General integer/complex arithmetic, symbolic complex and broader loops remain open; diagnostic and sample results keep their separate status. |
 | Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the earlier direct-Where negative-zero failure remains recorded under its bitwise criterion; the finite copy-based selection repair does not close broader loop contracts. |
+| Preserve native Sum | Captured-original SOURCE forwarding and the narrow companion repair are committed at `2d1ea944` after independent integration acceptance, dual-stack checks, the full primary suite and actual hooks. | Protected examples still fail the BitCast requirement at opset 23; HIGHEST dots, broader target/model support and the complete migration remain open. |
 | Preserve native LayerNorm and mean | Private SOURCE calls the captured originals for NNX, Linen, Equinox and mean before legacy processing; independent review accepts the finite forwarding packet. | Default SOURCE LayerNorm exports still stop at `square`. Functions014/015, complete normalization/model coverage and runtime/numerical acceptance remain open; no public behavior or profile admission changes. |
 | Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | The finite FP16/FP32/FP64 copy-based repair is committed at `778dce3c` after integration, full-suite and hook acceptance; direct-Where history, broader JIT, complex selection and general symbolic shapes remain separate. |
 | Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |

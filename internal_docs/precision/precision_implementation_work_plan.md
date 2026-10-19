@@ -5,7 +5,16 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
-The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The committed [native Sum checkpoint](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+`2d1ea944` has independent source, companion-test and MAIN integration acceptance,
+with the full suite and actual code hooks completed. The original primary
+99-pass/one-failure/one-unexecuted composition remains recorded; the separately
+frozen corrected composition passes on both stacks. The PoC, native criteria,
+target schedule and opset 23 remain unchanged. The linked findings bind the
+four-path integration and its completed checks. This checkpoint contains no
+pending MLP source and does not close the broader migration gates.
+
+The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
 has independent native-forwarding acceptance and is committed to MAIN.
 It preserves original calls across NNX, Linen and Equinox without admitting new
 operations. Complete default SOURCE LayerNorm exports still encounter `square`; original
@@ -33,9 +42,10 @@ errors remain recorded.
 
 The separate [fixed-source preparation PoC](poc/fixed_source_preparation_findings.md)
 packages a finite, explicitly authorized pretrace cast change and actual NNX
-parameter configuration. Its 11 maintained tests pass on each stack. Each stack
-records twelve ordinary audited export attempts and four actual CPU runs of the
-two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+parameter configuration. At that checkpoint, its 11 maintained tests passed on
+each stack. Each stack recorded twelve ordinary audited export attempts and four
+actual CPU runs of the two exact witnesses, with eight sum/mean/HIGHEST profile
+barriers. This shows
 bounded preparation feasibility, not a generic transformer or all-model support.
 
 Code checkpoint `8f823ac3` commits the named binder, portable preparation proof
@@ -802,6 +812,14 @@ The exact floating-selection repair and strict Gather tooling are committed as
 retained failures are recorded in the
 [selection findings](poc/source_integration_findings.md#exact-floating-selection).
 
+The four-path Sum checkpoint is committed at `2d1ea944` after independent
+integration acceptance, completed tests and actual hooks. Keep the fixed PoC at
+opset 23, retain its protected BitCast and HIGHEST-dot diagnostics, and preserve
+all original native criteria and target schedules. Its current representation
+limit does not justify a profile bypass or an unmeasured opset-26 runtime claim.
+The separate MLP lane below remains outside MAIN. Phases B–F and their full
+existing-functionality acceptance requirements remain open.
+
 The separate MLP work continues through the unchanged NNX BatchNorm → Dropout →
 GELU chain and Linen Dense/counterparts. Preserve original dimensions, weights,
 positive rates,
@@ -821,8 +839,11 @@ model-specific criteria unverified without blocking correct shared binding.
 Independent code, sample, actual-main and release checks remain separate gates.
 
 The independently accepted LayerNorm/mean forwarding step exposes the native
-operations needed by Functions014/015. It does not close those models. After
-separate MLP acceptance and integration, use its exact reviewed prerequisites
+operations needed by Functions014/015. It does not close those models. Native
+variance forwarding and the remaining LayerNorm operations are future work;
+their source-preservation evidence must remain separate from profile admission
+and model execution. Coordinate any shared profile changes with the MLP lane.
+After separate MLP acceptance and integration, use its exact reviewed prerequisites
 and map the actual remaining normalization graph. Add the missing native
 operation support with its own evidence; do not bypass validation or classify
 unfinished `square`/`rsqrt` support as an ONNX impossibility. Preserve the complete

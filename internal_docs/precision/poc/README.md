@@ -10,6 +10,7 @@ is available. These experiments inform the
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Native Sum | Do original reduction options and computation types survive interception? | [Sum findings](source_integration_findings.md#native-sum-forwarding-and-measured-composition): committed native forwarding, accepted MAIN integration and retained BitCast barriers. |
 | Native LayerNorm and mean | Do original framework calls retain their native normalization and reduction? | [Forwarding findings](source_integration_findings.md#layernorm-and-mean-native-forwarding): accepted call preservation, retained full-world regressions, and separate default-export barriers. |
 | Named runtime parameters | Can declared keyword values keep their real types and variable bindings through the root, Function and If? | [Named-parameter findings](named_runtime_parameters_findings.md): audited binder, finite sample evidence and separate all-22 progress ledger. |
 | [Fixed-source preparation](fixed_source_preparation.py) | Can an explicit pretrace choice change one fixed cast while preserving protected work and actual weights? | [Preparation findings](fixed_source_preparation_findings.md): portable finite proof, distinct native references, two exact target witnesses and retained profile barriers. |
@@ -32,7 +33,15 @@ is available. These experiments inform the
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The latest [LayerNorm and mean findings](source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The committed [native Sum checkpoint](source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+`2d1ea944` has accepted call-preservation and MAIN integration evidence. The first
+composition's 99 passes, one stale assertion failure and one unexecuted test remain
+recorded. With the reviewed companion test, fresh runs pass all 101 cases on each
+stack. The protected examples still stop at BitCast representation under unchanged
+opset 23; the two HIGHEST-dot exclusions remain. Only the original two exact
+programs retain their existing target execution and numerical acceptance.
+
+The committed [LayerNorm and mean findings](source_integration_findings.md#layernorm-and-mean-native-forwarding)
 record accepted native forwarding for NNX, Linen and Equinox, plus the mean
 prerequisite exposed by full-plugin-world testing. Native trace and execution
 comparisons cover the forwarding contract; actual default SOURCE LayerNorm exports still
@@ -59,9 +68,10 @@ errors remain recorded.
 
 The separate [fixed-source preparation PoC](fixed_source_preparation_findings.md)
 packages a finite, explicitly authorized pretrace cast change and actual NNX
-parameter configuration. Its 11 maintained tests pass on each stack. Each stack
-records twelve ordinary audited export attempts and four actual CPU runs of the
-two exact witnesses; eight sum/mean/HIGHEST profile barriers remain. This shows
+parameter configuration. At that checkpoint, its 11 maintained tests passed on
+each stack. Each stack recorded twelve ordinary audited export attempts and four
+actual CPU runs of the two exact witnesses, with eight sum/mean/HIGHEST profile
+barriers. This shows
 bounded preparation feasibility, not a generic transformer or all-model support.
 
 Code checkpoint `8f823ac3` commits the named binder, portable preparation proof

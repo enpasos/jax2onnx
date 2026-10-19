@@ -14,7 +14,17 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The latest committed [Sum change](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+keeps the original JAX calculation and its reduction options. Comparisons and
+integration checks pass, while two protected examples still encounter a later
+bit-conversion requirement and two matrix examples retain their separate
+precision restriction. Those exports remain blocked; the change adds no target
+numerical or complete-model support. The earlier failed experiment remains in
+the evidence record. This is a step toward the same ordinary export call across
+all existing functionality, including fixed model sources prepared through
+external JAX configuration. Public export behavior has not changed.
+
+The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
 advances that plan by preserving the original tested NNX, Linen and Equinox
 LayerNorm calculations and their mean. Comparisons with ordinary and freshly
 compiled JAX execution pass on both supported stacks, retaining the earlier
@@ -35,8 +45,9 @@ normalization or Dense barriers, and GPT reached Dropout.
 The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
 separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
 a different FP64 computation with its own reference. It also reuses actual stored
-weights when changing a model's computation dtype. Eleven tests pass per stack,
-but this finite tool does not automatically prepare arbitrary models.
+weights when changing a model's computation dtype. The original eleven-test
+checks passed per stack; this finite tool does not automatically prepare arbitrary
+models.
 
 A reviewed cache repair now keeps each live model instance's tracing identity
 separate from later objects that reuse its address. Focused checks pass on both

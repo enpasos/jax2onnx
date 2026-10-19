@@ -502,3 +502,161 @@ acceptance. The original 696-pass/one-failure epoch remains retained. Code commi
 contains exactly the seven accepted paths and completed all seven actual hooks
 without skips or bypass. Its terminal receipt records a clean MAIN worktree and
 unchanged 872 Python, seven checkpoint and 29 Markdown hashes.
+
+
+## Native Sum forwarding and measured composition
+
+Independent source/evidence review accepts the native Sum implementation, now
+committed with its companion test and manual inventory at `2d1ea944`.
+Under private SOURCE policy, the outer wrapper calls its own captured original
+exactly once with the original positional and keyword arguments. This occurs
+before legacy dtype/axis/default handling, array coercion, `out`/`initial`/`where`
+checks or `promote_integers` coercion. Omitted arguments remain omitted; original
+return/error identity and signature behavior are preserved. The complete LEGACY
+body, all six raw registration cases and callbacks, lowerer/fusion/empty-axis
+logic, JVP, batching and custom transpose remain unchanged. This checkpoint does
+not change converter core, the SOURCE profile, public defaults or precision flags.
+
+The standalone owner suite passes **90 cases on each supported JAX stack**,
+retaining all 70 preparation identities and all eight pre-fix failures. These
+are suite cases, including API errors, a captured-callable boundary spy and a
+signature check; they are not 90 numerical trace/eager/JIT triples. The coverage
+map is source-derived. Seven separately recorded native/SOURCE witnesses per
+stack preserve saved typed traces, trace text, closed constants and exact eager
+and fresh-JIT payloads. Named-JIT checks reuse the decorated inner function with
+fresh outer wrappers, so they do not independently prove fresh inner retracing.
+The 22 LEGACY structural/schema/reload artifacts per stack cover six raw anchors,
+four fusion/opset cases and twelve empty-axis cases. Their original runtime test
+phases remain held. All ORT constructors/runs were denied in these owner checks.
+
+The retained external receipt failures in epochs 1 and 2 came from comparing
+current tuple-bearing typed avals with lists restored from JSON. Epoch 3 isolates
+ten container differences with identical serialized values. The authorized
+epoch-4 correction JSON-normalizes only the current typed manifest for that saved
+record comparison; current native
+versus SOURCE equality and numerical bytes remain exact. No source, native
+criterion or original failure record was changed. Independent review retains the
+owner style distinction: Black/Ruff/mypy success stdout exists, while configured-tool
+identity and whitespace success lack separate structured process receipts. The
+later actual MAIN quality receipts below close that process-evidence gap for the
+integrated checkpoint.
+
+The first separate composition used committed LayerNorm/mean code `ae1d61d1`, documents
+`21ad27b4` and only the two Sum postimages; it contains no pending MLP source.
+Its first **primary-only** run collected 101 tests: **99 passed, one failed and
+one was unexecuted**. All 90 Sum tests passed, and 80 actual calls to the unchanged
+comparison helper completed. There are 300 observed pytest setup/call/teardown
+reports; the native phase semantics remain in the hash-bound helper. The failure
+is the existing companion's blanket `profile-validation` assertion at line 192.
+The v1 driver correctly stopped because its narrowly defined obsolete-assertion
+classifier covered only lines 186/194. Its false acceptance flag is retained;
+no source, state or target-schedule guard failed. Secondary was not executed and
+no retry or assertion edit was used to relabel that result.
+
+The same four rejected keys now report these actual barriers:
+
+| Cases | Phase/category | Primitive and location |
+| --- | --- | --- |
+| `exact_original_protected`, `exact_prepared_protected` | `representation` / `representation-limit` | `bitcast_convert_type`, equation 9 in each |
+| `linear_original`, `linear_prepared` | `profile-validation` / `profile-exclusion` | HIGHEST `dot_general`, equations 0 and 1 respectively |
+
+Both protected examples request float32-to-uint32 bit reinterpretation. The
+unchanged PoC requests **opset 23**; the existing audited representation requires
+exactly opset 26 for this BitCast path. An isolated ONNX 1.23.2 schema query confirms
+that `BitCast` first appears at 26 and is absent at 23/25. The diagnostic recommends
+`opset=26` only if the target supports it and states that export never upgrades
+the opset automatically. This identifies the current representation requirement,
+not runtime support at opset 26 or an impossibility for every other implementation.
+The protected examples remain rejected; this checkpoint does not change their
+opset or source to obtain acceptance.
+
+The original twelve native cases and **twelve-export/four-session/four-run**
+schedule completed. Eight artifacts were admitted: the two exact programs, two
+intermediate-output programs and four minimum-precision examples. All use opset
+23. Only the same two exact programs executed, each with disabled/all optimization;
+their four target outputs satisfy the unchanged eager/JIT dtype, shape and byte
+criterion. The other ten rows retain empty runtime lists and no target numerical
+acceptance. All 82 NPY files match the previous accepted companion epoch byte for
+byte, including inputs, actual weights, native references and target outputs;
+the contract differs only in its epoch identifier. The original native criteria,
+including the linear pointwise bounds, and literal historical eight-barrier
+`HISTORY` remain unchanged. Sum introduces no new target numerical acceptance.
+
+All 873 Python files, 29 precision and 76 total Markdown files remained unchanged
+during that composition run. Five global/local/effective setting values, policy,
+61 callable identities including 47 public PRNG callables, and observer wrappers
+restore. This is callable preservation, not a separate PRNG-state audit.
+
+The independently accepted existing companion amendment has postimage
+`5ccb2e6d75bb0758c8a673bb87b0519f23f78d7b7a2267ecfe8451d9c8f735bb`.
+It keeps all four rejected keys and asserts each exact phase/category/primitive,
+the protected uint32/opset-26 requirement and conditional/no-auto-upgrade action,
+and the linear HIGHEST/default-precision requirement. Original target-output
+checks, all four mean artifact/native/report/port/schema/reload/trace checks, the
+intermediate/manifest suffix, other tests and original execution limits are exact.
+The old driver and failure remain immutable. A new source freeze, strict v2 driver
+and separate execution release bind the corrected fixture. Both supported stacks
+then pass **all 101 unique cases and 303 observed pytest phases**, with no skip or
+obsolete-failure allowance. Each observes 80 completed original comparison-helper
+calls, the original 12 native PoC cases and exactly 12 exports/four sessions/four
+runs. Both sets of 82 NPY payloads remain byte-identical to the failed v1 epoch;
+criteria, protected barriers, eight admitted artifacts and the two original
+numerically validated target programs retain the limits above. Five setting
+values, policy, 61 callable identities and observer wrappers restore on each stack;
+the 47 public PRNG checks remain identity checks only. The 873 Python, 29 precision
+and 76 total Markdown hashes remain unchanged during these composition runs.
+
+MAIN now contains the four-path Sum code checkpoint `2d1ea944`, whose parent is
+`21ad27b4`. The separate MLP source remains outside MAIN and was not a prerequisite
+for this Sum integration.
+Default SOURCE LayerNorm exports still encounter `square`. Phases B–F and their
+full existing-functionality gates remain open. The final goal is one ordinary
+source-preserving `to_onnx(...)` call across all existing functionality, including
+fixed JAX model sources configured or prepared externally. No public precision
+mode or permanent partial-profile choice is introduced.
+
+| Frozen evidence | SHA256 |
+| --- | --- |
+| `/tmp/jax2onnx-native-sum-forwarding-candidate-v1/SHA256SUMS.json` | `a61a97b9bd7ef3f9fe2ef598e9fa2962da95c831176bf717b52efc39beb93d9e` |
+| `/tmp/jax2onnx-native-sum-independent-astra-review-v1.md` | `8c394af1488b458ac25bdf316b686ab008abb4002e8214fe966e31ad0c99eb81` |
+| `/tmp/jax2onnx-native-sum-composition-primary-failure-candidate-v1/SHA256SUMS.json` | `d2a13a82178581c974faf7b3c68469df26ea876726f445ded23f90c3975b1d97` |
+| `/tmp/jax2onnx-native-sum-composition-primary-failure-candidate-v1/summary.json` | `7daa4fccacff901fb5a8acacbcef59761a0811f1fbfb34712648e5c30ce454f8` |
+| `/tmp/jax2onnx-native-sum-composition-astra-review-v1.md` | `2811284b28bea3a6d23d07ad64d9e3d01fd192cc5b6b5b8c2969b1b03f2d7937` |
+| `/tmp/jax2onnx-native-sum-composition-onnx-schema-astra-v1.json` | `774ae7d4aed1631e1249c7015f773e37ad6923488782735b6c0271e260257b1b` |
+| `/tmp/jax2onnx-native-sum-companion-candidate-v1/SHA256SUMS.json` | `86af7425afa2f0f0ac598c3910a6510bd6cf9931cbf7d0f318df5efcd1739a58` |
+| `/tmp/jax2onnx-native-sum-companion-astra-review-v1.md` | `aa84e9a069f3750fffd0610b3a644a07bc6ddcf018901b5e65c54a260f74e7bc` |
+| `/tmp/jax2onnx-native-sum-composition-measurement-v2/SHA256SUMS.json` | `b8b8a4f4a8f7efe160aa3c7d175600ce702cf14ab1710133ee3ea0fdd6c0ed72` |
+| `/tmp/jax2onnx-native-sum-main-integration-freeze-v1.json` | `4af1cc1045a60136aa04a2e47e025e03df047099fe664b78befeb66214360cad` |
+| `/tmp/jax2onnx-native-sum-main-focused-dual-v1.json` | `14f6c67c86a4ecfd0f2134b00ddf4105986cc6728647cca8a6a1dce92669ddea` |
+| `/tmp/jax2onnx-native-sum-main-checks-v1.json` | `ad077a5dd71811f398c5d4c08eb0174b3b01355ca289526128763bfeae7748fc` |
+| `/tmp/jax2onnx-native-sum-main-full-result-v1.json` | `a9b58ee47dd25bb0915c7656a61f0e157f4a1cb1c47f70f4de992a01b1c0c2a1` |
+| `/tmp/jax2onnx-native-sum-main-integration-astra-review-v1.md` | `9eada04c14b7005fd2e5a8cef618d1308ab7faa4798942e04ca02a03e4942a72` |
+| `/tmp/jax2onnx-native-sum-main-code-checkpoint-v1.json` | `5d5933ed0b85d814a9940dbfd2590a09f2e7c67d9320067387eb3a5fe3f4e6f8` |
+| `/tmp/jax2onnx-native-sum-main-code-commit-v1.log` | `28bd9e2de62d60bb406e310a35e9f190506157c02ca989747332213c6e6118c1` |
+| `/tmp/jax2onnx-native-sum-main-apply-enumeration-failure-v1.json` | `7faf06d3a833a11fc9cd545b0a04257af07b6ed2e327c63c852cf3c653f37b9e` |
+
+Validation status — completed code checkpoint: independent review accepts the
+four-path MAIN integration (`sum.py`, its new test, the existing PoC companion
+and handwritten inventory). The inventory has **222 manual files, 1,401 functions
+and 649 migration additions**, retaining all 1,385 predecessor functions and all
+752 original anchors. Exactly 16 new test functions are added; all 1,802 raw
+rows/3,604 cells and nonmanual fields remain unchanged. Both MAIN focused runs
+pass **787 cases and 2,361 observed setup/call/teardown phases**, with all 33
+watched callables, five hidden/effective settings and policy restored; 23 recorded
+imports resolve to MAIN. Seven actual quality commands exit zero: global Ruff,
+Black version/check, whitespace, configured typing plus RNG registration, and both
+inventory CLIs. Typing checks 542 source files. Configured Black revision 25.1.0
+reports version `0.1.dev1+g8a737e727`; the secondary inventory preserves the existing
+absent-on-this-stack `one_minus_square` baseline entry. The fresh complete primary
+suite passes **all 9,036 unique expected identities**: the previous 8,946 plus
+exactly 90 new Sum cases, with no failures, errors or skips (13,609 warnings;
+545.74 pytest seconds). ROOT's earlier apply-enumeration assertion, caused by
+ignored debugvenv files, remains recorded; corrected Git enumeration verified
+the identical already-applied sources without changing a criterion. Code commit
+`2d1ea944adb17f477b76f4951d74aa59cc028cdb` contains exactly the four accepted paths
+and passes all seven actual repository hooks without bypass. Its terminal receipt
+records a clean MAIN worktree and exact 873 Python, four checkpoint and 29 Markdown
+hashes. The documentation remains a separate external draft: review by a different
+Astra, ROOT application and documentation build/checks, and a documentation commit
+are still pending. These completed code gates do not establish new target/model
+numerical support or complete phases B–F.

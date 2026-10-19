@@ -13,7 +13,18 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+The latest committed [Sum change](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition)
+keeps JAX's original reduction behavior, including masks, starting values and
+integer promotion. Comparisons with JAX and the repository integration checks
+pass. Two protected examples still need a later ONNX bit-conversion operation:
+this representation requires opset 26, while the experiment requests opset 23.
+That does not establish that a target runtime supports opset 26. Two matrix
+examples retain their separate precision restriction. Those exports remain
+blocked. In this preparation experiment, only the same two exact examples have
+target numerical evidence; no additional model support is established. Public
+export options keep their behavior.
+
+The committed [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
 preserves the original tested NNX, Linen and Equinox LayerNorm calculations,
 including the mean they use. One retained example shows the practical benefit:
 FP32 inputs with FP16 parameters keep the original FP32 calculation instead of
@@ -35,8 +46,9 @@ normalization or Dense barriers, and GPT reached Dropout.
 The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
 separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
 a different FP64 computation with its own reference. It also reuses actual stored
-weights when changing a model's computation dtype. Eleven tests pass per stack,
-but this finite tool does not automatically prepare arbitrary models.
+weights when changing a model's computation dtype. The original eleven-test
+checks passed per stack; this finite tool does not automatically prepare arbitrary
+models.
 
 A reviewed cache repair now keeps each live model instance's tracing identity
 separate from later objects that reuse its address. Focused checks pass on both
