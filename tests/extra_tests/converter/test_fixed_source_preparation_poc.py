@@ -178,10 +178,26 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
         if row["export"] == "source-rejected"
     }
     expected_barriers = {
-        "exact_original_protected": "jax.numpy.sum",
-        "exact_prepared_protected": "jax.numpy.sum",
-        "linear_original": "dot_general",
-        "linear_prepared": "dot_general",
+        "exact_original_protected": (
+            "representation",
+            "representation-limit",
+            "bitcast_convert_type",
+        ),
+        "exact_prepared_protected": (
+            "representation",
+            "representation-limit",
+            "bitcast_convert_type",
+        ),
+        "linear_original": (
+            "profile-validation",
+            "profile-exclusion",
+            "dot_general",
+        ),
+        "linear_prepared": (
+            "profile-validation",
+            "profile-exclusion",
+            "dot_general",
+        ),
     }
     assert barriers.keys() == expected_barriers.keys()
     for name, row in barriers.items():
@@ -189,9 +205,23 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
         assert row["numerical_target_acceptance"] is None
         barrier = row["first_barrier"]
         assert barrier["type"] == "SourcePrecisionError"
-        assert barrier["fields"]["phase"] == "profile-validation"
-        assert barrier["fields"]["category"] == "profile-exclusion"
-        assert barrier["fields"]["primitive"] == expected_barriers[name]
+        fields = barrier["fields"]
+        assert tuple(fields[key] for key in ("phase", "category", "primitive")) == (
+            expected_barriers[name]
+        )
+        if name in ("exact_original_protected", "exact_prepared_protected"):
+            assert contract["opset"] == 23
+            assert fields["precision_params"] == {"new_dtype": "dtype('uint32')"}
+            assert fields["requirement"] == "opset 26 for float32-to-uint32 BitCast"
+            assert "select opset=26 if the target supports it" in barrier["message"]
+            assert "export never upgrades the opset automatically" in barrier["message"]
+        else:
+            assert fields["precision_params"]["precision"] == (
+                "(Precision.HIGHEST, Precision.HIGHEST)"
+            )
+            assert fields["requirement"] == (
+                "default precision without HIGH, HIGHEST, or an explicit algorithm"
+            )
     for input_dtype, input_type, output_dtype, output_type in (
         ("float16", onnx.TensorProto.FLOAT16, "float32", onnx.TensorProto.FLOAT),
         ("bfloat16", onnx.TensorProto.BFLOAT16, "float32", onnx.TensorProto.FLOAT),
