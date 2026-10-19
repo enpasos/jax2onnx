@@ -5,10 +5,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable, cast
 
+import numpy as np
+
+from jax import Array
 from jax import core as jax_core
 
 try:  # JAX 0.10+ exposes this through jax.errors.
@@ -130,6 +134,195 @@ def has_selected_prng_context(eqn: object) -> bool:
         type(context) is JaxprEqnContext
         and cast(JaxprEqnContext, context).threefry_partitionable is True
     )
+
+
+_KeyReuseMask = bool | tuple[tuple[int, ...], bytes]
+
+
+@dataclass(frozen=True)
+class FunctionKeyReuse:
+    """Immutable key effects of one actual SOURCE Function body.
+
+    Numeric masks are stored as bytes, with no Jaxpr, captured constant, owner,
+    tracer or writable NumPy array retained by primitive metadata.
+    """
+
+    sinks: tuple[tuple[int, _KeyReuseMask], ...]
+    sources: tuple[tuple[int, _KeyReuseMask], ...]
+    forwards: tuple[tuple[int, int], ...]
+    failed: bool = False
+    error: str | None = field(default=None, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        if self.failed:
+            if self.error is None or self.sinks or self.sources or self.forwards:
+                raise ValueError(
+                    "Failed Function key analysis cannot advertise usable effects"
+                )
+        elif self.error is not None:
+            raise ValueError(
+                "Function key diagnostic requires a failed analysis marker"
+            )
+
+    def reorder_inputs(self, order: tuple[int, ...]) -> FunctionKeyReuse:
+        if tuple(sorted(order)) != tuple(range(len(order))):
+            raise ValueError("Function key signature input order must be a permutation")
+        positions = {old: new for new, old in enumerate(order)}
+        return FunctionKeyReuse(
+            tuple(sorted((positions[index], mask) for index, mask in self.sinks)),
+            self.sources,
+            tuple(
+                sorted((positions[source], target) for source, target in self.forwards)
+            ),
+            failed=self.failed,
+            error=self.error,
+        )
+
+
+class FunctionKeyCaptureError(ValueError):
+    """An NNX state boundary left a logical key outside its explicit operands."""
+
+
+def _freeze_key_mask(mask: Any) -> _KeyReuseMask:
+    if isinstance(mask, (bool, np.bool_)):
+        return bool(mask)
+    array = np.asarray(mask)
+    if array.dtype != np.dtype(np.bool_):
+        raise TypeError("Function key reuse masks must be Boolean")
+    return tuple(array.shape), array.tobytes()
+
+
+def function_key_reuse_signature(closed: Any) -> FunctionKeyReuse:
+    """Analyze the temporary native body using JAX's experimental checker.
+
+    The experimental module has no public primitive-registration API in either
+    supported stack. Keep this deliberately private dependency here, rather than
+    importing its implementation in generic binding or framework plugins.
+    """
+    from jax.experimental.key_reuse import _core as key_reuse
+    from jax.errors import KeyReuseError
+
+    body = closed.jaxpr
+    if any(isinstance(var.aval.dtype, PRNGKeyDType) for var in body.constvars):
+        raise FunctionKeyCaptureError(
+            "NNX Function key-bearing captured constants require explicit state operands"
+        )
+    try:
+        native = key_reuse.jaxpr_type_signature(body)
+    except KeyReuseError as exc:
+        # Analysis must not turn a caller's debug-off program into an always-on
+        # profile rejection. Keep the actual failure, without its traceback or
+        # body; JAX's registered checker raises it when checking is requested.
+        return FunctionKeyReuse((), (), (), failed=True, error=str(exc))
+    return FunctionKeyReuse(
+        tuple(sorted((sink.idx, _freeze_key_mask(sink.mask)) for sink in native.sinks)),
+        tuple(
+            sorted(
+                (source.idx, _freeze_key_mask(source.mask)) for source in native.sources
+            )
+        ),
+        tuple(sorted((forward.in_idx, forward.out_idx) for forward in native.forwards)),
+    )
+
+
+_FUNCTION_KEY_RULE_PARAMETERS: dict[Primitive, str] = {}
+
+
+def detach_function_key_output_aliases(
+    inputs: tuple[Any, ...], outputs: list[Any], signature: FunctionKeyReuse
+) -> list[Any]:
+    """Keep eager Forward accounting from consuming the input wrapper itself.
+
+    The experimental checker marks output wrappers consumed before applying
+    Forward. An exact input/output object alias would therefore overwrite the
+    input's original consumption state. Public key.copy() preserves that state;
+    it does not declare a fresh key. Duplicate outputs retain one shared copy,
+    so a second consumption of the same returned key still fails. The native
+    copy method does not retain the original source-info traceback metadata.
+    """
+    copied: dict[int, Any] = {}
+    result = list(outputs)
+    for _, target in signature.forwards:
+        value = outputs[target]
+        if (
+            isinstance(value, Array)
+            and isinstance(value.dtype, PRNGKeyDType)
+            and any(value is argument for argument in inputs)
+        ):
+            identity = id(value)
+            if identity not in copied:
+                copied[identity] = value.copy()
+            result[target] = copied[identity]
+    return result
+
+
+def register_function_key_reuse_rule(primitive: Primitive, parameter: str) -> None:
+    """Read per-equation effects; metadata-absent calls keep native unknown rules."""
+    from jax.experimental.key_reuse import _core as key_reuse
+    from jax.errors import KeyReuseError
+
+    previous = _FUNCTION_KEY_RULE_PARAMETERS.get(primitive)
+    if previous == parameter:
+        return
+    if previous is not None:
+        raise ValueError(
+            "Function primitive already has a different key-signature parameter"
+        )
+
+    def signature(eqn: Any) -> Any:
+        metadata = eqn.params.get(parameter)
+        if metadata is None:
+            return key_reuse.unknown_signature(eqn)
+        if not isinstance(metadata, FunctionKeyReuse):
+            raise TypeError("Function primitive key signature has invalid metadata")
+        if metadata.failed:
+            assert metadata.error is not None
+            raise KeyReuseError(metadata.error)
+
+        def check_key(variables: Any, index: int) -> Any:
+            if not 0 <= index < len(variables):
+                raise ValueError("Function key signature port is outside the equation")
+            aval = variables[index].aval
+            if not isinstance(aval.dtype, PRNGKeyDType):
+                raise TypeError("Function key signature refers to a non-key port")
+            return aval
+
+        def decode(mask: _KeyReuseMask, aval: Any) -> Any:
+            if isinstance(mask, bool):
+                return mask
+            shape, payload = mask
+            array: np.ndarray[Any, np.dtype[np.bool_]] = np.frombuffer(
+                payload, dtype=np.bool_
+            ).reshape(shape)
+            if tuple(array.shape) != tuple(aval.shape):
+                raise ValueError(
+                    "Function key reuse mask disagrees with its logical key shape"
+                )
+            return array
+
+        sinks = []
+        sources = []
+        forwards = []
+        for index, mask in metadata.sinks:
+            aval = check_key(eqn.invars, index)
+            sinks.append(key_reuse.Sink(index, decode(mask, aval)))
+        for index, mask in metadata.sources:
+            aval = check_key(eqn.outvars, index)
+            sources.append(key_reuse.Source(index, decode(mask, aval)))
+        for source, target in metadata.forwards:
+            before = check_key(eqn.invars, source)
+            after = check_key(eqn.outvars, target)
+            if before.dtype != after.dtype or before.shape != after.shape:
+                raise ValueError(
+                    "Function key forward ports have different logical types"
+                )
+            forwards.append(key_reuse.Forward(source, target))
+        return key_reuse.KeyReuseSignature(*sinks, *sources, *forwards)
+
+    key_reuse.key_reuse_signatures[primitive] = key_reuse.DynamicKeyReuseSignature(
+        signature
+    )
+    _FUNCTION_KEY_RULE_PARAMETERS[primitive] = parameter
 
 
 def _resolve_literal_type() -> type[Any]:

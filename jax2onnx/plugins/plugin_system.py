@@ -37,6 +37,11 @@ import jax.tree_util as jtu
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx.plugins._source_function_state import (
+    FunctionOperandLayout,
+    FunctionStateAdapter,
+    FunctionStateCall,
+)
 from jax2onnx.plugins._patching import (
     AssignSpec,
     MonkeyPatchSpec,
@@ -52,6 +57,8 @@ from jax2onnx.plugins.jax._autodiff_utils import backfill_missing_transpose_rule
 from jax2onnx._compat.jax import (
     NOT_MAPPED,
     ClosedJaxpr,
+    FunctionKeyCaptureError,
+    FunctionKeyReuse,
     JaxprEqn,
     Literal,
     Primitive,
@@ -60,8 +67,11 @@ from jax2onnx._compat.jax import (
     Tracer,
     Var,
     batching,
+    detach_function_key_output_aliases,
     ensure_batching_not_mapped_attr,
+    function_key_reuse_signature,
     is_selected_prng_key_dtype,
+    register_function_key_reuse_rule,
 )
 from jax2onnx.converter.function_scope import FunctionScope, FunctionKey
 from jax2onnx.converter.precision_policy import (
@@ -86,6 +96,9 @@ from jax2onnx.converter.typing_support import (
 
 logger: logging.Logger = logging.getLogger("jax2onnx.plugins.plugin_system")
 _SOURCE_TRACE: str = "__jax2onnx_source_trace"
+_SOURCE_STATE: str = "__jax2onnx_source_state"
+_SOURCE_KEY_REUSE: str = "__jax2onnx_source_key_reuse"
+_FUNCTION_LAYOUT: str = "__jax2onnx_function_layout"
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,9 @@ class _SourceFunctionTrace:
     default_matmul_precision: str | None
     numpy_dtype_promotion: str
     numpy_rank_promotion: str
+    debug_key_reuse: bool = field(
+        default_factory=lambda: bool(jax.config.jax_debug_key_reuse)
+    )
 
     @contextmanager
     def activate(self) -> Iterator[None]:
@@ -105,6 +121,7 @@ class _SourceFunctionTrace:
             jax.default_matmul_precision(self.default_matmul_precision),
             jax.numpy_dtype_promotion(self.numpy_dtype_promotion),
             jax.numpy_rank_promotion(self.numpy_rank_promotion),
+            jax.debug_key_reuse(self.debug_key_reuse),
         ):
             yield
 
@@ -368,16 +385,33 @@ def _pack_function_arguments(
 
 
 def _unpack_function_arguments(
-    operands: Sequence[_Operand], params: Mapping[str, object]
+    operands: Sequence[_Operand],
+    params: Mapping[str, object],
+    *,
+    layout: FunctionOperandLayout | None = None,
 ) -> tuple[tuple[_Operand, ...], dict[str, object]]:
     """Restore positional arguments and kwargs from the shared primitive format."""
     keyword_count = sum(
         isinstance(value, _DynamicParamRef) for value in params.values()
     )
-    positional_count = len(operands) - keyword_count
+    if layout is None:
+        positional_count = len(operands) - keyword_count
+    else:
+        layout.check(operands)
+        positional_count = layout.positional_count
+        if keyword_count != layout.argument_count - positional_count:
+            raise ValueError(
+                "SOURCE Function keyword operand count does not match its layout"
+            )
     kwargs: dict[str, object] = {}
     for name, value in params.items():
         if isinstance(value, _DynamicParamRef):
+            if layout is not None and not (
+                positional_count <= value.index < layout.argument_count
+            ):
+                raise ValueError(
+                    "SOURCE Function keyword refers outside its argument ports"
+                )
             kwargs[name] = operands[value.index]
         elif isinstance(value, _StaticParam):
             kwargs[name] = value.value
@@ -752,14 +786,40 @@ class FunctionPlugin(PrimitivePlugin):
     def _source_primitive_impl(self, *args: Any, **kwargs: Any) -> list[Any]:
         trace: _SourceFunctionTrace = kwargs.pop(_SOURCE_TRACE)
         with trace.activate():
-            return list(jtu.tree_leaves(self._primitive_impl(*args, **kwargs)))
+            outputs = list(jtu.tree_leaves(self._source_call(args, kwargs)))
+        key_reuse = kwargs.get(_SOURCE_KEY_REUSE)
+        if isinstance(key_reuse, FunctionKeyReuse):
+            outputs = detach_function_key_output_aliases(args, outputs, key_reuse)
+        return outputs
+
+    def _source_call(self, args: Sequence[Any], parameters: Mapping[str, Any]) -> Any:
+        parameters = dict(parameters)
+        parameters.pop(_SOURCE_KEY_REUSE, None)
+        adapter: FunctionStateAdapter | None = parameters.pop(_SOURCE_STATE, None)
+        layout: FunctionOperandLayout | None = parameters.pop(_FUNCTION_LAYOUT, None)
+        if adapter is None:
+            return self._primitive_impl(*args, **parameters)
+        if layout is None or layout.state_count != adapter.state_count:
+            raise ValueError("SOURCE Function state is missing its operand layout")
+        positional, keywords = _unpack_function_arguments(
+            args, parameters, layout=layout
+        )
+        result, state, _ = adapter.invoke(
+            positional, keywords, tuple(args[layout.argument_count :])
+        )
+        return result, state
 
     def _source_batching_rule(
         self, args: tuple[Any, ...], dims: tuple[Any, ...], **params: Any
     ) -> tuple[list[Any], list[Any]]:
         trace: _SourceFunctionTrace = params.pop(_SOURCE_TRACE)
         with trace.activate():
-            values, output_dims = self._batching_rule(args, dims, **params)
+            if _SOURCE_STATE in params:
+                values, output_dims = self._batch_call(
+                    lambda *single: self._source_call(single, params), args, dims
+                )
+            else:
+                values, output_dims = self._batching_rule(args, dims, **params)
         return jtu.tree_leaves(values), jtu.tree_leaves(output_dims)
 
     def _bind_function_call(
@@ -770,27 +830,79 @@ class FunctionPlugin(PrimitivePlugin):
         kwargs: dict[str, Any],
         *,
         instance_key: int | None = None,
+        owner: object | None = None,
+        unbound_method: Callable[..., Any] | None = None,
     ) -> Any:
         operands, parameters = _pack_function_arguments(args, kwargs)
         if instance_key is not None:
             parameters["instance_key"] = instance_key
         if active_precision_policy() is PrecisionPolicy.LEGACY:
             return primitive.bind(*operands, **parameters)
-        if _SOURCE_TRACE in kwargs:
-            raise ValueError(f"{_SOURCE_TRACE} is reserved for internal tracing")
+        for reserved in (
+            _SOURCE_TRACE,
+            _SOURCE_STATE,
+            _FUNCTION_LAYOUT,
+            _SOURCE_KEY_REUSE,
+        ):
+            if reserved in kwargs:
+                raise ValueError(f"{reserved} is reserved for internal tracing")
+
+        adapter: FunctionStateAdapter | None = None
+        layout: FunctionOperandLayout | None = None
+        if (
+            owner is not None
+            and unbound_method is not None
+            and instance_key is not None
+        ):
+            from jax2onnx.plugins.flax.nnx._source_function_state import (
+                prepare_nnx_function_state,
+            )
+
+            prepared = prepare_nnx_function_state(owner, unbound_method, instance_key)
+            if prepared is not None:
+                adapter, state = prepared
+                parameters.pop("instance_key", None)
+                layout = FunctionOperandLayout(len(args), len(operands), len(state))
+                operands = (*operands, *state)
+        observed_effects: list[tuple[int, ...]] = []
 
         def source_call(*operand_args: Any) -> Any:
             positional, call_kwargs = _unpack_function_arguments(
-                operand_args, parameters
+                operand_args, parameters, layout=layout
             )
             call_kwargs.pop("instance_key", None)
-            return callee(*positional, **call_kwargs)
+            if adapter is None:
+                return callee(*positional, **call_kwargs)
+            assert layout is not None
+            result, state, effects = adapter.invoke(
+                positional, call_kwargs, tuple(operand_args[layout.argument_count :])
+            )
+            observed_effects.append(effects)
+            return result, state
 
         call_x64 = bool(jax.config.x64_enabled)
         call_matmul_precision = jax.config.jax_default_matmul_precision
         call_dtype_promotion = str(jax.config.jax_numpy_dtype_promotion)
         call_rank_promotion = str(jax.config.jax_numpy_rank_promotion)
-        outputs = jax.eval_shape(source_call, *operands)
+        call_debug_key_reuse = bool(jax.config.jax_debug_key_reuse)
+        if adapter is None:
+            outputs = jax.eval_shape(source_call, *operands)
+        else:
+            closed_body, outputs = jax.make_jaxpr(source_call, return_shape=True)(
+                *operands
+            )
+            parameters[_SOURCE_KEY_REUSE] = self._source_key_reuse(closed_body)
+            del closed_body
+            register_function_key_reuse_rule(self._source_primitive, _SOURCE_KEY_REUSE)
+        if adapter is not None:
+            if len(observed_effects) != 1:
+                raise ValueError(
+                    "SOURCE Function abstract trace did not record its state effects once"
+                )
+            adapter = adapter.with_effects(observed_effects[0])
+            adapter.validate_owner(owner)
+            parameters[_SOURCE_STATE] = adapter
+            parameters[_FUNCTION_LAYOUT] = layout
         leaves, result_tree = jtu.tree_flatten(outputs)
         parameters[_SOURCE_TRACE] = _SourceFunctionTrace(
             tuple(
@@ -801,9 +913,29 @@ class FunctionPlugin(PrimitivePlugin):
             default_matmul_precision=call_matmul_precision,
             numpy_dtype_promotion=call_dtype_promotion,
             numpy_rank_promotion=call_rank_promotion,
+            debug_key_reuse=call_debug_key_reuse,
         )
         results = self._source_primitive.bind(*operands, **parameters)
-        return jtu.tree_unflatten(result_tree, results)
+        restored = jtu.tree_unflatten(result_tree, results)
+        if adapter is not None:
+            result, state = restored
+            adapter.update_owner(owner, tuple(state))
+            return result
+        return restored
+
+    def _source_key_reuse(self, closed: ClosedJaxpr) -> FunctionKeyReuse:
+        try:
+            return function_key_reuse_signature(closed)
+        except FunctionKeyCaptureError as exc:
+            raise SourcePrecisionError(
+                str(exc),
+                phase="profile-validation",
+                category="profile-exclusion",
+                location=self.name,
+                primitive=self.name,
+                requirement="NNX Function keys must be carried explicitly through user or owner-state operands",
+                action="prepare the captured key as explicit NNX state or a call operand",
+            ) from exc
 
     def _primitive_impl(self, *args: Any, **kwargs: Any) -> Any:
         instance_key = kwargs.pop("instance_key", None)
@@ -830,6 +962,12 @@ class FunctionPlugin(PrimitivePlugin):
             )
             return original_fn(*positional_args, **call_kwargs)
 
+        return self._batch_call(_call_single, args, dims)
+
+    @staticmethod
+    def _batch_call(
+        call: Callable[..., Any], args: Sequence[Any], dims: Sequence[Any]
+    ) -> tuple[Any, Any]:
         axis_size: Any | None = None
         for arg, bdim in zip(args, dims):
             if bdim is NOT_MAPPED:
@@ -841,7 +979,7 @@ class FunctionPlugin(PrimitivePlugin):
             break
 
         if axis_size is None:
-            result = _call_single(*args)
+            result = call(*args)
             out_dims = jtu.tree_map(lambda _: NOT_MAPPED, result)
             return result, out_dims
 
@@ -850,7 +988,7 @@ class FunctionPlugin(PrimitivePlugin):
             for arg, bdim in zip(args, dims)
         ]
 
-        batched_result = jax.vmap(_call_single)(*prepared_args)
+        batched_result = jax.vmap(call)(*prepared_args)
         out_dims = jtu.tree_map(lambda _: 0, batched_result)
         return batched_result, out_dims
 
@@ -885,13 +1023,26 @@ class FunctionPlugin(PrimitivePlugin):
                         for key, value in kwargs.items()
                         if key != "instance_key"
                     }
-                    return self._bind_function_call(
-                        primitive,
-                        bound_orig,
-                        args[1:],
-                        call_kwargs,
-                        instance_key=instance_key,
-                    )
+                    restore_owner = False
+                    if active_precision_policy() is PrecisionPolicy.SOURCE:
+                        from jax2onnx.plugins.flax.nnx._source_function_state import (
+                            is_nnx_function_owner,
+                        )
+
+                        restore_owner = is_nnx_function_owner(instance)
+                    try:
+                        return self._bind_function_call(
+                            primitive,
+                            bound_orig,
+                            args[1:],
+                            call_kwargs,
+                            instance_key=instance_key,
+                            owner=instance,
+                            unbound_method=original_call,
+                        )
+                    finally:
+                        if restore_owner:
+                            self._orig_fn = prev_orig_fn
                 else:
                     self._orig_fn = original_call
                     if self.name in _IN_FUNCTION_BUILD.get():
@@ -1041,9 +1192,41 @@ class FunctionPlugin(PrimitivePlugin):
             if not isinstance(trace_parameter, _SourceFunctionTrace):
                 raise TypeError("Source function call is missing its tracing context")
             source_trace = trace_parameter
-        invars, params = _unpack_function_arguments(eqn.invars, params)
+        key_reuse: FunctionKeyReuse | None = cast(
+            FunctionKeyReuse | None, params.pop(_SOURCE_KEY_REUSE, None)
+        )
+        adapter: FunctionStateAdapter | None = cast(
+            FunctionStateAdapter | None, params.pop(_SOURCE_STATE, None)
+        )
+        layout: FunctionOperandLayout | None = cast(
+            FunctionOperandLayout | None, params.pop(_FUNCTION_LAYOUT, None)
+        )
+        invars, params = _unpack_function_arguments(eqn.invars, params, layout=layout)
+        if adapter is not None:
+            if (
+                source_trace is None
+                or layout is None
+                or layout.state_count != adapter.state_count
+            ):
+                raise ValueError("SOURCE Function state has no valid call-site context")
+            if not isinstance(key_reuse, FunctionKeyReuse):
+                raise TypeError(
+                    "SOURCE NNX Function state is missing its native key signature"
+                )
+            body_order = (
+                *range(layout.positional_count),
+                *range(
+                    layout.argument_count, layout.argument_count + layout.state_count
+                ),
+                *range(layout.positional_count, layout.argument_count),
+            )
+            callee: Callable[..., object] = FunctionStateCall(
+                adapter, layout.positional_count, key_reuse.reorder_inputs(body_order)
+            )
+            invars = (*invars, *eqn.invars[layout.argument_count :])
+        else:
+            callee = self._resolve_lowering_callee(params)
         eqn = eqn.replace(invars=list(invars), params=params)
-        callee = self._resolve_lowering_callee(params)
         captures = self._capture_arguments(ctx, callee, params)
         registry = ctx.get_function_registry()
         if registry is None:
@@ -1204,17 +1387,21 @@ class FunctionPlugin(PrimitivePlugin):
             (tuple(aval.shape), str(aval.dtype)) for aval in self._input_avals(eqn)
         )
         capture_signature = (
-            self._build_unique_signature(
-                callee,
-                captures.signature,
-                value_key=(
-                    source_static_value_key
-                    if source_trace is not None
-                    else static_value_key
-                ),
+            ("state", callee.signature, captures.signature)
+            if isinstance(callee, FunctionStateCall)
+            else (
+                self._build_unique_signature(
+                    callee,
+                    captures.signature,
+                    value_key=(
+                        source_static_value_key
+                        if source_trace is not None
+                        else static_value_key
+                    ),
+                )
+                if self.unique
+                else (id(callee), captures.signature)
             )
-            if self.unique
-            else (id(callee), captures.signature)
         )
         tracing_signature: tuple[object, ...] = ()
         if source_trace is not None:
@@ -1224,6 +1411,7 @@ class FunctionPlugin(PrimitivePlugin):
                 source_trace.default_matmul_precision,
                 source_trace.numpy_dtype_promotion,
                 source_trace.numpy_rank_promotion,
+                source_trace.debug_key_reuse,
                 tuple(aval.weak_type for aval in self._input_avals(eqn)),
                 tuple(capture.spec.weak_type for capture in captures.dynamic),
             )
@@ -1278,10 +1466,28 @@ class FunctionPlugin(PrimitivePlugin):
                     # specs. The callee itself runs under its captured settings;
                     # JAX permits an existing FP64 value in a local x64-off scope.
                     stack.enter_context(jax.enable_x64(True))
+                    # JAX also checks key reuse after wrapped returns, so retain
+                    # the call-site flag until make_jaxpr has completed.
+                    stack.enter_context(
+                        jax.debug_key_reuse(source_trace.debug_key_reuse)
+                    )
                 stack.enter_context(_activate_full_plugin_worlds_for_body())
-                return jax.make_jaxpr(wrapped)(
+                closed = jax.make_jaxpr(wrapped)(
                     *base_specs, *(capture.spec for capture in captures.dynamic)
                 )
+                if isinstance(callee, FunctionStateCall):
+                    actual_key_reuse = self._source_key_reuse(closed)
+                    if actual_key_reuse != callee.key_reuse:
+                        raise SourcePrecisionError(
+                            "NNX Function key consumption changed while retracing",
+                            phase="profile-validation",
+                            category="lowering-defect",
+                            location=self.name,
+                            primitive=self.name,
+                            requirement="actual body key effects must equal the native call-site effects",
+                            action="preserve original key consumption and explicit state ports",
+                        )
+                return closed
         finally:
             _IN_FUNCTION_BUILD.reset(token)
 
