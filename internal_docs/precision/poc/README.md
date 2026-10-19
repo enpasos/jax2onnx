@@ -16,6 +16,7 @@ is available. These experiments inform the
 | [Fixed-source preparation](fixed_source_preparation.py) | Can an explicit pretrace choice change one fixed cast while preserving protected work and actual weights? | [Preparation findings](fixed_source_preparation_findings.md): portable finite proof, distinct native references, two exact target witnesses and retained profile barriers. |
 | [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
 | Original MLP state and bounded normalization | Do original model controls, explicit state and native normalization survive the private pipeline? | [Current acceptance](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance): finite CPU model/state evidence, permanent regression and the actual exported-body proof limit. |
+| Shared-batch normalization | Do the original default LayerNorm rows retain their shapes, parameters, opsets and numerical contract? | [Current findings](source_integration_findings.md#shared-batch-normalization-checkpoint): accepted finite checks and code checkpoint `bb7a7d76`; retained failed epochs and remaining family/model work. |
 | [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
 | Source corpus | What does the first frozen 36-cell batch actually establish? | [Corpus findings](source_corpus_findings.md): 26 artifacts per stack, explicit failures/pending cells, and unverified lowering/runtime/numerics. |
@@ -34,15 +35,22 @@ is available. These experiments inform the
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The [MLP and normalization findings](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
+Latest accepted code checkpoint `bb7a7d76` adds shared-batch normalization,
+static parameter reshapes and bounded integration repairs. The complete primary
+suite, repaired focused checks on both stacks and all seven actual commit hooks
+pass, with independent acceptance. The
+[current findings](source_integration_findings.md#shared-batch-normalization-checkpoint)
+retain the finite scope, failed epochs and separate failed isolated model
+exploration. Remaining LayerNorm options and complete Function models stay open.
+
+The preceding [MLP and normalization findings](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
 retain the accepted finite model/state matrix and actual exported-body proof
-limit. The later [dual-stack runtime result](source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-accepts the explicit Dropout state preparation and naming/restoration repairs.
-The primary full and secondary affected-area integration checks pass, and code
-checkpoint `7d74a200` passes all seven actual hooks. Earlier failed epochs remain
-recorded separately. The next shared-batch normalization work and full B–F
-migration remain open. Public behavior stays LEGACY. A passing experiment test
-can confirm a known failure; it does not turn that failure into acceptance.
+limit. The [dual-stack runtime result](source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+accepts explicit Dropout state preparation and naming/restoration repairs in
+checkpoint `7d74a200`, with its original integration and hook evidence.
+The full B–F migration remains open. Public behavior stays LEGACY. A passing
+experiment test can confirm a known failure; it does not turn that failure
+into acceptance.
 
 ## Run it
 

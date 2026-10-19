@@ -22,6 +22,16 @@ support for every model or deployment target. The
 [technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retain the evidence and earlier failures.
 
+The latest private checkpoint, `bb7a7d76`, also preserves the tested original
+LayerNorm cases with variable batch sizes and their parameter reshapes. The
+complete primary suite, repaired focused checks on both stacks and actual
+commit hooks pass, with independent acceptance. The
+[technical record](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
+keeps these finite results and earlier failures distinct. Remaining LayerNorm
+options and complete Function models still need implementation and acceptance;
+the first isolated model attempt exposed an NNX state-handling gap. Public
+behavior stays LEGACY until the full migration gates pass.
+
 ## Choosing the Export Setting
 
 `to_onnx` currently exposes `enable_double_precision=False` by default. During

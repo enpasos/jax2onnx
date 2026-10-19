@@ -8,14 +8,23 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-The private code checkpoint `7d74a200` has independent finite MLP, static
-normalization and explicit Dropout state-preparation acceptance. The primary full
-suite, secondary affected-area suite, dual-stack finite runtime suite and seven
-actual commit hooks pass. The
-[current findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-retain the exact evidence, reference limits and earlier failed epochs.
-Public behavior stays LEGACY; complete coverage and the public transition remain
-open. The [experiment index](poc/README.md) retains preceding evidence.
+The latest accepted private code checkpoint, `bb7a7d76`, adds shared-batch
+normalization, static parameter reshapes and bounded integration repairs.
+The complete primary suite, repaired focused checks on both stacks and all
+seven actual commit hooks pass, with independent acceptance. The
+[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
+retain the exact scope and earlier failed epochs without changing the original
+models, numerical criteria or coverage obligations.
+
+The preceding `7d74a200` checkpoint retains its accepted finite MLP, static
+normalization and explicit Dropout state-preparation results; its
+[acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+keeps the original evidence and limits. Remaining work includes 18 nondefault
+LayerNorm rows / 36 cells and complete Functions014/015. Their isolated first
+attempt failed at Function/NNX state handling before the predicted matrix gap;
+a generic named-state adapter is now being implemented externally.
+Public behavior stays LEGACY until the full B–F gates pass. The
+[experiment index](poc/README.md) retains preceding evidence.
 
 For the transition from an export user's perspective, read the
 [user view](precision_migration_plan_user_view.md). All companion documents are
@@ -142,33 +151,28 @@ Preserve their parameters, dimensions, decorators, LayerNorm → Linear → exac
 GELU → Dropout → Linear → Dropout composition and both live Dropout sites. Keep
 Function014's fixed B=5 and exercise each declared symbolic-B artifact at B=2/5.
 
-The next implementation package extends the shared leading-B shape contract
-from ranks two/three to ranks one through four and deliberately adds four
-symbolic handlers: floating `reduce_sum` over static tail axes with B retained,
-`square`, `max`, and singleton-only `reshape` preserving B and static-axis order.
-Audit all 27 existing symbolic handlers for newly reachable ranks; retain the
-operation-specific matrix and PRNG restrictions. Preserve native scope identity,
-dtype, weak type, positive static tails and the existing rejected boundaries.
-The shared rank change also needs a coordinate-sensitive symbolic NCHW check;
-it must not silently widen unrelated operations or complex/layout contracts.
+The current package extends one shared leading B to ranks one through four in
+export and sample validation, including the exact declared NHWC/NCHW boundary.
+It adds bounded normalization handlers and per-operation/type opset-16 checks.
+The [implementation work plan](precision_implementation_work_plan.md#full-migration-phases-and-review-gates)
+retains the detailed shape, nested-scope, matrix and PRNG boundaries.
 
-Use the existing corpus preparation and sample-validation machinery for the
-**12 original default LayerNorm rows / 24 raw x64 cells** across NNX, Linen and
-Equinox. Retain the complete 30-row/60-cell ledger and its 18 nondefault-option
-gaps. Preserve original factories, shapes, parameters and opsets, including the
-six original opset-16 cells. The current private SOURCE entry/recursive profile
-supports only opsets 23/26: opset 16 requires deliberate per-operation/type
-eligibility and a reviewed Max representation, including nested bodies and
-PRNG/JIT early-return guards. It cannot be enabled by changing one opset tuple.
-
-Freeze the new sample criteria before execution on both supported stacks. Reuse
-one artifact/session at B=2/5 for each symbolic case and optimization setting;
-check actual Function bodies, both conditional consumers, retained constants,
-rounding boundaries and deliberate corruptions. Current static acceptance is
-not acceptance of these new shapes. Then follow the three original
-Functions014/015 contracts through complete native, artifact, state and numerical
-checks, preserving both live Dropout sites and the existing static/symbolic batch
-schedule. Record any remaining barrier without replacing the original model.
+Keep all **12 original default LayerNorm rows / 24 raw x64 cells**, including
+NNX row 13's captured affine reshape and the six original opset-16 cells. The
+18 nondefault-option rows / 36 cells remain explicit implementation work.
+The ordinary static reshape amendment and bounded oracle/Cast-removal repairs
+have finite acceptance; successful cells do not close the complete family.
+Retain the frozen sample criteria, original factories, constants, dimensions
+and opsets. Then follow all three original Functions014/015 contracts through
+native, artifact, state and numerical checks, preserving both live Dropout
+sites and the original static/symbolic batch schedule. Their external test
+candidate was executed only in an isolated worktree. Its first case fails on
+both stacks during Function/NNX state abstract evaluation, before export or the
+predicted matrix gap. A generic named-state adapter is being implemented
+externally for that boundary. No model tests were
+transferred to MAIN, and model acceptance remains open. The rank-three by
+rank-two matrix gap remains predicted implementation work, not an observed
+failure or technical ONNX limit in those runs.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime
@@ -178,13 +182,14 @@ the remaining models. Protected PoC BitCast/opset-23 and HIGHEST-dot diagnostics
 remain as recorded in the
 [Sum findings](poc/source_integration_findings.md#native-sum-forwarding-and-measured-composition).
 
-The code checkpoint and the joined 101-case runtime suite now have independent
+The preceding code checkpoint and joined 101-case runtime suite have independent
 acceptance on both stacks, retaining the original-step references and explicit
 native limits. The primary full and secondary affected-area integration checks
 and seven actual commit hooks also pass. The
 [current integration status](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-preserves every failed diagnostic/runtime epoch. The next package above remains
-planned work and does not inherit runtime acceptance from this checkpoint.
+preserves every failed diagnostic/runtime epoch. The shared-batch package has
+its own finite acceptance at `bb7a7d76`; complete original-model follow-through
+remains open.
 The final public transition still requires all existing functionality across
 phases B–F, including general fixed-source preparation beyond these finite owners.
 

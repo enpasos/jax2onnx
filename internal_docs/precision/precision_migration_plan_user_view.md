@@ -14,14 +14,21 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The private implementation now preserves the tested original NNX/Linen MLP
-controls and random state, selected static normalization, and explicit Dropout
-state preparation on both supported stacks. Its code checkpoint and integration
-checks are complete. The next work extends normalization to the original dynamic
-batch cases, then validates the remaining complete Function models. The
+The private implementation preserves the tested original NNX/Linen MLP controls
+and random state, selected static normalization, and explicit Dropout state
+preparation on both supported stacks. The preceding checkpoint's
 [technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-retain the limits and earlier failures. These milestones leave the full
-normal-call contract and support for fixed third-party sources as required work.
+retain those finite results and earlier failures.
+
+The latest checkpoint, `bb7a7d76`, extends this to the tested original LayerNorm
+cases with variable batch sizes and their parameter reshapes. The complete
+primary suite, repaired focused checks on both stacks and actual commit hooks
+pass, with independent acceptance. The
+[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
+record that scope and every failed epoch. Remaining LayerNorm options and
+complete Function models still need work; their first isolated attempt exposed
+an NNX state-handling gap. The full normal-call contract and support for fixed
+third-party sources remain required before the public transition.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -169,10 +176,15 @@ identifies which controls are dynamic, flag-insensitive or static. It does not
 establish numerical or stochastic SOURCE acceptance. The reviewed private binder now
 uses real typed named inputs across the whole trace. The earlier parameter-only
 ledger recorded progress past the guard without model numerical acceptance.
-The original NNX/Linen MLPs now have finite model/state acceptance. Next, the
-implementation must preserve the original default LayerNorm cases with dynamic
-batch sizes and their declared ONNX versions, then validate the complete
-Functions014/015 models. Each declared runtime flag must remain live through one
+The original NNX/Linen MLPs now have finite model/state acceptance. The current
+normalization work must retain all twelve original default LayerNorm rows,
+including their parameter reshapes, dynamic batch sizes and declared ONNX
+versions. Eighteen rows with nondefault normalization options remain required
+implementation work. The complete Functions014/015 models follow; a prepared
+test candidate failed its first isolated case on both stacks while tracing
+NNX state, before an export was produced. That state-handling gap is the next
+investigation; model acceptance remains open.
+Each declared runtime flag must remain live through one
 artifact, including variable batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution
 of the complete model succeeds. Training behavior needs separate checks of the

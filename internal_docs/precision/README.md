@@ -19,18 +19,24 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Current private checkpoint, 2026-10-19: code commit `7d74a200` preserves the
-finite original NNX/Linen MLP controls and state, selected static normalization,
-and the reviewed Dropout naming/restoration repairs. The complete primary suite,
-secondary affected-area suite, dual-stack finite runtime checks and all seven
-commit hooks pass. The
-[integration findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-record the exact scope, limits and earlier failed epochs.
+Latest accepted private checkpoint, 2026-10-19: code commit `bb7a7d76` adds
+shared-batch normalization, static parameter reshapes and bounded integration
+repairs. The complete primary suite, focused checks on both stacks and all
+seven actual commit hooks pass, with independent acceptance. The
+[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
+record the finite scope and every failed epoch.
 
-Public behavior remains LEGACY. The next implementation extends shared symbolic
-batch normalization to the original default LayerNorm cases and then follows the
-complete Functions014/015 models. The full existing-functionality migration,
-fixed-source preparation coverage and public transition remain open.
+The preceding `7d74a200` checkpoint preserves the finite original NNX/Linen MLP
+controls and state, selected static normalization, and reviewed Dropout
+naming/restoration repairs; its [accepted evidence](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
+retains its original scope.
+
+All original default LayerNorm rows now have finite acceptance. The remaining
+18 nondefault-option rows / 36 cells and complete Functions014/015 models remain
+open. Isolated model exploration failed first at NNX state handling; the next
+generic state adapter is being implemented externally. Public behavior remains
+LEGACY until the full B–F gates pass, including existing-functionality coverage
+and fixed-source preparation.
 
 The [experiment index](poc/README.md) links preceding canonical results,
 including their original failures, numerical criteria and limits.

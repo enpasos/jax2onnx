@@ -11,16 +11,24 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-Private implementation checkpoint, 2026-10-19: `7d74a200` adds independently
-accepted finite original NNX/Linen MLP state/control results, selected static
-normalization, and explicit Dropout state preparation with naming/restoration
-repairs. The primary full suite passes 9,296 tests; secondary affected-area
-integration passes 1,052. The finite joined runtime suite passes 101 cases on
-each stack, with all seven actual commit hooks passing. See the
-[current acceptance](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-and [integration record](poc/source_integration_findings.md#integration-and-inventory-gates).
-Public behavior remains LEGACY. General symbolic normalization, complete
-Functions014/015 and the full B–F migration remain open. The
+Latest accepted private checkpoint, 2026-10-19: `bb7a7d76` adds shared-batch
+normalization, static parameter reshapes and bounded integration repairs.
+The complete primary suite passes 9,544 tests; the repaired focused selection
+passes 172 on each stack. All seven actual commit hooks pass, with independent
+checkpoint acceptance. The [current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
+retain the finite runtime scope and earlier failed epochs, including the
+separate failed 4,876-case secondary affected-area run.
+
+The preceding `7d74a200` checkpoint retains its accepted original NNX/Linen MLP
+state/control, selected static normalization and explicit Dropout state
+preparation results: 9,296 primary-full tests, 1,052 secondary affected-area
+tests and 101 finite runtime cases per stack. See its
+[acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result).
+
+Public behavior remains LEGACY. The remaining 18 nondefault LayerNorm rows /
+36 cells, complete Functions014/015 and the full B–F migration remain open.
+Separate isolated model exploration failed first at Function/NNX state handling;
+a generic named-state adapter is being implemented externally. The
 [experiment index](poc/README.md) retains preceding results and failed epochs.
 
 For observable behavior and export choices, read the

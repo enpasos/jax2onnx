@@ -3,11 +3,212 @@
 Local implementation and review, updated 2026-10-19, beyond `main` at `fae17822`.
 The converter has a private SOURCE policy. Public options and legacy defaults
 retain their meanings; no public source mode or release is established.
-Code checkpoint `7d74a200` has accepted primary-full, secondary affected-area
-and finite dual-stack runtime results, with all seven actual commit hooks
-passing. The record distinguishes those accepted scopes from earlier failures
-and the open full migration. Known runtime rounding failures remain separate
-failed numerical acceptance cases.
+Latest code checkpoint `bb7a7d76` has independently accepted primary-full,
+dual-stack focused and finite runtime results, with all seven actual commit
+hooks passing. The preceding `7d74a200` acceptance retains its original scope.
+The record distinguishes accepted scopes from earlier failures and the open
+full migration. Known runtime rounding failures remain separate failed
+numerical acceptance cases.
+
+<a id="shared-batch-normalization-work-in-progress"></a>
+
+## Shared-batch normalization checkpoint
+
+Current outcome, 2026-10-19: code checkpoint **`bb7a7d76` is independently
+accepted**. The complete primary suite passes **9,544 tests**, the repaired
+focused selection passes **172 tests on each stack**, and all seven actual
+commit hooks pass. The independently accepted **124-case finite selection on
+each stack** retains its original scope; the earlier corrected core selection
+passes 526 tests per stack. Standalone quality checks pass and the reviewed
+manual inventory is committed. The failed 65-case and 114-case family epochs,
+and the first broader integration runs with twelve failures per stack, remain
+recorded below. In particular, the earlier 4,876-case secondary run remains a
+failed run; the new secondary selection covers 172 cases. This checkpoint does
+not establish complete family or model acceptance. Public behavior remains
+LEGACY until all B–F migration gates pass.
+
+The corrected core admits one atomic leading B at ranks one through four
+through both export and sample validation. Declared NHWC/NCHW boundaries retain
+the exact fixed permutation, common B, logical dtype and actual artifact ports.
+Matrix and PRNG handlers retain their narrower operation-specific shape rules.
+The core terminals are primary `60101/381fe3` and secondary `13534/146291`,
+both exit 0. These focused passes do not establish family numerical acceptance
+or bind later repair bytes.
+
+The first 65-case family selection remains failed: **18 passed, 32 failed and
+15 fixture errors per stack**. Its terminals are primary `86019/cd04e5` and
+secondary `16604/10f3da`, both exit 1. Ten original LayerNorm cells per stack complete
+their new checks, with **20 CPU sessions and 122 target runs per stack**.
+Those successful cells are partial sample evidence within a failed selection.
+The historical core and family receipts both inherited a stale
+`runtime_started: false` field. Their recorded terminals and counts are valid;
+the separate execution clarification confirms that both selections actually
+ran on both stacks. The original receipts remain unchanged.
+
+The first failure review identified a real missing capability in original NNX
+LayerNorm row 13: its captured strong FP32 scale and bias reshape from `(576,)`
+to `(1,3,3,64)`. Singleton-only static admission could not preserve that unchanged
+model. The implemented amendment permits ordinary unpermuted floating reshapes
+with positive fully static extents, equal exact Python-integer element counts,
+exact native sizes/result, unchanged dtype/weakness and no placement. This
+applies to runtime data as well as constants. Symbolic reshapes retain the
+unchanged leading B and singleton-only restriction. The existing Reshape
+lowerer supplies the representation; the amendment does not require a different
+formula or model. The second family run exercises this correction without
+establishing complete family acceptance.
+
+The initial oracle also rejected valid representations: internal INT64 shape
+helpers without declared `ValueInfo` types, and a harmless unused import of a
+Function's own domain. The bounded correction proves the actual shape
+def-use chain and any existing type/shape declarations, and retains exact
+resolution and ports for every used Function call. Graph boundaries, floating
+arithmetic and unexplained domains receive no blanket exemption.
+
+The second family terminals are primary `18394/b6b6b3` and secondary
+`75755/4ac80d`, both exit 1: **110 passed and four failed out of 114 cases per
+stack**, with no fixture errors. Twenty original LayerNorm
+cells per stack complete their checks: **40 CPU sessions and 262 target runs
+per stack**, still partial evidence in a failed selection. The four remaining
+failures on each stack are original Equinox rows 4–7 at raw-x64-off. Saved
+artifacts show that all graph nodes are reachable from outputs, but one unused
+FP32 scalar NaN initializer remains. Its live singleton counterpart has the
+same bytes. The raw-x64-on graphs have no unused initializer.
+
+Installed-API and converter-source inspection explain the retained initializer:
+the removed Cast nodes keep stale input uses when `Graph.remove` uses its
+default unsafe removal. The original in-memory use lists were not saved.
+The narrow repair adds `safe=True` to exactly three existing removal calls,
+after their existing rewiring. It preserves cast-fold eligibility, arithmetic,
+observed intermediate casts and the strict consumed-dataflow audit. Independent
+static review accepts those changes and ten public-IR regression cells across
+SOURCE and LEGACY. Applied-source and selector readiness are also independently
+accepted. The repaired focused runs finish at primary `53412/6934af` and
+secondary `23391/3ddd85`, both exit 0. Independent review accepts these actual
+finite results. It recomputes 468 saved target runs on each stack, including
+all 24 original caller cells and all six original opset-16 cells, 18 consumer
+cases and 18 static reshape cases. All eight repaired Equinox artifacts per
+stack contain no unused initializer and retain the live NaN bytes `0000c07f`.
+Eight additional typed-boundary runs are supported by the passing frozen test,
+without separately saved output arrays. Actual Function/If and compiled-body
+proofs retain their finite scope; whole-carrier JIT remains unestablished.
+Earlier raw structural callback failures remain in
+the failed-epoch records; they do not describe the repaired run's outcome.
+
+Before the four-file repair, standalone checks pass: global Ruff (`951d49`), Black checking
+of all 23 changed Python files (`8e52ba`), and configured typing for 543 files
+plus the RNG trace check (`29480/9107f3`). The strict public MkDocs build passes
+at `6437/213594`, exit 0, including the updated optimizer guide. These eight
+internal precision documents are outside that build. After the four-file repair,
+global Ruff and pinned Black checking of all 26 changed Python files pass.
+Configured typing also passes for 543 files plus RNG (`3431/97ec8a`, exit 0),
+with the source freeze unchanged. All seven installed commit hooks later pass
+on the exact committed code, as recorded below.
+
+The independently reviewed manual inventory is now applied: **229 files,
+1,490 functions and 738 migration additions**, SHA-256
+`5603f7a37bcbd461dfc9f60d65bdd202afc253ee43a909438cc1acccacd4a05d`.
+All 752 original anchors and all 1,460 preceding function identities are
+retained. Raw rows, x64 cells, opaque records and all nonmanual fields remain
+unchanged. The full-primary run (`16806/2005a5`) and 63-module secondary
+affected-area run (`79239/6ef7b9`) both finish with exit 1 under the unchanged
+freeze of 882 Python files, 56 extra inputs and the inventory. All preceding
+9,296 primary test identities are retained. The same twelve checks fail on
+both stacks; all setup, call and teardown phases occur once per case.
+
+Nine failures rejected the fixed audited Add/dot control set. A bounded follow-up
+created its four artifacts on each stack without ORT execution: schema,
+source audit, artifact digests and structure are valid, and runtime/numerics
+remain unverified. The dot counterpart fingerprint includes the entire oracle
+file, which changed with the normalization extension. Its reviewed replacement
+fingerprint is `804e40007771d93d2c4e2f2fbd6746c0d79c0eaa2755dca212e4127a6e4ca1c7`;
+the fixed control still expected the preceding fingerprint in the failed run.
+The repair retains a fixed literal rather than a self-derived expected value,
+preserving the corruption guard. Original raw dot callbacks remain
+failed, as required by these controls.
+
+Three further checks had stale expectations: the counterpart-type error now
+lists `NormalizationCounterpart`, a symbolic batch reduction has its specific
+rejection message, and symbolic Max is now admitted while symbolic Min remains
+excluded. The repaired tests preserve the negative guarantees and acknowledge
+the reviewed Max extension. Sol implementation and Astra review were briefly
+interrupted by model usage limits; availability was restored on retry. The
+four-file repair has independent static acceptance and was applied by ROOT
+after exact preimage checks (`538af9`, exit 0). It retains the independently
+reconciled dot fingerprint as a fixed literal,
+updates the two diagnostic expectations, and pairs the admitted symbolic-Max
+case with the retained symbolic-Min rejection. Production admission and
+numerical criteria are unchanged.
+
+The four-module, **172-case focused selections pass** at primary
+`97112/c9a6f1` and secondary `68631/794baf`, both exit 0. The freeze of 882
+Python files and 57 extra inputs, including the v3 documents, holds. Independent
+review accepts the actual finite results and the full-run prerequisite. The
+complete **9,544-case primary suite passes** at `64293/9cd29a`, exit 0, with
+zero failures, errors or skips. All prior 9,544 identities are retained; all
+28,632 setup/call/teardown phases occur exactly once across four workers.
+The 882-file source snapshot, 57 extra inputs and inventory remain unchanged.
+The new secondary 172-case selection is narrower than the earlier failed
+4,876-case affected-area run; it does not turn that historical run into a pass.
+
+Independent integration review accepts the result. The normal local code
+commit finishes at `62913/f31e25`, exit 0: all seven installed hooks pass,
+and commit `bb7a7d765c519aba0ba73437af59e681aef585ad` has parent
+`651ce09e35c454f2856aa31b073b191bb146fa8c`. Independent closeout verifies all
+28 committed blobs, the source/extra-input/inventory freeze, the restored eight
+v3 documentation files and empty index. This closes the code checkpoint;
+the final documentation update is separate. No model candidate or ONNX artifact
+is committed, and no public transition follows.
+
+All **12 original default LayerNorm rows / 24 raw x64 cells** have finite acceptance,
+including NNX row 13 and all six original opset-16 cells. The remaining
+18 nondefault-option rows / 36 cells are explicit implementation work. Original
+model recipes and numerical criteria, the 1,802 raw rows / 3,604 cells and all
+63 opaque records remain unchanged. Full Functions014/015 follow-through is
+next. Its statically reviewed external test candidate was executed only in an
+isolated worktree, using the exact current 882-file source snapshot plus the
+two accepted candidate files. Both exploratory runs fail their first case:
+six cases collected, one executed and five unexecuted per stack, with no retry,
+completed cell receipt, returned ONNX artifact or ORT execution. First-cell
+original/prepared eager/JIT references completed the zero/nonzero T/F/F/T
+sequences before the facade failed; this is not six-cell coverage.
+
+The observed blocker precedes the predicted matrix gap: Flax raises
+`TraceContextError` when `FunctionPlugin` calls `jax.eval_shape` and the original
+nested MLP's `dropout1` attempts to mutate `RngCount` from another trace level.
+Sol is implementing a generic Function/NNX named-state adapter externally,
+before matrix or erfc work. No adapter repair has been transferred to MAIN or
+accepted at runtime. Those later gaps remain predicted, not observed
+failures or demonstrated ONNX limits in this exploration. Imports were guarded
+to the isolated worktree, MAIN remained unchanged, and no model tests were
+transferred. This failed exploration establishes no model acceptance and is
+separate from the shared-batch code checkpoint.
+
+| Evidence scope | Local receipt | SHA-256 |
+| --- | --- | --- |
+| Corrected core pass, both stacks | `/tmp/jax2onnx-shared-b-focused-v2/root-dual-core-pass.json` | `92792f56eea5af07d6a46fbebd146ba3fd2c1e84972d8104b725e4751646d998` |
+| First family failure, both stacks | `/tmp/jax2onnx-shared-b-family-runtime-v1/root-dual-family-failed-v1.json` | `0fe4b9676b2ead0630854c5116f0713b6b8b59a135fd2947acebb33758aad50f` |
+| Second family failure, both stacks | `/tmp/jax2onnx-shared-b-family-runtime-v2/root-terminal-failed-v2.json` | `9ea1851db42a7e4bf4e0106fefe88159bcf28b47c0b076f727edec0eaf61e41f` |
+| Actual-execution clarification | `/tmp/jax2onnx-shared-b-focused-v2/root-execution-clarification.json` | `9c3239d3032e39919c1ccd441c1c4cdbbcf4f233ba1d6612af5a26fb303019e3` |
+| Bounded repair amendment | `/tmp/jax2onnx-shared-b-family-failure-astra-amendment-v1/amendment.md` | `94a314368afdad42c6748f5b504bf3c6ae4f98b5a8f04e9aaf453de843b727da` |
+| Initial amendment review; scope approval only | `/tmp/jax2onnx-shared-b-family-failure-astra-amendment-v1/verification.json` | `ba7b347e02f1e2e7047f69c158e3e445d4cf14f01c812924332c6960fd6d9d65` |
+| Three-call Cast repair and ten regression cases | `/tmp/jax2onnx-shared-b-cast-removal-repair-v2/manifest.json` | `0b04cba716e5e3be9e7e21c547e734dcf26cb8e0f84dfa0189bf64f671465417` |
+| Cast-repair static prerequisite review | `/tmp/jax2onnx-shared-b-cast-removal-astra-review-v1/verification.json` | `f0ce1486cf7a64d5ce840ef09059ae76f5e0d8d1a141403ff171a45ebbbd3b30` |
+| Applied-source and selector readiness only | `/tmp/jax2onnx-shared-b-cast-removal-applied-astra-review-v1/verification.json` | `00c34953724c4d5304970c1f8194a6d098c5286a9dca99dd9bbfdd4391b073a8` |
+| Repaired focused pass, both stacks | `/tmp/jax2onnx-shared-b-family-runtime-v3/root-dual-focused-pass.json` | `0ab07085586472de6401d63ce76d96b896f4667cdee8f2bff9267a0eaf2ab08e` |
+| Independent actual finite acceptance | `/tmp/jax2onnx-shared-b-finite-actual-astra-review-v1/verification.json` | `6b4187432ce804920294c0627a4e58f5e3568e582bc39d1bbd491a688d45014d` |
+| Independent manual-inventory reconciliation | `/tmp/jax2onnx-shared-b-inventory-sol-verification-v1/verification.json` | `6e8c3126cfbed1f28c41dc4219279d76163207408c63392c141007d19e9a9799` |
+| Failed full-primary and secondary affected-area integration | `/tmp/jax2onnx-shared-b-MAIN-integration-v1/root-dual-integration-failed.json` | `cd968682e608c3311679d323853f78b4d761f2130dd01f43a332913e5dca80a2` |
+| Four-file repair and v3 documentation static acceptance | `/tmp/jax2onnx-shared-b-integration-repair-astra-review-v1/verification.json` | `7511842ea736c5034ee7d66340276d59cc65ad904485716bf5ab070fbf390815` |
+| Actual repair checks pass on both stacks; full primary released | `/tmp/jax2onnx-shared-b-MAIN-integration-v2/root-dual172-pass-and-full-release.json` | `c5cdf27e9d641b71d476cbc2e5beaf7078404971b30a2c97f4565ac390a89f58` |
+| Independent actual repair-result acceptance | `/tmp/jax2onnx-shared-b-integration-dual172-astra-review-v1/verification.json` | `eefd7db4366bb584b077d7bfd855e85939686cfaa06bea3c082e554daa3a9fc9` |
+| Complete primary and standalone quality pass | `/tmp/jax2onnx-shared-b-MAIN-integration-v2/root-integrated-checks-pass.json` | `b81a46494f0b5ec691de7c29f5974ef615d71bad61b2e686a8ae3faa1d9c173f` |
+| Actual code commit and seven installed hooks | `/tmp/jax2onnx-shared-b-MAIN-integration-v2/root-code-commit-verified.json` | `4d882b1e8f855dfb54a5464aec440c4d25fdd668e11d06fb244f150fbd512bc1` |
+| Independent actual code-checkpoint acceptance | `/tmp/jax2onnx-shared-b-code-commit-astra-closeout-v1/verification.json` | `e8b105efb822322939c5b71de5d861151f057411a370912c9e4efae12400adf5` |
+| Separate isolated original-model exploration; both first cases failed | `/tmp/jax2onnx-shared-b-model-isolated-v1/root-exploration-failed.json` | `bfe7de0699cd10d7c471a27e233f50698d57eb51b2a192dda115605a0fe206d9` |
+
+These paths are local review evidence; tracked code and tests do not depend on
+them. Earlier accepted results and failed epochs below retain their original
+scope and status.
 
 ## MLP state and bounded normalization acceptance
 
