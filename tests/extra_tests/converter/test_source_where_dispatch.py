@@ -71,6 +71,74 @@ def _spec(value: Any, *, weak: bool = False) -> Any:
     return jax.ShapeDtypeStruct(value.shape, value.dtype, weak_type=weak)
 
 
+def _float_selection_values(dtype: Any) -> np.ndarray:
+    """Raw payloads; native eager/JIT remain the numerical oracles."""
+    dtype = np.dtype(dtype)
+    width = dtype.itemsize * 8
+    mantissa = {16: 10, 32: 23, 64: 52}[width]
+    sign = 1 << (width - 1)
+    infinity = ((1 << (width - mantissa - 1)) - 1) << mantissa
+    one = ((1 << (width - mantissa - 2)) - 1) << mantissa
+    quiet = infinity | (1 << (mantissa - 1))
+    payloads = [
+        sign,
+        0,
+        one,
+        sign | one,
+        infinity,
+        sign | infinity,
+        quiet | 1,
+        quiet | 0x23,
+        sign | quiet | 5,
+        infinity | 3,
+        sign | infinity | 7,
+        1,
+        sign | 1,
+        (1 << mantissa) - 1,
+        sign | ((1 << mantissa) - 1),
+        1 << mantissa,
+    ]
+    return np.asarray(payloads, dtype=f"u{dtype.itemsize}").view(dtype)
+
+
+def _selection_nodes(proto: Any) -> list[Any]:
+    nodes = list(proto.graph.node)
+    for function in proto.functions:
+        nodes.extend(function.node)
+    for node in nodes:
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                nodes.extend(attribute.g.node)
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for graph in attribute.graphs:
+                    nodes.extend(graph.node)
+    return nodes
+
+
+def _assert_float_copy(proto: Any) -> list[Any]:
+    nodes = _selection_nodes(proto)
+    assert not any(node.op_type == "Where" for node in nodes)
+    gathers = [node for node in nodes if node.op_type == "GatherElements"]
+    assert gathers
+    assert all(
+        onnx.helper.get_attribute_value(
+            next(a for a in node.attribute if a.name == "axis")
+        )
+        == 0
+        for node in gathers
+    )
+    casts = [node for node in nodes if node.op_type == "Cast"]
+    assert casts
+    assert all(
+        onnx.helper.get_attribute_value(
+            next(a for a in node.attribute if a.name == "to")
+        )
+        == onnx.TensorProto.INT32
+        for node in casts
+    )
+    return nodes
+
+
 @onnx_function(name="SourceNativeWhere")
 def _named(c: Any, x: Any, y: Any) -> Any:
     return jnp.where(c, x, y)
@@ -135,15 +203,18 @@ def test_static_selection_has_exact_runtime_controls(dtype: Any, kind: str) -> N
             else np.full(shape, 0 if dtype is np.bool_ else -2, dtype)
         )
         feeds = ((c, x, y), (~c, x, y))
-        _, proto, _, refs = _artifact(
+        _, proto, report, refs = _artifact(
             lambda c, x, y: jnp.where(c, x, y), list(map(_spec, feeds[0])), feeds=feeds
         )
         _accept(proto, feeds, refs, _BITWISE)
+        assert report.exported_outputs[0].shape == shape
+        assert report.exported_outputs[0].dtype == np.dtype(dtype).name
         ops = [node.op_type for node in proto.graph.node]
         if kind != "empty":
-            assert ("Where" in ops) is (dtype is not np.bool_)
             if dtype is np.bool_:
                 assert all(op in ops for op in ("Not", "And", "Or"))
+            else:
+                _assert_float_copy(proto)
 
 
 @pytest.mark.parametrize("mode", ["ir", "proto", "file"])
@@ -151,9 +222,9 @@ def test_static_selection_has_exact_runtime_controls(dtype: Any, kind: str) -> N
 def test_where_return_modes_and_opsets(mode: str, opset: int, tmp_path: Any) -> None:
     feeds = (
         (
-            np.asarray([True, False]),
-            np.asarray([1, 2], np.float32),
-            np.asarray([-1, -2], np.float32),
+            np.asarray([True, False, True, False]),
+            _float_selection_values(np.float32)[[0, 2, 7, 11]],
+            _float_selection_values(np.float32)[[2, 0, 12, 10]],
         ),
     )
     _, proto, _, refs = _artifact(
@@ -180,7 +251,11 @@ def test_numeric_condition_zero_nan_and_infinity(dtype: Any) -> None:
         _, proto, _, refs = _artifact(
             lambda c, x, y: jnp.where(c, x, y), list(map(_spec, feeds[0])), feeds=feeds
         )
-        assert {node.op_type for node in proto.graph.node} >= {"Equal", "Not", "Where"}
+        assert {node.op_type for node in proto.graph.node} >= {
+            "Equal",
+            "Not",
+            "GatherElements",
+        }
         _accept(proto, feeds, refs, _BITWISE)
 
 
@@ -296,7 +371,7 @@ def test_complex_where_remains_excluded() -> None:
 
 @pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
 def test_where_negative_zero_retains_strict_failure_gate(
-    dtype: Any, record_property: Any
+    dtype: Any, record_property: Any, tmp_path: Any
 ) -> None:
     with jax.enable_x64(dtype is np.float64):
         args = (
@@ -307,29 +382,75 @@ def test_where_negative_zero_retains_strict_failure_gate(
         _, proto, _, refs = _artifact(
             lambda c, x, y: jnp.where(c, x, y), list(map(_spec, args)), feeds=(args,)
         )
+        assert all(expected[0].tobytes() == args[1].tobytes() for expected in refs[0])
+        tensor_type = onnx.helper.np_dtype_to_tensor_dtype(np.dtype(dtype))
+        baseline = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [onnx.helper.make_node("Where", ["c", "x", "y"], ["z"])],
+                "strict_old_where_control",
+                [
+                    onnx.helper.make_tensor_value_info("c", onnx.TensorProto.BOOL, [4]),
+                    onnx.helper.make_tensor_value_info("x", tensor_type, [4]),
+                    onnx.helper.make_tensor_value_info("y", tensor_type, [4]),
+                ],
+                [onnx.helper.make_tensor_value_info("z", tensor_type, [4])],
+            ),
+            opset_imports=[onnx.helper.make_opsetid("", 23)],
+            ir_version=10,
+        )
+        expected_target = args[1].copy()
+        expected_target[expected_target == 0] = dtype(0)
+        np.savez(
+            tmp_path / "native-selection.npz",
+            condition=args[0],
+            true_arm=args[1],
+            false_arm=args[2],
+            eager=refs[0][0][0],
+            jit=refs[0][1][0],
+        )
+        (tmp_path / "converted-selection.onnx").write_bytes(proto.SerializeToString())
+        (tmp_path / "old-where-control.onnx").write_bytes(baseline.SerializeToString())
+        converted = []
         for optimization in ("disabled", "all"):
+            for reference in refs[0]:
+                converted.append(
+                    validate_source_samples(
+                        proto,
+                        samples=[SourceSample(args, reference, _BITWISE)],
+                        optimization=optimization,
+                    )
+                )
+            record_property(f"negative_zero_{optimization}", converted[-1].status.value)
+            record_property(
+                f"artifact_sha256_{optimization}", converted[-1].artifact_sha256
+            )
             evidence = validate_source_samples(
-                proto,
+                baseline,
                 samples=[SourceSample(args, refs[0][0], _BITWISE)],
                 optimization=optimization,
             )
-            record_property(f"negative_zero_{optimization}", evidence.status.value)
-            record_property(f"artifact_sha256_{optimization}", evidence.artifact_sha256)
+            record_property(f"old_where_{optimization}", evidence.status.value)
+            record_property(
+                f"old_where_sha256_{optimization}", evidence.artifact_sha256
+            )
             if evidence.status is CheckStatus.VALIDATED:
                 evidence.require_sample_acceptance()
             else:
                 # Pin the known sign-only failure. Any other numerical failure
                 # must fail this regression rather than being blanket expected.
                 assert evidence.status is CheckStatus.FAILED
-                expected_target = args[1].copy()
-                expected_target[expected_target == 0] = dtype(0)
                 validate_source_samples(
-                    proto,
+                    baseline,
                     samples=[SourceSample(args, [expected_target], _BITWISE)],
                     optimization=optimization,
                 ).require_sample_acceptance()
                 with pytest.raises(SampleAcceptanceError):
                     evidence.require_sample_acceptance()
+        # Keep both CPU profiles visible before requiring exact acceptance.
+        for evidence in converted:
+            evidence.require_sample_acceptance()
+            assert evidence.status is CheckStatus.VALIDATED
+        _assert_float_copy(proto)
 
 
 def test_special_selection_and_captured_payloads_stay_separate() -> None:
@@ -358,6 +479,244 @@ def test_special_selection_and_captured_payloads_stay_separate() -> None:
         assert captured.tobytes() == original
 
 
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize("kind", ["scalar", "tensor", "broadcast"])
+def test_source_float_selection_copies_special_payload_bytes(
+    dtype: Any, kind: str
+) -> None:
+    with jax.enable_x64(dtype is np.float64):
+        values = _float_selection_values(dtype)
+        if kind == "scalar":
+            feeds = tuple(
+                (np.asarray(mask), values[left], values[right])
+                for left, right in ((0, 7), (11, 12), (9, 10))
+                for mask in (True, False)
+            )
+        else:
+            if kind == "tensor":
+                x, y = values.reshape(2, 8), values[::-1].reshape(2, 8).copy()
+                mask = np.arange(16).reshape(2, 8) % 3 != 0
+            else:
+                x, y = values.reshape(1, 16), np.asarray(values[0])
+                mask = np.asarray([[True], [False]])
+            feeds = ((mask, x, y), (~mask, x, y), (mask, x, y))
+        _, proto, report, references = _artifact(
+            lambda c, x, y: jnp.where(c, x, y),
+            list(map(_spec, feeds[0])),
+            feeds=feeds,
+        )
+        _accept(proto, feeds, references, _BITWISE)
+        _assert_float_copy(proto)
+        assert report.exported_outputs[0].dtype == np.dtype(dtype).name
+        assert all(
+            eager[0].tobytes() == compiled[0].tobytes()
+            for eager, compiled in references
+        )
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize("shape", [(2, 8), (0, 3)])
+def test_native_scalar_selector_copies_full_tensor_arms(
+    dtype: Any, shape: tuple[int, ...]
+) -> None:
+    with jax.enable_x64(dtype is np.float64):
+        values = _float_selection_values(dtype)
+        if shape[0] == 0:
+            x, y = np.empty(shape, dtype), np.empty(shape, dtype)
+        else:
+            x, y = values.reshape(shape), values[::-1].reshape(shape).copy()
+        feeds = tuple((np.asarray(mask), x, y) for mask in (True, False, True))
+        _, proto, report, references = _artifact(
+            lambda c, x, y: jax.lax.select_n(c, y, x),
+            list(map(_spec, feeds[0])),
+            feeds=feeds,
+        )
+        _accept(proto, feeds, references, _BITWISE)
+        assert report.exported_outputs[0].shape == shape
+        assert report.exported_outputs[0].dtype == np.dtype(dtype).name
+        if shape[0]:
+            _assert_float_copy(proto)
+            assert any(node.op_type == "Expand" for node in proto.graph.node)
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize("selector", ["same-shape", "scalar"])
+def test_source_float_selection_reuses_one_leading_batch_artifact(
+    dtype: Any, selector: str
+) -> None:
+    from jax import export
+
+    with jax.enable_x64(dtype is np.float64):
+        (batch,) = export.symbolic_shape("B")
+        specs = [
+            jax.ShapeDtypeStruct((batch, 16) if selector == "same-shape" else (), bool),
+            jax.ShapeDtypeStruct((batch, 16), dtype),
+            jax.ShapeDtypeStruct((1, 16), dtype),
+        ]
+        values = _float_selection_values(dtype)
+        feeds = []
+        for size in (2, 5):
+            x = np.stack([np.roll(values, row) for row in range(size)])
+            y = values[::-1].reshape(1, 16).copy()
+            mask = (
+                np.arange(size * 16).reshape(size, 16) % 3 != 0
+                if selector == "same-shape"
+                else np.asarray(True)
+            )
+            feeds.extend(((mask, x, y), (~mask, x, y), (mask, x, y)))
+        _, proto, report, references = _artifact(
+            lambda c, x, y: jnp.where(c, x, y), specs, feeds=tuple(feeds)
+        )
+        before = proto.SerializeToString()
+        _accept(proto, feeds, references, _BITWISE)
+        _assert_float_copy(proto)
+        assert report.exported_outputs[0].shape == ("B", 16)
+        assert report.exported_outputs[0].dtype == np.dtype(dtype).name
+        assert [reference[0][0].shape[0] for reference in references] == [
+            2,
+            2,
+            2,
+            5,
+            5,
+            5,
+        ]
+        assert proto.SerializeToString() == before
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize("scope", ["root", "function", "if", "function-if"])
+def test_exact_float_selection_keeps_captures_and_shared_outputs(
+    dtype: Any, scope: str
+) -> None:
+    with jax.enable_x64(dtype is np.float64):
+        captured = _float_selection_values(dtype).reshape(2, 8).copy()
+        frozen = captured.tobytes()
+
+        def target(c: Any, x: Any, gate: Any) -> Any:
+            if scope == "root":
+                selected = jnp.where(c, x, captured)
+            elif scope == "function":
+                selected = _nested(c, x, captured)
+            elif scope == "function-if":
+                selected = _cond(c, x, captured, gate)
+            else:
+                selected = jax.lax.cond(
+                    gate,
+                    lambda: jnp.where(c, x, captured),
+                    lambda: jnp.where(c, captured, x),
+                )
+            return selected, x, captured
+
+        x = np.roll(captured.reshape(-1), 3).reshape(2, 8)
+        frozen_x = x.tobytes()
+        mask = np.arange(16).reshape(2, 8) % 3 != 0
+        feeds = (
+            (mask, x, np.asarray(True)),
+            (mask, x, np.asarray(False)),
+            (~mask, x, np.asarray(True)),
+            (mask, x, np.asarray(True)),
+        )
+        artifact, proto, report, references = _artifact(
+            target,
+            list(map(_spec, feeds[0])),
+            feeds=feeds,
+            mode="ir",
+            named=scope in {"function", "function-if"},
+        )
+        _accept(proto, feeds, references, _BITWISE)
+        nodes = _assert_float_copy(proto)
+        if scope in {"if", "function-if"}:
+            branches = [node for node in nodes if node.op_type == "If"]
+            assert branches and all(len(node.input) == 1 for node in branches)
+            assert all(
+                not attribute.g.input
+                for node in branches
+                for attribute in node.attribute
+                if attribute.type == onnx.AttributeProto.GRAPH
+            )
+        if scope in {"function", "function-if"}:
+            assert artifact.functions
+            for function in artifact.functions.values():
+                assert not function.graph.initializers
+                assert all(node.graph is function.graph for node in function.graph)
+        assert all(output.shape == (2, 8) for output in report.exported_outputs)
+        assert all(
+            output.dtype == np.dtype(dtype).name for output in report.exported_outputs
+        )
+        assert any(
+            onnx.numpy_helper.to_array(tensor).tobytes() == frozen
+            for tensor in proto.graph.initializer
+        )
+        assert captured.tobytes() == frozen
+        assert x.tobytes() == frozen_x
+
+
+def test_source_float_selection_keeps_native_explicit_promotion() -> None:
+    args = (
+        np.asarray([True, False]),
+        np.asarray([-0.0, 1], np.float16),
+        np.asarray([2, -3], np.float32),
+    )
+    _, proto, report, references = _artifact(
+        lambda c, x, y: jnp.where(c, x, y),
+        list(map(_spec, args)),
+        feeds=(args,),
+    )
+    _accept(proto, (args,), references, _BITWISE)
+    assert report.exported_outputs[0].dtype == "float32"
+    assert any(node.op_type == "GatherElements" for node in proto.graph.node)
+    assert (
+        sum(
+            node.op_type == "Cast"
+            and next(a.i for a in node.attribute if a.name == "to")
+            == onnx.TensorProto.FLOAT
+            for node in proto.graph.node
+        )
+        == 1
+    )
+
+
+def test_legacy_float_selection_retains_its_where_lowering() -> None:
+    args = (
+        np.asarray([True, False]),
+        np.asarray([1, 2], np.float32),
+        np.asarray([-1, -2], np.float32),
+    )
+
+    def target(c: Any, x: Any, y: Any) -> Any:
+        return jnp.where(c, x, y)
+
+    references = [([np.asarray(target(*args))], [np.asarray(jax.jit(target)(*args))])]
+    proto = ui._to_onnx(
+        target, list(map(_spec, args)), precision_policy=PrecisionPolicy.LEGACY
+    )
+    ops = [node.op_type for node in proto.graph.node]
+    assert "Where" in ops and "GatherElements" not in ops
+    _accept(proto, (args,), references, _BITWISE)
+
+
+@pytest.mark.parametrize("kind", ["nonleading", "affine", "empty-tail"])
+def test_exact_selection_retains_symbolic_profile_exclusions(kind: str) -> None:
+    from jax import export
+
+    (batch,) = export.symbolic_shape("B")
+    shape = {
+        "nonleading": (2, batch),
+        "affine": (batch + 1, 16),
+        "empty-tail": (batch, 0),
+    }[kind]
+    with pytest.raises(SourcePrecisionError) as caught:
+        ui._to_onnx(
+            lambda c, x, y: jnp.where(c, x, y),
+            [
+                jax.ShapeDtypeStruct(shape, dtype)
+                for dtype in (bool, np.float32, np.float32)
+            ],
+            precision_policy=PrecisionPolicy.SOURCE,
+        )
+    assert caught.value.category == "profile-exclusion"
+
+
 def test_bfloat16_artifact_has_typed_evidence_without_kernel_claim() -> None:
     values = (
         np.asarray([True, False]),
@@ -368,6 +727,8 @@ def test_bfloat16_artifact_has_typed_evidence_without_kernel_claim() -> None:
         lambda c, x, y: jnp.where(c, x, y), list(map(_spec, values)), feeds=(values,)
     )
     assert proto.graph.output[0].type.tensor_type.elem_type == onnx.TensorProto.BFLOAT16
+    ops = [node.op_type for node in proto.graph.node]
+    assert "Where" in ops and "GatherElements" not in ops
     assert {check.category: check.status for check in report.checks}[
         "runtime-execution"
     ] is CheckStatus.UNVERIFIED

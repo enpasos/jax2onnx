@@ -48,7 +48,7 @@ GATHER_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/gather.py"
 GATHER_SOURCE_SHA256: Final = (
     "2d95f90f2ecc5d7bc1bf1f25e7b2a5f6978fbcc278ebb0b5aca181b22834b80c"
 )
-GATHER_ORACLE_VERSION: Final = "gather-trig-native-where-source-counterpart-v1"
+GATHER_ORACLE_VERSION: Final = "gather-trig-native-copy-source-counterpart-v2"
 # Complete original native traces, including index normalization and Where JIT.
 _GATHER_NATIVE_TRACE_SHA256: Final = (
     "9a14661837181e7170fd3d2e0a780d7fd927299c4c96349ad05cb185926f3cda",
@@ -64,7 +64,7 @@ _GATHER_VALUE_SHA256: Final = (
 # The native Cos branch is the existing FP64 1 - 2*sin(shared*0.5)^2 lowering.
 # This fixed structure supplies no floating-point equivalence/runtime claim.
 # ONNX types: DOUBLE=11, INT64=7, INT32=6, BOOL=9; INT attributes have type 2.
-_GATHER_GRAPH_TEMPLATE: Final[dict[str, Any]] = json.loads(
+_GATHER_GRAPH_TEMPLATE_V1: Final[dict[str, Any]] = json.loads(
     """{
   "inputs": [[11,[4,3]],[7,[2]]],
   "constants": [
@@ -105,6 +105,61 @@ _GATHER_GRAPH_TEMPLATE: Final[dict[str, Any]] = json.loads(
     {"op":"Where","inputs":["node18:0","node17:0","constant12"],"outputs":[[11,[2,3]]],"attributes":{}}
   ],
   "outputs": [["node19:0",[11,[2,3]]]]
+} """
+)
+
+
+# Current v2 was captured before this oracle edit on both supported stacks.
+# The false/true FP64 arms are stacked on axis 0 and selected by INT32 indices;
+# GatherElements and Squeeze copy the chosen bits without floating arithmetic.
+_GATHER_GRAPH_TEMPLATE_V2: Final[dict[str, Any]] = json.loads(
+    """{
+  "inputs": [[11,[4,3]],[7,[2]]],
+  "constants": [
+    {"bytes":"0000000000000000","dtype":7,"shape":[]},
+    {"bytes":"0400000000000000","dtype":7,"shape":[]},
+    {"bytes":"0200000000000000","dtype":7,"shape":[1]},
+    {"bytes":"0100000000000000","dtype":7,"shape":[1]},
+    {"bytes":"0200000000000000","dtype":7,"shape":[1]},
+    {"bytes":"0100000000000000","dtype":7,"shape":[1]},
+    {"bytes":"0200000000000000","dtype":7,"shape":[1]},
+    {"bytes":"0000000000000040","dtype":11,"shape":[]},
+    {"bytes":"000000000000e03f","dtype":11,"shape":[]},
+    {"bytes":"0000000000000040","dtype":11,"shape":[]},
+    {"bytes":"000000000000f03f","dtype":11,"shape":[]},
+    {"bytes":"000000000000e03f","dtype":11,"shape":[]},
+    {"bytes":"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","dtype":11,"shape":[2,3]},
+    {"bytes":"0000000000000000","dtype":7,"shape":[1]}
+  ],
+  "nodes": [
+    {"attributes":{},"inputs":["input1","constant0"],"op":"Less","outputs":[[9,[2]]]},
+    {"attributes":{},"inputs":["input1","constant1"],"op":"Add","outputs":[[7,[2]]]},
+    {"attributes":{},"inputs":["node0:0","node1:0","input1"],"op":"Where","outputs":[[7,[2]]]},
+    {"attributes":{"to":[2,6]},"inputs":["node2:0"],"op":"Cast","outputs":[[6,[2]]]},
+    {"attributes":{"axis":[2,0]},"inputs":["constant2","constant3"],"op":"Concat","outputs":[[7,[2]]]},
+    {"attributes":{"axis":[2,0]},"inputs":["constant4","constant5"],"op":"Concat","outputs":[[7,[2]]]},
+    {"attributes":{},"inputs":["node3:0","node5:0"],"op":"Reshape","outputs":[[6,[2,1]]]},
+    {"attributes":{},"inputs":["node6:0","node4:0"],"op":"Expand","outputs":[[6,[2,1]]]},
+    {"attributes":{},"inputs":["node7:0","constant6"],"op":"Reshape","outputs":[[6,[2]]]},
+    {"attributes":{"axis":[2,0]},"inputs":["input0","node8:0"],"op":"Gather","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node9:0","constant7"],"op":"Mul","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node10:0"],"op":"Sin","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node10:0","constant8"],"op":"Mul","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node12:0"],"op":"Sin","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node13:0","node13:0"],"op":"Mul","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node14:0","constant9"],"op":"Mul","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["constant10","node15:0"],"op":"Sub","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node11:0","node16:0"],"op":"Add","outputs":[[11,[2,3]]]},
+    {"attributes":{},"inputs":["node17:0","constant11"],"op":"Greater","outputs":[[9,[2,3]]]},
+    {"attributes":{"to":[2,6]},"inputs":["node18:0"],"op":"Cast","outputs":[[6,[2,3]]]},
+    {"attributes":{},"inputs":["constant12","constant13"],"op":"Unsqueeze","outputs":[[11,[1,2,3]]]},
+    {"attributes":{},"inputs":["node17:0","constant13"],"op":"Unsqueeze","outputs":[[11,[1,2,3]]]},
+    {"attributes":{"axis":[2,0]},"inputs":["node20:0","node21:0"],"op":"Concat","outputs":[[11,[2,2,3]]]},
+    {"attributes":{},"inputs":["node19:0","constant13"],"op":"Unsqueeze","outputs":[[6,[1,2,3]]]},
+    {"attributes":{"axis":[2,0]},"inputs":["node22:0","node23:0"],"op":"GatherElements","outputs":[[11,[1,2,3]]]},
+    {"attributes":{},"inputs":["node24:0","constant13"],"op":"Squeeze","outputs":[[11,[2,3]]]}
+  ],
+  "outputs": [["node25:0",[11,[2,3]]]]
 } """
 )
 
@@ -988,7 +1043,7 @@ class GatherCounterpart:
             )
 
     def _check_model(self, model: onnx.ModelProto) -> None:
-        if _gather_graph_signature(model) != _GATHER_GRAPH_TEMPLATE:
+        if _gather_graph_signature(model) != _GATHER_GRAPH_TEMPLATE_V2:
             raise ValueError(
                 "Gather counterpart requires the exact reviewed native graph"
             )
@@ -1014,7 +1069,7 @@ class GatherCounterpart:
             self._check_model(model)
             status, detail = (
                 CheckStatus.VALIDATED,
-                "Exact original Gather/index/trig/native-Where structure checked; runtime and numerics unverified",
+                "Exact original Gather/index/trig/native-copy structure checked; runtime and numerics unverified",
             )
         except Exception as exc:
             status, detail = CheckStatus.FAILED, str(exc)

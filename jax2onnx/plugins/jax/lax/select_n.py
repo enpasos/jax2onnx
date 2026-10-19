@@ -36,6 +36,10 @@ import jax.numpy as jnp
             "component": "Equal",
             "doc": "https://onnx.ai/onnx/operators/onnx__Equal.html",
         },
+        {
+            "component": "GatherElements",
+            "doc": "https://onnx.ai/onnx/operators/onnx__GatherElements.html",
+        },
     ],
     since="0.2.0",
     context="primitives.lax",
@@ -132,7 +136,7 @@ import jax.numpy as jnp
     ],
 )
 class SelectNPlugin(PrimitiveLeafPlugin):
-    """IR-only lowering of ``lax.select_n`` using ``Where`` cascades."""
+    """IR-only selection with exact SOURCE floating-point copies."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
         builder = ctx.builder
@@ -203,6 +207,42 @@ class SelectNPlugin(PrimitiveLeafPlugin):
                     "Or", [selected_true, selected_false], output=out_spec
                 )
                 _ensure_tensor_metadata(result, out_shape, ir.DataType.BOOL)
+                ctx.bind_value_for_var(out_var, result)
+                return
+
+            if source and np.dtype(out_var.aval.dtype) in (
+                np.dtype(np.float16),
+                np.dtype(np.float32),
+                np.dtype(np.float64),
+            ):
+                # Copy selected floating bytes: Where on the measured CPU
+                # stacks loses negative zero and some FP16 NaN payloads.
+                # Native validation already proves equal-shaped case arms.
+                result_dtype = true_val.dtype
+                assert result_dtype is not None
+                axis = builder.const_i64(name=ctx.fresh_name("select_axis"), values=[0])
+                index = builder.op(
+                    "Cast", [cond_val], {"to": int(ir.DataType.INT32.value)}
+                )
+                _ensure_tensor_metadata(index, selector_shape, ir.DataType.INT32)
+                if selector_shape != out_shape:
+                    shape = builder.op("Shape", [true_val])
+                    _ensure_tensor_metadata(shape, (len(out_shape),), ir.DataType.INT64)
+                    index = builder.op("Expand", [index, shape])
+                    _ensure_tensor_metadata(index, out_shape, ir.DataType.INT32)
+                expanded_shape = (1, *out_shape)
+                false_arm = builder.op("Unsqueeze", [false_val, axis])
+                _ensure_tensor_metadata(false_arm, expanded_shape, result_dtype)
+                true_arm = builder.op("Unsqueeze", [true_val, axis])
+                _ensure_tensor_metadata(true_arm, expanded_shape, result_dtype)
+                cases = builder.op("Concat", [false_arm, true_arm], {"axis": 0})
+                _ensure_tensor_metadata(cases, (2, *out_shape), result_dtype)
+                index = builder.op("Unsqueeze", [index, axis])
+                _ensure_tensor_metadata(index, expanded_shape, ir.DataType.INT32)
+                selected = builder.op("GatherElements", [cases, index], {"axis": 0})
+                _ensure_tensor_metadata(selected, expanded_shape, result_dtype)
+                result = builder.op("Squeeze", [selected, axis], output=out_spec)
+                _ensure_tensor_metadata(result, out_shape, result_dtype)
                 ctx.bind_value_for_var(out_var, result)
                 return
 

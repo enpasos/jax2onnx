@@ -919,7 +919,7 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
             or structure.get("counterpart_identifier")
             != "static-dot-source-counterpart-v2:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
-            != "61fba799a82fe386f3d1203ae338a97fe45c97eb5f2aa233d7b425cf4a8139b2"
+            != "728bb9aee21727ef18f885bcf5f86a8184d6b6db6d871644559552318558eac4"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

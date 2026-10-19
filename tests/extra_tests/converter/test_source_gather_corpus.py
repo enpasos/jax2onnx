@@ -585,6 +585,13 @@ def _change_constant(model: onnx.ModelProto, name: str, value: Any) -> None:
         "false-scalar",
         "false-negative-zero",
         "false-dtype",
+        "copy-index-source",
+        "copy-index-type",
+        "copy-stack-axis",
+        "copy-gather-axis",
+        "copy-squeeze-axis",
+        "copy-bypass",
+        "copy-output-binding",
         "unused-zero",
         "unused-node",
         "unused-constant",
@@ -601,13 +608,20 @@ def test_gather_counterpart_rejects_valid_schema_live_graph_corruptions(
     graph = model.graph
     gather, multiply = _node(model, "Gather"), _node(model, "Mul")
     sine, half_sine = _node(model, "Sin"), _node(model, "Sin", last=True)
-    greater, select = _node(model, "Greater"), _node(model, "Where", last=True)
+    greater, copy = _node(model, "Greater"), _node(model, "GatherElements")
     summed = next(
         node
         for node in graph.node
         if node.op_type == "Add" and node.output[0] == greater.input[0]
     )
     producers = {name: node for node in graph.node for name in node.output}
+    stack = producers[copy.input[0]]
+    index_unsqueeze = producers[copy.input[1]]
+    copy_index = producers[index_unsqueeze.input[0]]
+    false_arm = producers[stack.input[0]]
+    squeeze = producers[graph.output[0].name]
+    assert stack.op_type == "Concat" and copy_index.op_type == "Cast"
+    assert false_arm.op_type == "Unsqueeze" and squeeze.op_type == "Squeeze"
     cosine = producers[summed.input[1]]
     doubled = producers[cosine.input[1]]
     square = producers[doubled.input[0]]
@@ -659,7 +673,14 @@ def test_gather_counterpart_rejects_valid_schema_live_graph_corruptions(
             attribute for attribute in gather.attribute if attribute.name == "axis"
         ).i = -2
     elif defect in {"broadcast-axis", "broadcast-order"}:
-        concats = [node for node in graph.node if node.op_type == "Concat"]
+        index_reshape = producers[gather.input[1]]
+        index_expand = producers[index_reshape.input[0]]
+        index_broadcast = producers[index_expand.input[0]]
+        concats = [
+            producers[index_expand.input[1]],
+            producers[index_broadcast.input[1]],
+        ]
+        assert len(concats) == 2 and all(node.op_type == "Concat" for node in concats)
         if defect == "broadcast-axis":
             next(
                 attribute
@@ -707,29 +728,60 @@ def test_gather_counterpart_rejects_valid_schema_live_graph_corruptions(
         graph.initializer.append(
             onnx.numpy_helper.from_array(np.ones((2, 3), np.bool_), name=name)
         )
-        select.input[0] = name
+        copy_index.input[0] = name
     elif defect == "where-arms":
-        select.input[1], select.input[2] = select.input[2], select.input[1]
+        stack.input[0], stack.input[1] = stack.input[1], stack.input[0]
     elif defect in {"false-scalar", "false-negative-zero", "false-dtype"}:
-        value = (
-            np.asarray(0.0, np.float64)
-            if defect == "false-scalar"
-            else np.full((2, 3), -0.0, np.float64)
-        )
-        if defect == "false-dtype":
-            # Keep a valid schema using an explicit narrowing/widening route.
-            name, restored = select.input[2], "counterpart_zero64"
-            _change_constant(model, name, np.zeros((2, 3), np.float32))
-            position = list(graph.node).index(select)
+        name, restored = false_arm.input[0], "counterpart_zero64"
+        if defect == "false-scalar":
+            _change_constant(model, name, np.asarray(0.0, np.float64))
+            shape = "counterpart_zero_shape"
+            graph.initializer.append(
+                onnx.numpy_helper.from_array(np.asarray([2, 3], np.int64), name=shape)
+            )
             graph.node.insert(
-                position,
+                list(graph.node).index(false_arm),
+                onnx.helper.make_node("Expand", [name, shape], [restored]),
+            )
+            false_arm.input[0] = restored
+        elif defect == "false-dtype":
+            # Keep a valid schema using an explicit narrowing/widening route.
+            _change_constant(model, name, np.zeros((2, 3), np.float32))
+            graph.node.insert(
+                list(graph.node).index(false_arm),
                 onnx.helper.make_node(
                     "Cast", [name], [restored], to=onnx.TensorProto.DOUBLE
                 ),
             )
-            select.input[2] = restored
+            false_arm.input[0] = restored
         else:
-            _change_constant(model, select.input[2], value)
+            _change_constant(model, name, np.full((2, 3), -0.0, np.float64))
+    elif defect == "copy-index-source":
+        name = "counterpart_copy_indices"
+        graph.initializer.append(
+            onnx.numpy_helper.from_array(np.zeros((1, 2, 3), np.int32), name=name)
+        )
+        copy.input[1] = name
+    elif defect == "copy-index-type":
+        next(
+            attribute for attribute in copy_index.attribute if attribute.name == "to"
+        ).i = onnx.TensorProto.INT64
+    elif defect in {"copy-stack-axis", "copy-gather-axis"}:
+        changed = stack if defect == "copy-stack-axis" else copy
+        next(
+            attribute for attribute in changed.attribute if attribute.name == "axis"
+        ).i = 1
+    elif defect == "copy-squeeze-axis":
+        # A distinct valid spelling of axis 0 must still fail the literal signature.
+        name = "counterpart_squeeze_axis"
+        graph.initializer.append(
+            onnx.numpy_helper.from_array(np.asarray([-3], np.int64), name=name)
+        )
+        squeeze.input[1] = name
+    elif defect == "copy-bypass":
+        squeeze.input[0] = false_arm.output[0]
+    elif defect == "copy-output-binding":
+        graph.output[0].name = summed.output[0]
     elif defect in {"unused-zero", "unused-constant"}:
         value = (
             np.zeros((2, 3), np.float64)
@@ -781,6 +833,44 @@ def test_gather_counterpart_rejects_valid_schema_live_graph_corruptions(
     with pytest.raises(ValueError, match="exact reviewed native graph"):
         _COUNTERPART._check_model(model)
     evidence = _COUNTERPART.check(prepared, model)
+    assert not evidence.accepted and evidence.source_structure is CheckStatus.FAILED
+
+
+def test_historical_v1_literal_identity_is_preserved() -> None:
+    assert oracles.fingerprint(oracles._GATHER_GRAPH_TEMPLATE_V1) == (
+        "473035f7270ed43d80142efa6ec6c0af099e9c61970ade73537fb4e0934ff408"
+    )
+    assert _COUNTERPART.identifier == (
+        "gather-trig-native-copy-source-counterpart-v2:plugin::gather:0"
+    )
+
+
+def test_current_v2_rejects_schema_valid_historical_v1(original: Any) -> None:
+    _, _, prepared, result = original
+    model = deepcopy(result.model)
+    graph = model.graph
+    greater = _node(model, "Greater")
+    copy = _node(model, "GatherElements")
+    producers = {name: node for node in graph.node for name in node.output}
+    stack = producers[copy.input[0]]
+    false_arm = producers[stack.input[0]]
+    false_name = false_arm.input[0]
+    output_name = graph.output[0].name
+    del graph.node[19:]
+    del graph.initializer[13:]
+    graph.node.append(
+        onnx.helper.make_node(
+            "Where", [greater.output[0], greater.input[0], false_name], [output_name]
+        )
+    )
+    del graph.value_info[:]
+    onnx.checker.check_model(model, full_check=True)
+    assert oracles._gather_graph_signature(model) == oracles._GATHER_GRAPH_TEMPLATE_V1
+    with pytest.raises(ValueError, match="exact reviewed native graph"):
+        _COUNTERPART._check_model(model)
+    evidence = _COUNTERPART.check(prepared, model)
+    assert evidence.raw_callback_status == "failed"
+    assert "exact reviewed native graph" in evidence.source_detail
     assert not evidence.accepted and evidence.source_structure is CheckStatus.FAILED
 
 
