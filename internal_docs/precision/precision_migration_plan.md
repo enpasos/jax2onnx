@@ -1,6 +1,6 @@
 # Computation Precision Migration Plan
 
-Status: accepted plan for a complete precision migration, 2026-10-19. The
+Status: accepted plan for a complete precision migration, updated 2026-10-20. The
 [implementation work plan](precision_implementation_work_plan.md) defines the
 existing-functionality acceptance matrix and checkpoint ledger. The final normal
 `to_onnx(...)` call preserves the JAX computation through one consistent contract.
@@ -8,7 +8,34 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+Accepted private code checkpoint, 2026-10-20: **`39ddee8c`**. The complete
+primary suite passes **9,667 tests / 29,001 phases**, with four equal worker
+collections and no failures, errors or skips. All seven normal commit hooks pass;
+the 19 committed paths and 913 Python / 157 other input files match the tested
+release. The final six corrected cases pass on each stack. The earlier
+**721-case secondary pass / 2,163 phases** is retained on unchanged production
+sources, with the four test-file changes recorded separately. This is a finite
+local checkpoint; no full-secondary or public-transition result follows. The
+[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+retain the options 131, focused 159, matrix 44 and retained 348 dual-stack results
+and every failed epoch.
+
+Pre-full normal typing for 546 files plus the RNG report passed and was explicitly
+reused after checking 574 unchanged inputs for the assertion-only correction.
+The final code commit then ran all seven hooks normally, including mypy.
+
+All 30 unchanged LayerNorm callables / 60 caller-x64 contexts have bounded
+SOURCE export and numerical evidence under reviewed structural counterparts.
+All 60 original raw graph callbacks still fail; native ONNX LayerNormalization
+emission and those original graph contracts remain separate work. The original
+Function-model follow-through still stops first at `erfc`. The standalone
+candidate retains its default-CPU zero/subnormal failures; the configured CPU
+replay passes its finite saved cases on both stacks. SOURCE erfc remains
+unadmitted and production runtime policy is unchanged. Complete models,
+whole-carrier MLIR, fixed-source preparation and full B–F remain open. Public
+behavior stays LEGACY.
+
+The preceding accepted NNX-only checkpoint is `437d41fe`. The complete primary suite
 passes 9,557 tests, the secondary integration selection passes 58, and all seven
 normal commit hooks pass. The Function/NNX state adapter has independent finite
 acceptance for 13 new and 45 retained cases on each stack. It preserves original
@@ -27,14 +54,14 @@ models, numerical criteria or coverage obligations.
 The preceding `7d74a200` checkpoint retains its accepted finite MLP, static
 normalization and explicit Dropout state-preparation results; its
 [acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-keeps the original evidence and limits. The 18 nondefault LayerNorm rows /
-36 cells remain open after the external options run exposed a native eager/JIT
-zero-sign conflict. The original six Functions014/015 cells now pass the NNX
-state boundary and identify the next matrix-profile implementation gap without
-model target execution. Matrix repair remains external; exact GELU/erfc is still
-unobserved. Public behavior stays LEGACY until all B–F gates pass, including
-general fixed-source preparation. The [experiment index](poc/README.md) retains
-preceding evidence and failures.
+keeps the original evidence and limits. The later bounded qualifier resolves
+the native-reference conflict without relaxing target eager-zero requirements.
+The matrix successor also has finite acceptance; original Function-model
+follow-through now reaches `erfc`, without a complete model artifact. The corrected standalone exact-GELU/`erfc` candidate now executes on both stacks
+and retains the default-CPU zero/subnormal failure. The configured CPU replay now
+passes finite saved cases on both stacks; production erfc remains excluded. General fixed-source
+preparation, FP16/BF16, scientific FP64 and all B–F gates remain required. The
+[experiment index](poc/README.md) retains preceding evidence and failures.
 
 For the transition from an export user's perspective, read the
 [user view](precision_migration_plan_user_view.md). All companion documents are
@@ -169,32 +196,25 @@ retains the detailed shape, nested-scope, matrix and PRNG boundaries.
 
 Keep all **12 original default LayerNorm rows / 24 raw x64 cells**, including
 NNX row 13's captured affine reshape and the six original opset-16 cells. The
-18 nondefault-option rows / 36 cells remain explicit implementation work.
-The ordinary static reshape amendment and bounded oracle/Cast-removal repairs
-have finite acceptance; successful cells do not close the complete family.
-Retain the frozen sample criteria, original factories, constants, dimensions
-and opsets. Then follow all three original Functions014/015 contracts through
-native, artifact, state and numerical checks, preserving both live Dropout
-sites and the original static/symbolic batch schedule. The initial isolated
-NNX-state failure remains history. The accepted adapter now lets all six
-original cells on each stack reach the observed `dot_general` profile exclusion:
-20 native-reference groups, eight boundary observations and no ORT attempts.
-Complete-model artifacts and numerical acceptance remain open. Implement and
-review the matrix representation, then replay the same original recipes before
-claiming any later exact-GELU/erfc behavior. The current matrix candidate is
-external only.
+later options acceptance covers all 30 original rows / 60 caller-x64 contexts,
+including the 18 nondefault-option rows / 36 cells, under reviewed SOURCE graph
+counterparts. All 60 original raw graph callbacks remain false; native ONNX
+LayerNormalization emission and those original graph contracts stay open.
+Retain original factories, constants, dimensions, opsets and numerical criteria.
+The bounded qualifier preserves exact eager zeros everywhere and exact JIT zeros
+outside the six pretarget-proven native conflict masks. The earlier options-v2
+failure remains history; options 131 and focused 159 now pass on both stacks.
 
-The options-v2 selection also remains external and unaccepted. Each stack
-collects 124 cases, executes 17, passes 16 and stops on one Linen row-3 native
-zero-sign conflict, leaving 107 unexecuted. Eager and disabled-optimization ORT
-produce positive zero at the recorded positions while fresh JIT produces
-negative zero. No ORT-all observation or target waiver follows. The separate
-native-only survey completes all 60 original row/context cells on each stack and
-identifies exactly six configurations with opposite native zero signs. The
-[bounded qualifier plan](poc/source_integration_findings.md#completed-native-only-reference-survey)
-requires exact eager zeros everywhere and exact JIT zeros outside the literal
-pretarget-proven conflict masks. Its implementation and options target validation
-remain open; original sources, raw tolerances and full option coverage are retained.
+Matrix44 and retained 348 also pass on both stacks, preserving actual parameters,
+Function bodies and conditional consumers. Activated whole-carrier MLIR execution
+remains NOT_ESTABLISHED. The latest original-six model exploration reaches `erfc`
+in its first cell per stack, leaving one failed test and five unexecuted, with
+no model artifact or ORT execution. Complete original-model export, state,
+fixed-source preparation and numerical acceptance remain required. The corrected standalone exact-GELU
+candidate retains the default-CPU zero/subnormal failure. The configured CPU
+replay passes finite saved cases on both stacks; SOURCE erfc remains excluded.
+See the [joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+for current acceptance and the preserved earlier state/matrix/reference failures.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime

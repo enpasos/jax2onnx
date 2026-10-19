@@ -11,7 +11,34 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+Accepted private code checkpoint, 2026-10-20: **`39ddee8c`**. The complete
+primary suite passes **9,667 tests / 29,001 phases**, with four equal worker
+collections and no failures, errors or skips. All seven normal commit hooks pass;
+the 19 committed paths and 913 Python / 157 other input files match the tested
+release. The final six corrected cases pass on each stack. The earlier
+**721-case secondary pass / 2,163 phases** is retained on unchanged production
+sources, with the four test-file changes recorded separately. This is a finite
+local checkpoint; no full-secondary or public-transition result follows. The
+[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+retain the options 131, focused 159, matrix 44 and retained 348 dual-stack results
+and every failed epoch.
+
+Pre-full normal typing for 546 files plus the RNG report passed and was explicitly
+reused after checking 574 unchanged inputs for the assertion-only correction.
+The final code commit then ran all seven hooks normally, including mypy.
+
+All 30 unchanged LayerNorm callables / 60 caller-x64 contexts have bounded
+SOURCE export and numerical evidence under reviewed structural counterparts.
+All 60 original raw graph callbacks still fail; native ONNX LayerNormalization
+emission and those original graph contracts remain separate work. The original
+Function-model follow-through still stops first at `erfc`. The standalone
+candidate retains its default-CPU zero/subnormal failures; the configured CPU
+replay passes its finite saved cases on both stacks. SOURCE erfc remains
+unadmitted and production runtime policy is unchanged. Complete models,
+whole-carrier MLIR, fixed-source preparation and full B–F remain open. Public
+behavior stays LEGACY.
+
+The preceding accepted NNX-only checkpoint is `437d41fe`. The complete primary suite
 passes 9,557 tests, the secondary integration selection passes 58, and all seven
 normal commit hooks pass. The Function/NNX adapter has independently accepted
 13 new and 45 retained cases on each supported stack. It explicitly carries
@@ -35,15 +62,11 @@ preparation results: 9,296 primary-full tests, 1,052 secondary affected-area
 tests and 101 finite runtime cases per stack. See its
 [acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result).
 
-Public behavior remains LEGACY. The 18 nondefault LayerNorm rows / 36 cells
-remain open after the separate external selection failed on a native eager/JIT
-zero-sign conflict. The completed native-only survey bounds that disagreement
-to six of 60 row/context configurations on each stack; its reference qualifier
-and target acceptance remain open. The six original Functions014/015 cells now reach an
-observed matrix-profile gap, with no model ONNX artifact or target execution.
-The earlier NNX trace-state failure remains recorded history. Full model
-acceptance, whole-carrier JIT, general fixed-source preparation and B–F remain
-open; exact GELU/erfc is still unobserved in these model runs. The
+The earlier native eager/JIT zero-sign conflict is retained history. Its bounded
+pretarget reference qualifier and the later options selection now have finite
+acceptance; exact eager zero words remain required everywhere. This changes no
+original source, raw callback or target tolerance. The earlier NNX-state and
+matrix barriers remain recorded alongside the latest `erfc` observation. The
 [experiment index](poc/README.md) retains preceding results and failed epochs.
 
 For observable behavior and export choices, read the

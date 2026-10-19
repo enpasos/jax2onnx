@@ -1,15 +1,42 @@
 # Source Precision Implementation Work Plan
 
-Status: accepted implementation contract, 2026-10-19. Completion means consistent
+Status: accepted implementation contract, updated 2026-10-20. Completion means consistent
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
-Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+Accepted private code checkpoint, 2026-10-20: **`39ddee8c`**. The complete
+primary suite passes **9,667 tests / 29,001 phases**, with four equal worker
+collections and no failures, errors or skips. All seven normal commit hooks pass;
+the 19 committed paths and 913 Python / 157 other input files match the tested
+release. The final six corrected cases pass on each stack. The earlier
+**721-case secondary pass / 2,163 phases** is retained on unchanged production
+sources, with the four test-file changes recorded separately. This is a finite
+local checkpoint; no full-secondary or public-transition result follows. The
+[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+retain the options 131, focused 159, matrix 44 and retained 348 dual-stack results
+and every failed epoch.
+
+Pre-full normal typing for 546 files plus the RNG report passed and was explicitly
+reused after checking 574 unchanged inputs for the assertion-only correction.
+The final code commit then ran all seven hooks normally, including mypy.
+
+All 30 unchanged LayerNorm callables / 60 caller-x64 contexts have bounded
+SOURCE export and numerical evidence under reviewed structural counterparts.
+All 60 original raw graph callbacks still fail; native ONNX LayerNormalization
+emission and those original graph contracts remain separate work. The original
+Function-model follow-through still stops first at `erfc`. The standalone
+candidate retains its default-CPU zero/subnormal failures; the configured CPU
+replay passes its finite saved cases on both stacks. SOURCE erfc remains
+unadmitted and production runtime policy is unchanged. Complete models,
+whole-carrier MLIR, fixed-source preparation and full B–F remain open. Public
+behavior stays LEGACY.
+
+The preceding accepted NNX-only checkpoint is `437d41fe`. The complete primary suite
 passes 9,557 tests, the secondary integration selection passes 58, and all seven
 normal commit hooks pass. The Function/NNX state adapter has independent finite
-acceptance for 13 new and 45 retained cases on each stack. Original-model
-exploration now reaches the measured matrix gap after the state boundary. The
+acceptance for 13 new and 45 retained cases on each stack. At that checkpoint, original-model
+exploration reached the measured matrix gap after the state boundary. The
 [NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
 separates adapter acceptance, model barrier observations and final commit gates.
 
@@ -29,13 +56,12 @@ normalization and joined Dropout/naming/restoration results, including its
 [acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retains the original proof limits.
 
-Next, resolve the observed `dot_general` matrix profile gap and replay the
-unchanged Functions014/015 recipes. The matrix candidate remains external;
-exact GELU/erfc has not yet been reached. The separate LayerNorm-options
-candidate remains external and unaccepted after its native eager/JIT zero-sign
-conflict. All 18 option rows / 36 cells, whole-carrier JIT, complete models and
-general fixed-source preparation remain required. Public behavior remains
-LEGACY; the completion contract and all phases below remain in force.
+Next, assess the finite erfc representation and semantic-lowering scope before
+proposing SOURCE admission. The configured CPU replay passes saved artifacts,
+references and unchanged criteria; default-CPU zero/subnormal failures remain.
+Production runtime policy is unchanged. Retain the remaining
+normalization graph contracts, original model numerics, fixed-source preparation,
+FP16/BF16, selective FP32 and scientific FP64 obligations below.
 
 ## Completion contract
 
@@ -113,13 +139,13 @@ unchanged names or presence bits cannot certify an unchanged capability.
 Keep original regression identities separate from migration tests added after
 the baseline revision. Opaque recipes remain visible and require review.
 
-The applied NNX-only manual inventory has 230 files, 1,500 functions and 748
-migration additions. It retains all 752 original manual anchors and all 1,490
-predecessor identities. The 1,802 raw rows / 3,604 caller-x64 cells and 63 opaque
-records remain unchanged; these are coverage obligations, not SOURCE-pass
-counts. The [NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-bind the inventory and completed final checkpoint checks. The separate options
-candidate and its additional manual identities are not part of this checkpoint.
+The applied joint manual inventory has **231 files, 1,513 functions and 761
+migration additions**. It retains all 752 original manual anchors and the ten
+NNX-state function identities. The 1,802 raw rows / 3,604 caller-x64 cells and
+63 opaque records remain unchanged; these are coverage obligations, not
+SOURCE-pass counts. The [joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+bind the committed composition, final full-suite and normal-hook results. The preceding
+NNX-only inventory remains recorded with that checkpoint.
 
 The initial live inventory finds 605 registry names, including 104 without
 metadata; 501 metadata entries and 110 example entries produce 1,802 raw
@@ -383,6 +409,7 @@ planning work is separate from production-code ownership.
 | Original MLP, bounded normalization and integration repairs | Finite original NNX/Linen model/state, static normalization, non-Dropout repairs and joined Dropout/naming/restoration acceptance; actual exported-body proof and native-state limits remain explicit. | Independently accepted: 9,296-test primary full, 1,052-test secondary affected-area and 101-case finite runtime suite on each stack. All seven actual commit hooks pass. [Canonical status](poc/source_integration_findings.md#full-suite-failure-and-finite-repair-status) retains every earlier failed epoch and the full migration gaps. | `7d74a200` |
 | Shared-batch normalization | Extend one leading B through the bounded normalization shapes and declared layouts; preserve every original default LayerNorm row and its original opset. | Independently accepted finite 124-case results per stack, complete 9,544-test primary suite, repaired 172-case selection per stack and all seven actual hooks. [Current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint) retain failed epochs and the remaining family/model work. | `bb7a7d76`; finite scope |
 | Named NNX Function state | Carry real trace-local owner state and preserve updates, RNG handling, aliases and restoration through named calls. | Independent v9 finite acceptance: 13 new and 45 retained cases per stack; all six original model cells reach the next matrix barrier without target execution. The complete primary suite passes 9,557 tests, the secondary selection passes 58 and all seven normal hooks pass. [NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint). | `437d41fe`; finite scope |
+| Normalization options and tensor matrices | Preserve all 30 original normalization callables with a bounded native-reference qualifier and reviewed SOURCE graph counterparts; admit the tested matrix compositions. | Actual options 131, focused 159, matrix 44 and retained 348 pass on both stacks. Final primary suite (9,667 cases) and all seven normal hooks pass; six corrected checks pass on each stack, with the earlier unchanged-production secondary selection (721 cases) pass retained separately. Earlier full/six failures remain recorded. [Joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration). | `39ddee8c`; finite scope |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in
@@ -600,8 +627,10 @@ or relabeling the missing implementation as a technical limit.
 
 Use the existing corpus preparation and sample-validation machinery for the
 **12 original default LayerNorm rows / 24 raw x64 cells** across NNX, Linen and
-Equinox. Retain the complete 30-row/60-cell ledger and its 18 nondefault-option
-rows / 36 cells as explicit implementation work. Preserve original factories,
+Equinox. The later finite options acceptance covers all 30 original rows /
+60 caller-x64 contexts, including the 18 nondefault-option rows / 36 cells,
+under reviewed SOURCE graph counterparts. All original graph callbacks still
+fail; their structural migration remains explicit work. Preserve original factories,
 shapes, parameters and opsets, including the six original opset-16 cells.
 The accepted finite opset-16 extension uses deliberate per-operation/type
 eligibility and a bounded Max representation, including nested bodies and
@@ -616,27 +645,24 @@ acceptance covers the tested shapes. Then follow the three original
 Functions014/015 contracts through complete native, artifact, state and numerical
 checks, preserving both live Dropout sites and the existing static/symbolic batch
 schedule. Record any remaining barrier without replacing the original model.
-The initial Functions014/015 exploration failed first during NNX state abstract
-evaluation on each stack; that failed epoch remains unchanged. With the accepted
-v9 adapter, all six original cells per stack complete the barrier exploration:
-20 native-reference groups and eight source-boundary observations expose the
-`dot_general` matrix profile exclusion, with zero ORT guard attempts. This is
-actual missing implementation evidence, not model export/numerical acceptance
-or an ONNX impossibility. Preserve each source, decorator, default, parameter
-and live control when implementing the matrix successor; erfc remains later
-unobserved work.
+The initial Functions014/015 NNX-state failure and the later six-cell matrix
+barrier exploration remain recorded history. Matrix44 and retained 348 now pass
+on both stacks. The latest original-six exploration stops at `erfc` in its first
+cell per stack: one failed test, five unexecuted, one export attempt, no model
+artifact and no ORT attempt. It establishes the next implementation gap, not an
+ONNX impossibility or model numerical acceptance. The corrected standalone exact-GELU candidate now passes its native/consumer
+gates and executes on both stacks, but fails target zero/subnormal criteria. The
+configured CPU replay passes its finite cases on both stacks; default-CPU
+failures remain and SOURCE erfc remains excluded.
 
-The separate options-v2 selection collects 124 cases but stops after 17 on each
-stack: 16 pass, one fails and 107 remain unexecuted. The failed Linen row 3,
-raw-x64-off, has conflicting eager/JIT zero signs; only disabled-optimization
-ORT evidence exists for that failed cell. Keep the original target requirements
-and all 18 nondefault rows open. The separate native-only survey completes all 60 original row/context cells on
-each stack. Exactly six configurations have conflicting native zero signs; the
-other 54 have none. A bounded reference qualifier is being prepared externally:
-exact eager zero words remain required everywhere, with exact JIT zero words
-required outside the literal pretarget-proven conflict masks. Its implementation
-and the options target selection still need acceptance; the survey adds no target
-acceptance. See the [native survey record](poc/source_integration_findings.md#completed-native-only-reference-survey).
+The options-v2 epoch remains 16 pass / one fail / 107 unexecuted per stack.
+The completed native-only survey and the later options-v3 qualifier now have
+finite acceptance: exact eager zero words everywhere, exact JIT zero words
+outside the literal pretarget-proven conflicts, unchanged tolerances and all
+shape/dtype/NaN/infinity checks. The actual 131-case family selection and
+159-case focused selection pass on both stacks. All 60 raw normalization graph
+callbacks remain false, separately from the validated SOURCE counterparts.
+See the [joint record](poc/source_integration_findings.md#joint-normalization-and-matrix-integration).
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime

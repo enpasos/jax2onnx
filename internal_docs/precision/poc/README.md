@@ -1,6 +1,6 @@
 # Precision Contract Experiments
 
-Status: bounded private integration, 2026-10-19, beyond the public-behavior
+Status: bounded private integration, updated 2026-10-20, beyond the public-behavior
 baseline at `fae17822`.
 The converter carries SOURCE policy through selected real lowerings and scopes.
 Public options and legacy defaults retain their meanings; no public source mode
@@ -17,6 +17,7 @@ is available. These experiments inform the
 | [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
 | Original MLP state and bounded normalization | Do original model controls, explicit state and native normalization survive the private pipeline? | [Current acceptance](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance): finite CPU model/state evidence, permanent regression and the actual exported-body proof limit. |
 | Named NNX Function state | Can original trace-local owner updates survive named calls and unblock unchanged models? | [NNX findings](source_integration_findings.md#nnx-function-state-checkpoint): 13 new and 45 retained cases pass per stack; original-model exploration reaches the measured matrix barrier with no target execution. The code checkpoint `437d41fe`, complete 9,557-test primary suite, secondary 58-case selection and all seven normal hooks pass. |
+| Normalization options and tensor matrices | Do unchanged options and tested matrix compositions retain the source contract? | [Joint findings](source_integration_findings.md#joint-normalization-and-matrix-integration): options 131, focused 159, matrix 44 and retained 348 pass on both stacks; checkpoint `39ddee8c` passes primary suite (9,667 cases) and all seven normal hooks; six corrected checks pass on both stacks. Original graph callbacks and complete models remain open. |
 | Shared-batch normalization | Do the original default LayerNorm rows retain their shapes, parameters, opsets and numerical contract? | [Current findings](source_integration_findings.md#shared-batch-normalization-checkpoint): accepted finite checks and code checkpoint `bb7a7d76`; retained failed epochs and remaining family/model work. |
 | [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
@@ -36,16 +37,23 @@ is available. These experiments inform the
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-Latest accepted private checkpoint: `437d41fe`; the complete primary suite
-passes 9,557 tests, the secondary selection passes 58 and all seven normal
-commit hooks pass. The [NNX findings](source_integration_findings.md#nnx-function-state-checkpoint)
-record independently accepted state-adapter cases, preserved original recipes,
-the observed next matrix gap and the separate failed options experiment.
-The latter does not change this NNX-only code checkpoint or accept the remaining
-18 nondefault LayerNorm rows / 36 cells. The separate native-only survey is
-complete, with six of 60 row/context configurations showing opposite zero signs;
-reference qualification and target validation remain open. Exact GELU/erfc is still unobserved in
-the original-model follow-through.
+The accepted joint checkpoint **`39ddee8c`** passes the complete **9,667-test
+primary suite** and all seven normal hooks, with exact tested source bytes. Six
+corrected cases pass on each stack; the earlier unchanged-production 721-case
+secondary pass is retained separately. Pre-full typing for 546 files plus RNG evidence was
+explicitly reused under 574 unchanged input hashes; final hooks ran normally.
+The first full run with 9,663 passes and four failures and first six-case run with five passes and one failure failures remain recorded.
+All 60 raw normalization graph callbacks still fail despite the accepted SOURCE
+counterparts. The first original Function-model cell still stops at `erfc`.
+Its standalone candidate retains the default-CPU zero/subnormal failures.
+The configured CPU replay now passes its finite saved cases on both stacks,
+without production runtime-policy changes, SOURCE erfc admission or full-model
+numerical acceptance.
+
+The preceding accepted NNX-only checkpoint `437d41fe` retains its 9,557-test
+primary suite, 58-case secondary selection and all seven normal commit hooks. Its
+[findings](source_integration_findings.md#nnx-function-state-checkpoint) preserve
+the adapter evidence, earlier matrix barrier and native-reference failure.
 
 The preceding accepted code checkpoint `bb7a7d76` adds shared-batch normalization,
 static parameter reshapes and bounded integration repairs. The complete primary
@@ -53,7 +61,7 @@ suite, repaired focused checks on both stacks and all seven actual commit hooks
 pass, with independent acceptance. The
 [current findings](source_integration_findings.md#shared-batch-normalization-checkpoint)
 retain the finite scope and failed epochs, including the first isolated model
-exploration. Its later progress is recorded above; remaining LayerNorm options
+exploration. Its later progress is recorded above; original normalization graph contracts
 and complete Function models stay open.
 
 The preceding [MLP and normalization findings](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)

@@ -1,6 +1,6 @@
 # Computation Precision Migration Plan: User View
 
-Status: accepted plan for the complete precision transition, 2026-10-19.
+Status: accepted plan for the complete precision transition, updated 2026-10-20.
 The completed normal `to_onnx(...)` call will preserve the JAX computation
 through one consistent rule across the existing functionality. There will be
 no public precision-mode or partial-profile choice. The
@@ -27,17 +27,21 @@ pass, with independent acceptance. The
 [current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
 record that scope and every failed epoch.
 
-The accepted private checkpoint, `437d41fe`, preserves the tested NNX state
-changes through named-function calls. Finite checks pass on both supported
-stacks; the complete primary suite and normal commit checks also pass. The unchanged Function
-examples now reach a matrix-conversion gap, so their complete target behavior
-still needs implementation and acceptance. Remaining LayerNorm options also
-need work after a native eager/compiled reference disagreement. A complete
-native-only survey identifies the affected cases; the target checks and bounded
-reference qualification remain open. The
-[NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-explain these boundaries. The full normal-call contract and support for fixed
-third-party sources remain required before the public transition.
+The preceding accepted private checkpoint, `437d41fe`, preserves the tested NNX
+state changes through named-function calls. Its finite checks, complete primary
+suite and normal commit checks retain their original acceptance.
+
+The latest accepted private checkpoint, `39ddee8c`, passes the complete
+9,667-test primary suite and all normal commit checks. The six corrected checks
+pass on both supported stacks; the earlier 721-case secondary result retains its
+separate scope. All 30 original LayerNorm callables and tested matrix compositions
+have bounded SOURCE evidence. The native zero-reference qualifier keeps exact
+eager-zero requirements; native ONNX LayerNormalization emission and the
+original graph checks remain open. See the
+[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+for the evidence and preserved failures. Complete-model target numerics,
+fixed-source preparation, FP16/BF16 and scientific FP64 remain part of the full
+migration. Public behavior stays LEGACY.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -186,15 +190,14 @@ establish numerical or stochastic SOURCE acceptance. The reviewed private binder
 uses real typed named inputs across the whole trace. The earlier parameter-only
 ledger recorded progress past the guard without model numerical acceptance.
 The original NNX/Linen MLPs now have finite model/state acceptance. The current
-normalization work must retain all twelve original default LayerNorm rows,
-including their parameter reshapes, dynamic batch sizes and declared ONNX
-versions. Eighteen rows with nondefault normalization options remain required
-implementation work. The new NNX adapter preserves the tested state changes
-without rewriting the model. All six original Function-example scenarios now
-reach the next matrix-conversion gap, but no complete model has accepted target
-execution from that exploration. The earlier state-tracing failure remains in
-the record. Keep the original models, numerical requirements and live controls
-while resolving the next gap and the separate LayerNorm-reference conflict.
+normalization work retains all 30 original LayerNorm callables, including their
+parameters, dynamic batches, options and declared ONNX versions. Their bounded
+SOURCE counterparts pass; the original graph checks remain open. The NNX adapter
+preserves tested state changes without rewriting the model, and the first
+Function-model scenario now advances past matrix conversion to `erfc`. The latest
+six-case exploration stops after one failed test on each stack, leaving five
+unexecuted and no accepted complete-model target execution. Keep the original
+models, numerical requirements and live controls through the next work.
 Each declared runtime flag must remain live through one
 artifact, including variable batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution

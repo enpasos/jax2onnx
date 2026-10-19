@@ -19,14 +19,20 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
-passes 9,557 tests, the secondary integration selection passes 58, and all seven
-normal commit hooks pass. The Function/NNX state adapter has independent finite
-acceptance: 13 new cases and 45 retained cases pass on each stack. It carries
-real owner state through named Functions while preserving the original sources
-and live controls. The [NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-records the committed checks and separates finite adapter acceptance from
-complete-model work.
+Latest accepted private checkpoint: **`39ddee8c`**. The complete primary suite
+passes **9,667 tests**, and all seven normal commit hooks pass on the exact tested
+sources. The six corrected cases pass on both stacks; the earlier 721-case
+secondary pass is retained on unchanged production sources with its test-only
+differences recorded. Options 131, focused 159, matrix 44 and retained 348 each have
+independent dual-stack finite acceptance. The
+[joint record](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+keeps these scopes, explicit typing reuse and earlier failed epochs separate.
+
+The preceding accepted NNX-only checkpoint, `437d41fe`, retains its 9,557-test
+primary suite, 58-case secondary selection, all seven normal commit hooks and
+finite state-adapter acceptance (13 new and 45 retained cases per stack).
+Its [record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+keeps those completed checks separate from the new joint integration.
 
 The preceding accepted private checkpoint, `bb7a7d76`, adds
 shared-batch normalization, static parameter reshapes and bounded integration
@@ -40,16 +46,19 @@ controls and state, selected static normalization, and reviewed Dropout
 naming/restoration repairs; its [accepted evidence](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retains its original scope.
 
-All original default LayerNorm rows retain their finite acceptance. The
-18 nondefault-option rows / 36 cells remain open: the separate external options
-run stops at a contradictory eager/JIT zero-sign reference, without a target
-waiver. A completed native-only survey identifies the exact six affected
-row/context configurations; the bounded reference qualifier and target checks
-remain open. Replaying the six original Functions014/015 cells now passes the NNX
-state boundary and records the next `dot_general` implementation gap. These are
-barrier observations with no model target execution; exact GELU/erfc has not yet
-been reached. Public behavior remains LEGACY until the full B–F gates pass,
-including all existing functionality and general fixed-source preparation.
+All 30 unchanged LayerNorm callables / 60 caller-x64 contexts now have bounded
+SOURCE export and numerical evidence under reviewed structural counterparts,
+including the 18 nondefault-option rows. Exact eager zero words remain required;
+only the six pretarget-proven native eager/JIT conflict masks qualify JIT signs.
+All 60 original raw graph callbacks still fail: native ONNX LayerNormalization
+emission and the original graph contracts remain open. The latest original
+Function-model exploration reaches `erfc` in its first cell on each stack, with
+one failed test, five unexecuted cells and no model artifact or ORT execution.
+The standalone erfc candidate retains its default-CPU zero/subnormal failures.
+Its finite configured CPU replay now passes on both stacks, without changing
+production runtime policy or admitting SOURCE erfc. Public behavior remains LEGACY until
+the full B–F gates pass,
+including FP16/BF16, scientific FP64 and general fixed-source preparation.
 
 The [experiment index](poc/README.md) links preceding canonical results,
 including their original failures, numerical criteria and limits.

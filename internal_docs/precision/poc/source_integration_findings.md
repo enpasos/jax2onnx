@@ -1,13 +1,139 @@
 # Private source-policy integration
 
-Local implementation and review, updated 2026-10-19, beyond `main` at `fae17822`.
+Local implementation and review, updated 2026-10-20, beyond `main` at `fae17822`.
 The converter has a private SOURCE policy. Public options and legacy defaults
-retain their meanings; no public source mode or release is established.
-The accepted NNX-only code checkpoint is `437d41fe`, with completed integration
-and normal commit checks. The finite adapter results, original-model barrier
-observations and separate native-reference survey are recorded below. The preceding `bb7a7d76`
-and `7d74a200` checkpoints retain their original acceptance and failed epochs.
-Known runtime rounding failures remain separate failed numerical cases.
+retain their meanings; no public source mode or release is established. The
+current joint normalization/matrix status is recorded first. The accepted
+NNX-only `437d41fe`, preceding `bb7a7d76` and `7d74a200` checkpoints retain their
+original acceptance and failed epochs. Known runtime rounding failures remain
+separate failed numerical cases.
+
+## Joint normalization and matrix integration
+
+Accepted local checkpoint, 2026-10-20: **`39ddee8c5fdf0d4f3a26be53f9e7dd5b0d55c1b6`**,
+parent `e8ab9614`. The complete primary suite passes **9,667 tests / 29,001 phases**,
+with four identical worker collections, no failures/errors/skips and held source
+pins. All seven normal commit hooks pass without bypass. The committed 19 paths,
+**913 physical Python files (887 nongenerated)** and **157 other inputs** match
+the final tested release; the working tree is clean. This is a local private
+checkpoint, with no push or public transition.
+
+| Accepted evidence | Scope |
+| --- | --- |
+| Options 131 and focused 159, each on both stacks | All 30 original LayerNorm rows / 60 caller-x64 contexts, qualifier controls and exact current facade/corpus/inventory identities |
+| Tensor-matrix 44 and retained 348, each on both stacks | Tested static/shared-B matrix compositions, actual exported named bodies, conditional consumers and retained negative contracts |
+| Final corrected six, both stacks | Six cases / 18 phases per stack on the final sources, preserving shape-only defaults and diagnostic audit limits |
+| Retained secondary selection (721 cases) | 721 cases / 2,163 phases from the earlier exact snapshot; production bytes are unchanged, while four test-file changes and inventory bookkeeping are documented separately |
+
+The manual inventory has **231 files, 1,513 functions and 761 migration additions**,
+retaining all 752 original anchors, ten NNX-state identities, 1,802 raw rows /
+3,604 caller-x64 cells and 63 opaque records. No full-secondary result is claimed.
+Pre-full actual normal typing for **546 files plus the RNG report** was explicitly
+reused after checking **574 unchanged inputs** for the assertion-only correction;
+that reuse was not a fresh typing execution. The final commit subsequently ran
+all seven normal hooks, including mypy, normally.
+
+The earlier full run remains **9,663 pass / four obsolete-control failures**,
+with all 9,667 identities / 29,001 phases and no errors/skips. The first corrected
+six-case run remains **five pass / one fail per stack**: a new assertion confused
+shape-only supplied metadata (`dtype=None`, `weak_type=None`) with the resolved
+FP32 default. The minimal assertion correction preserves the original input,
+defaults and all other checks. Four old identities map one-to-one to four named
+successors; the full count stays 9,667. Both failed histories remain unchanged.
+
+The native zero-reference qualifier is now validated on the fixed original
+witnesses: exact eager zero words remain required everywhere, and exact JIT zero
+words remain required outside the six pretarget-proven contradictory masks.
+The mask cannot depend on target results; reversed signs, tiny nonzero values,
+changed inputs or extra conflicts fail. Original sources, defaults, parameters,
+opsets, raw tolerances and other dtype/shape/NaN/infinity checks remain unchanged.
+
+All **60 raw normalization graph callbacks still fail**. The accepted evidence
+is bounded SOURCE export and numerics for the **30 unchanged callables / 60
+contexts under reviewed structural counterparts**. Requested `prefer_native`
+records the effective typed-native JAX DAG; it does not establish native ONNX
+LayerNormalization emission or satisfaction of the original graph contracts.
+Native emission needs a separate eligibility and source-equivalence assessment
+for each requested opset and source contract.
+Matrix acceptance likewise separates actual exported-body/restored-original
+execution from activated whole-carrier ordinary JAX MLIR execution, which remains
+**NOT_ESTABLISHED**. Local saved-file counts and test counters do not establish
+process-wide native/export/ORT totals.
+
+The latest separate original-six exploration advances the first original
+Functions014 cell, caller-x64-off, past the matrix boundary to `erfc` at
+`SuperBlock` equation 24 (`profile-validation` / `profile-exclusion`). On each
+stack, six cases were collected, **one test failed on its stale matrix-barrier
+assertion and five were unexecuted**. Its local records contain **one export
+attempt, zero returned model artifacts and zero ORT constructor/run attempts**;
+eight native arrays were saved. Neither this first-cell progress nor the
+unexecuted five cells establish a complete-model target result. Original sources,
+parameters, defaults, exact GELU and live controls remain unchanged.
+
+The first standalone piecewise erfc PoC stopped before ORT on both stacks:
+its five original erfc/GELU roles agreed bitwise, but the FP32 consumer gave
+eager `0` and fresh-JIT `1`. That failed native gate remains preserved. The
+consumer-corrected v3 successor has now executed on **both stacks**, completing
+**six recorded ORT sessions/runs per stack**. Native eager/JIT, the five saved
+original roles, normal-value and consumer gates pass, but the complete candidate
+numerical gates **FAIL** for FP32 and FP64 with optimization disabled and all.
+For each comparison to a native reference, the only failures are **13 subnormal
+candidate values versus native signed zeros** (five direct erfc, four `t`, two
+`half_x`, two GELU); the zero/class requirement remains unchanged.
+
+The configuration-only CPU replay now **PASSES on both stacks**, with exactly
+**eight new ORT sessions/runs total** and zero exports, native calls or new inputs.
+The same saved FP32/FP64 graphs, seven output roles, eager/JIT references and
+unchanged gates pass under `session.set_denormal_as_zero=1`, with optimization
+disabled and all. This is finite configured-target numerical evidence. The
+**default-CPU gates remain FAILED**; no production FTZ initialization or runtime
+policy changes are introduced. SOURCE erfc is still unadmitted; low-precision
+and original whole-model acceptance remain open.
+
+Separately, the exact original GPT_MLP ordinal-0 contract now has a saved,
+schema-checked SOURCE artifact with FP32 `B×1024×768` feature ports and the real
+scalar Boolean `deterministic` input. This is artifact-only progress: the raw
+contract, factory, state/reference recipe and `None` criterion are unchanged;
+runtime, numerical acceptance and product support remain UNVERIFIED. The other
+21 pinned original parameter contracts retain their first-barrier expectations.
+
+The preceding NNX-only checkpoint and all failed options/matrix/retained epochs
+below retain their original scope. General fixed-source preparation, full
+models, FP16/BF16 rounding, scientific FP64 and all B–F gates remain open.
+Public export behavior remains LEGACY; the complete ordinary-call contract is
+unchanged.
+
+Next work is to assess finite erfc representation and semantic-lowering scope
+before proposing SOURCE admission. Runtime acceptance stays tied to the declared
+target: the configured pass preserves the known default-CPU failure.
+Original model numerics, native normalization graph contracts, whole-carrier MLIR,
+fixed-source preparation and the full existing-functionality B–F gates remain
+separate work. The exact GPT_MLP contract above remains artifact-only while a
+new numerical proposal is prepared; no new target acceptance is included here.
+
+Canonical local receipts (provenance, not tracked code dependencies):
+
+| Evidence | Receipt | SHA-256 |
+| --- | --- | --- |
+| Final code commit, exact tested bytes and all seven hooks | `/tmp/jax2onnx-joint-root-checks-v4/root-code-commit.json` | `c855056e00f4692882d04e64898840baba5d92005925e3aef2dce3f3a1615e46` |
+| Final full-primary9,667, retained secondary721 and final six provenance | `/tmp/jax2onnx-joint-MAIN-integration-v4/root-actual-final-full-primary-pass.json` | `8f7dc861f9d24e6761beeee88aaa95a1915425fc7dd75478189c6bb1c402859d` |
+| Earlier failed full / passing secondary | `/tmp/jax2onnx-joint-MAIN-integration-v2/root-actual-first-joint-full-and-secondary.json` | `d49a589b69b117f08dd650296f6447b8d326e141f02dc2788692db78cd4ad813` |
+| Actual standalone erfc zero/class failure on both stacks | `/tmp/jax2onnx-erfc-poc-actual-v2/root-actual-dual-candidate-zero-class-failure.json` | `3b5d9e8f5aee22f2c8d9385d3e22d636474f8d22cb6bf408850778fb54c45dcc` |
+| Configuration-only erfc replay recipe | `/tmp/jax2onnx-erfc-denormal-replay-candidate-v1/manifest.json` | `5dcba240dfbf5fe7addced607e00c8931201af4050efd06243d54cf770f71530` |
+| Actual finite configured CPU pass on both stacks | `/tmp/jax2onnx-erfc-denormal-replay-actual-v1/root-actual-dual-configured-pass.json` | `57ff851876f2575404729265737a7d4607b7fc61fc4be0ff92e633397726df38` |
+
+The composition manifest at
+`/tmp/jax2onnx-joint-main-integration-candidate-v2/manifest.json` binds the accepted
+131/159/44/348 and original-six evidence. The final test-only successor is
+`/tmp/jax2onnx-joint-stale-controls-candidate-v2/manifest.json`. Failed six-case
+receipts remain under
+`/tmp/jax2onnx-joint-MAIN-integration-v3/{primary-six,secondary-six}/run/receipt.json`;
+final six-case proof is
+`/tmp/jax2onnx-joint-MAIN-integration-v4/root-actual-dual-correction6-pass.json`.
+Explicit pre-full typing reuse remains in
+`/tmp/jax2onnx-joint-root-checks-v3/typing-result.json`. Earlier failed options,
+matrix, retained-control and original-model epochs below keep their original
+sources, criteria and result scopes.
 
 ## NNX Function state checkpoint
 
@@ -15,8 +141,8 @@ Accepted checkpoint, 2026-10-19: **`437d41fe`**, parent `b4a5a7ff`. Independent
 review accepts the exact committed v10 sources and actual final integration
 results. The isolated v9 adapter evidence also remains accepted on both supported
 stacks: **13 new cases and 45 retained cases pass per stack**. The options
-and matrix candidates are separate external work and are not part of this
-NNX-only checkpoint. Public behavior remains LEGACY until the full B–F gates
+and matrix candidates were separate external work at this NNX-only checkpoint;
+the later accepted union is recorded above. Public behavior remains LEGACY until the full B–F gates
 pass across all existing functionality and fixed third-party sources.
 
 The [shared Function state ports](../../../jax2onnx/plugins/_source_function_state.py)
@@ -76,10 +202,13 @@ The separate normalization-options inventory is not transferred by this checkpoi
 | Seven normal commit hooks | All seven pass on the committed postimages; no bypass or fix drift |
 | Exact committed-source independent closeout | ACCEPT; exact six postimages, 885 Python / 57 extra pins, test identities, actual terminal results and hooks verified |
 
-### Original models now reach the matrix barrier
+<a id="original-models-now-reach-the-matrix-barrier"></a>
+
+### Earlier original-model matrix barrier
 
 The unchanged Functions014 ordinal 0/1 and Functions015 ordinal 0, each with
-caller x64 off/on, now complete **six barrier-exploration checks per stack**.
+caller x64 off/on, completed **six barrier-exploration checks per stack**
+at that NNX-only epoch.
 They retain their original FP32 recipes, fixed B=5 or declared symbolic B=2/5,
 one factory instance per cell, both live Dropout sites and the original
 LayerNorm → Linear → exact GELU → Dropout → Linear → Dropout composition.
@@ -87,33 +216,34 @@ Caller x64-on is not evidence of an FP64 model.
 
 Each stack records 20 native-reference groups over original eager, original
 NNX JIT, prepared eager and prepared JIT, with T/F/F/T controls. Eight source
-boundary observations now identify the actual `dot_general` ordinary/equal-rank
-matrix-profile exclusion. Every model record remains
+boundary observations identified the actual `dot_general` ordinary/equal-rank
+matrix-profile exclusion. Every model record in that epoch remained
 `OPEN_FIRST_MATRIX_BARRIER`: no model ONNX artifact, no target numerical
 acceptance, and zero explicit ORT constructor/run guard attempts. The existing
 live-Boolean preparation prerequisites remain recorded. The earlier first-cell
-`TraceContextError` is retained history, while the matrix gap is now observed
+`TraceContextError` was retained history; the matrix gap then became observed
 implementation work rather than a prediction or an ONNX impossibility.
-The matrix candidate remains external. Independent static review authorizes
-44 focused cases on an exact NNX-v10/options-v2/matrix snapshot. The later
+At that epoch the matrix candidate was external. Independent static review
+authorized 44 focused cases on an exact NNX-v10/options-v2/matrix snapshot. The later
 actual run on each stack passes eight direct cases, fails the ninth and leaves
 35 unexecuted. Eight artifacts, 16 CPU sessions and 36 target runs are recorded.
 The first named NNX conditional fails during activated eager execution because
 the custom SOURCE Function primitive has no JAX CPU MLIR lowering; that named
 case reaches neither export nor target execution. This is the previously
 recorded private whole-carrier execution gap, not an observed tensor-matrix
-lowering failure or an ONNX impossibility. A test-only successor is being
-prepared to check the actual exported body and ordinary execution after patch
-restoration, retaining exact original references and the separate unresolved
-whole-carrier obligation. The 44-case selection remains unaccepted. Its oracle/probe postimages require the options-v2
-preimages and cannot be applied directly to the NNX-only checkpoint. That finite
-experimental union does not accept any options row. Replay the same original
-models after matrix validation; exact GELU/erfc has not yet been reached in this
-exploration. The temporary matrix scope is not a final public rank or type limit.
+lowering failure or an ONNX impossibility. The later test-only successor checks
+the actual exported body and ordinary execution after patch restoration, retaining exact original references and the
+separate unresolved whole-carrier obligation. It now has finite matrix 44
+acceptance, followed by retained 348 acceptance. The options/matrix postimages
+are composed only through the exact reviewed union; none of these later results
+relabels the first named-call failure. The latest original-model `erfc` barrier
+and remaining limits are recorded in the [joint status](#joint-normalization-and-matrix-integration).
 
-### Nondefault LayerNorm options remain open
+<a id="nondefault-layernorm-options-remain-open"></a>
 
-The external options-v2 candidate has static acceptance only. Its actual run
+### Earlier nondefault LayerNorm reference failure
+
+At that epoch, external options-v2 had static acceptance only. Its actual run
 collects 124 cases on each stack, executes 17, passes 16, fails one and leaves
 107 unexecuted. The failed cell is Linen LayerNorm ordinal 3,
 `raw-x64-off`, with its original default epsilon. Saved B=2/5 signed-zero/NaN
@@ -124,8 +254,8 @@ limit or authorize a target waiver. The failed cell never reaches ORT's `all`
 optimization setting, and that row's caller-x64-on target case remains
 unexecuted in this failed options epoch.
 
-The first seven new-option cell receipts and 16 passing prefix tests do not
-accept the 124-case selection or the 18 remaining rows / 36 cells. Original
+The first seven new-option cell receipts and 16 passing prefix tests did not
+accept that 124-case selection or its 18 remaining rows / 36 cells. Original
 source/defaults/parameters, raw comparison criteria, target zero requirements
 and strict typed-dataflow checks remain in force. No matrix, options or
 complete-model acceptance is included in the NNX code commit.
@@ -164,9 +294,11 @@ conflicts fail. Target values cannot select or broaden the mask, and a target
 `-0` at a qualified point still fails the eager `+0` requirement. Existing raw
 tolerances and all dtype/shape/NaN/infinity/finite checks remain unchanged for
 both references. This resolves an impossible simultaneous native bit oracle
-without weakening the target's exact eager-zero obligation. The external
-qualifier implementation and complete options target selection still require
-review and runtime acceptance; the native survey provides neither.
+without weakening the target's exact eager-zero obligation. The native survey alone provided neither qualifier nor target acceptance.
+The later options-v3 implementation and actual131-case selection now have
+independent finite acceptance, as recorded in the
+[joint status](#joint-normalization-and-matrix-integration); the original failed
+options-v2 epoch remains unchanged.
 
 | Evidence scope | Local receipt | SHA-256 |
 | --- | --- | --- |
@@ -177,19 +309,19 @@ review and runtime acceptance; the native survey provides neither.
 | V10 type-only delta review | `/tmp/jax2onnx-nnx-function-state-astra-review-v10.json` | `7bd6fc2eb4edb03e4d8386dc81d12c5b7e29e9bf4332a729525a7befd127b72c` |
 | V9 complete primary, typing gate still open at that epoch | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v1/root-v9-full9557-pass.json` | `825771355ebba936b11d1768c7b20acaacbb004a7b39e80210928f4209486607` |
 | Actual v10 normal quality and secondary 58 | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-quality-and-secondary58-pass.json` | `14d9b486b3fb9f836d0dea6464c722fa5cdd5db8f44b5084abb2fb8d8d3b19ef` |
-| Native zero-sign conflict; options acceptance still open | `/tmp/jax2onnx-normalization-options-zero-reference-astra-v1.json` | `0819a74e1dbb99cc55ef01473ca238b70fd501dcfad56777dd9ef372c16071e2` |
+| Native zero-sign conflict; options acceptance open at that epoch | `/tmp/jax2onnx-normalization-options-zero-reference-astra-v1.json` | `0819a74e1dbb99cc55ef01473ca238b70fd501dcfad56777dd9ef372c16071e2` |
 | Actual final v10 complete primary and secondary/quality evidence | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-full9557-quality-secondary58-pass.json` | `e81206757e0fa77e44b88ccaf98641934da1ec93300e254884a7eb454559af5a` |
 | Actual NNX-only code commit and seven normal hooks | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-checkpoint-committed.json` | `c12991adb657211cd1956b12699a33067117a6e369941a44e03499f47e79e2b7` |
 | Independent exact committed-source acceptance | `/tmp/jax2onnx-nnx-function-state-astra-committed-review-v10.json` | `54e02cffd4e675631f08bf8919db6965f68c0bb65d0876f47f29a293830138fb` |
 | Independent complete dual-stack native survey acceptance | `/tmp/jax2onnx-layernorm-native-reference-astra-actual-review-v1.json` | `e7af7be4aefa6f9804b09e6ef0b1a9a1469b81b4b6979f177eb115d8b5bf1e74` |
 | Complete native reference/mask/word and criterion audit | `/tmp/jax2onnx-layernorm-native-reference-astra-data-audit-v1.json` | `f5850ce870a75fecbbc4e684b201b0e3a1bd5a1a181012f5235cb02a19ec670c` |
-| Bounded pretarget native-zero qualifier plan; implementation open | `/tmp/jax2onnx-layernorm-zero-oracle-astra-plan-v1.md` | `15f7a1b4ce58552cd08b373eede82f22a38404c7bb973e30d1d1e32b54310aa8` |
+| Bounded pretarget native-zero qualifier plan; implementation open at that epoch | `/tmp/jax2onnx-layernorm-zero-oracle-astra-plan-v1.md` | `15f7a1b4ce58552cd08b373eede82f22a38404c7bb973e30d1d1e32b54310aa8` |
 | Matrix static acceptance for finite isolated runtime; no runtime result | `/tmp/jax2onnx-source-tensor-matrix-astra-review-v1.json` | `28f112df624fb864d8367903765419925abf612bc1f5d85d732136602ccc17c6` |
 | Later actual matrix prefix: eight pass, named activated call fails; 35 unexecuted | `/tmp/jax2onnx-source-tensor-matrix-isolated-v1/root-actual-dual-matrix44-first-failure.json` | `8c56093dfb45f23b2b27fb754040f5ed286f988349f5cee6d2ba8374b6dc6442` |
 
 Local evidence paths are provenance, not tracked code dependencies. The committed
-NNX result, the completed native survey and the unaccepted options/matrix target
-work retain their separate scopes.
+NNX result, completed native survey, failed options/matrix epochs and later
+accepted finite successors retain their separate scopes.
 
 <a id="shared-batch-normalization-work-in-progress"></a>
 
@@ -342,7 +474,8 @@ is committed, and no public transition follows.
 
 All **12 original default LayerNorm rows / 24 raw x64 cells** have finite acceptance,
 including NNX row 13 and all six original opset-16 cells. The remaining
-18 nondefault-option rows / 36 cells are explicit implementation work. Original
+18 nondefault-option rows / 36 cells were explicit implementation work at that
+checkpoint; their later finite acceptance is recorded above. Original
 model recipes and numerical criteria, the 1,802 raw rows / 3,604 cells and all
 63 opaque records remain unchanged. At this checkpoint, full Functions014/015
 follow-through was next. Its external test candidate ran only in an isolated

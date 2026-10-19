@@ -29,19 +29,21 @@ commit hooks pass, with independent acceptance. The
 [technical record](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
 keeps these finite results and earlier failures distinct.
 
-The accepted private checkpoint, `437d41fe`, preserves state changes through
-the tested NNX named-function calls. Its finite checks pass on both supported
-stacks; the complete primary suite and normal commit checks also pass. The original
-models keep their code, parameters, defaults and runtime controls. Replaying
-the complete Function examples now reaches a matrix-conversion gap, so those
-models still have no accepted target execution. Other LayerNorm options also
-remain open after a test found different zero signs in the native eager and
-compiled references. A separate native-only survey now identifies the affected
-cases on both supported stacks; the target checks still need to pass. These
-results introduce no new public export option.
-Public behavior stays LEGACY until the full migration gates pass. See the
-[NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-for the exact evidence and remaining work.
+The preceding accepted private checkpoint, `437d41fe`, preserves state changes
+through the tested NNX named-function calls. Its finite checks, complete primary
+suite and normal commit checks retain their original acceptance.
+
+The latest accepted private checkpoint, `39ddee8c`, passes the complete
+9,667-test primary suite and all normal commit checks. The six corrected checks
+pass on both supported stacks; the earlier 721-case secondary result retains its
+separate scope. All 30 original LayerNorm callables and tested matrix compositions
+have bounded SOURCE evidence. The native zero-reference qualifier keeps exact
+eager-zero requirements; native ONNX LayerNormalization emission and the
+original graph checks remain open. See the
+[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
+for the evidence and preserved failures. Complete-model target numerics,
+fixed-source preparation, FP16/BF16 and scientific FP64 remain part of the full
+migration. Public behavior stays LEGACY.
 
 ## Choosing the Export Setting
 
