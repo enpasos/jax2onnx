@@ -8,7 +8,15 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-The latest accepted private code checkpoint, `bb7a7d76`, adds shared-batch
+Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+passes 9,557 tests, the secondary integration selection passes 58, and all seven
+normal commit hooks pass. The Function/NNX state adapter has independent finite
+acceptance for 13 new and 45 retained cases on each stack. It preserves original
+stateful named calls through the shared private pipeline. The
+[NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+keeps this scope separate from complete-model and public acceptance.
+
+The preceding accepted private code checkpoint, `bb7a7d76`, adds shared-batch
 normalization, static parameter reshapes and bounded integration repairs.
 The complete primary suite, repaired focused checks on both stacks and all
 seven actual commit hooks pass, with independent acceptance. The
@@ -19,12 +27,14 @@ models, numerical criteria or coverage obligations.
 The preceding `7d74a200` checkpoint retains its accepted finite MLP, static
 normalization and explicit Dropout state-preparation results; its
 [acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-keeps the original evidence and limits. Remaining work includes 18 nondefault
-LayerNorm rows / 36 cells and complete Functions014/015. Their isolated first
-attempt failed at Function/NNX state handling before the predicted matrix gap;
-a generic named-state adapter is now being implemented externally.
-Public behavior stays LEGACY until the full B–F gates pass. The
-[experiment index](poc/README.md) retains preceding evidence.
+keeps the original evidence and limits. The 18 nondefault LayerNorm rows /
+36 cells remain open after the external options run exposed a native eager/JIT
+zero-sign conflict. The original six Functions014/015 cells now pass the NNX
+state boundary and identify the next matrix-profile implementation gap without
+model target execution. Matrix repair remains external; exact GELU/erfc is still
+unobserved. Public behavior stays LEGACY until all B–F gates pass, including
+general fixed-source preparation. The [experiment index](poc/README.md) retains
+preceding evidence and failures.
 
 For the transition from an export user's perspective, read the
 [user view](precision_migration_plan_user_view.md). All companion documents are
@@ -165,14 +175,26 @@ have finite acceptance; successful cells do not close the complete family.
 Retain the frozen sample criteria, original factories, constants, dimensions
 and opsets. Then follow all three original Functions014/015 contracts through
 native, artifact, state and numerical checks, preserving both live Dropout
-sites and the original static/symbolic batch schedule. Their external test
-candidate was executed only in an isolated worktree. Its first case fails on
-both stacks during Function/NNX state abstract evaluation, before export or the
-predicted matrix gap. A generic named-state adapter is being implemented
-externally for that boundary. No model tests were
-transferred to MAIN, and model acceptance remains open. The rank-three by
-rank-two matrix gap remains predicted implementation work, not an observed
-failure or technical ONNX limit in those runs.
+sites and the original static/symbolic batch schedule. The initial isolated
+NNX-state failure remains history. The accepted adapter now lets all six
+original cells on each stack reach the observed `dot_general` profile exclusion:
+20 native-reference groups, eight boundary observations and no ORT attempts.
+Complete-model artifacts and numerical acceptance remain open. Implement and
+review the matrix representation, then replay the same original recipes before
+claiming any later exact-GELU/erfc behavior. The current matrix candidate is
+external only.
+
+The options-v2 selection also remains external and unaccepted. Each stack
+collects 124 cases, executes 17, passes 16 and stops on one Linen row-3 native
+zero-sign conflict, leaving 107 unexecuted. Eager and disabled-optimization ORT
+produce positive zero at the recorded positions while fresh JIT produces
+negative zero. No ORT-all observation or target waiver follows. The separate
+native-only survey completes all 60 original row/context cells on each stack and
+identifies exactly six configurations with opposite native zero signs. The
+[bounded qualifier plan](poc/source_integration_findings.md#completed-native-only-reference-survey)
+requires exact eager zeros everywhere and exact JIT zeros outside the literal
+pretarget-proven conflict masks. Its implementation and options target validation
+remain open; original sources, raw tolerances and full option coverage are retained.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime

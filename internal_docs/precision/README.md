@@ -19,7 +19,16 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Latest accepted private checkpoint, 2026-10-19: code commit `bb7a7d76` adds
+Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+passes 9,557 tests, the secondary integration selection passes 58, and all seven
+normal commit hooks pass. The Function/NNX state adapter has independent finite
+acceptance: 13 new cases and 45 retained cases pass on each stack. It carries
+real owner state through named Functions while preserving the original sources
+and live controls. The [NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+records the committed checks and separates finite adapter acceptance from
+complete-model work.
+
+The preceding accepted private checkpoint, `bb7a7d76`, adds
 shared-batch normalization, static parameter reshapes and bounded integration
 repairs. The complete primary suite, focused checks on both stacks and all
 seven actual commit hooks pass, with independent acceptance. The
@@ -31,12 +40,16 @@ controls and state, selected static normalization, and reviewed Dropout
 naming/restoration repairs; its [accepted evidence](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retains its original scope.
 
-All original default LayerNorm rows now have finite acceptance. The remaining
-18 nondefault-option rows / 36 cells and complete Functions014/015 models remain
-open. Isolated model exploration failed first at NNX state handling; the next
-generic state adapter is being implemented externally. Public behavior remains
-LEGACY until the full B–F gates pass, including existing-functionality coverage
-and fixed-source preparation.
+All original default LayerNorm rows retain their finite acceptance. The
+18 nondefault-option rows / 36 cells remain open: the separate external options
+run stops at a contradictory eager/JIT zero-sign reference, without a target
+waiver. A completed native-only survey identifies the exact six affected
+row/context configurations; the bounded reference qualifier and target checks
+remain open. Replaying the six original Functions014/015 cells now passes the NNX
+state boundary and records the next `dot_general` implementation gap. These are
+barrier observations with no model target execution; exact GELU/erfc has not yet
+been reached. Public behavior remains LEGACY until the full B–F gates pass,
+including all existing functionality and general fixed-source preparation.
 
 The [experiment index](poc/README.md) links preceding canonical results,
 including their original failures, numerical criteria and limits.

@@ -16,6 +16,7 @@ is available. These experiments inform the
 | [Fixed-source preparation](fixed_source_preparation.py) | Can an explicit pretrace choice change one fixed cast while preserving protected work and actual weights? | [Preparation findings](fixed_source_preparation_findings.md): portable finite proof, distinct native references, two exact target witnesses and retained profile barriers. |
 | [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
 | Original MLP state and bounded normalization | Do original model controls, explicit state and native normalization survive the private pipeline? | [Current acceptance](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance): finite CPU model/state evidence, permanent regression and the actual exported-body proof limit. |
+| Named NNX Function state | Can original trace-local owner updates survive named calls and unblock unchanged models? | [NNX findings](source_integration_findings.md#nnx-function-state-checkpoint): 13 new and 45 retained cases pass per stack; original-model exploration reaches the measured matrix barrier with no target execution. The code checkpoint `437d41fe`, complete 9,557-test primary suite, secondary 58-case selection and all seven normal hooks pass. |
 | Shared-batch normalization | Do the original default LayerNorm rows retain their shapes, parameters, opsets and numerical contract? | [Current findings](source_integration_findings.md#shared-batch-normalization-checkpoint): accepted finite checks and code checkpoint `bb7a7d76`; retained failed epochs and remaining family/model work. |
 | [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
@@ -35,13 +36,25 @@ is available. These experiments inform the
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-Latest accepted code checkpoint `bb7a7d76` adds shared-batch normalization,
+Latest accepted private checkpoint: `437d41fe`; the complete primary suite
+passes 9,557 tests, the secondary selection passes 58 and all seven normal
+commit hooks pass. The [NNX findings](source_integration_findings.md#nnx-function-state-checkpoint)
+record independently accepted state-adapter cases, preserved original recipes,
+the observed next matrix gap and the separate failed options experiment.
+The latter does not change this NNX-only code checkpoint or accept the remaining
+18 nondefault LayerNorm rows / 36 cells. The separate native-only survey is
+complete, with six of 60 row/context configurations showing opposite zero signs;
+reference qualification and target validation remain open. Exact GELU/erfc is still unobserved in
+the original-model follow-through.
+
+The preceding accepted code checkpoint `bb7a7d76` adds shared-batch normalization,
 static parameter reshapes and bounded integration repairs. The complete primary
 suite, repaired focused checks on both stacks and all seven actual commit hooks
 pass, with independent acceptance. The
 [current findings](source_integration_findings.md#shared-batch-normalization-checkpoint)
-retain the finite scope, failed epochs and separate failed isolated model
-exploration. Remaining LayerNorm options and complete Function models stay open.
+retain the finite scope and failed epochs, including the first isolated model
+exploration. Its later progress is recorded above; remaining LayerNorm options
+and complete Function models stay open.
 
 The preceding [MLP and normalization findings](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
 retain the accepted finite model/state matrix and actual exported-body proof

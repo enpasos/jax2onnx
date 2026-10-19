@@ -22,15 +22,26 @@ support for every model or deployment target. The
 [technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retain the evidence and earlier failures.
 
-The latest private checkpoint, `bb7a7d76`, also preserves the tested original
+The preceding private checkpoint, `bb7a7d76`, preserves the tested original
 LayerNorm cases with variable batch sizes and their parameter reshapes. The
 complete primary suite, repaired focused checks on both stacks and actual
 commit hooks pass, with independent acceptance. The
 [technical record](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-keeps these finite results and earlier failures distinct. Remaining LayerNorm
-options and complete Function models still need implementation and acceptance;
-the first isolated model attempt exposed an NNX state-handling gap. Public
-behavior stays LEGACY until the full migration gates pass.
+keeps these finite results and earlier failures distinct.
+
+The accepted private checkpoint, `437d41fe`, preserves state changes through
+the tested NNX named-function calls. Its finite checks pass on both supported
+stacks; the complete primary suite and normal commit checks also pass. The original
+models keep their code, parameters, defaults and runtime controls. Replaying
+the complete Function examples now reaches a matrix-conversion gap, so those
+models still have no accepted target execution. Other LayerNorm options also
+remain open after a test found different zero signs in the native eager and
+compiled references. A separate native-only survey now identifies the affected
+cases on both supported stacks; the target checks still need to pass. These
+results introduce no new public export option.
+Public behavior stays LEGACY until the full migration gates pass. See the
+[NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+for the exact evidence and remaining work.
 
 ## Choosing the Export Setting
 

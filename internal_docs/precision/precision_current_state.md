@@ -11,7 +11,17 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-Latest accepted private checkpoint, 2026-10-19: `bb7a7d76` adds shared-batch
+Latest accepted private code checkpoint: `437d41fe`. The complete primary suite
+passes 9,557 tests, the secondary integration selection passes 58, and all seven
+normal commit hooks pass. The Function/NNX adapter has independently accepted
+13 new and 45 retained cases on each supported stack. It explicitly carries
+trace-local owner state through the shared named-Function path, including
+updates, alias checks, RNG-key handling and failure restoration. Original model
+code, decorators, defaults and parameters remain unchanged. The
+[NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+record the finite restrictions, type-only follow-up and completed commit gates.
+
+The preceding accepted private checkpoint, `bb7a7d76`, adds shared-batch
 normalization, static parameter reshapes and bounded integration repairs.
 The complete primary suite passes 9,544 tests; the repaired focused selection
 passes 172 on each stack. All seven actual commit hooks pass, with independent
@@ -25,10 +35,15 @@ preparation results: 9,296 primary-full tests, 1,052 secondary affected-area
 tests and 101 finite runtime cases per stack. See its
 [acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result).
 
-Public behavior remains LEGACY. The remaining 18 nondefault LayerNorm rows /
-36 cells, complete Functions014/015 and the full B–F migration remain open.
-Separate isolated model exploration failed first at Function/NNX state handling;
-a generic named-state adapter is being implemented externally. The
+Public behavior remains LEGACY. The 18 nondefault LayerNorm rows / 36 cells
+remain open after the separate external selection failed on a native eager/JIT
+zero-sign conflict. The completed native-only survey bounds that disagreement
+to six of 60 row/context configurations on each stack; its reference qualifier
+and target acceptance remain open. The six original Functions014/015 cells now reach an
+observed matrix-profile gap, with no model ONNX artifact or target execution.
+The earlier NNX trace-state failure remains recorded history. Full model
+acceptance, whole-carrier JIT, general fixed-source preparation and B–F remain
+open; exact GELU/erfc is still unobserved in these model runs. The
 [experiment index](poc/README.md) retains preceding results and failed epochs.
 
 For observable behavior and export choices, read the

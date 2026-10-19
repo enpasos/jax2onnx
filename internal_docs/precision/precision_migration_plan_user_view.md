@@ -20,14 +20,23 @@ preparation on both supported stacks. The preceding checkpoint's
 [technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
 retain those finite results and earlier failures.
 
-The latest checkpoint, `bb7a7d76`, extends this to the tested original LayerNorm
+The preceding checkpoint, `bb7a7d76`, extends this to the tested original LayerNorm
 cases with variable batch sizes and their parameter reshapes. The complete
 primary suite, repaired focused checks on both stacks and actual commit hooks
 pass, with independent acceptance. The
 [current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-record that scope and every failed epoch. Remaining LayerNorm options and
-complete Function models still need work; their first isolated attempt exposed
-an NNX state-handling gap. The full normal-call contract and support for fixed
+record that scope and every failed epoch.
+
+The accepted private checkpoint, `437d41fe`, preserves the tested NNX state
+changes through named-function calls. Finite checks pass on both supported
+stacks; the complete primary suite and normal commit checks also pass. The unchanged Function
+examples now reach a matrix-conversion gap, so their complete target behavior
+still needs implementation and acceptance. Remaining LayerNorm options also
+need work after a native eager/compiled reference disagreement. A complete
+native-only survey identifies the affected cases; the target checks and bounded
+reference qualification remain open. The
+[NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint)
+explain these boundaries. The full normal-call contract and support for fixed
 third-party sources remain required before the public transition.
 
 This document explains how someone exporting models would prepare for and
@@ -180,10 +189,12 @@ The original NNX/Linen MLPs now have finite model/state acceptance. The current
 normalization work must retain all twelve original default LayerNorm rows,
 including their parameter reshapes, dynamic batch sizes and declared ONNX
 versions. Eighteen rows with nondefault normalization options remain required
-implementation work. The complete Functions014/015 models follow; a prepared
-test candidate failed its first isolated case on both stacks while tracing
-NNX state, before an export was produced. That state-handling gap is the next
-investigation; model acceptance remains open.
+implementation work. The new NNX adapter preserves the tested state changes
+without rewriting the model. All six original Function-example scenarios now
+reach the next matrix-conversion gap, but no complete model has accepted target
+execution from that exploration. The earlier state-tracing failure remains in
+the record. Keep the original models, numerical requirements and live controls
+while resolving the next gap and the separate LayerNorm-reference conflict.
 Each declared runtime flag must remain live through one
 artifact, including variable batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution

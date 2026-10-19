@@ -3,18 +3,199 @@
 Local implementation and review, updated 2026-10-19, beyond `main` at `fae17822`.
 The converter has a private SOURCE policy. Public options and legacy defaults
 retain their meanings; no public source mode or release is established.
-Latest code checkpoint `bb7a7d76` has independently accepted primary-full,
-dual-stack focused and finite runtime results, with all seven actual commit
-hooks passing. The preceding `7d74a200` acceptance retains its original scope.
-The record distinguishes accepted scopes from earlier failures and the open
-full migration. Known runtime rounding failures remain separate failed
-numerical acceptance cases.
+The accepted NNX-only code checkpoint is `437d41fe`, with completed integration
+and normal commit checks. The finite adapter results, original-model barrier
+observations and separate native-reference survey are recorded below. The preceding `bb7a7d76`
+and `7d74a200` checkpoints retain their original acceptance and failed epochs.
+Known runtime rounding failures remain separate failed numerical cases.
+
+## NNX Function state checkpoint
+
+Accepted checkpoint, 2026-10-19: **`437d41fe`**, parent `b4a5a7ff`. Independent
+review accepts the exact committed v10 sources and actual final integration
+results. The isolated v9 adapter evidence also remains accepted on both supported
+stacks: **13 new cases and 45 retained cases pass per stack**. The options
+and matrix candidates are separate external work and are not part of this
+NNX-only checkpoint. Public behavior remains LEGACY until the full B–F gates
+pass across all existing functionality and fixed third-party sources.
+
+The [shared Function state ports](../../../jax2onnx/plugins/_source_function_state.py)
+and [NNX adapter](../../../jax2onnx/plugins/flax/nnx/_source_function_state.py)
+carry real numeric owner state through named calls. Abstract evaluation, the
+primitive implementation and delayed body tracing use the same pure state-call
+descriptor. The implementation retains fixed topology, state types and actual
+update/alias effects, and restores owner values, variable identities and aliases
+on failure. Mutable owners must belong to the current trace; external preparation
+uses the real NNX graph and state. Original source, decorators, defaults,
+parameters and live controls remain unchanged. Forwarded-key wrapper handling
+is a primitive-boundary alias proof, not a claim of original eager Python object
+identity. General fixed-source preparation and whole-carrier JIT remain open.
+
+The [new regression module](../../../tests/extra_tests/converter/test_source_nnx_function_state.py)
+has ten functions / 13 cases, covering actual state feedback/reset, non-RNG
+updates, multiple owners and aliases, native/source/legacy interleaving,
+key-reuse rejection, local debug-context restoration and failure rollback.
+Its three positive target cases produce **three artifacts, six CPU sessions and
+48 runs per stack** under the local test assertions. The separate 45 retained
+cases save 50 ONNX files and 96 target-array files per stack. Saved-file counts
+corroborate local evidence; they are not process-wide runtime instrumentation.
+The earlier adapter failures remain preserved. The final test correction removes
+observer-induced key consumption and repairs iterator/capture handling while
+retaining the existing model calls, negative checks and numerical criteria.
+
+The preceding v9 complete primary suite passes 9,557 tests, retaining all
+9,544 predecessor identities, but four typing errors keep its quality gate open.
+V10 adds only one local NumPy Boolean-array annotation and three
+`typing.cast` identity wrappers in two files. Independent normalized-AST review
+accepts that type-only delta; the test, model, metadata and numerical criteria
+are byte-identical to v9. Its external shadow mypy run passes for 545 files.
+Those v9 runtime results retain their original provenance. On applied v10,
+normal typing now passes for 545 files plus the RNG report, and pinned Ruff and
+Black pass. A fresh secondary selection passes all 58 cases (13 new + 45
+retained), with 174 phases and no failures, errors or skips. All 885 pinned
+Python files, 57 extra inputs and the NNX inventory hold. The fresh v10 complete
+primary suite passes **9,557 tests / 28,671 phases**, with four identical worker
+collections and the same test-identity multiset as v9. No failures, errors or
+skips occur. All seven installed normal commit hooks pass without source drift.
+The local commit contains exactly the five reviewed source/test files and the
+manual inventory; the working tree is clean. No push or publication is recorded.
+
+The NNX-only inventory is **230 files, 1,500 functions and 748 migration
+additions**, SHA-256
+`828861f49a83aa74a188ffffb7d4cecc034095735c240848694f39c3aa8d2327`.
+All 752 original manual anchors, all 1,490 predecessor function identities,
+1,802 raw rows / 3,604 caller-x64 cells and all 63 opaque records are retained.
+The separate normalization-options inventory is not transferred by this checkpoint.
+
+| Final code-checkpoint gate | Actual independently checked result |
+| --- | --- |
+| Actual commit and parent | `437d41fefa0698532925916742452e7214991001`, parent `b4a5a7ff53f2e0689a490d2ff9fa57eb2669577c`; exact six paths, clean working tree |
+| Complete primary suite | 9,557 pass = 9,544 retained + 13 new; 28,671 phases, four equal collections, no failures/errors/skips |
+| Secondary 13 + 45 integration selection | Actual v10: 58 pass, 174 phases, no failures/errors/skips; this is not a full-secondary run |
+| Applied typing, RNG and standalone quality | Actual v10: normal typing for 545 files plus RNG, pinned Ruff and Black pass |
+| Seven normal commit hooks | All seven pass on the committed postimages; no bypass or fix drift |
+| Exact committed-source independent closeout | ACCEPT; exact six postimages, 885 Python / 57 extra pins, test identities, actual terminal results and hooks verified |
+
+### Original models now reach the matrix barrier
+
+The unchanged Functions014 ordinal 0/1 and Functions015 ordinal 0, each with
+caller x64 off/on, now complete **six barrier-exploration checks per stack**.
+They retain their original FP32 recipes, fixed B=5 or declared symbolic B=2/5,
+one factory instance per cell, both live Dropout sites and the original
+LayerNorm → Linear → exact GELU → Dropout → Linear → Dropout composition.
+Caller x64-on is not evidence of an FP64 model.
+
+Each stack records 20 native-reference groups over original eager, original
+NNX JIT, prepared eager and prepared JIT, with T/F/F/T controls. Eight source
+boundary observations now identify the actual `dot_general` ordinary/equal-rank
+matrix-profile exclusion. Every model record remains
+`OPEN_FIRST_MATRIX_BARRIER`: no model ONNX artifact, no target numerical
+acceptance, and zero explicit ORT constructor/run guard attempts. The existing
+live-Boolean preparation prerequisites remain recorded. The earlier first-cell
+`TraceContextError` is retained history, while the matrix gap is now observed
+implementation work rather than a prediction or an ONNX impossibility.
+The matrix candidate remains external. Independent static review authorizes
+44 focused cases on an exact NNX-v10/options-v2/matrix snapshot. The later
+actual run on each stack passes eight direct cases, fails the ninth and leaves
+35 unexecuted. Eight artifacts, 16 CPU sessions and 36 target runs are recorded.
+The first named NNX conditional fails during activated eager execution because
+the custom SOURCE Function primitive has no JAX CPU MLIR lowering; that named
+case reaches neither export nor target execution. This is the previously
+recorded private whole-carrier execution gap, not an observed tensor-matrix
+lowering failure or an ONNX impossibility. A test-only successor is being
+prepared to check the actual exported body and ordinary execution after patch
+restoration, retaining exact original references and the separate unresolved
+whole-carrier obligation. The 44-case selection remains unaccepted. Its oracle/probe postimages require the options-v2
+preimages and cannot be applied directly to the NNX-only checkpoint. That finite
+experimental union does not accept any options row. Replay the same original
+models after matrix validation; exact GELU/erfc has not yet been reached in this
+exploration. The temporary matrix scope is not a final public rank or type limit.
+
+### Nondefault LayerNorm options remain open
+
+The external options-v2 candidate has static acceptance only. Its actual run
+collects 124 cases on each stack, executes 17, passes 16, fails one and leaves
+107 unexecuted. The failed cell is Linen LayerNorm ordinal 3,
+`raw-x64-off`, with its original default epsilon. Saved B=2/5 signed-zero/NaN
+inputs give positive zero in native eager and disabled-optimization ORT but
+negative zero in fresh JIT at the same recorded positions. Independent review
+confirms contradictory native reference signs; it does not establish a lowering
+limit or authorize a target waiver. The failed cell never reaches ORT's `all`
+optimization setting, and that row's caller-x64-on target case remains
+unexecuted in this failed options epoch.
+
+The first seven new-option cell receipts and 16 passing prefix tests do not
+accept the 124-case selection or the 18 remaining rows / 36 cells. Original
+source/defaults/parameters, raw comparison criteria, target zero requirements
+and strict typed-dataflow checks remain in force. No matrix, options or
+complete-model acceptance is included in the NNX code commit.
+
+### Completed native-only reference survey
+
+The separate survey completes all **30 original rows × both caller-x64 settings
+= 60 cells on each stack**, with unchanged source recipes, preparation and native
+reference helpers. Each stack records **384 references in four roles = 1,536
+helper-level model evaluations**, 120 completed tracing sites, 44 factory
+instantiations and 16 cells retaining their original Equinox owners. The four
+roles are original eager/fresh JIT and activated eager/fresh JIT. All source and
+framework pins and import-origin checks hold; all export/ORT guards remain
+unattempted. These counts describe the explicitly observed helper sites, not
+process-wide instrumentation.
+
+Independent inspection verifies every cell receipt, native/mask NPZ hash,
+shape, dtype, mask and zero word on both stacks. All original/activated typed
+traces match. The two stacks have the same 384 native NPZ payloads and exactly
+**six conflicting configurations / 48 opposite-zero-sign positions per stack**:
+Linen ordinal 3 and NNX ordinals 7 and 8, each under caller x64 off and on. Each
+configuration has two positions in the B=2 signed-zero/NaN sample and six in B=5.
+Every conflict is native eager `+0` versus fresh JIT `-0`, with FP32 outputs.
+The other 54 configurations have no zero-sign conflicts. There are no dtype,
+shape, NaN, signed-infinity, finite-mask or zero-versus-nonzero disagreements.
+The 6,798 other finite-value differences per stack satisfy the unchanged dtype
+bounds and available original raw tolerances in both directions. The survey
+does not prove the compiler transformation responsible for the zero signs.
+
+The reviewed test-only qualifier plan requires **exact eager zero words
+everywhere**. Exact JIT zero words remain required outside the literal
+pretarget-proven contradictory masks. Before export, each mask must match the
+original row/contract, actual caller setting, sample label, input bytes, shape,
+indices and both native words; unexpected, missing, reversed or nonzero
+conflicts fail. Target values cannot select or broaden the mask, and a target
+`-0` at a qualified point still fails the eager `+0` requirement. Existing raw
+tolerances and all dtype/shape/NaN/infinity/finite checks remain unchanged for
+both references. This resolves an impossible simultaneous native bit oracle
+without weakening the target's exact eager-zero obligation. The external
+qualifier implementation and complete options target selection still require
+review and runtime acceptance; the native survey provides neither.
+
+| Evidence scope | Local receipt | SHA-256 |
+| --- | --- | --- |
+| Actual v9 adapter 13, both stacks | `/tmp/jax2onnx-nnx-function-state-isolated-v8/root-v9-actual-dual13-pass.json` | `5400ee8eb6408d647970f1455cf5409fee8d5d1819e50b70f8b436eab871449c` |
+| Actual v9 retained 45, both stacks | `/tmp/jax2onnx-nnx-function-state-isolated-v8/retained45/root-v9-actual-dual45-pass.json` | `e6983c144dec9f7fcb98c8365d4b5d1a865a116a6bf51315f729484287e1e5ae` |
+| Actual six-model barrier exploration, both stacks | `/tmp/jax2onnx-shared-b-model-isolated-v2/attempt2/root-actual-dual6-matrix-barrier.json` | `2272f00cde464b9165170d37fd1955ecddb15a1fb6d6c0070b68d488394e7f20` |
+| Independent finite adapter / model-barrier acceptance | `/tmp/jax2onnx-nnx-function-state-astra-review-v9/actual-verification.json` | `48b4f5dbde118b5cd160ef160bc8a917c1c0a06801f258d8553feae7f1a1ce80` |
+| V10 type-only delta review | `/tmp/jax2onnx-nnx-function-state-astra-review-v10.json` | `7bd6fc2eb4edb03e4d8386dc81d12c5b7e29e9bf4332a729525a7befd127b72c` |
+| V9 complete primary, typing gate still open at that epoch | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v1/root-v9-full9557-pass.json` | `825771355ebba936b11d1768c7b20acaacbb004a7b39e80210928f4209486607` |
+| Actual v10 normal quality and secondary 58 | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-quality-and-secondary58-pass.json` | `14d9b486b3fb9f836d0dea6464c722fa5cdd5db8f44b5084abb2fb8d8d3b19ef` |
+| Native zero-sign conflict; options acceptance still open | `/tmp/jax2onnx-normalization-options-zero-reference-astra-v1.json` | `0819a74e1dbb99cc55ef01473ca238b70fd501dcfad56777dd9ef372c16071e2` |
+| Actual final v10 complete primary and secondary/quality evidence | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-full9557-quality-secondary58-pass.json` | `e81206757e0fa77e44b88ccaf98641934da1ec93300e254884a7eb454559af5a` |
+| Actual NNX-only code commit and seven normal hooks | `/tmp/jax2onnx-nnx-function-state-MAIN-integration-v2/root-v10-checkpoint-committed.json` | `c12991adb657211cd1956b12699a33067117a6e369941a44e03499f47e79e2b7` |
+| Independent exact committed-source acceptance | `/tmp/jax2onnx-nnx-function-state-astra-committed-review-v10.json` | `54e02cffd4e675631f08bf8919db6965f68c0bb65d0876f47f29a293830138fb` |
+| Independent complete dual-stack native survey acceptance | `/tmp/jax2onnx-layernorm-native-reference-astra-actual-review-v1.json` | `e7af7be4aefa6f9804b09e6ef0b1a9a1469b81b4b6979f177eb115d8b5bf1e74` |
+| Complete native reference/mask/word and criterion audit | `/tmp/jax2onnx-layernorm-native-reference-astra-data-audit-v1.json` | `f5850ce870a75fecbbc4e684b201b0e3a1bd5a1a181012f5235cb02a19ec670c` |
+| Bounded pretarget native-zero qualifier plan; implementation open | `/tmp/jax2onnx-layernorm-zero-oracle-astra-plan-v1.md` | `15f7a1b4ce58552cd08b373eede82f22a38404c7bb973e30d1d1e32b54310aa8` |
+| Matrix static acceptance for finite isolated runtime; no runtime result | `/tmp/jax2onnx-source-tensor-matrix-astra-review-v1.json` | `28f112df624fb864d8367903765419925abf612bc1f5d85d732136602ccc17c6` |
+| Later actual matrix prefix: eight pass, named activated call fails; 35 unexecuted | `/tmp/jax2onnx-source-tensor-matrix-isolated-v1/root-actual-dual-matrix44-first-failure.json` | `8c56093dfb45f23b2b27fb754040f5ed286f988349f5cee6d2ba8374b6dc6442` |
+
+Local evidence paths are provenance, not tracked code dependencies. The committed
+NNX result, the completed native survey and the unaccepted options/matrix target
+work retain their separate scopes.
 
 <a id="shared-batch-normalization-work-in-progress"></a>
 
 ## Shared-batch normalization checkpoint
 
-Current outcome, 2026-10-19: code checkpoint **`bb7a7d76` is independently
+Outcome at this preceding checkpoint, 2026-10-19: **`bb7a7d76` is independently
 accepted**. The complete primary suite passes **9,544 tests**, the repaired
 focused selection passes **172 tests on each stack**, and all seven actual
 commit hooks pass. The independently accepted **124-case finite selection on
@@ -104,7 +285,7 @@ Configured typing also passes for 543 files plus RNG (`3431/97ec8a`, exit 0),
 with the source freeze unchanged. All seven installed commit hooks later pass
 on the exact committed code, as recorded below.
 
-The independently reviewed manual inventory is now applied: **229 files,
+The independently reviewed manual inventory at this checkpoint is **229 files,
 1,490 functions and 738 migration additions**, SHA-256
 `5603f7a37bcbd461dfc9f60d65bdd202afc253ee43a909438cc1acccacd4a05d`.
 All 752 original anchors and all 1,460 preceding function identities are
@@ -163,25 +344,23 @@ All **12 original default LayerNorm rows / 24 raw x64 cells** have finite accept
 including NNX row 13 and all six original opset-16 cells. The remaining
 18 nondefault-option rows / 36 cells are explicit implementation work. Original
 model recipes and numerical criteria, the 1,802 raw rows / 3,604 cells and all
-63 opaque records remain unchanged. Full Functions014/015 follow-through is
-next. Its statically reviewed external test candidate was executed only in an
-isolated worktree, using the exact current 882-file source snapshot plus the
-two accepted candidate files. Both exploratory runs fail their first case:
-six cases collected, one executed and five unexecuted per stack, with no retry,
-completed cell receipt, returned ONNX artifact or ORT execution. First-cell
-original/prepared eager/JIT references completed the zero/nonzero T/F/F/T
-sequences before the facade failed; this is not six-cell coverage.
+63 opaque records remain unchanged. At this checkpoint, full Functions014/015
+follow-through was next. Its external test candidate ran only in an isolated
+worktree, using the then-current 882-file source snapshot plus two accepted
+candidate files. Both exploratory runs failed their first case: six collected,
+one executed and five unexecuted per stack, with no retry, completed cell
+receipt, returned ONNX artifact or ORT execution. First-cell original/prepared
+eager/JIT references completed the zero/nonzero T/F/F/T sequences before the
+facade failed; this did not establish six-cell coverage.
 
-The observed blocker precedes the predicted matrix gap: Flax raises
-`TraceContextError` when `FunctionPlugin` calls `jax.eval_shape` and the original
-nested MLP's `dropout1` attempts to mutate `RngCount` from another trace level.
-Sol is implementing a generic Function/NNX named-state adapter externally,
-before matrix or erfc work. No adapter repair has been transferred to MAIN or
-accepted at runtime. Those later gaps remain predicted, not observed
-failures or demonstrated ONNX limits in this exploration. Imports were guarded
-to the isolated worktree, MAIN remained unchanged, and no model tests were
-transferred. This failed exploration establishes no model acceptance and is
-separate from the shared-batch code checkpoint.
+The first observed blocker was Flax `TraceContextError`: `FunctionPlugin` called
+`jax.eval_shape` and the original nested MLP's `dropout1` attempted to mutate
+`RngCount` from another trace level. The generic Function/NNX adapter was then
+external work, and neither the predicted matrix gap nor erfc had been reached.
+Imports were guarded to that worktree, MAIN remained unchanged and no model
+tests were transferred. This failed exploration remains preserved; the later
+[NNX checkpoint](#nnx-function-state-checkpoint) records the accepted adapter and
+six-cell matrix-barrier observations without turning them into model acceptance.
 
 | Evidence scope | Local receipt | SHA-256 |
 | --- | --- | --- |
