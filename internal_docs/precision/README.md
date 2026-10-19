@@ -19,6 +19,14 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+preserves original NNX, Linen and Equinox LayerNorm calls under the private
+SOURCE policy, including their native `jnp.mean` calls. Independent review accepts
+this forwarding step. The committed code still encounters the audited profile's
+`square` barrier; complete-model export, runtime and numerical acceptance remain
+open. The separate MLP work remains outside MAIN. Current integration validation
+is recorded once in the linked findings.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 removes the private facade's blanket parameter exclusion. Positional and named
 values now share actual typed root arguments, native signature binding, symbolic

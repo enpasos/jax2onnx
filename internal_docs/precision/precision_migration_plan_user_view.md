@@ -14,13 +14,23 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+advances that plan by preserving the original tested NNX, Linen and Equinox
+LayerNorm calculations and their mean. Comparisons with ordinary and freshly
+compiled JAX execution pass on both supported stacks, retaining the earlier
+Equinox regressions. Independent review accepts the forwarding, integration and
+regression checks, and the code is committed. Complete LayerNorm model export
+still stops at `square`; running those exported models and checking their
+numerical results remain open. The linked findings record the validation details.
+The unchanged MLP work remains a separate pending step.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 lets the private migration path trace declared keyword values as real inputs
 through the whole calculation. Selected examples retain the same model artifact
 when the batch size or Boolean control changes. This removes a shared parameter
 guard; complete model support still depends on the operations and state used by
-each model. The unchanged NNX and Linen MLPs now reach their actual normalization
-or Dense barriers, and GPT reaches Dropout.
+each model. At that checkpoint, the unchanged NNX and Linen MLPs reached their
+normalization or Dense barriers, and GPT reached Dropout.
 
 The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
 separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives

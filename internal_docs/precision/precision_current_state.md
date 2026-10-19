@@ -11,6 +11,20 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+preserves the original calls for NNX, Linen and Equinox under the private SOURCE
+policy. SOURCE now reaches native normalization and reduction before the legacy
+wrappers can cast inputs, select axes or replace the computation. A retained NNX
+witness with FP32 inputs and FP16 affine parameters demonstrates the benefit:
+the original computation promotes those parameters to FP32; the old wrapper
+instead narrowed the input to FP16. The new activated trace matches the original.
+
+This is independently accepted forwarding, with no new profile admission or
+public API behavior. Actual default SOURCE LayerNorm exports still stop at `square`, so
+LayerNorm-containing model export, runtime and numerical acceptance remain open.
+The separate MLP implementation remains outside MAIN. The linked findings retain
+the full evidence and current integration-validation status.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 removes the private facade's blanket parameter exclusion. Positional and named
 values now share actual typed root arguments, native signature binding, symbolic
@@ -576,7 +590,7 @@ outputs would miss an existing requirement.
 ## Numerical Accuracy Already Has Local Policies
 
 Storage dtype, operation dtype, and accumulator precision are distinct. The
-specialized explicit LayerNorm lowering already widens selected internal
+specialized explicit LEGACY LayerNorm lowering already widens selected internal
 work independently of `enable_double_precision`: FP16/BF16 statistics use
 FP32, and the FP32 slow-variance reduction accumulates squared centered values
 in FP64 before rounding the variance to FP32. The remaining FP32 statistics
@@ -590,6 +604,12 @@ fixed bounds cover specified FP32 cases, inputs, opset, runtime provider, and
 optimization settings. They provide no general guarantee of bitwise equality,
 universal improvement from widening, or equivalent bounds for every
 normalization family.
+
+The private SOURCE forwarding checkpoint preserves the actual framework's
+normalization choices instead of selecting this legacy algorithm. Native
+trace/eager/JIT equality establishes that interception behavior; it does not
+transfer the legacy ONNX sample bounds to SOURCE or certify an exported
+LayerNorm-containing model.
 
 ## What the Precision PoCs Establish
 

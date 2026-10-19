@@ -13,13 +13,24 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+preserves the original tested NNX, Linen and Equinox LayerNorm calculations,
+including the mean they use. One retained example shows the practical benefit:
+FP32 inputs with FP16 parameters keep the original FP32 calculation instead of
+being narrowed by the exporter. Comparisons with ordinary and freshly compiled
+JAX execution pass on both supported stacks. Independent review accepts the
+integration and regression tests, and the code is committed. Complete LayerNorm
+model export still stops at `square`, so running those exported models and
+checking their numerical results remain unfinished. The linked findings record
+the validation details. The separate MLP work remains pending.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 lets the private migration path trace declared keyword values as real inputs
 through the whole calculation. Selected examples retain the same model artifact
 when the batch size or Boolean control changes. This removes a shared parameter
 guard; complete model support still depends on the operations and state used by
-each model. The unchanged NNX and Linen MLPs now reach their actual normalization
-or Dense barriers, and GPT reaches Dropout.
+each model. At that checkpoint, the unchanged NNX and Linen MLPs reached their
+normalization or Dense barriers, and GPT reached Dropout.
 
 The [preparation PoC](poc/fixed_source_preparation_findings.md) demonstrates a
 separate choice: explicitly changing one fixed FP32 cast before JAX tracing gives
@@ -45,8 +56,10 @@ integrated; both runtime choices and actual state/randomness remain required
 parts of its acceptance.
 
 Public export calls and both existing double-precision options keep their
-behavior. The full transition still requires unchanged model sources, working
-runtime controls and state, and compatible precision preparation. The preceding
+behavior. The final transition requires one ordinary `to_onnx(...)` call that
+preserves the JAX calculation across all existing functionality, including
+runtime controls and state. Fixed model sources must remain usable through
+explicit external JAX configuration or preparation. The preceding
 [Typed results](poc/typed_values_and_masks_findings.md), including their retained
 numerical failures, are unchanged.
 

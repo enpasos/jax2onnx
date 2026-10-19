@@ -4,6 +4,16 @@ Status: accepted implementation contract, 2026-10-18. Completion means consisten
 source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
+
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+has independent native-forwarding acceptance and is committed to MAIN.
+It preserves original calls across NNX, Linen and Equinox without admitting new
+operations. Complete default SOURCE LayerNorm exports still encounter `square`; original
+Functions014/015 and all other model/runtime/numerical gates remain open. Keep
+this checkpoint separate from the MLP implementation outside MAIN. Accepted
+integration, full-suite and actual code-hook/commit receipts are recorded in the
+linked findings.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 removes the private facade's blanket parameter exclusion. Positional and named
 values now share actual typed root arguments, native signature binding, symbolic
@@ -792,8 +802,9 @@ The exact floating-selection repair and strict Gather tooling are committed as
 retained failures are recorded in the
 [selection findings](poc/source_integration_findings.md#exact-floating-selection).
 
-Next implement the unchanged NNX MLP's BatchNorm → Dropout → GELU chain and
-Linen Dense/counterparts. Preserve original dimensions, weights, positive rates,
+The separate MLP work continues through the unchanged NNX BatchNorm → Dropout →
+GELU chain and Linen Dense/counterparts. Preserve original dimensions, weights,
+positive rates,
 running statistics, actual GELU approximation and precision/accumulation choices.
 NNX/Linen SOURCE interception must expose native computations, not exporter
 identity stand-ins. A pure whole-model wrapper must make actual state/RNG
@@ -809,6 +820,16 @@ no universal bitwise random-stream guarantee is added. Leave unresolved
 model-specific criteria unverified without blocking correct shared binding.
 Independent code, sample, actual-main and release checks remain separate gates.
 
+The independently accepted LayerNorm/mean forwarding step exposes the native
+operations needed by Functions014/015. It does not close those models. After
+separate MLP acceptance and integration, use its exact reviewed prerequisites
+and map the actual remaining normalization graph. Add the missing native
+operation support with its own evidence; do not bypass validation or classify
+unfinished `square`/`rsqrt` support as an ONNX impossibility. Preserve the complete
+original LayerNorm → Linear → exact GELU → Dropout → Linear → Dropout composition,
+parameters, dimensions, decorators and both live Dropout sites. Retain static
+Function014 B=5 and the original symbolic B contracts, with the same symbolic
+artifacts exercised at B=2/5, before requesting whole-model acceptance.
 
 C4a is committed at `8a82d510`. Exactly three SOURCE guard removals enable
 recording and web packaging through the existing logger and serializer. Exact

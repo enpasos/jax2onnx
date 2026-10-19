@@ -7,6 +7,14 @@ existing-functionality acceptance matrix and checkpoint ledger. The final normal
 The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
+
+The latest [LayerNorm and mean checkpoint](poc/source_integration_findings.md#layernorm-and-mean-native-forwarding)
+adds independently accepted native forwarding for NNX, Linen and Equinox to the
+private SOURCE path. It removes a source-interception defect without extending
+the audited profile: actual default LayerNorm exports still encounter `square`. Complete
+model acceptance, the separate MLP integration and the public transition remain
+open. The findings bind the committed code to its actual MAIN validation.
+
 The [named runtime-parameter checkpoint](poc/named_runtime_parameters_findings.md)
 removes the private facade's blanket parameter exclusion. Positional and named
 values now share actual typed root arguments, native signature binding, symbolic
@@ -405,13 +413,19 @@ The exact floating-selection repair and strict Gather tooling are committed as
 retained failures are recorded in the
 [selection findings](poc/source_integration_findings.md#exact-floating-selection).
 
-The next coherent implementation follows unchanged NNX MLP ordinal 2 through
+The separate MLP implementation follows unchanged NNX MLP ordinal 2 through
 BatchNorm → Dropout → GELU and its two Linear calls, with Linen Dense and the
 corresponding framework paths. Preserve the original 30/20/10 dimensions,
 seed 17, positive dropout rate 0.1, captured parameters and normalization state.
 Source interception must forward native behavior and admit the resulting actual
 graph; a patched Dropout identity cannot supply the native reference. Function
 examples 014/015 remain separate follow-ons, with 014's fixed dimension intact.
+Their LayerNorm/mean interception prerequisite now has independent forwarding
+acceptance, while default LayerNorm exports still encounter native `square`. After the
+MLP prerequisites are accepted and integrated, inspect the complete unchanged
+models and implement the actual remaining native-operation dependencies without
+bypassing admission. Keep both Dropout sites and the original source contracts;
+forwarding a framework call does not establish its model's export or numerics.
 
 Running-stat BatchNorm inference, GELU's actual approximation choice and each
 operand/accumulation/cast policy need finite FP32/FP64 checks. Dynamic training
@@ -447,6 +461,7 @@ The immediate review follow-ups have reached this checkpoint:
 | Enforce sample acceptance | The committed CPU sample API rejects failed and unverified samples, including the original FP16 square/sum and optimized FP32 reciprocal cases; load/run errors remain distinct. | The gate checks supplied samples. There is no automatic rewrite or model-wide capability database. |
 | Preserve typed representations | Logical/physical descriptors retain actual payloads; the Typed checkpoint adds audited bounded BOOL/integer operations and static complex construction/extraction. Input canonicalization still fails before tracing. | General integer/complex arithmetic, symbolic complex and broader loops remain open; diagnostic and sample results keep their separate status. |
 | Preserve loop semantics | Reviewed SOURCE fori delegation retains original JAX tracing; finite noncomplex and complex while/scan cases retain typed carries, physical channel axes, static extents and empty results. | Broader recursive contracts remain open; the earlier direct-Where negative-zero failure remains recorded under its bitwise criterion; the finite copy-based selection repair does not close broader loop contracts. |
+| Preserve native LayerNorm and mean | Private SOURCE calls the captured originals for NNX, Linen, Equinox and mean before legacy processing; independent review accepts the finite forwarding packet. | Default SOURCE LayerNorm exports still stop at `square`. Functions014/015, complete normalization/model coverage and runtime/numerical acceptance remain open; no public behavior or profile admission changes. |
 | Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | The finite FP16/FP32/FP64 copy-based repair is committed at `778dce3c` after integration, full-suite and hook acceptance; direct-Where history, broader JIT, complex selection and general symbolic shapes remain separate. |
 | Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
 

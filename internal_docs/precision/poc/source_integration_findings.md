@@ -369,3 +369,136 @@ integrated into MAIN, and model runtime/numerical acceptance remains pending.
 | `/tmp/jax2onnx-exact-select-main-full-result-v2.json` | `a05370d277f5e208193085c8a7b8c7b653d0bdc606abf361c0a970cdfa3b3faa` |
 | `/tmp/jax2onnx-exact-select-main-code-checkpoint-v2.json` | `4942d59f8a6da92a97db2af0b67ed734ac766170d5a58d244bf961aa09aec441` |
 | `/tmp/jax2onnx-exact-select-main-code-commit-v2.log` | `2ab88d93bfbae13995435ea6118fb1ec702a19f4c654aa6bd703611980a26db6` |
+
+
+## LayerNorm and mean native forwarding
+
+Independent source/evidence review accepts the finite five-path forwarding
+checkpoint. The three framework LayerNorm wrappers and `jax.numpy.mean` now call
+the captured original exactly once under private SOURCE policy, before legacy
+argument/default processing, input coercion, configuration reads or axis/mask
+handling. Original argument identity, omission, exceptions and signatures remain
+observable. Complete LEGACY bodies, all four registration ASTs, six raw mean
+cases/callbacks, lowerers, abstract evaluation, batching and JVP code are unchanged.
+There is no new profile admission, public API change or public precision mode.
+
+The retained NNX witness has FP32 inputs and FP16 affine parameters. Native JAX
+first promotes the parameters to FP32. Before the repair, the activated wrapper
+instead converted the FP32 input to FP16 and emitted synthetic `nnx.layer_norm`.
+The final full-plugin-world trace matches the original native graph on both
+supported stacks. This is a concrete removal of exporter-imposed narrowing.
+
+Full-world Equinox testing exposed one additional prerequisite: its native
+`reduce_sum → broadcast_in_dim → div` mean was replaced by synthetic
+`jax.numpy.mean`. Forwarding mean through its own captured original repairs that
+interception. The initial suggestion of an independent var/JIT divergence was
+incorrect: complete nested `_var` JIT parameters already matched; only outer SSA
+numbering changed after mean collapsed three equations to one. The retained
+correction addendum supersedes that diagnosis. No var/JIT or profile change is
+part of this checkpoint.
+
+The owner runs pass **127 tests on each supported stack**, retaining all eighteen
+previous full-world Equinox failures: sixteen dtype/affine combinations, the
+weak-scalar/context case and symbolic batch. Sixteen isolated wrapper-only cases
+remain supplemental. The strict-Flax correction compares the actual native
+NNX/Linen `TypePromotionError` and message rather than requiring a native success
+that does not occur. Failed epochs and the five direct-mean pre-repair failures
+per stack remain recorded.
+
+Fresh native-versus-activated comparisons cover typed traces and nested bodies,
+actual constants, eager outputs and fresh-JIT outputs, including exact payload
+bytes. Inputs, parameters and computation dtypes, fast/slow variance, epsilon,
+axes, masks/where, affine options, weak values, contexts, state/key arguments and
+native errors are exercised. State snapshots, five global/effective settings,
+source bytes, LayerNorm/mean callable identities and policy restore. ORT
+constructors and execution entrypoints are denied throughout these owner checks.
+The source-derived phase totals are 132 trace, 129 eager and 129 fresh-JIT pairs,
+including 32 supplemental pairs per phase; these are test contracts, not separate
+observed phase receipts. Separate concrete full-world captures retain three equal
+native/activated traces per stack. Existing LEGACY/IR checks pass 30 cases per
+stack plus all six original mean graph-checker/callback anchors.
+
+The first MAIN focused selection on JAX 0.11.2 retains **696 passes and one
+failure among 697 cases**. The failure is the fixed-source preparation test's
+stale expectation of eight current barriers. Native mean forwarding now exposes
+already admitted reduction/broadcast/division/subtraction operations in all four
+minimum-precision examples. Their FP16/BF16/FP32 inputs produce FP32 outputs;
+FP64 produces FP64, all at shape `[1,4]`. Actual artifacts and representation/
+lowering reports are saved, while runtime lists stay empty and target numerical
+acceptance stays None. Their bitwise native reference criterion is unchanged.
+Only the two protected-sum and two HIGHEST-dot barriers remain in that fresh run.
+The original twelve-export/four-session/four-run schedule still executes only the
+two exact target programs. The independently accepted companion-test repair
+updates only the stale live barrier assertions and adds checks for all four
+admitted artifacts: native traces and references, report contents, tensor-port
+dtypes/shapes, ONNX schema, reload and serialized bytes. Both owner stacks pass
+all eleven existing module cases with unchanged identities. No additional target
+program runs were added. The original failure, the PoC's literal historical eight
+barriers, source programs, inputs, bitwise native criteria and older findings are
+retained. This additional mean export progress does not establish LayerNorm
+export or new runtime/numerical support.
+
+Actual default-audited SOURCE LayerNorm export still stops at these native operations on
+both stacks:
+
+| Framework | Current first barrier |
+| --- | --- |
+| NNX | `square`, equation 2 |
+| Linen | `square`, equation 0 |
+| Equinox | `square`, equation 3 / JIT body / equation 4 |
+
+The profile remains unchanged. These are remaining implementation dependencies,
+not evidence that ONNX cannot represent the models. Original Functions014/015,
+whole-model export, runtime and numerical acceptance remain **UNVERIFIED**. The
+separate MLP implementation remains outside MAIN and requires its own acceptance
+and integration before its prerequisites can be used for those model checks.
+The final goal remains every existing capability through one ordinary call that
+preserves the source computation, including explicit external JAX preparation
+for fixed-source workflows; no permanent public mixture of precision policies
+is introduced.
+
+The five reviewed forwarding/test paths, the existing companion test and the
+manual inventory update form the seven-file MAIN integration committed at
+`ae1d61d1`. Independent review confirms exact accepted postimages across the
+872 Python files and preservation of all 29 precision Markdown files during code
+validation and commit. The inventory contains **221 manual files, 1,385 functions
+and 633 migration additions**. All 1,372 immediate predecessor functions and all
+752 original anchors remain, with no removals. Only the new test module's thirteen
+functions were added. The 1,802 raw rows, 3,604 cells and all nonmanual fields are
+unchanged.
+
+| Frozen evidence | SHA256 |
+| --- | --- |
+| `/tmp/jax2onnx-layer-norm-mean-native-forwarding-candidate-v1/SHA256SUMS.json` | `7f4c06ae23d3763df62b8fe70d712fc53685d35970e9c92a898c9bfda79dd6ca` |
+| `/tmp/jax2onnx-layer-norm-mean-independent-astra-review-v1.md` | `d39f6dd27ab3ee7315ff0aaffd5ebfea6b2e6befd27020e7a637f985b38f293b` |
+| `/tmp/jax2onnx-fixed-preparation-companion-candidate-v1/SHA256SUMS.json` | `ab96037ec0c863f35ed1f2eee42c2952f4defcc09c5a3bb2053dcfa5117dfcd0` |
+| `/tmp/jax2onnx-fixed-preparation-companion-astra-review-v1.md` | `68d4f8b9df06d60e78d5e4077c1c0df0a18e613fee86cb0281675cd2a9e61913` |
+| `/tmp/jax2onnx-layer-norm-main-fixed-preparation-failure-v1.json` | `730b34db1a657d4a4026557b2aa3897dd4696a712ca48022f421c89edc88fcb5` |
+| `/tmp/jax2onnx-layer-norm-main-fixed-preparation-failure-v1-closed/manifest.json` | `4ca7cd73584d583ad3146d270bc75a50e4db0a6f00bc7ef9f2045059f53b177e` |
+| `/tmp/jax2onnx-layer-norm-main-integration-freeze-v2.json` | `3a68ffcac9d352bcf216a120de3d7687ca7977c2bda67a0a64e0ecd90543474b` |
+| `/tmp/jax2onnx-layer-norm-main-focused-dual-v2.json` | `7bcc8b6556e4b91e1b451e8c9e58b74ff0349f5832fe0d8e290c3be0d04707fa` |
+| `/tmp/jax2onnx-layer-norm-main-checks-v2.json` | `8ac37ff456beeb15d9899dd68c9ccb2bc401ecfddd55c3ad3cf729cd335f9ab6` |
+| `/tmp/jax2onnx-layer-norm-main-integration-astra-review-v2.md` | `6a8715c1e1aecf510be20e3c22bbe119521547beb8d888781b848745158ce2c2` |
+| `/tmp/jax2onnx-layer-norm-main-full-result-v2.json` | `1dbbd2fb4ae6de6e80117cb6573de8bd69dc7801f4ae045bbf0f98a814a46678` |
+| `/tmp/jax2onnx-layer-norm-main-full-astra-review-v2.md` | `0036b72cccba01480f30d5c92bbb6c5564e14b030af9d5ede920f10690d2e6e8` |
+| `/tmp/jax2onnx-layer-norm-main-code-checkpoint-v2.json` | `68b6f539fa687bb535d172290cf61a4a5ecd2e84ce02e64de30c26ff6aed8078` |
+| `/tmp/jax2onnx-layer-norm-main-code-commit-v2.log` | `b6d49d1faf06bef9b2d9b42de02a24fef9dfe74701d7af597bc578268c9edaed` |
+
+Validation status: actual MAIN receipts supersede the owner's earlier declared
+Ruff/Black/whitespace successes. After the companion repair, both supported JAX
+stacks pass the same **697 focused tests**, with **2,091 actually observed
+setup/call/teardown reports per stack**. These pytest phases are separate from the
+source-derived native comparison totals above. All 31 watched callable identities,
+five hidden/global and five effective settings, and the precision policy restore;
+21 imports bind each run to MAIN. The refreshed seven quality commands pass:
+global Ruff, configured Black version/check for all six Python files, whitespace,
+configured typing for 542 files plus registered RNG factories, and both inventory
+CLIs. The primary complete suite passes **8,946 unique tests**, retaining all 8,819
+previous identities and all 127 new LayerNorm identities, with no missing,
+unexpected, failed, errored or skipped cases. Its raw log records 13,609 warnings.
+Both the finite integration and actual full-suite result have independent
+acceptance. The original 696-pass/one-failure epoch remains retained. Code commit
+`ae1d61d14b0122c9f1814c813eba3f495c4365e2` follows predecessor `4f088d82`,
+contains exactly the seven accepted paths and completed all seven actual hooks
+without skips or bypass. Its terminal receipt records a clean MAIN worktree and
+unchanged 872 Python, seven checkpoint and 29 Markdown hashes.

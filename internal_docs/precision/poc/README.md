@@ -10,6 +10,7 @@ is available. These experiments inform the
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Native LayerNorm and mean | Do original framework calls retain their native normalization and reduction? | [Forwarding findings](source_integration_findings.md#layernorm-and-mean-native-forwarding): accepted call preservation, retained full-world regressions, and separate default-export barriers. |
 | Named runtime parameters | Can declared keyword values keep their real types and variable bindings through the root, Function and If? | [Named-parameter findings](named_runtime_parameters_findings.md): audited binder, finite sample evidence and separate all-22 progress ledger. |
 | [Fixed-source preparation](fixed_source_preparation.py) | Can an explicit pretrace choice change one fixed cast while preserving protected work and actual weights? | [Preparation findings](fixed_source_preparation_findings.md): portable finite proof, distinct native references, two exact target witnesses and retained profile barriers. |
 | [Source entry point](source_export.py), [demo](demo.py) | Can real lowerings preserve the traced calculation? | [Integration findings](source_integration_findings.md): inputs, scopes, call-time settings, cache isolation and current tests. |
@@ -30,6 +31,14 @@ is available. These experiments inform the
 | Native Where and typed JIT | Can native selection and pure compiled bodies preserve actual typed inputs, constants and scopes? | [Where/JIT findings](where_jit_admission_findings.md): accepted private semantics, 2,661 pre-repair main checks and 89 fresh restoration checks per stack; retained strict zero-sign failures and the raw gather callback. The later [copy-based repair](source_integration_findings.md#exact-floating-selection) addresses the bounded floating selection case. |
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
+
+The latest [LayerNorm and mean findings](source_integration_findings.md#layernorm-and-mean-native-forwarding)
+record accepted native forwarding for NNX, Linen and Equinox, plus the mean
+prerequisite exposed by full-plugin-world testing. Native trace and execution
+comparisons cover the forwarding contract; actual default SOURCE LayerNorm exports still
+stop at `square`. Whole-model and target acceptance, the separate MLP integration,
+and the public transition remain open. The linked findings carry the current
+MAIN validation status.
 
 The [named runtime-parameter checkpoint](named_runtime_parameters_findings.md)
 removes the private facade's blanket parameter exclusion. Positional and named
