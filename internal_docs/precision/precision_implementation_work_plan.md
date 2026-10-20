@@ -5,6 +5,19 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
+The private shared native result check is committed at `00d0a43c`, with
+**627 cases / 1,881 phases on each supported stack**, the complete PRIMARY
+suite's **11,115 cases / 33,345 phases**, zero failures/errors/skips, and all
+seven normal code hooks passing. It checks existing scan/while/scatter/remat
+owners against frozen native evaluators, strict result metadata and the recorded
+native context. Owner-specific parameter, body and lowering checks remain
+essential. This refactor grants no new SOURCE admission, numerical/provider
+guarantee or public capability. This helper is qualified only on the installed
+JAX 0.10.2/0.11.2 stacks; compatibility with the advertised JAX 0.8.1 minimum
+remains **UNVERIFIED**. The [shared native result contract checkpoint](poc/source_integration_findings.md#shared-native-result-contract-checkpoint)
+retains the failed quality epochs, accepted corrections and actual receipts.
+Public behavior remains **LEGACY** and full B–F acceptance remains open.
+
 Private same-width complex64/complex128 Add is committed at `18f3fcd7`, with
 finite native/CPU qualification for static shapes at opsets 23/26. It retains
 declared pair storage and JAX's chosen width. The [latest checkpoint](poc/source_integration_findings.md#complex-add-and-partial-ordering-checkpoint)

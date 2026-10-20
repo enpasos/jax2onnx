@@ -1,5 +1,85 @@
 # Private source-policy integration
 
+## Shared native result contract checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `00d0a43c`; ACTUAL FOCUSED DUAL-STACK,
+FULL PRIMARY, QUALITY AND ALL SEVEN NORMAL CODE HOOKS PASS**. This shared
+validation refactor applies to existing owners. It adds no SOURCE admission, target numerical evidence,
+provider guarantee or public capability. Public behavior remains **LEGACY**;
+full B–F acceptance remains open.
+
+The compatibility boundary freezes the installed canonical evaluator and native
+result convention for scan, while, scatter, scatter-add, scatter-mul and remat
+before plugin binding. It uses the original avals and parameters inside the real
+recorded `JaxprEqnContext.manager`, with exact prior-context restoration in
+`finally`. It rejects unsupported sharding, manual-axis, memory, layout and
+quantization roles on inputs, declared outputs and inferred outputs. Only exact
+ordinary `ShapedArray` values with the supported default metadata pass.
+
+The shared converter check requires canonical primitive identity, the owner's
+explicit parameter fields, exact result count/dtype/shape/Boolean weakness,
+native symbolic-scope identity and both declared and inferred empty effects.
+Existing owner-specific capability, parameter, child-body, port, capture and
+recursion checks remain in place before inference. Native abstract evaluators
+can rely on body declarations; matching their results alone proves neither
+child semantics, target lowering nor numerical agreement. Recorded equation
+context does not imply replay of unrelated x64, promotion or matmul settings.
+
+Qualification covers the installed JAX 0.10.2 and 0.11.2 stacks. This helper's
+compatibility with the advertised JAX 0.8.1 minimum remains **UNVERIFIED**; no
+minimum-version defect or fallback is established by those two-stack results.
+
+Actual collections retain all prior IDs in order: **627 focused cases per
+stack = 544 retained + 83 additions**, and **11,115 full PRIMARY cases = 11,032
+retained + 83 additions**. The focused executions pass **627 cases / 1,881
+unique phases on each stack**, zero failures, errors or skips, with actual
+process exits zero and source/input pins held. These controls cover the six
+selected families, canonical-evaluator/result-flag tampering, identity,
+parameters, result metadata, symbolic scope, effects and native context
+restoration.
+
+The separate complete PRIMARY execution passes **11,115 cases / 33,345 unique
+phases**, zero failures, errors or skips. It retains all **11,032 prior IDs** in
+order with exactly **83 additions**, exits zero and holds all **944 Python /
+164 other inputs** (ROOT session `63894`, terminal `8809f7`). This regression
+result leaves the separate failed numerical diagnostics unchanged.
+
+Actual quality v3 passes all eight checks, including production mypy on **555
+source files**; its 17 RNG factory entries are a report inventory, not tests.
+All **944 Python / 164 other inputs** hold through that quality execution.
+Earlier failed epochs remain **FAILED**: v1 stopped at the new test file's
+missing path header, and v2 reached typing and failed six context-`None`
+diagnostics. The accepted header-only successor preserves the complete test
+AST (`1f48cd68`), and the accepted explicit-`None` context guard yields compat
+`039e6b5b`. These narrow corrections precede v3 and the actual focused runs;
+they do not erase either failed epoch.
+
+Code checkpoint **`00d0a43c2743c099996bf0b8fba7ef8136b41046`**, parent
+`ac842e15cd93efabb922c5eb5c06897918e07b70`, contains the exact six qualified
+paths. All seven actual normal code hooks pass; all **944 Python / 164 other
+inputs** retain their qualified contents through commit, and the worktree is
+clean at verification (ROOT session `84922`, terminal `fe7fde`, exit0). The
+accepted header and explicit-`None` corrections above are included in those
+committed bytes.
+
+| Evidence | SHA256 |
+| --- | --- |
+| Independent six-file static review: `/tmp/jax2onnx-astra-source-native-contract-sharing-static-review-v1.md` | `3f03c5b46f015e5e7b563ecf523ce73f5fdbc74bd5b2064327169707d7d82674` |
+| Retained failed quality v1: `/tmp/jax2onnx-native-contract-root-integration-v1/root-quality-failed-v1.json` | `ff5534da54923105352a3cf272b17854753d694a7faeecd8991f9f26b416a4d2` |
+| Retained failed quality v2: `/tmp/jax2onnx-native-contract-root-integration-v2/root-quality-failed-v1.json` | `8580a3d03309b426b6b4677d4ddbfbfc1796bc93b06ec3e82d99b1291f46544d` |
+| Actual quality v3: `/tmp/jax2onnx-native-contract-root-integration-v3/root-production-quality-v1.json` | `150ef74fcb9902920e43e67595d6b501f30ece7a51caf1519e0e343be5330ff2` |
+| Actual quality/collection terminals: `/tmp/jax2onnx-native-contract-root-integration-v3/root-actual-quality-and-collections-v1.json` | `e98197da180c3a4b7562f10e0ffc850114d14788f34c907fa1aa3c130e183104` |
+| Actual focused dual terminals: `/tmp/jax2onnx-native-contract-root-integration-v3/root-dual-focused-actual-terminals-v1.json` | `07f3afb38622701692941749a53c58a09675dd4813c1bcbf33c4d90a8ed9de86` |
+| Full PRIMARY actual terminal: `/tmp/jax2onnx-native-contract-root-integration-v3/root-full-primary-actual-terminal-v1.json` | `0129c6139f8c1dcc0703e25dcca331d4d7a705447b53afc489b9d943c3971150` |
+| Code commit actual terminal: `/tmp/jax2onnx-native-contract-root-integration-v3/root-code-commit-00d0a43c-actual-terminal-v1.json` | `a8d1fe13d795d35ddfb1affdf90d84a2757b4e50491edb017d1a00b454deda4e` |
+
+The complete earlier findings body below remains unchanged. Its complex Add,
+CNN/scientific samples and partial raw map retain their original scope. Ordering
+kernels remain **FAILED** with SOURCE admission closed; native-bitwise Min/Max
+subnormal evidence remains **FAILED**. Original raw callbacks and `criteria=None`
+are unchanged, provider-wide numerical guarantees remain **UNVERIFIED**, and the
+full 1,852-row / 3,704-caller map and B–F migration remain open.
+
 ## Complex Add and partial ordering checkpoint
 
 Status: **COMMITTED LOCAL CODE CHECKPOINT `18f3fcd7`; PRIVATE FINITE COMPLEX
