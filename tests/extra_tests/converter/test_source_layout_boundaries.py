@@ -700,8 +700,17 @@ def test_layout_keeps_x64_conflict_symbolic_normalization_and_primitive_gaps() -
                 if attribute.name == "perm"
             )
         ) == (0, 2, 3, 1)
-    with pytest.raises(SourcePrecisionError, match="primitive is outside the profile"):
-        _source(lambda x: jnp.clip(x, 0, 1), [(1, 2, 3, 4)], inputs_as_nchw=[0])
+    clipped = _source(lambda x: jnp.clip(x, 0, 1), [(1, 2, 3, 4)], inputs_as_nchw=[0])
+    onnx.checker.check_model(_proto(clipped), full_check=True)
+    clipped_report = get_precision_report(clipped)
+    assert clipped_report is not None and clipped_report.profile == "source-static-v1"
+    assert clipped_report.inputs[0].exported.shape == (1, 4, 2, 3)
+    assert clipped_report.exported_outputs[0].shape == (1, 2, 3, 4)
+    with pytest.raises(
+        SourcePrecisionError, match="primitive is outside the profile"
+    ) as error:
+        _source(lambda x: jax.lax.erf(x), [(1, 2, 3, 4)], inputs_as_nchw=[0])
+    assert error.value.primitive == "erf"
     assert active_precision_policy() is PrecisionPolicy.LEGACY
 
 

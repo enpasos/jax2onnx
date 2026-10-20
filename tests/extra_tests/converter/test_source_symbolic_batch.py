@@ -669,7 +669,7 @@ def test_finite_declaration_exclusions_fail_before_model_invocation(kind: str) -
 
 
 def test_symbolic_subtract_and_reduce_sum_remain_explicit_exclusions() -> None:
-    """Subtraction is admitted; reduction over the symbolic batch stays excluded."""
+    """Original subtraction and batch reductions retain typed admission."""
 
     def subtract(x: Any, y: Any) -> Any:
         return jax.lax.sub(x, y)
@@ -698,12 +698,20 @@ def test_symbolic_subtract_and_reduce_sum_remain_explicit_exclusions() -> None:
     _check_samples(model, samples)
     assert model.SerializeToString() == payload
 
-    with pytest.raises(
-        SourcePrecisionError, match="reduction over the symbolic batch"
-    ) as error:
-        _source(lambda x, y: jax.lax.reduce_sum(x, axes=(0,)))
+    reduced = _source(lambda x, y: jax.lax.reduce_sum(x, axes=(0,)))
+    onnx.checker.check_model(reduced, full_check=True)
+    reduction_report = get_precision_report(reduced)
+    assert (
+        reduction_report is not None and reduction_report.profile == "source-static-v1"
+    )
+    assert reduction_report.traced_outputs[0].shape == (3,)
+    assert reduction_report.traced_outputs[0].dtype == "float32"
+    assert any(node.op_type == "ReduceSum" for node in reduced.graph.node)
+    with pytest.raises(SourcePrecisionError) as error:
+        _source(lambda x, y: jax.lax.erf(x))
     assert error.value.phase == "profile-validation"
-    assert error.value.primitive == "reduce_sum"
+    assert error.value.category == "profile-exclusion"
+    assert error.value.primitive == "erf"
 
 
 def test_symbolic_constant_cond_accepts_original_batch_scope() -> None:

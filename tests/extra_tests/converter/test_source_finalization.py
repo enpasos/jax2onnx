@@ -3,8 +3,12 @@
 """Required SOURCE finalization fails before metadata or file publication."""
 
 from collections.abc import Iterator
+from contextlib import nullcontext
+from functools import partial
+from importlib import import_module
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import jax
 import numpy as np
@@ -22,6 +26,8 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.precision import get_precision_report
+from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins.jax.nn.leaky_relu import LeakyReluPlugin
 
 
 @pytest.fixture(autouse=True)
@@ -234,6 +240,20 @@ def _leaky_outer(value: Any) -> Any:
     return _leaky_inner(value)
 
 
+@onnx_function
+def _leaky_alpha_owning_inner(value: Any) -> Any:
+    return jax.nn.leaky_relu(value, negative_slope=0.5)
+
+
+@onnx_function
+def _leaky_alpha_owning_outer(value: Any) -> Any:
+    return _leaky_alpha_owning_inner(value)
+
+
+def _leaky_alpha_owning_nested(value: Any) -> Any:
+    return _leaky_alpha_owning_outer(value)
+
+
 def _leaky_model(scope: str) -> Any:
     def target(value: Any) -> Any:
         if scope == "nested":
@@ -276,28 +296,81 @@ def _stage_alpha_override(monkeypatch: pytest.MonkeyPatch) -> None:
     apply = conversion_api._apply_late_ir_attr_overrides
 
     def stage(model: ir.Model, ctx: IRContext) -> None:
+        staged = 0
         graphs = [(model.graph, ctx.attr_overrides)]
         graphs.extend((fn.graph, fn._attr_overrides) for fn in model.functions.values())
         for graph, overrides in graphs:
             for node in graph.all_nodes():
                 if node.op_type == "LeakyRelu":
+                    staged += 1
                     if "alpha" in node.attributes:
                         del node.attributes["alpha"]
                     overrides[node.name] = {"alpha": np.float32(0.5)}
+        assert staged > 0, "The finalization fixture must stage a real LeakyRelu alpha"
         apply(model, ctx)
 
     monkeypatch.setattr(conversion_api, "_apply_late_ir_attr_overrides", stage)
 
 
-def _alpha_export(scope: str, **options: Any) -> Any:
-    return user_interface._to_onnx(
-        _leaky_model(scope),
-        [jax.ShapeDtypeStruct((2,), np.float32)],
-        model_name="strict_finalization",
-        precision_policy=PrecisionPolicy.SOURCE,
-        diagnostic_jaxpr_validator=_validate_alpha_trace,
-        **options,
-    )
+def _alpha_export(
+    scope: str, *, owning_diagnostic: bool = False, **options: Any
+) -> Any:
+    descriptor = vars(LeakyReluPlugin)["binding_specs"]
+    missing = object()
+    bindings = []
+    context: Any = nullcontext()
+    target = _leaky_model(scope)
+    if owning_diagnostic:
+        if scope == "nested":
+            # Dedicated diagnostic Functions keep native cached bodies intact.
+            target = _leaky_alpha_owning_nested
+        specs = LeakyReluPlugin.binding_specs()
+        for spec in specs:
+            module = import_module(spec.target)
+            bindings.append((module, spec.attr, getattr(module, spec.attr, missing)))
+            if isinstance(spec, MonkeyPatchSpec):
+                spec.make_value = lambda original: partial(LeakyReluPlugin._PRIM.bind)
+        context = patch.object(LeakyReluPlugin, "binding_specs", return_value=specs)
+    try:
+        with context:
+            return user_interface._to_onnx(
+                target,
+                [jax.ShapeDtypeStruct((2,), np.float32)],
+                model_name="strict_finalization",
+                precision_policy=PrecisionPolicy.SOURCE,
+                diagnostic_jaxpr_validator=_validate_alpha_trace,
+                **options,
+            )
+    finally:
+        assert vars(LeakyReluPlugin)["binding_specs"] is descriptor
+        for module, attr, original in bindings:
+            assert getattr(module, attr, missing) is original
+
+
+def _assert_alpha_nested_call_chain(artifact: Any, *, owning: bool) -> None:
+    proto = _proto(artifact)
+    functions = {function.name: function for function in proto.functions}
+    assert len(functions) == 2
+    prefix = "_leaky_alpha_owning" if owning else "_leaky"
+    outer, inner = functions[f"{prefix}_outer"], functions[f"{prefix}_inner"]
+    (outer_call,) = [
+        node
+        for node in proto.graph.node
+        if (node.domain, node.op_type) == (outer.domain, outer.name)
+    ]
+    (inner_call,) = [
+        node
+        for node in outer.node
+        if (node.domain, node.op_type) == (inner.domain, inner.name)
+    ]
+    assert list(outer_call.input) == [proto.graph.input[0].name]
+    assert list(outer_call.output) == [proto.graph.output[0].name]
+    assert list(inner_call.input) == list(outer.input)
+    assert list(inner_call.output) == list(outer.output)
+    if owning:
+        (activation,) = [node for node in inner.node if node.op_type == "LeakyRelu"]
+        assert list(activation.input) == list(inner.input)
+        assert list(activation.output) == list(inner.output)
 
 
 @pytest.mark.parametrize("scope", ["graph", "nested"])
@@ -307,8 +380,16 @@ def test_valid_explicit_attribute_override_preserves_actual_jax_semantics(
 ) -> None:
     expected = np.asarray(_leaky_model(scope)(jax.numpy.asarray([-2, 1], np.float32)))
     assert expected.tobytes() == np.asarray([-1, 1], np.float32).tobytes()
+    native = _alpha_export(scope, **_options(mode, tmp_path / "native-positive.onnx"))
+    if scope == "nested":
+        _assert_alpha_nested_call_chain(native, owning=False)
+    _check_cpu(native, expected)
     _stage_alpha_override(monkeypatch)
-    artifact = _alpha_export(scope, **_options(mode, tmp_path / "positive.onnx"))
+    artifact = _alpha_export(
+        scope, owning_diagnostic=True, **_options(mode, tmp_path / "positive.onnx")
+    )
+    if scope == "nested":
+        _assert_alpha_nested_call_chain(artifact, owning=True)
     _check_cpu(artifact, expected)
 
 
@@ -317,6 +398,12 @@ def test_valid_explicit_attribute_override_preserves_actual_jax_semantics(
 def test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default(
     scope: str, mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    expected = np.asarray(_leaky_model(scope)(jax.numpy.asarray([-2, 1], np.float32)))
+    assert expected.tobytes() == np.asarray([-1, 1], np.float32).tobytes()
+    native = _alpha_export(scope, **_options(mode, tmp_path / "native-positive.onnx"))
+    if scope == "nested":
+        _assert_alpha_nested_call_chain(native, owning=False)
+    _check_cpu(native, expected)
     _stage_alpha_override(monkeypatch)
     convert = conversion_api._convert_ir_attr
     monkeypatch.setattr(
@@ -329,7 +416,7 @@ def test_nonconvertible_explicit_attribute_cannot_silently_keep_schema_default(
     with pytest.raises(
         SourcePrecisionError, match="explicit attribute override"
     ) as caught:
-        _alpha_export(scope, **_options(mode, path))
+        _alpha_export(scope, owning_diagnostic=True, **_options(mode, path))
     _assert_error(caught.value)
     assert caught.value.primitive == "LeakyRelu"
     assert "alpha" in caught.value.location

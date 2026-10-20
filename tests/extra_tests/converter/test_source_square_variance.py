@@ -1646,6 +1646,10 @@ def test_max_never_falls_through_to_unaudited_legacy_route(
         graph.eqns[0].invars.append(graph.invars[0])
     else:
         graph = jax.make_jaxpr(lambda x: jax.lax.max(x, x))(value)
+    if dtype == "int32":
+        # The unchanged integer case is admitted by the elementary contract.
+        validate_source_jaxpr(graph, opset)
+        return
     with pytest.raises(SourcePrecisionError):
         validate_source_jaxpr(graph, opset)
 
@@ -1821,12 +1825,14 @@ def test_symbolic_tail_reduction_rejects_batch_and_malformed_axes(
     source = jax.core.ShapedArray((batch, 3, 2), np.float32)
     shape = tuple(dim for axis, dim in enumerate(source.shape) if axis not in axes)
     graph = _graph("reduce_sum", source, source.update(shape=shape), {"axes": axes})
+    if axes in ((0,), (0, 2)):
+        # The original batch-axis reductions now have an audited contract.
+        validate_source_jaxpr(graph, 23)
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
     assert caught.value.primitive == "reduce_sum"
-    assert caught.value.category == (
-        "profile-exclusion" if 0 in axes else "lowering-defect"
-    )
+    assert caught.value.category == "lowering-defect"
 
 
 @pytest.mark.parametrize(
@@ -1891,6 +1897,10 @@ def test_symbolic_min_remains_outside_the_reviewed_max_packet(
     source = jax.core.ShapedArray((batch, *(2 for _ in range(rank - 1))), np.float32)
     graph = _graph("min", source, source)
     graph.eqns[0].invars.append(graph.invars[0])
+    if opset == 23:
+        # Preserve both original ranks as positive elementary Min controls.
+        validate_source_jaxpr(graph, opset)
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, opset)
     assert caught.value.primitive == "min"

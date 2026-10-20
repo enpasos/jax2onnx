@@ -216,6 +216,18 @@ def test_native_normalization_activation_corruption_fails_before_lowering(
         ],
         effects=graph.effects,
     )
-    with pytest.raises(SourcePrecisionError):
+    if corruption == "parameter" and primitive == "integer_pow":
+        # The original y=2 mutation is an admitted static integer exponent.
         validate_source_jaxpr(corrupted, 23)
+        invalid_equation = SimpleNamespace(
+            **{**vars(corrupted.eqns[0]), "params": {**parameters, "y": True}}
+        )
+        invalid = SimpleNamespace(**{**vars(corrupted), "eqns": [invalid_equation]})
+        with pytest.raises(SourcePrecisionError) as caught:
+            validate_source_jaxpr(invalid, 23)
+        assert caught.value.primitive == "integer_pow"
+        assert caught.value.category == "lowering-defect"
+    else:
+        with pytest.raises(SourcePrecisionError):
+            validate_source_jaxpr(corrupted, 23)
     assert str(graph) == original

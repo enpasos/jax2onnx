@@ -219,9 +219,18 @@ def test_integer_input_delegates_to_actual_converter_without_admitting_product_g
     )
     assert result.model is None and result.corpus_structure is None
     assert len(calls) == 1 and calls[0] is prepared
+    assert result.prepared is prepared
     assert result.stage != "profile-admission"
     assert result.raw_callback_status == "not-executed"
-    assert result.audit.status is CheckStatus.UNVERIFIED
+    assert result.stage == "source-export" and result.category == "implementation-gap"
+    assert result.audit.status is CheckStatus.FAILED
+    assert result.audit.detail == (
+        "Gather corpus structure requires diagnostic export with optimization=None"
+    )
+    assert result.schema is CheckStatus.VALIDATED
+    assert (
+        result.validation is None and result.numerical_status is CheckStatus.UNVERIFIED
+    )
 
 
 @pytest.mark.parametrize("kind", ["new-equal", "wrong-row", "subclass", "duck"])

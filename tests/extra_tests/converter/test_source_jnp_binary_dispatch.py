@@ -315,7 +315,7 @@ def test_native_error_is_propagated_once_without_retry(monkeypatch: Any) -> None
 
 
 def test_only_the_sixteen_reviewed_callers_opt_in() -> None:
-    """Keep the explicit binder guard, including the newly reviewed sqrt."""
+    """Keep the exact reviewed binder allowlist and reject every other opt-in."""
 
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
@@ -352,6 +352,26 @@ def test_only_the_sixteen_reviewed_callers_opt_in() -> None:
             "bitwise_xor",
             "bitwise_not",
             "invert",
+            "abs",
+            "acos",
+            "acosh",
+            "asin",
+            "asinh",
+            "atan",
+            "atan2",
+            "atanh",
+            "ceil",
+            "cosh",
+            "exp2",
+            "expm1",
+            "floor",
+            "isfinite",
+            "log",
+            "pow",
+            "sign",
+            "sinh",
+            "tan",
+            "tanh",
         ]
     )
 
@@ -758,11 +778,21 @@ def test_nonselected_binder_and_existing_profile_exclusions_remain() -> None:
             ).require_sample_acceptance()
     assert proto.SerializeToString() == payload
 
+    minimum = user_interface._to_onnx(
+        _target("minimum"),
+        list(map(_spec, values)),
+        precision_policy=PrecisionPolicy.SOURCE,
+    )
+    onnx.checker.check_model(minimum, full_check=True)
+    minimum_report = get_precision_report(minimum)
+    assert minimum_report is not None and minimum_report.profile == "source-static-v1"
+    assert minimum_report.opset == 23
     with pytest.raises(SourcePrecisionError) as failure:
         user_interface._to_onnx(
             _target("minimum"),
             list(map(_spec, values)),
             precision_policy=PrecisionPolicy.SOURCE,
+            opset=16,
         )
     assert failure.value.category == "profile-exclusion"
     assert failure.value.primitive == "min"

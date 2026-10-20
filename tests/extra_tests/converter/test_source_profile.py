@@ -136,6 +136,11 @@ def _unsupported_function(x: jax.Array) -> jax.Array:
 
 
 @onnx_function
+def _unadmitted_erf_function(x: jax.Array) -> jax.Array:
+    return jax.lax.erf(x)
+
+
+@onnx_function
 def _function_with_cond(x: jax.Array) -> tuple[jax.Array, ...]:
     return jax.lax.cond(
         x > np.float32(0),
@@ -347,23 +352,47 @@ def test_profile_reports_nested_cond_location_and_validates_actual_function_body
         ),
         _spec(),
     )
+    validate_source_jaxpr(trace, 23)
+    admitted = conversion_api._convert_to_ir(
+        fn=lambda x: _unsupported_function(x),
+        inputs=[_spec()],
+        input_params=None,
+        model_name="unsupported_body",
+        opset=23,
+        enable_double_precision=False,
+        record_primitive_calls_file=None,
+        precision_policy=PrecisionPolicy.SOURCE,
+        jaxpr_validator=validate_source_jaxpr,
+    )
+    assert admitted.graph.outputs[0].dtype == ir.DataType.FLOAT
+    assert any(
+        node.op_type == "Sin"
+        for function in admitted.functions.values()
+        for node in function.graph
+    )
+    unadmitted = _trace(
+        lambda x: jax.lax.cond(
+            x > np.float32(0), lambda y: -y, lambda y: jax.lax.erf(y), x
+        ),
+        _spec(),
+    )
     with pytest.raises(SourcePrecisionError) as captured:
-        validate_source_jaxpr(trace, 23)
+        validate_source_jaxpr(unadmitted, 23)
     assert "/branch " in captured.value.location
-    assert captured.value.primitive in {"sin", "jax.numpy.sin"}
+    assert captured.value.primitive == "erf"
     with pytest.raises(SourcePrecisionError) as function_error:
         conversion_api._convert_to_ir(
-            fn=lambda x: _unsupported_function(x),
+            fn=lambda x: _unadmitted_erf_function(x),
             inputs=[_spec()],
             input_params=None,
-            model_name="unsupported_body",
+            model_name="unadmitted_erf_body",
             opset=23,
             enable_double_precision=False,
             record_primitive_calls_file=None,
             precision_policy=PrecisionPolicy.SOURCE,
             jaxpr_validator=validate_source_jaxpr,
         )
-    assert function_error.value.primitive in {"sin", "jax.numpy.sin"}
+    assert function_error.value.primitive == "erf"
 
 
 @pytest.mark.parametrize(
@@ -378,9 +407,21 @@ def test_profile_reports_nested_cond_location_and_validates_actual_function_body
 def test_profile_rejects_current_functionality_outside_the_finite_milestone(
     model: Any,
 ) -> None:
-    with pytest.raises(SourcePrecisionError) as captured:
-        validate_source_jaxpr(_trace(model, _spec()), 23)
-    assert captured.value.category == "profile-exclusion"
+    trace = _trace(model, _spec())
+    # Preserve the original four parameter IDs/callables. The first two now
+    # produce the admitted native Sin or its plain JIT carrier; scan/effects
+    # retain their original negative contract.
+    if len(trace.eqns) == 1 and trace.eqns[0].primitive.name in {
+        "sin",
+        "jax.numpy.sin",
+        "jit",
+        "pjit",
+    }:
+        validate_source_jaxpr(trace, 23)
+    else:
+        with pytest.raises(SourcePrecisionError) as captured:
+            validate_source_jaxpr(trace, 23)
+        assert captured.value.category == "profile-exclusion"
 
 
 @pytest.mark.parametrize("model", [lambda x: x.astype(jnp.int32) + np.int32(1)])

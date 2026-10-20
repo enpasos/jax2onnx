@@ -39,6 +39,7 @@ from jax2onnx.converter.precision_policy import (
 )
 from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.plugins._source_function_state import FunctionOperandLayout
+from jax2onnx.plugins.plugin_system import FunctionPlugin
 from jax2onnx.plugins.flax.nnx._source_function_state import NNXFunctionState
 from jax2onnx.precision import (
     CheckStatus,
@@ -293,13 +294,9 @@ def _source_float_constants(closed: Any) -> list[Any]:
             ):
                 result.append(_array(np.asarray(variable.val)))
         if equation.primitive.name == "integer_pow":
-            result.append(
-                _array(
-                    np.asarray(
-                        equation.params["y"], dtype=equation.invars[0].aval.dtype
-                    )
-                )
-            )
+            # The native exponent is static metadata, not an emitted float
+            # coefficient in the reviewed same-width cubic multiplication DAG.
+            assert equation.params == {"y": 3}
         for name in ("jaxpr", "call_jaxpr"):
             if name in equation.params:
                 nested = equation.params[name]
@@ -473,7 +470,7 @@ def _serialized(
             )
     operations = Counter(node.op_type for node in function.node)
     assert operations == Counter(
-        dict(Add=4, Constant=7, Identity=6, MatMul=2, Mul=4, Pow=1, Reshape=2, Tanh=1)
+        dict(Add=4, Constant=6, Identity=7, MatMul=2, Mul=6, Reshape=2, Tanh=1)
     )
     all_nodes = [*model.graph.node, *function.node]
     assert not any(node.op_type == "Cast" for node in all_nodes)
@@ -525,6 +522,81 @@ def _serialized(
     assert function.input[-1] not in needed and not set(function.input[5:7]) & needed
     matmuls = [node for node in function.node if node.op_type == "MatMul"]
     assert [node.input[1] for node in matmuls] == [function.input[2], function.input[4]]
+    powers = [eqn for eqn in body.jaxpr.eqns if eqn.primitive.name == "integer_pow"]
+    assert len(powers) == 1 and powers[0].params == {"y": 3}
+    # Follow the actual activation from first Linear through exactly (x*x)*x,
+    # then its original consumed GELU coefficients, Tanh and second Linear.
+    activation = next(
+        node
+        for node in function.node
+        if node.op_type == "Add" and node.input[0] == matmuls[0].output[0]
+    )
+    bias = producers[activation.input[1]]
+    assert bias.op_type == "Reshape" and bias.input[0] == function.input[1]
+    value = activation.output[0]
+    square = next(
+        node
+        for node in function.node
+        if node.op_type == "Mul" and list(node.input) == [value, value]
+    )
+    cube = next(
+        node
+        for node in function.node
+        if node.op_type == "Mul" and node.input[0] == square.output[0]
+    )
+    assert list(cube.input) == [
+        square.output[0],
+        value,
+    ], "Cubic source association changed"
+    forwarded = next(
+        node
+        for node in function.node
+        if node.op_type == "Identity" and list(node.input) == [cube.output[0]]
+    )
+    for name in (value, square.output[0], cube.output[0], forwarded.output[0]):
+        _port(infos[name], np.float32, ("B", 1024, 3072))
+    weighted = next(
+        node
+        for node in function.node
+        if node.op_type == "Mul" and node.input[1] == forwarded.output[0]
+    )
+    summed = next(
+        node
+        for node in function.node
+        if node.op_type == "Add" and list(node.input) == [value, weighted.output[0]]
+    )
+    scaled = next(
+        node
+        for node in function.node
+        if node.op_type == "Mul" and node.input[1] == summed.output[0]
+    )
+    tangent = next(node for node in function.node if node.op_type == "Tanh")
+    assert list(tangent.input) == [scaled.output[0]]
+    shifted = next(
+        node
+        for node in function.node
+        if node.op_type == "Add" and node.input[1] == tangent.output[0]
+    )
+    half = next(
+        node
+        for node in function.node
+        if node.op_type == "Mul" and node.input[1] == shifted.output[0]
+    )
+    selected = producers[matmuls[1].input[0]]
+    assert selected.op_type == "Mul" and list(selected.input) == [value, half.output[0]]
+    coefficient_bindings = []
+    for consumer, coefficient in (
+        (weighted, 0.044715),
+        (scaled, 0.7978845608028654),
+        (shifted, 1),
+        (half, 0.5),
+    ):
+        constant = producers[consumer.input[0]]
+        assert constant.op_type == "Constant" and not constant.domain
+        tensor = next(attr.t for attr in constant.attribute if attr.name == "value")
+        actual = onnx.numpy_helper.to_array(tensor)
+        assert _array(actual) == _array(np.asarray(coefficient, np.float32))
+        coefficient_bindings.append(dict(consumer=consumer.name, value=_array(actual)))
     for index in range(6):
         forward = producers[function.output[index + 1]]
         assert forward.op_type == "Identity" and list(forward.input) == [
@@ -548,6 +620,19 @@ def _serialized(
         arithmetic_constants=serialized_constants,
         cast_count=0,
         hidden_fp64=False,
+        integer_pow3=dict(
+            native_exponent=powers[0].params["y"],
+            exponent_is_static_metadata_not_serialized_float=True,
+            activation=value,
+            square_node=square.name,
+            cube_node=cube.name,
+            output_identity=forwarded.name,
+            association="(x*x)*x",
+            dtype="float32",
+            shape=["B", 1024, 3072],
+            consumed_coefficients=coefficient_bindings,
+            consumed_by_second_linear=True,
+        ),
     )
 
 
@@ -711,6 +796,9 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
                     *specs
                 )
                 counts["native_traces"] += 1
+                _json(
+                    folder / "observed-native-trace.json", typed_trace_manifest(native)
+                )
                 _unchanged(owner, baseline, identities, graphdef)
                 primary = _primary(native, _native_roles(native, arrays))
                 _json(folder / "native-primary-dataflow.json", primary)
@@ -771,6 +859,10 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
                 def observe(**kwargs: Any) -> Any:
                     traced = real_trace(**kwargs)
                     traces.append(traced)
+                    _json(
+                        folder / f"observed-source-trace-{len(traces)}.json",
+                        typed_trace_manifest(traced.closed_jaxpr),
+                    )
                     return traced
 
                 _unchanged(owner, baseline, identities, graphdef)
@@ -778,15 +870,31 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
                     patch.object(conversion_api, "_trace_to_jaxpr", observe),
                     _observe_functions() as built,
                 ):
-                    artifact = ui._to_onnx(
-                        owner,
-                        [jax.ShapeDtypeStruct(("B", 1024, 768), np.float32)],
-                        input_params=dict(case["input_params"]),
-                        precision_policy=PrecisionPolicy.SOURCE,
-                        return_mode="proto",
-                        opset=23,
-                    )
-                    counts["exports"] += 1
+                    body_trace = FunctionPlugin._trace_function_body
+                    observed_bodies: list[Any] = []
+
+                    def retain_body(*args: Any, **kwargs: Any) -> Any:
+                        body = body_trace(*args, **kwargs)
+                        observed_bodies.append(body)
+                        _json(
+                            folder
+                            / f"observed-function-body-{len(observed_bodies)}-returned.json",
+                            typed_trace_manifest(body),
+                        )
+                        return body
+
+                    with patch.object(
+                        FunctionPlugin, "_trace_function_body", retain_body
+                    ):
+                        artifact = ui._to_onnx(
+                            owner,
+                            [jax.ShapeDtypeStruct(("B", 1024, 768), np.float32)],
+                            input_params=dict(case["input_params"]),
+                            precision_policy=PrecisionPolicy.SOURCE,
+                            return_mode="proto",
+                            opset=23,
+                        )
+                        counts["exports"] += 1
                 _unchanged(owner, baseline, identities, graphdef)
                 assert type(owner).__call__ is original_method
                 assert conversion_api._trace_to_jaxpr is real_trace
@@ -832,6 +940,17 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
                 assert (
                     raw_callback
                 ), "Original raw callback remains an open structural obligation"
+                _json(
+                    folder / "observed-function-bodies-before-assertions.json",
+                    [
+                        dict(
+                            domain=definition.domain,
+                            name=definition.name,
+                            typed_native_body=typed_trace_manifest(body),
+                        )
+                        for definition, body in built
+                    ],
+                )
                 evidence = _serialized(artifact, built, traces[0], primary, arrays)
                 _json(folder / "serialized-and-actual-body-evidence.json", evidence)
                 record["export_internal_abstract_tracing"] = dict(
@@ -865,6 +984,29 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
                         sha256=_sha(kernel.raw_data),
                     )
                     del corrupted, damaged, kernel
+                    corrupted = onnx.load_model_from_string(payload)
+                    function = corrupted.functions[0]
+                    square = next(
+                        node
+                        for node in function.node
+                        if node.name == evidence["integer_pow3"]["square_node"]
+                    )
+                    cube = next(
+                        node
+                        for node in function.node
+                        if node.name == evidence["integer_pow3"]["cube_node"]
+                    )
+                    cube.input[1] = square.output[0]
+                    with pytest.raises(
+                        AssertionError, match="Cubic source association"
+                    ):
+                        _serialized(corrupted, built, traces[0], primary, arrays)
+                    record["negative_cubic_dataflow"] = dict(
+                        status="rejected",
+                        mutation="(x*x)*(x*x)",
+                        counts_and_dtypes_unchanged=True,
+                    )
+                    del corrupted, function, square, cube
                 checkpoint("observed-source-and-serialized-provenance")
                 after_jit = _fresh_jit()
                 for role in ("eager", "jit"):
@@ -1018,6 +1160,24 @@ def test_original_gpt_mlp_finite_numerics(caller_x64: bool, _packet_root: Path) 
         except Exception as exc:
             record["status"] = "FAILED_PARTIAL"
             record["error"] = dict(type=type(exc).__name__, message=str(exc))
+            if "built" in locals():
+                try:
+                    _json(
+                        folder / "observed-function-bodies-at-failure.json",
+                        [
+                            dict(
+                                domain=definition.domain,
+                                name=definition.name,
+                                typed_native_body=typed_trace_manifest(body),
+                            )
+                            for definition, body in built
+                        ],
+                    )
+                except Exception as observation_error:
+                    record["failure_observation_error"] = dict(
+                        type=type(observation_error).__name__,
+                        message=str(observation_error),
+                    )
             if "owner" in locals():
                 try:
                     failure_state, _ = _state(owner)

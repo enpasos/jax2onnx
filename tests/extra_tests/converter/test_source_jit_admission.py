@@ -446,10 +446,16 @@ def test_jit_does_not_admit_unaudited_child_operations(kind: str) -> None:
             (0, x),
         )[1],
     }[kind]
+    trace = _trace(jax.jit(child))
+    if kind == "sin":
+        validate_source_jaxpr(trace, 23)
+        trace = _trace(jax.jit(jax.lax.erf))
     with pytest.raises(SourcePrecisionError) as error:
-        validate_source_jaxpr(_trace(jax.jit(child)), 23)
+        validate_source_jaxpr(trace, 23)
     assert "jit body" in error.value.location
     assert error.value.category == "profile-exclusion"
+    if kind == "sin":
+        assert error.value.primitive == "erf"
 
 
 def test_jit_symbolic_scope_identity_is_not_a_printed_name() -> None:
@@ -547,16 +553,27 @@ def test_success_and_failure_preserve_all_effective_hidden_settings() -> None:
         jax.default_matmul_precision("highest"),
     ):
         before = _globals(), _settings()
-        for fn in (
-            jax.jit(lambda x: jnp.sin(x)),
-            jax.jit(lambda x: jax.lax.while_loop(lambda x: x > 0, lambda x: -x, x)),
+        for admitted, fn in (
+            (True, jax.jit(lambda x: jnp.sin(x))),
+            (
+                False,
+                jax.jit(lambda x: jax.lax.while_loop(lambda x: x > 0, lambda x: -x, x)),
+            ),
         ):
-            with pytest.raises(SourcePrecisionError):
-                ui._to_onnx(
+            if admitted:
+                artifact = ui._to_onnx(
                     fn,
                     [jax.ShapeDtypeStruct((), np.float64)],
                     precision_policy=PrecisionPolicy.SOURCE,
                 )
+                assert any(node.op_type == "Sin" for node in artifact.graph.node)
+            else:
+                with pytest.raises(SourcePrecisionError):
+                    ui._to_onnx(
+                        fn,
+                        [jax.ShapeDtypeStruct((), np.float64)],
+                        precision_policy=PrecisionPolicy.SOURCE,
+                    )
             assert (_globals(), _settings()) == before
             assert all(getattr(jnp, name) is value for name, value in originals.items())
         ui._to_onnx(

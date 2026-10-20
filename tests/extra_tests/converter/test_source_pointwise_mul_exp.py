@@ -783,7 +783,22 @@ def test_failed_local_scope_restores_all_five_hidden_and_effective_settings() ->
             return jnp.sin(jnp.exp(x))
 
     before = _globals(), _settings()
+    _, proto, report, _ = _artifact(unsupported, _specs([("B", 3)]))
+    assert any(node.op_type == "Sin" for node in proto.graph.node)
+    assert report.profile == "source-static-v1"
+    assert (_globals(), _settings()) == before
+
+    def unadmitted(x: Any) -> Any:
+        with (
+            jax.enable_x64(True),
+            jax.default_matmul_precision("highest"),
+            jax.numpy_dtype_promotion("strict"),
+            jax.numpy_rank_promotion("raise"),
+        ):
+            return jax.lax.erf(jnp.exp(x))
+
     with pytest.raises(SourcePrecisionError) as caught:
-        _artifact(unsupported, _specs([("B", 3)]))
+        _artifact(unadmitted, _specs([("B", 3)]))
     assert caught.value.category == "profile-exclusion"
+    assert caught.value.primitive == "erf"
     assert (_globals(), _settings()) == before

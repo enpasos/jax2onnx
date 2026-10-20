@@ -550,14 +550,26 @@ def test_local_setting_failure_restores_hidden_and_effective_source_state() -> N
         ):
             return jax.lax.reduce_sum(x, axes=(0,))
 
+    _, reduced, _ = _artifact(unsupported, specs)
+    assert any(node.op_type == "ReduceSum" for node in reduced.graph.node)
+    result_type = reduced.graph.output[0].type.tensor_type
+    assert result_type.elem_type == onnx.TensorProto.FLOAT
+    assert tuple(dim.dim_value for dim in result_type.shape.dim) == (3, 4)
+    assert (_globals(), _settings()) == before
+
+    def unadmitted(x: Any) -> Any:
+        with (
+            jax.enable_x64(True),
+            jax.default_matmul_precision("highest"),
+            jax.numpy_dtype_promotion("strict"),
+            jax.numpy_rank_promotion("raise"),
+        ):
+            return jax.lax.erf(x)
+
     with pytest.raises(SourcePrecisionError) as caught:
-        _artifact(unsupported, specs)
-    assert caught.value.primitive == "reduce_sum"
+        _artifact(unadmitted, specs)
+    assert caught.value.primitive == "erf"
     assert caught.value.category == "profile-exclusion"
-    assert (
-        caught.value.detail
-        == "reduction over the symbolic batch is outside the profile"
-    )
     assert (_globals(), _settings()) == before
 
 

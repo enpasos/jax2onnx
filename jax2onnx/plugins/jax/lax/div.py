@@ -8,6 +8,7 @@ import numpy as np
 
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
     stamp_axis0_binary_result,
@@ -395,6 +396,9 @@ class DivPlugin(PrimitiveLeafPlugin):
     """IR-first lowering of ``lax.div`` to ONNX ``Div``."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_elementary(ctx, eqn, operation="div"):
+            return
+
         x_var, y_var = eqn.invars
         out_var = eqn.outvars[0]
 

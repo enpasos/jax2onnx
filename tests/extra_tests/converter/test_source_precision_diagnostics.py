@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import hashlib
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,7 +20,11 @@ from jax2onnx._compat.jax import Primitive, ShapedArray, Var
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.plugins.plugin_system import PLUGIN_REGISTRY, import_all_plugins
 from jax2onnx.precision import CheckStatus, get_precision_report
-from tests.extra_tests.converter.source_precision_diagnostics import DiagnosticValidator
+from scripts.source_precision_inventory import canonical_contract
+from tests.extra_tests.converter.source_precision_diagnostics import (
+    DiagnosticValidator,
+    typed_trace_manifest,
+)
 from tests.extra_tests.converter.source_precision_support import (
     SourceScenario,
     run_source_case,
@@ -57,6 +63,147 @@ def _bounded_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def _trace(fn, shape=(2, 3), dtype=np.float32):
     return jax.make_jaxpr(fn)(jax.ShapeDtypeStruct(shape, dtype))
+
+
+def _parameter_manifest(params: dict[str, Any]) -> dict[str, Any]:
+    equation = SimpleNamespace(
+        primitive=SimpleNamespace(name="formatter_parameter_only"),
+        invars=(),
+        outvars=(),
+        params=params,
+        effects=(),
+    )
+    return typed_trace_manifest(
+        SimpleNamespace(
+            constvars=(), invars=(), outvars=(), eqns=(equation,), effects=()
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("implementation", "dtype_name", "word_count"),
+    [("threefry2x32", "key<fry>", 2), ("rbg", "key<rbg>", 4)],
+)
+@pytest.mark.parametrize("logical_shape", [(), (2,)], ids=["scalar", "batched"])
+def test_typed_trace_manifest_retains_actual_key_avals_and_constant_payloads(
+    implementation: str,
+    dtype_name: str,
+    word_count: int,
+    logical_shape: tuple[int, ...],
+) -> None:
+    words = np.arange(
+        1, int(np.prod((*logical_shape, word_count))) + 1, dtype=np.uint32
+    ).reshape((*logical_shape, word_count))
+    key = jax.random.wrap_key_data(jnp.asarray(words), impl=implementation)
+    closed = jax.make_jaxpr(lambda supplied: (supplied, key))(
+        jax.ShapeDtypeStruct(logical_shape, key.dtype)
+    )
+    manifest = typed_trace_manifest(closed)
+    logical = (dtype_name, logical_shape, False)
+    metadata = {
+        "dtype": dtype_name,
+        "key_implementation": implementation,
+        "key_shape": [word_count],
+    }
+    assert manifest["inputs"] == manifest["consts"] == [logical]
+    assert manifest["outputs"] == [
+        {"var": 1, "aval": logical},
+        {"var": 0, "aval": logical},
+    ]
+    assert manifest["key_dtypes"] == {dtype_name: metadata}
+    assert manifest["const_payloads"] == [
+        {
+            "array_dtype": dtype_name,
+            "shape": list(logical_shape),
+            "weak_type": False,
+            "key_implementation": implementation,
+            "key_data": {
+                "array_dtype": "uint32",
+                "shape": list(words.shape),
+                "bytes_hex": words.tobytes(order="C").hex(),
+                "sha256": hashlib.sha256(words.tobytes(order="C")).hexdigest(),
+            },
+        }
+    ]
+    assert manifest["equations"] == manifest["effects"] == []
+    assert manifest["unresolved_parameters"] == []
+    assert typed_trace_manifest(closed) == manifest
+    np.testing.assert_array_equal(jax.random.key_data(key), words, strict=True)
+    changed = jax.random.wrap_key_data(
+        jnp.asarray(words ^ np.uint32(1)), impl=implementation
+    )
+    changed_manifest = typed_trace_manifest(
+        SimpleNamespace(jaxpr=closed.jaxpr, consts=(changed,))
+    )
+    assert changed_manifest["inputs"] == manifest["inputs"]
+    assert changed_manifest["key_dtypes"] == manifest["key_dtypes"]
+    assert changed_manifest["const_payloads"] != manifest["const_payloads"]
+    # Capturing a key does not admit its logical dtype to structural validation.
+    with pytest.raises(SourcePrecisionError, match="Unreviewed dtype") as caught:
+        DiagnosticValidator()(closed, 23)
+    assert caught.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize(
+    ("implementation", "dtype_name", "word_count"),
+    [("threefry2x32", "key<fry>", 2), ("rbg", "key<rbg>", 4)],
+)
+def test_typed_trace_manifest_observes_key_specs_and_dtype_parameters(
+    implementation: str, dtype_name: str, word_count: int
+) -> None:
+    dtype = jax.random.key_dtype(implementation)
+    metadata = {
+        "dtype": dtype_name,
+        "key_implementation": implementation,
+        "key_shape": [word_count],
+    }
+    manifest = _parameter_manifest(
+        {"dtype": dtype, "spec": jax.ShapeDtypeStruct((2,), dtype)}
+    )
+    assert manifest["equations"][0]["params"] == {
+        "dtype": metadata,
+        "spec": {**metadata, "shape": [2], "weak_type": False},
+    }
+    assert manifest["key_dtypes"] == {dtype_name: metadata}
+    assert manifest["unresolved_parameters"] == []
+
+
+def test_typed_trace_manifest_retains_exact_ordinary_parameter_contract() -> None:
+    params = {
+        "array": jnp.asarray([1, -0.0], np.float32),
+        "numpy_array": np.asarray([2, 3], np.uint32),
+        "spec": jax.ShapeDtypeStruct((2, 3), np.float64, weak_type=True),
+        "dtype": np.dtype(np.float32),
+        "scalar": np.float32(0.5),
+        "mode": jax.lax.RoundingMethod.TO_NEAREST_EVEN,
+    }
+    unresolved: list[str] = []
+    expected = {
+        "inputs": [],
+        "consts": [],
+        "const_payloads": [],
+        "outputs": [],
+        "equations": [
+            {
+                "primitive": "formatter_parameter_only",
+                "inputs": [],
+                "outputs": [],
+                "params": {
+                    name: canonical_contract(
+                        value, unresolved=unresolved, location=name
+                    )
+                    for name, value in sorted(params.items())
+                },
+                "effects": [],
+            }
+        ],
+        "effects": [],
+        "unresolved_parameters": unresolved,
+    }
+    assert not unresolved
+    assert json.dumps(_parameter_manifest(params), sort_keys=True) == json.dumps(
+        expected, sort_keys=True
+    )
 
 
 @pytest.mark.parametrize("dtype", [np.float16, jnp.bfloat16, np.float32, np.float64])
@@ -409,7 +556,21 @@ def test_diagnostic_and_ordinary_audited_controls_keep_separate_profiles(
     )
     assert diagnostic.model is not None, diagnostic.audit.detail
     ordinary = run_source_case(sine, scenario, optimization=None)
-    assert ordinary.model is None and ordinary.audit.status is CheckStatus.UNVERIFIED
+    assert ordinary.model is not None, ordinary.audit.detail
+    assert ordinary.audit.status is CheckStatus.VALIDATED
+    assert ordinary.numerical_status is CheckStatus.UNVERIFIED
+    assert get_precision_report(ordinary.model).profile == "source-static-v1"
+    assert get_precision_report(diagnostic.model).profile == "source-diagnostic-v1"
+    unadmitted = run_source_case(
+        _metadata(lambda x: jax.lax.erf(x), np.asarray([1], np.float32)),
+        scenario,
+        optimization=None,
+    )
+    assert unadmitted.model is None
+    assert (
+        unadmitted.audit.status is unadmitted.numerical_status is CheckStatus.UNVERIFIED
+    )
+    assert unadmitted.category == "migration-gap"
 
 
 def test_complex_boundary_and_hashes_follow_declared_physical_representation() -> None:

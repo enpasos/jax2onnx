@@ -695,14 +695,11 @@ def test_internal_lowerer_preserves_symbolic_ir_metadata_without_admission(
         result.producer() is producer and (result.type, tuple(result.shape)) == metadata
     )
     if operation == "Min":
-        with pytest.raises(SourcePrecisionError) as caught:
-            ui._to_onnx(
-                _function(operation),
-                [spec, spec],
-                precision_policy=PrecisionPolicy.SOURCE,
-            )
-        assert caught.value.primitive == "min"
-        assert caught.value.category == "profile-exclusion"
+        model = ui._to_onnx(
+            _function(operation),
+            [spec, spec],
+            precision_policy=PrecisionPolicy.SOURCE,
+        )
     else:
         model = ui._to_onnx(
             _function(operation),
@@ -710,39 +707,49 @@ def test_internal_lowerer_preserves_symbolic_ir_metadata_without_admission(
             precision_policy=PrecisionPolicy.SOURCE,
             opset=23,
         )
-        onnx.checker.check_model(model, full_check=True)
-        _structure(model, operation)
-        report = get_precision_report(model)
-        assert report is not None and report.profile == "source-static-v1"
-        assert report.opset == 23
-        assert {check.category: check.status for check in report.checks} == {
-            "representation": CheckStatus.VALIDATED,
-            "lowering": CheckStatus.VALIDATED,
-            "runtime-execution": CheckStatus.UNVERIFIED,
-            "numerical-acceptance": CheckStatus.UNVERIFIED,
-        }
-        assert len(model.graph.input) == 2 and len(model.graph.output) == 1
-        assert not model.functions
-        maximum = next(node for node in model.graph.node if node.op_type == "Max")
-        assert tuple(maximum.input) == tuple(port.name for port in model.graph.input)
-        final = model.graph.node[-1]
-        assert final.op_type == "Squeeze"
-        assert tuple(final.output) == (model.graph.output[0].name,)
-        for port in (*model.graph.input, *model.graph.output):
-            tensor = port.type.tensor_type
-            assert tensor.elem_type == onnx.TensorProto.FLOAT
-            assert [dim.dim_param or dim.dim_value for dim in tensor.shape.dim] == [
-                "B",
-                3,
-            ]
-        assert all(
-            (entry.traced.dtype, entry.traced.shape, entry.traced.weak_type)
-            == ("float32", ("B", 3), False)
-            for entry in report.inputs
-        )
-        assert tuple(
-            (entry.dtype, entry.shape, entry.weak_type)
-            for entry in report.traced_outputs
-        ) == (
-            ("float32", ("B", 3), False),
-        )
+    onnx.checker.check_model(model, full_check=True)
+    _structure(model, operation)
+    report = get_precision_report(model)
+    assert report is not None and report.profile == "source-static-v1"
+    assert report.opset == 23
+    assert {check.category: check.status for check in report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+    assert len(model.graph.input) == 2 and len(model.graph.output) == 1
+    assert not model.functions
+    extreme = next(node for node in model.graph.node if node.op_type == operation)
+    assert tuple(extreme.input) == tuple(port.name for port in model.graph.input)
+    final = model.graph.node[-1]
+    assert final.op_type == "Squeeze"
+    assert tuple(final.output) == (model.graph.output[0].name,)
+    for port in (*model.graph.input, *model.graph.output):
+        tensor = port.type.tensor_type
+        assert tensor.elem_type == onnx.TensorProto.FLOAT
+        assert [dim.dim_param or dim.dim_value for dim in tensor.shape.dim] == [
+            "B",
+            3,
+        ]
+    assert all(
+        (entry.traced.dtype, entry.traced.shape, entry.traced.weak_type)
+        == ("float32", ("B", 3), False)
+        for entry in report.inputs
+    )
+    assert tuple(
+        (entry.dtype, entry.shape, entry.weak_type) for entry in report.traced_outputs
+    ) == (
+        ("float32", ("B", 3), False),
+    )
+
+    if operation == "Min":
+        with pytest.raises(SourcePrecisionError) as caught:
+            ui._to_onnx(
+                _function(operation),
+                [spec, spec],
+                precision_policy=PrecisionPolicy.SOURCE,
+                opset=16,
+            )
+        assert caught.value.primitive == "min"
+        assert caught.value.category == "profile-exclusion"

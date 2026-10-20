@@ -12,12 +12,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 from numbers import Integral, Number
 from typing import Any, Final, NoReturn
 
+import jax
 import numpy as np
 
-from jax2onnx._compat.jax import DropVar, Literal, scan_arity
+from jax2onnx._compat.jax import DropVar, Literal, PRNGKeyDType, scan_arity
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from scripts.source_precision_inventory import canonical_contract
 
@@ -185,7 +187,11 @@ def _typed(aval: Any) -> tuple[str, tuple[Any, ...], bool]:
         }
 
     return (
-        np.dtype(aval.dtype).name,
+        (
+            aval.dtype.name
+            if isinstance(aval.dtype, PRNGKeyDType)
+            else np.dtype(aval.dtype).name
+        ),
         tuple(dimension(dim) for dim in aval.shape),
         bool(getattr(aval, "weak_type", False)),
     )
@@ -197,9 +203,24 @@ def typed_trace_manifest(closed: Any, _depth: int = 0) -> dict[str, Any]:
         return {"unresolved": "trace nesting limit"}
     body = _body(closed)
     unresolved: list[str] = []
+    key_dtypes: dict[str, Any] = {}
     variables = {
         id(var): index for index, var in enumerate((*body.constvars, *body.invars))
     }
+
+    def key_dtype(dtype: Any) -> dict[str, Any]:
+        metadata = {
+            "dtype": dtype.name,
+            "key_implementation": dtype._impl.name,
+            "key_shape": list(dtype._impl.key_shape),
+        }
+        key_dtypes[dtype.name] = metadata
+        return metadata
+
+    def typed(aval: Any) -> tuple[str, tuple[Any, ...], bool]:
+        if isinstance(aval.dtype, PRNGKeyDType):
+            key_dtype(aval.dtype)
+        return _typed(aval)
 
     def parameter(value: Any, key: str = "parameter") -> Any:
         candidate = _body(value)
@@ -251,12 +272,39 @@ def typed_trace_manifest(closed: Any, _depth: int = 0) -> dict[str, Any]:
                 "mesh": parameter(getattr(value, "mesh", None), "ctx_mesh"),
                 "memory_kind": getattr(value, "memory_kind", None),
             }
+        if isinstance(value, (jax.Array, jax.ShapeDtypeStruct)) and isinstance(
+            value.dtype, PRNGKeyDType
+        ):
+            metadata = key_dtype(value.dtype)
+            if isinstance(value, jax.ShapeDtypeStruct):
+                return {
+                    **metadata,
+                    "shape": list(typed(value)[1]),
+                    "weak_type": bool(value.weak_type),
+                }
+            words = np.asarray(jax.random.key_data(value))
+            assert words.dtype == np.dtype(np.uint32)
+            payload = words.tobytes(order="C")
+            return {
+                "array_dtype": value.dtype.name,
+                "shape": list(value.shape),
+                "weak_type": bool(jax.typeof(value).weak_type),
+                "key_implementation": metadata["key_implementation"],
+                "key_data": {
+                    "array_dtype": words.dtype.name,
+                    "shape": list(words.shape),
+                    "bytes_hex": payload.hex(),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                },
+            }
+        if isinstance(value, PRNGKeyDType):
+            return key_dtype(value)
         return canonical_contract(value, unresolved=unresolved, location=key)
 
     def use(var: Any) -> Any:
         if isinstance(var, Literal):
-            return {"literal": parameter(var.val), "aval": _typed(var.aval)}
-        return {"var": variables.get(id(var), "unbound"), "aval": _typed(var.aval)}
+            return {"literal": parameter(var.val), "aval": typed(var.aval)}
+        return {"var": variables.get(id(var), "unbound"), "aval": typed(var.aval)}
 
     equations = []
     for eqn in body.eqns:
@@ -276,15 +324,18 @@ def typed_trace_manifest(closed: Any, _depth: int = 0) -> dict[str, Any]:
         )
         if eqn.primitive.name == "scan":
             equations[-1]["scan_role_arity"] = scan_arity(eqn.params, len(eqn.invars))
-    return {
-        "inputs": [_typed(var.aval) for var in body.invars],
-        "consts": [_typed(var.aval) for var in body.constvars],
+    manifest: dict[str, Any] = {
+        "inputs": [typed(var.aval) for var in body.invars],
+        "consts": [typed(var.aval) for var in body.constvars],
         "const_payloads": parameter(getattr(closed, "consts", ())),
         "outputs": [use(var) for var in body.outvars],
         "equations": equations,
         "effects": sorted(type(effect).__qualname__ for effect in body.effects),
         "unresolved_parameters": unresolved,
     }
+    if key_dtypes:
+        manifest["key_dtypes"] = key_dtypes
+    return manifest
 
 
 @dataclass(frozen=True)

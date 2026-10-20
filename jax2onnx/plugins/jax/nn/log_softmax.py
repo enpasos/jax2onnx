@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
+
 from typing import Any, Callable, ClassVar, Final
 
 import jax
@@ -149,6 +151,8 @@ class LogSoftmaxPlugin(PrimitiveLeafPlugin):
         ) -> Callable[..., ArrayLike]:
             if orig is None:
                 raise RuntimeError("Original jax.nn.log_softmax not found")
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return orig
 
             def _patched(
                 x: ArrayLike,

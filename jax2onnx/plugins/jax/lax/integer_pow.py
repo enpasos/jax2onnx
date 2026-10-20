@@ -10,6 +10,7 @@ import onnx_ir as ir
 
 from jax2onnx.converter.ir_builder import _dtype_to_ir
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.plugins.jax.lax._source_elementary import lower_source_elementary
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins._ir_shapes import _ensure_value_metadata, _stamp_type_and_shape
 from jax2onnx.plugins.plugin_system import (
@@ -64,6 +65,9 @@ class IntegerPowPlugin(PrimitiveLeafPlugin):
     """Lower ``lax.integer_pow`` to ONNX ``Pow`` with constant exponent."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: Any) -> None:
+        if lower_source_elementary(ctx, eqn, operation="integer_pow"):
+            return
+
         base_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 

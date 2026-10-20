@@ -96,6 +96,18 @@ def _named_bad_outer(x: jax.Array) -> jax.Array:
     return _named_bad_leaf(x)
 
 
+@onnx_function(name="NamedUnauditedLeaf")
+def _named_unaudited_leaf(x: jax.Array) -> jax.Array:
+    return jax.lax.cond(
+        x > np.float32(0), lambda value: jax.lax.erf(value), lambda value: -value, x
+    )
+
+
+@onnx_function(name="NamedUnauditedOuter")
+def _named_unaudited_outer(x: jax.Array) -> jax.Array:
+    return _named_unaudited_leaf(x)
+
+
 @onnx_function
 def _large_fp64_inner(x: jax.Array, *, payload: np.ndarray) -> tuple[Any, ...]:
     return x, payload
@@ -771,22 +783,31 @@ def test_source_function_failure_names_actual_function_and_preserves_branch_deta
     def model(x: jax.Array) -> jax.Array:
         return _named_bad_outer(x) if nested else _named_bad_leaf(x)
 
+    artifact = _source(model, [()])
+    onnx.checker.check_model(_proto(artifact), full_check=True)
+    report = get_precision_report(artifact)
+    assert report is not None and report.profile == "source-static-v1"
+    assert report.traced_outputs[0].dtype == "float32"
+
+    def unadmitted(x: jax.Array) -> jax.Array:
+        return _named_unaudited_outer(x) if nested else _named_unaudited_leaf(x)
+
     with pytest.raises(SourcePrecisionError) as captured:
-        _source(model, [()])
+        _source(unadmitted, [()])
     error = captured.value
-    assert "NamedDiagnosticLeaf" in error.location
-    assert "_named_bad_leaf" in error.location
+    assert "NamedUnauditedLeaf" in error.location
+    assert "_named_unaudited_leaf" in error.location
     if nested:
-        assert "NamedDiagnosticOuter" in error.location
-        assert error.location.index("NamedDiagnosticOuter") < error.location.index(
-            "NamedDiagnosticLeaf"
+        assert "NamedUnauditedOuter" in error.location
+        assert error.location.index("NamedUnauditedOuter") < error.location.index(
+            "NamedUnauditedLeaf"
         )
     assert "/branch " in error.location
-    assert error.primitive == "sin"
+    assert error.primitive == "erf"
     assert error.category == "profile-exclusion"
     assert error.phase == "profile-validation"
     assert error.requested_dtypes == ("float32", "float32")
-    assert error.precision_params == {"accuracy": "None"}
+    assert error.precision_params == {}
     assert error.opset == 23
     assert error.requirement and error.action
     assert isinstance(error.__cause__, SourcePrecisionError)

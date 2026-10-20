@@ -2,14 +2,18 @@
 
 """Canonical SOURCE initializer payloads and one audited plugin regression.
 
-The relu6 extension below is test-only. It does not admit relu6 into the product
-source profile, or establish support for other plugin and control-flow bodies.
+The owning-plugin initializer fixture is explicit and test-only. Native
+F16/F32/F64 exports remain separate; native BF16 product rejection is retained.
 """
 
 from collections.abc import Iterator
+from contextlib import nullcontext
+from functools import partial
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import jax
 import jax.numpy as jnp
@@ -30,6 +34,8 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
+from jax2onnx.plugins._patching import MonkeyPatchSpec
+from jax2onnx.plugins.jax.nn.relu6 import Relu6Plugin
 
 
 @pytest.fixture(autouse=True)
@@ -395,19 +401,71 @@ def _relu6_nested(x: jax.Array) -> jax.Array:
     return _relu6_outer(x)
 
 
-def _relu6_export(fn: Any, dtype: Any) -> ir.Model:
-    return conversion_api._convert_to_ir(
-        fn=fn,
-        inputs=[jax.ShapeDtypeStruct((5,), dtype)],
-        input_params=None,
-        model_name="source_initializer_relu6",
-        opset=23,
-        enable_double_precision=False,
-        record_primitive_calls_file=None,
-        strict_optimizer_failures=True,
-        precision_policy=PrecisionPolicy.SOURCE,
-        jaxpr_validator=_validate_relu6_test_extension,
-    )
+@onnx_function
+def _relu6_initializer_owning_inner(x: jax.Array) -> jax.Array:
+    return jax.nn.relu6(x)
+
+
+@onnx_function
+def _relu6_initializer_owning_outer(x: jax.Array) -> jax.Array:
+    return _relu6_initializer_owning_inner(x)
+
+
+def _relu6_initializer_owning_nested(x: jax.Array) -> jax.Array:
+    return _relu6_initializer_owning_outer(x)
+
+
+def _relu6_export(fn: Any, dtype: Any, *, owning_diagnostic: bool = False) -> ir.Model:
+    # The initializer regression explicitly exercises the existing owning
+    # plugin. Ordinary native SOURCE exports retain their unchanged default.
+    descriptor = vars(Relu6Plugin)["binding_specs"]
+    missing = object()
+    bindings = []
+    context: Any = nullcontext()
+    observed_owning: list[Any] = []
+    validator = _validate_relu6_test_extension
+    if owning_diagnostic:
+        if fn is _relu6_nested:
+            # A distinct target identity cannot reuse an earlier native body.
+            fn = _relu6_initializer_owning_nested
+
+        def validate_owning(jaxpr: Any, opset: int) -> None:
+            observed_owning.extend(
+                eqn for eqn in jaxpr.eqns if eqn.primitive.name == "jax.nn.relu6"
+            )
+            _validate_relu6_test_extension(jaxpr, opset)
+
+        validator = validate_owning
+        specs = Relu6Plugin.binding_specs()
+        for spec in specs:
+            module = import_module(spec.target)
+            bindings.append((module, spec.attr, getattr(module, spec.attr, missing)))
+            if isinstance(spec, MonkeyPatchSpec):
+                spec.make_value = lambda original: partial(Relu6Plugin._PRIM.bind)
+        context = patch.object(Relu6Plugin, "binding_specs", return_value=specs)
+    try:
+        with context:
+            model: ir.Model = conversion_api._convert_to_ir(
+                fn=fn,
+                inputs=[jax.ShapeDtypeStruct((5,), dtype)],
+                input_params=None,
+                model_name="source_initializer_relu6",
+                opset=23,
+                enable_double_precision=False,
+                record_primitive_calls_file=None,
+                strict_optimizer_failures=True,
+                precision_policy=PrecisionPolicy.SOURCE,
+                jaxpr_validator=validator,
+            )
+            if owning_diagnostic:
+                assert (
+                    observed_owning
+                ), "The initializer diagnostic must reach the owning primitive"
+            return model
+    finally:
+        assert vars(Relu6Plugin)["binding_specs"] is descriptor
+        for module, attr, original in bindings:
+            assert getattr(module, attr, missing) is original
 
 
 @pytest.mark.parametrize("dtype", _FLOAT_DTYPES)
@@ -415,7 +473,7 @@ def _relu6_export(fn: Any, dtype: Any) -> ir.Model:
 def test_source_relu6_typed_initializers_survive_plugin_and_function_export(
     dtype: Any, fn: Any, tmp_path: Path
 ) -> None:
-    model = _relu6_export(fn, dtype)
+    model = _relu6_export(fn, dtype, owning_diagnostic=True)
     if fn is _relu6_nested:
         assert len(model.functions) == 2
     proto = ir.to_proto(model)
@@ -423,6 +481,25 @@ def test_source_relu6_typed_initializers_survive_plugin_and_function_export(
     onnx.save_model(proto, path)
     reloaded = onnx.load_model(path)
     onnx.checker.check_model(reloaded, full_check=True)
+    if fn is _relu6_nested:
+        functions = {function.name: function for function in reloaded.functions}
+        assert len(functions) == 2
+        outer = functions["_relu6_initializer_owning_outer"]
+        inner = functions["_relu6_initializer_owning_inner"]
+        (outer_call,) = [
+            node
+            for node in reloaded.graph.node
+            if (node.domain, node.op_type) == (outer.domain, outer.name)
+        ]
+        (inner_call,) = [
+            node
+            for node in outer.node
+            if (node.domain, node.op_type) == (inner.domain, inner.name)
+        ]
+        assert list(outer_call.input) == [reloaded.graph.input[0].name]
+        assert list(outer_call.output) == [reloaded.graph.output[0].name]
+        assert list(inner_call.input) == list(outer.input)
+        assert list(inner_call.output) == list(outer.output)
     expected_dtype = ir.DataType.from_numpy(np.dtype(dtype))
     assert reloaded.graph.input[0].type.tensor_type.elem_type == int(expected_dtype)
     assert reloaded.graph.output[0].type.tensor_type.elem_type == int(expected_dtype)
@@ -434,6 +511,45 @@ def test_source_relu6_typed_initializers_survive_plugin_and_function_export(
             for attr in node.attribute:
                 if attr.type == onnx.AttributeProto.TENSOR:
                     payloads.append(onnx.numpy_helper.to_array(attr.t))
+    owning_consumers = []
+    for nodes, inputs, outputs, initializers in (
+        (
+            reloaded.graph.node,
+            [value.name for value in reloaded.graph.input],
+            [value.name for value in reloaded.graph.output],
+            reloaded.graph.initializer,
+        ),
+        *(
+            (function.node, list(function.input), list(function.output), ())
+            for function in reloaded.functions
+        ),
+    ):
+        constants = {value.name: value for value in initializers}
+        for node in nodes:
+            if node.op_type == "Constant":
+                constants[node.output[0]] = next(
+                    attr.t for attr in node.attribute if attr.name == "value"
+                )
+        needed = {outputs[0]}
+        for node in reversed(nodes):
+            if needed.intersection(node.output):
+                needed.update(node.input)
+        for maximum in nodes:
+            if maximum.op_type != "Max":
+                continue
+            minimum = next(
+                node
+                for node in nodes
+                if node.op_type == "Min" and node.input[0] == maximum.output[0]
+            )
+            assert maximum.input[0] == inputs[0] and minimum.output[0] in needed
+            for node, coefficient in ((maximum, 0), (minimum, 6)):
+                _assert_payload(
+                    onnx.numpy_helper.to_array(constants[node.input[1]]),
+                    np.asarray(coefficient, dtype=dtype),
+                )
+            owning_consumers.append((maximum.name, minimum.name))
+    assert len(owning_consumers) == 1
     for coefficient in (0, 6):
         expected = np.asarray(coefficient, dtype=dtype)
         assert any(
@@ -480,10 +596,30 @@ def test_product_source_profile_still_excludes_relu6() -> None:
     def validate_actual(jaxpr: Any, opset: int) -> None:
         validate_source_jaxpr(jaxpr, opset)
 
-    with pytest.raises(SourcePrecisionError, match="primitive is outside the profile"):
+    # Retain the historical ID and exact original F32 export as a positive.
+    model = conversion_api._convert_to_ir(
+        fn=_relu6_inline,
+        inputs=[jax.ShapeDtypeStruct((5,), np.float32)],
+        input_params=None,
+        model_name="not_admitted_relu6",
+        opset=23,
+        enable_double_precision=False,
+        record_primitive_calls_file=None,
+        precision_policy=PrecisionPolicy.SOURCE,
+        jaxpr_validator=validate_actual,
+    )
+    assert isinstance(model, ir.Model)
+    assert (
+        model.graph.inputs[0].dtype == model.graph.outputs[0].dtype == ir.DataType.FLOAT
+    )
+    onnx.checker.check_model(ir.to_proto(model), full_check=True)
+    # The owning diagnostic fixture does not admit native BF16 Min/Max.
+    with pytest.raises(
+        SourcePrecisionError, match="floating minimum/maximum"
+    ) as caught:
         conversion_api._convert_to_ir(
             fn=_relu6_inline,
-            inputs=[jax.ShapeDtypeStruct((5,), np.float32)],
+            inputs=[jax.ShapeDtypeStruct((5,), jnp.bfloat16)],
             input_params=None,
             model_name="not_admitted_relu6",
             opset=23,
@@ -492,3 +628,4 @@ def test_product_source_profile_still_excludes_relu6() -> None:
             precision_policy=PrecisionPolicy.SOURCE,
             jaxpr_validator=validate_actual,
         )
+    assert caught.value.primitive == "max"

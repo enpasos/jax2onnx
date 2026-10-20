@@ -3,6 +3,7 @@
 from jax2onnx._compat.jax import JaxprEqn
 import jax
 
+from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
@@ -99,7 +100,10 @@ class LogPlugin(PrimitiveLeafPlugin):
 
         reduce_getter = getattr(x_val, "producer", lambda: None)
         reduce_node = reduce_getter() if callable(reduce_getter) else None
-        if getattr(reduce_node, "op_type", "") == "ReduceSum":
+        if (
+            ctx.precision_policy is PrecisionPolicy.LEGACY
+            and getattr(reduce_node, "op_type", "") == "ReduceSum"
+        ):
             reduce_inputs = list(getattr(reduce_node, "inputs", ()))
             reduce_attrs = getattr(reduce_node, "attributes", None)
             keepdims_attr = None

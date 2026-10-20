@@ -519,12 +519,23 @@ def test_native_trig_remains_excluded_from_default_source_profile(name: str) -> 
         jax.numpy_rank_promotion("raise"),
     ):
         before = _settings()
+        artifact = user_interface._to_onnx(
+            _operation(name),
+            [jax.ShapeDtypeStruct((2,), np.float32)],
+            precision_policy=PrecisionPolicy.SOURCE,
+        )
+        assert isinstance(artifact, onnx.ModelProto)
+        onnx.checker.check_model(artifact, full_check=True)
+        assert any(node.op_type == name.title() for node in artifact.graph.node)
+        report = get_precision_report(artifact)
+        assert report is not None and report.profile == "source-static-v1"
+        assert _settings() == before and _globals() == hidden
         with pytest.raises(SourcePrecisionError) as caught:
             user_interface._to_onnx(
-                _operation(name),
+                jax.lax.erf,
                 [jax.ShapeDtypeStruct((2,), np.float32)],
                 precision_policy=PrecisionPolicy.SOURCE,
             )
         assert _settings() == before and _globals() == hidden
     assert caught.value.category == "profile-exclusion"
-    assert caught.value.primitive == name
+    assert caught.value.primitive == "erf"

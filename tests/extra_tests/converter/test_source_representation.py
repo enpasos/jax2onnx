@@ -30,6 +30,7 @@ from jax2onnx.converter.ir_context import IRContext
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.converter.source_representation import representation_for_aval
+from jax2onnx.plugins.jax.nn.relu6 import Relu6Plugin
 from jax2onnx.precision import (
     CheckStatus,
     PRECISION_METADATA_KEY,
@@ -635,23 +636,67 @@ def _pending_relu6(x: Any) -> Any:
     return jax.nn.relu6(x)
 
 
+@onnx_function
+def _pending_plugin_relu6(x: Any) -> Any:
+    return Relu6Plugin._PRIM.bind(x)
+
+
 def test_diagnostic_function_cache_cannot_turn_later_default_export_into_audited_acceptance() -> (
     None
 ):
     def model(x: Any) -> Any:
         return _pending_relu6(x)
 
-    artifact = _diagnostic(model, [jax.ShapeDtypeStruct((2,), np.float32)])
-    assert get_precision_report(artifact).profile == "source-diagnostic-v1"
+    with pytest.raises(
+        SourcePrecisionError, match="operation outside diagnostic"
+    ) as diagnostic_error:
+        _diagnostic(model, [jax.ShapeDtypeStruct((2,), np.float32)])
+    assert diagnostic_error.value.primitive == "custom_jvp_call"
+    assert "_pending_relu6" in diagnostic_error.value.location
+    native = ui._to_onnx(
+        model,
+        [jax.ShapeDtypeStruct((2,), np.float32)],
+        precision_policy=PrecisionPolicy.SOURCE,
+    )
+    onnx.checker.check_model(native, full_check=True)
+    native_report = get_precision_report(native)
+    assert native_report is not None and native_report.profile == "source-static-v1"
+    assert {check.category: check.status for check in native_report.checks} == {
+        "representation": CheckStatus.VALIDATED,
+        "lowering": CheckStatus.VALIDATED,
+        "runtime-execution": CheckStatus.UNVERIFIED,
+        "numerical-acceptance": CheckStatus.UNVERIFIED,
+    }
+
+    def plugin_model(x: Any) -> Any:
+        return _pending_plugin_relu6(x)
+
+    artifact = _diagnostic(plugin_model, [jax.ShapeDtypeStruct((2,), np.float32)])
+    report = get_precision_report(artifact)
+    assert report is not None and report.profile == "source-diagnostic-v1"
+    assert (
+        next(check for check in report.checks if check.category == "lowering").status
+        is CheckStatus.UNVERIFIED
+    )
+    serialized = onnx.load_model_from_string(artifact.SerializeToString())
+    onnx.checker.check_model(serialized, full_check=True)
+    functions = {(function.domain, function.name) for function in serialized.functions}
+    assert functions and any(
+        (node.domain, node.op_type) in functions for node in serialized.graph.node
+    )
+    assert {
+        node.op_type for function in serialized.functions for node in function.node
+    } >= {"Min", "Max"}
     with pytest.raises(
         SourcePrecisionError, match="primitive is outside the profile"
     ) as captured:
         ui._to_onnx(
-            model,
+            plugin_model,
             [jax.ShapeDtypeStruct((2,), np.float32)],
             precision_policy=PrecisionPolicy.SOURCE,
         )
-    assert "_pending_relu6" in captured.value.location
+    assert captured.value.primitive == "jax.nn.relu6"
+    assert "_pending_plugin_relu6" in captured.value.location
 
 
 def test_diagnostic_retains_existing_opset_gap() -> None:

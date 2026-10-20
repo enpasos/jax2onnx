@@ -240,9 +240,21 @@ def test_skipped_numerics_and_unaudited_functionality_remain_unverified() -> Non
     assert skipped.stage == "artifact-checked"
     assert skipped.numerical_status is CheckStatus.UNVERIFIED
     assert skipped.validation.target is None
-    unsupported = run_source_case(
+    sine = run_source_case(
         _metadata(lambda x: jax.lax.sin(x), input_values=[np.asarray([1], np.float32)]),
         SourceScenario("pending-sin", False, np.float32),
+    )
+    assert sine.model is not None, sine.audit.detail
+    assert sine.category == "runtime-evidence" and sine.stage == "runtime-checked"
+    assert (
+        sine.schema
+        is sine.audit.status
+        is sine.numerical_status
+        is CheckStatus.VALIDATED
+    )
+    unsupported = run_source_case(
+        _metadata(lambda x: jax.lax.erf(x), input_values=[np.asarray([1], np.float32)]),
+        SourceScenario("pending-erf", False, np.float32),
     )
     assert unsupported.category == "migration-gap"
     assert (

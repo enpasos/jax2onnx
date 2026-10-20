@@ -41,6 +41,13 @@ from jax2onnx._compat.jax import (
     is_selected_prng_key_dtype,
     selected_prng_key_words,
 )
+from jax2onnx.converter.source_elementary import (
+    ELEMENTARY_OPERATIONS,
+    validate_elementary_equation,
+    validate_custom_jvp_forward,
+    validate_integer_arithmetic,
+    validate_original_elementary_opset,
+)
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -317,7 +324,9 @@ def _validate_opset16_equation(
     if site.opset != 16:
         return
     name = site.primitive
-    if name in {"jit", "cond"} or bool(name and name.startswith("onnx_fn::")):
+    if name in {"jit", "cond", "custom_jvp_call"} or bool(
+        name and name.startswith("onnx_fn::")
+    ):
         return
     if name in {
         "random_seed",
@@ -362,6 +371,8 @@ def _validate_opset16_equation(
             "integer_pow",
         }
         | _TENSOR_INDEX
+        | ELEMENTARY_OPERATIONS
+        | {"stop_gradient"}
         and all(
             value.dtype in {"float16", "float32", "float64", "bool", "int32", "int64"}
             for value in (*inputs, *outputs)
@@ -1882,6 +1893,7 @@ def _validate_equation(
     )
     name = site.primitive
     _validate_opset16_equation(inputs, outputs, site)
+    validate_original_elementary_opset(inputs, outputs, site)
     symbolic = any(value.symbol is not None for value in (*inputs, *outputs))
     site.require(
         not symbolic
@@ -1921,11 +1933,21 @@ def _validate_equation(
             "reshape",
         }
         or name in _TENSOR_INDEX
+        or name in ELEMENTARY_OPERATIONS
+        or name in {"custom_jvp_call", "stop_gradient"}
         or bool(name and name.startswith("onnx_fn::")),
         "symbolic operation is outside this audited batch packet",
         "shared leading-batch operations, exact two-branch conditionals, named Function signatures, and returned aliases",
     )
-    if name == "dim_as_value":
+    if validate_integer_arithmetic(eqn, inputs, outputs, site):
+        return
+    if name in ELEMENTARY_OPERATIONS:
+        validate_elementary_equation(eqn, inputs, outputs, site)
+    elif name == "custom_jvp_call":
+        validate_custom_jvp_forward(eqn, site, ancestors)
+    elif name == "stop_gradient":
+        _validate_copy(eqn, inputs, outputs, site)
+    elif name == "dim_as_value":
         _validate_dim_as_value(eqn, outputs, formal_symbols, site)
     elif name == "jit":
         _validate_jit(eqn, site, ancestors)
@@ -2280,9 +2302,9 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             category="lowering-defect",
         )
     site.require(
-        opset in (16, 23, 24, 26, 27),
+        opset in (16, 18, 21, 23, 24, 26, 27),
         f"opset {opset} is outside the profile",
-        "explicit opset 16, 23, 24, 26 or 27 with operation-specific eligibility",
+        "explicit opset 16, 18, 21, 23, 24, 26 or 27 with operation-specific eligibility",
     )
     # Attribute an actual effectful dot to its equation before the graph-wide
     # purity guard. Effects elsewhere retain the existing profile exclusion.
@@ -2321,7 +2343,8 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
                 opset,
                 requested_dtypes=(str(var.aval.dtype),),
             )
-            _tensor(var, boundary_site)
+            value = _tensor(var, boundary_site)
+            validate_original_elementary_opset([value], [], boundary_site)
     # Function formals may correctly remap caller symbols. Validate each actual
     # retraced scope locally while preserving identity within that scope.
     formals = (*jaxpr.invars, *jaxpr.constvars)
@@ -2413,6 +2436,7 @@ def _validate_scope(jaxpr: Any, opset: int, ancestors: frozenset[int]) -> None:
             f"output {index}", opset, requested_dtypes=(str(var.aval.dtype),)
         )
         value = _tensor(var, boundary_site)
+        validate_original_elementary_opset([value], [], boundary_site)
         boundary_site.require(
             value.symbol is None or value.symbol in formal_symbols,
             "symbolic output differs from this scope's formal batch contract",

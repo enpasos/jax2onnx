@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - compatibility with older JAX versions
     from jax.core import InconclusiveDimensionOperation
 from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
+from jax.extend.linear_util import WrappedFun as WrappedFun
 from jax.interpreters import ad, batching
 from jax._src.random.prng import KeyTy as PRNGKeyDType
 

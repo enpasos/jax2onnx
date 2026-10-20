@@ -225,7 +225,7 @@ def test_criteria_are_exact_and_separate_nan_class_from_storage() -> None:
 
 
 def test_only_the_sixteen_reviewed_jnp_binders_opt_in() -> None:
-    """Keep the explicit binder guard, including the newly reviewed sqrt."""
+    """Keep the exact reviewed binder allowlist and reject every other opt-in."""
 
     directory = Path(__file__).resolve().parents[3] / "jax2onnx/plugins/jax/numpy"
     selected = []
@@ -243,7 +243,36 @@ def test_only_the_sixteen_reviewed_jnp_binders_opt_in() -> None:
                     assert keyword.value.value is True
                     selected.append(path.stem)
     assert sorted(selected) == sorted(
-        (*_OWNED, "add", "cos", "exp", "maximum", "minimum", "sin", "sqrt")
+        (
+            *_OWNED,
+            "add",
+            "cos",
+            "exp",
+            "maximum",
+            "minimum",
+            "sin",
+            "sqrt",
+            "abs",
+            "acos",
+            "acosh",
+            "asin",
+            "asinh",
+            "atan",
+            "atan2",
+            "atanh",
+            "ceil",
+            "cosh",
+            "exp2",
+            "expm1",
+            "floor",
+            "isfinite",
+            "log",
+            "pow",
+            "sign",
+            "sinh",
+            "tan",
+            "tanh",
+        )
     )
 
 

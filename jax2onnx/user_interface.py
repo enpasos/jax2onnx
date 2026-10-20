@@ -524,7 +524,7 @@ def _validate_source_inputs(
     for index, spec in enumerate(inputs):
         assert isinstance(spec, jax.ShapeDtypeStruct)
         validate_source_input_dtype(spec.dtype, index=index, opset=opset)
-    if opset not in (16, 23, 24, 26, 27):
+    if opset not in (16, 18, 21, 23, 24, 26, 27):
         _source_migration_gap(f"opset={opset}", opset)
     for index, spec in enumerate(inputs):
         assert isinstance(spec, jax.ShapeDtypeStruct)
