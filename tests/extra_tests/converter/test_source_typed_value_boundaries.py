@@ -344,7 +344,9 @@ def test_x64_configuration_conflict_precedes_any_typed_trace(dtype: Any) -> None
         "rank_five",
     ],
 )
-def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> None:
+def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(
+    kind: str, tmp_path: Any
+) -> None:
     (batch,) = export.symbolic_shape("B")
     spec = jax.ShapeDtypeStruct((2,), np.int32)
     if kind == "symbolic_complex":
@@ -383,6 +385,27 @@ def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> No
         assert proto.graph.input[0].type.tensor_type.elem_type == 9
         assert proto.graph.output[0].type.tensor_type.elem_type == 9
         _accept_declared_storage(proto, feeds, references)
+        return
+    if kind == "complex_add":
+        from tests.extra_tests.converter.test_source_complex_add import (
+            assert_complex_add_source,
+        )
+
+        # Preserve this exact original x + x callable and parameter ID as the
+        # positive counterpart, using declared physical component storage.
+        values = (np.asarray([1 + 2j, 3 - 4j], np.complex64),)
+        proto = assert_complex_add_source(
+            fn, values, tmp_path / "complex-add", operands=(0, 0)
+        )
+        report = get_precision_report(proto)
+        assert report is not None
+        assert report.traced_outputs[0].dtype == "complex64"
+        assert report.traced_outputs[0].shape == (2,)
+        assert proto.graph.input[0].type.tensor_type.elem_type == 1
+        assert proto.graph.output[0].type.tensor_type.elem_type == 1
+        assert [
+            dim.dim_value for dim in proto.graph.output[0].type.tensor_type.shape.dim
+        ] == [2, 2]
         return
     if kind == "integer_add":
         # Keep the original x + x callable and prove signed modular overflow.

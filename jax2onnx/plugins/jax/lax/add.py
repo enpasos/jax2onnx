@@ -5,6 +5,9 @@ from typing import Any, Optional, cast
 import onnx_ir as ir
 import jax
 import numpy as np
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.source_profile import _Site, _tensor, _validate_complex_add
+from jax2onnx.converter.source_representation import representation_for_aval
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.plugins._axis0_utils import (
     maybe_expand_binary_axis0,
@@ -70,8 +73,49 @@ def _lower_complex_add(
     return result, target_dtype
 
 
+def _lower_source_complex_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
+    site = _Site("complex Add lowering", ctx.builder.opset, eqn.primitive.name)
+    _validate_complex_add(
+        eqn,
+        [_tensor(var, site) for var in eqn.invars],
+        [_tensor(var, site) for var in eqn.outvars],
+        site,
+    )
+    operands = [ctx.require_value_for_var(var) for var in eqn.invars]
+    for var, value in zip(eqn.invars, operands, strict=True):
+        if not representation_for_aval(var.aval).matches_ir_value(value):
+            raise TypeError(
+                "SOURCE complex Add physical storage differs from its declared real/imaginary pair"
+            )
+    out_var = eqn.outvars[0]
+    representation = representation_for_aval(out_var.aval)
+    output = ctx.allocate_value_for_var(
+        out_var, name_hint=ctx.fresh_name("source_complex_add")
+    )
+    result, dtype = _lower_complex_add(
+        ctx, *operands, output_name=output.name or ctx.fresh_name("source_complex_add")
+    )
+    if dtype != representation.ir_dtype:
+        raise TypeError("SOURCE complex Add changed its declared component width")
+    # The ordinary helper follows the left operand, while this native Add may
+    # broadcast. Derive the complete pair result from its proved declaration;
+    # logical-axis stamping would discard the physical channel dimension.
+    for value in (output, result):
+        value.type = ir.TensorType(representation.ir_dtype)
+        _stamp_type_and_shape(value, coerce_dim_values(representation.physical_shape))
+        _ensure_value_metadata(ctx, value)
+    ctx.bind_value_for_var(out_var, result)
+
+
 def lower_add(ctx: LoweringContextProtocol, eqn: Any) -> None:
     """Shared lowering routine for lax/jnp Add plugins."""
+
+    if ctx.precision_policy is PrecisionPolicy.SOURCE and any(
+        np.dtype(var.aval.dtype).name in {"complex64", "complex128"}
+        for var in (*eqn.invars, *eqn.outvars)
+    ):
+        _lower_source_complex_add(ctx, eqn)
+        return
 
     x_var, y_var = eqn.invars
     out_var = eqn.outvars[0]

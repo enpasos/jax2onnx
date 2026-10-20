@@ -13,8 +13,9 @@ typed plain-JIT carriers and returned aliases retain the same scope checks.
 These checks describe an export representation, not runtime numerical evidence.
 The top-level facade owns typed input normalization and x64 conflicts. Ordinary
 Boolean/integer/floating values share the finite leading-batch proof. Static
-complex values use declared real/imaginary storage; complex arithmetic, conversion
-and symbolic complex scopes remain separate work.
+complex values use declared real/imaginary storage. Same-width native complex
+Add has a static opset-23/26 contract; other complex arithmetic, conversion and
+symbolic complex scopes remain separate work.
 Function bodies are checked when their lowering retraces them with this callback.
 """
 
@@ -1655,6 +1656,57 @@ def _validate_conversion(
     _same_shape(target.shape, source.shape, site)
 
 
+def _validate_complex_add(
+    eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
+) -> None:
+    """Admit one native complex width without inferring it from pair storage."""
+    _arity(eqn, 2, 1, site)
+    site.require(
+        eqn.primitive is jax.lax.add_p and not eqn.params,
+        "complex Add identity or parameters differ from the native contract",
+        "the actual parameter-free native Add primitive",
+        category="lowering-defect",
+    )
+    site.require(
+        site.opset in (23, 26),
+        "complex Add at this opset needs separate implementation",
+        "the audited complex Add representation at opset 23 or 26",
+    )
+    site.require(
+        inputs[0].dtype in _COMPLEX
+        and inputs[0].dtype == inputs[1].dtype == outputs[0].dtype,
+        "complex Add operand/result widths need separate implementation",
+        "two complex64 or two complex128 operands and the same-width result; no mixed real/complex values or implicit conversion",
+    )
+    site.require(
+        all(
+            value.symbol is None
+            and all(
+                isinstance(dim, (int, np.integer))
+                and not isinstance(dim, (bool, np.bool_))
+                and dim >= 0
+                for dim in value.shape
+            )
+            for value in (*inputs, *outputs)
+        ),
+        "symbolic complex Add needs separate implementation",
+        "static nonnegative native complex tensor dimensions",
+    )
+    site.require(
+        eqn.outvars[0].aval.weak_type is all(var.aval.weak_type for var in eqn.invars),
+        "complex Add result weakness differs from its native operands",
+        "the conjunction of the two native Boolean weak_type flags",
+        category="lowering-defect",
+    )
+    site.require(
+        len({len(value.shape) for value in inputs if value.shape}) <= 1,
+        "complex Add operands have unequal non-scalar ranks",
+        "equal non-scalar ranks with singleton broadcasting, or a native scalar operand",
+        category="lowering-defect",
+    )
+    _pointwise_shape(inputs, outputs[0], site)
+
+
 def _validate_complex_foundation(
     eqn: Any, inputs: list[_Tensor], outputs: list[_Tensor], site: _Site
 ) -> None:
@@ -2053,6 +2105,11 @@ def _validate_equation(
             )
             _tensor_result(eqn, inputs, outputs[0], site)
             _pointwise_shape(inputs, outputs[0], site)
+            return
+        if name == "add" and any(
+            value.dtype in _COMPLEX for value in (*inputs, *outputs)
+        ):
+            _validate_complex_add(eqn, inputs, outputs, site)
             return
         _float_values(inputs, site)
         site.require(
