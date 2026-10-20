@@ -364,6 +364,7 @@ def _equation(equation: Any, **changes: Any) -> Any:
         "outvars": list(equation.outvars),
         "params": dict(equation.params),
         "effects": equation.effects,
+        "ctx": equation.ctx,
     }
     values.update(changes)
     return SimpleNamespace(**values)

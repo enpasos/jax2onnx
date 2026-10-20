@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 import numpy as np
 
 from jax import Array
+from jax import lax as _native_lax
+from jax._src import core as _native_core
+from jax._src.ad_checkpoint import remat_p as _native_remat_p
 from jax import core as jax_core
 
 try:  # JAX 0.10+ exposes this through jax.errors.
@@ -33,6 +36,124 @@ try:
     DropVar = jax_core_ext.DropVar
 except AttributeError:  # pragma: no cover - compatibility with older JAX versions
     DropVar = jax_core.DropVar
+
+
+@dataclass(frozen=True)
+class _NativeAbstractRule:
+    primitive: Primitive
+    evaluator: Callable[..., Any]
+    multiple_results: bool
+
+
+# _compat is imported before plugin_system can bind exporter abstract rules.
+# Retain native callables and result conventions, never a mutable method lookup
+# at validation time. This explicit set does not confer SOURCE eligibility.
+_NATIVE_ABSTRACT_RULES = tuple(
+    _NativeAbstractRule(primitive, primitive.abstract_eval, primitive.multiple_results)
+    for primitive in (
+        _native_lax.scan_p,
+        _native_lax.while_p,
+        _native_lax.scatter_p,
+        _native_lax.scatter_add_p,
+        _native_lax.scatter_mul_p,
+        _native_remat_p,
+    )
+)
+
+
+def _require_plain_native_aval(aval: Any) -> None:
+    from jax.sharding import NamedSharding, PartitionSpec
+    from jax._src.mesh import AbstractMesh
+
+    if type(aval) is not ShapedArray:
+        raise TypeError("native signature requires an ordinary exact ShapedArray")
+    sharding = aval.sharding
+    if not (
+        type(sharding) is NamedSharding
+        and type(sharding.mesh) is AbstractMesh
+        and sharding.mesh.empty
+        and sharding.memory_kind is None
+        and sharding.spec == PartitionSpec(*(None for _ in aval.shape))
+        and aval.manual_axis_type is _native_core.empty_mat
+        and aval.memory_space is _native_core.MemorySpace.Device
+    ):
+        raise TypeError(
+            "native signature has unsupported sharding, manual axes or memory space"
+        )
+    # JAX 0.11 adds layout to ShapedArray; the older native class has no slot.
+    if (
+        hasattr(_native_core, "AutoLayout")
+        and aval.layout is not _native_core.AutoLayout
+    ):
+        raise TypeError("native signature has unsupported explicit layout")
+
+
+def infer_native_abstract_results(
+    eqn: Any, expected_primitive: Primitive
+) -> tuple[tuple[Any, ...], Any]:
+    """Infer selected original native avals under their recorded context.
+
+    Callers must first own the parameter and carrier schemas and child bodies.
+    This does not validate a lowerer, captures, dataflow or numerical behavior.
+    """
+    from jax._src.mesh import AbstractMesh
+
+    rule = next(
+        (
+            rule
+            for rule in _NATIVE_ABSTRACT_RULES
+            if rule.primitive is expected_primitive
+        ),
+        None,
+    )
+    if rule is None or eqn.primitive is not rule.primitive:
+        raise TypeError(
+            "native signature requires an explicitly selected canonical primitive"
+        )
+    context = getattr(eqn, "ctx", None)
+    if context is None or type(context) is not _native_core.JaxprEqnContext:
+        raise TypeError(
+            "native signature requires the actual recorded equation context"
+        )
+    if not (
+        type(context.cur_abstract_mesh) is AbstractMesh
+        and context.cur_abstract_mesh.empty
+    ):
+        raise TypeError("native signature requires an empty recorded abstract mesh")
+    if (
+        hasattr(_native_core, "LayoutMode")
+        and context.cur_layout_mode is not _native_core.LayoutMode.AUTO
+    ):
+        raise TypeError("native signature requires the native automatic layout context")
+    for var in (*eqn.invars, *eqn.outvars):
+        _require_plain_native_aval(var.aval)
+        if any(
+            getattr(var, name, None) is not None
+            for name in ("initial_qdd", "final_qdd")
+        ):
+            raise TypeError(
+                "native signature does not own quantization variable metadata"
+            )
+    before = _native_core.JaxprEqnContext()
+    try:
+        with context.manager:
+            inferred, effects = rule.evaluator(
+                *(var.aval for var in eqn.invars), **eqn.params
+            )
+    finally:
+        if _native_core.JaxprEqnContext() is not before:
+            raise RuntimeError("native equation context was not restored")
+    if rule.multiple_results:
+        if type(inferred) not in (tuple, list):
+            raise TypeError(
+                "native multiple-result evaluator did not return an aval sequence"
+            )
+        inferred = tuple(inferred)
+    else:
+        inferred = (inferred,)
+    for aval in inferred:
+        _require_plain_native_aval(aval)
+    return inferred, effects
 
 
 def fresh_var_like(var: Any) -> Any:

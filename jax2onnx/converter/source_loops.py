@@ -10,7 +10,6 @@ carrier eligibility does not establish target execution or numerical agreement.
 from __future__ import annotations
 
 from dataclasses import replace
-from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
 
 import jax
@@ -92,39 +91,11 @@ def _recurse(body: Any, site: _Site, ancestors: frozenset[int], role: str) -> No
         raise exc.with_context(f"{site.location}/{role}") from exc
 
 
-def _native_results(eqn: Any, site: _Site) -> None:
-    """Preserve native result weakness without strengthening carry invariants."""
+def _native_results(eqn: Any, site: _Site, parameters: set[str]) -> None:
+    from jax2onnx.converter.source_native_contract import validate_native_results
+
     primitive = jax.lax.scan_p if site.primitive == "scan" else jax.lax.while_p
-    site.require(
-        eqn.primitive is primitive,
-        "loop equation does not use the actual native primitive",
-        "the installed JAX scan/while primitive, never an object-provided evaluator",
-        category="lowering-defect",
-    )
-    try:
-        inferred, effects = primitive.abstract_eval(
-            *(var.aval for var in eqn.invars), **eqn.params
-        )
-    except (AssertionError, TypeError, ValueError) as exc:
-        site.fail(
-            f"native loop abstract signature is malformed: {exc}",
-            "native attributes and typed body roles consistent with the actual operands",
-            category="lowering-defect",
-        )
-    if not isinstance(inferred, (tuple, list)):
-        site.fail(
-            "native loop abstract evaluation did not return multiple result avals",
-            "the actual native scan/while multiple-result signature",
-            category="lowering-defect",
-        )
-    site.require(
-        not effects
-        and _signature([SimpleNamespace(aval=aval) for aval in inferred], site)
-        == _signature(eqn.outvars, site),
-        "loop result dtype, shape or weakness differs from native abstract evaluation",
-        "the exact installed native result avals, including version-specific weakness",
-        category="lowering-defect",
-    )
+    validate_native_results(eqn, site, primitive=primitive, parameters=parameters)
 
 
 def validate_loop_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
@@ -282,4 +253,4 @@ def validate_loop_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> 
         "loop placement is outside the audited native carrier",
         "unspecified loop placement",
     )
-    _native_results(eqn, site)
+    _native_results(eqn, site, fields | {"sharding", "out_sharding"})

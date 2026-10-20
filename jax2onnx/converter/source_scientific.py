@@ -8,39 +8,15 @@ original scientific opset21 establishes neither CPU kernels nor numerical parity
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
 
 import jax
 
 from jax2onnx._compat.jax import Jaxpr, native_remat_primitive
+from jax2onnx.converter.source_native_contract import validate_native_results
 
 if TYPE_CHECKING:
     from jax2onnx.converter.source_profile import _Site
-
-
-def _native_results(eqn: Any, site: _Site) -> None:
-    from jax2onnx.converter.source_profile import _signature
-
-    try:
-        inferred, effects = eqn.primitive.abstract_eval(
-            *(var.aval for var in eqn.invars), **eqn.params
-        )
-    except (AssertionError, TypeError, ValueError) as exc:
-        site.fail(
-            f"native scientific abstract signature is malformed: {exc}",
-            "native attributes and typed body roles consistent with the actual operands",
-            category="lowering-defect",
-        )
-    inferred = inferred if isinstance(inferred, (tuple, list)) else (inferred,)
-    site.require(
-        not effects
-        and _signature([SimpleNamespace(aval=aval) for aval in inferred], site)
-        == _signature(eqn.outvars, site),
-        "scientific result dtype, shape or weakness differs from native evaluation",
-        "the exact installed native result avals and empty effects",
-        category="lowering-defect",
-    )
 
 
 def validate_scatter_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
@@ -225,7 +201,12 @@ def validate_scatter_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) 
             category="lowering-defect",
         )
         _validate_scope(reducer, site.opset, ancestors)
-    _native_results(eqn, site)
+    validate_native_results(
+        eqn,
+        site,
+        primitive=primitives[site.primitive or ""],
+        parameters=fields | {"sharding", "out_sharding"},
+    )
 
 
 def validate_remat_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> None:
@@ -285,4 +266,9 @@ def validate_remat_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) ->
         _validate_scope(body, site.opset, ancestors)
     except SourcePrecisionError as exc:
         raise exc.with_context(f"{site.location}/remat2 forward") from exc
-    _native_results(eqn, site)
+    validate_native_results(
+        eqn,
+        site,
+        primitive=native_remat_primitive(),
+        parameters=fields | {"sharding", "out_sharding"},
+    )
