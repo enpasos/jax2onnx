@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import ExitStack
 from dataclasses import FrozenInstanceError, replace
+import hashlib
 import importlib.metadata
 import json
 from typing import Any
@@ -81,14 +82,38 @@ def test_exact_first_selection_preflights_all_36_cells_without_executing_models(
     selected = frozenset(probe.FIRST_DIAGNOSTIC_CASES)
     probe.preflight_cases(plan, registrations, selected)
     assert len(selected) == 18
+    assert len(plan.rows) == 1852 and len(plan.cells) == 3704
     cells = [
         cell
         for cell in plan.cells
         if SourceProvenance(cell.origin, cell.ordinal) in selected
     ]
     assert len(cells) == 36
-    assert len(plan.cells) - len(cells) == 3568
+    unselected = [
+        cell
+        for cell in plan.cells
+        if SourceProvenance(cell.origin, cell.ordinal) not in selected
+    ]
+    assert len(unselected) == 3668
     assert len({cell.identity for cell in cells}) == 36
+    assert (
+        hashlib.sha256(
+            json.dumps(
+                sorted(cell.identity for cell in cells), separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        == "9fb4b7c179e83cf609c7cff4021caf30a6689d314f3c21b4af3b3f94262dd585"
+    )
+    optional = {
+        (row.origin, row.ordinal)
+        for row in plan.rows
+        if row.display[0] in {"examples.maxtext", "examples.maxdiffusion"}
+    }
+    optional_cells = {
+        cell.identity for cell in plan.cells if (cell.origin, cell.ordinal) in optional
+    }
+    assert len(optional_cells) == 100
+    assert optional_cells <= {cell.identity for cell in unselected}
     assert {cell.scenario for cell in cells} == set(probe.SCENARIOS)
     assert all(
         row.criteria is None

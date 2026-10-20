@@ -272,6 +272,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
 
         # Inputs
         x_val = ctx.get_value_for_var(x_var, name_hint=ctx.fresh_name("x"))
+        original_x_val = x_val
         x_shape = tuple(getattr(getattr(x_var, "aval", None), "shape", ()))
 
         # Preserve original input meta if binder left it unknown
@@ -461,9 +462,28 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         producer = getattr(out_spec, "producer", None)
         if callable(producer) and producer() is not None:
             desired_name = ctx.fresh_name("Reshape")
+        dimensions = eqn.params.get("dimensions")
+        if dimensions is not None:
+            permutation = tuple(int(axis) for axis in dimensions)
+            x_val = ctx.builder.op(
+                "Transpose", [x_val], {"perm": ir.AttrInt64s("perm", permutation)}
+            )
+            _stamp_type_and_shape(x_val, tuple(x_shape[axis] for axis in permutation))
+            x_val.type = out_spec.type
+            _ensure_value_metadata(ctx, x_val)
+        # JAX new_sizes are literal extents. ONNX's default zero means "copy
+        # this input axis", which changes e.g. (2, 0, 3) -> (0, 6).
+        literal_zero = any(
+            isinstance(dim, (int, np.integer)) and int(dim) == 0 for dim in new_sizes
+        )
         reshape_val = ctx.builder.Reshape(
             x_val,
             shape_tensor,
+            **(
+                {"allowzero": 1}
+                if literal_zero and int(getattr(ctx.builder, "opset", 0)) >= 14
+                else {}
+            ),
             _outputs=[desired_name],
         )
         output_dtype = getattr(getattr(out_spec, "type", None), "dtype", None)
@@ -480,7 +500,7 @@ class ReshapePlugin(PrimitiveLeafPlugin):
         sym_label_map: Dict[object, str] = {}
         for i, d in enumerate(x_shape):
             if not isinstance(d, (int, np.integer)):
-                label = _dim_label_from_value_or_aval(x_val, x_shape, i)
+                label = _dim_label_from_value_or_aval(original_x_val, x_shape, i)
                 sym_label_map[d] = (
                     label if isinstance(label, str) else ctx.fresh_name("dynamic")
                 )

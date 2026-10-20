@@ -3,11 +3,17 @@
 
 import jax
 import numpy as np
+import onnx_ir as ir
 from jax2onnx._compat.jax import JaxprEqn
 
-from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import PrecisionPolicy
+from jax2onnx.converter.typing_support import (
+    LoweringContextProtocol,
+    NativeLoweringContext,
+)
 from jax2onnx.ir_utils import ir_dtype_to_numpy
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
+from jax2onnx.plugins.jax.lax._source_erfc import source_erfc
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -38,9 +44,13 @@ from jax2onnx.plugins.plugin_system import (
     ],
 )
 class ErfcPlugin(PrimitiveLeafPlugin):
-    """Lower ``lax.erfc`` to ONNX via ``1 - Erf(x)``."""
+    """Preserve the typed SOURCE expression and the existing LEGACY lowering."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if ctx.precision_policy is PrecisionPolicy.SOURCE:
+            self._lower_source(ctx, eqn)
+            return
+
         x_var = eqn.invars[0]
         out_var = eqn.outvars[0]
 
@@ -80,3 +90,55 @@ class ErfcPlugin(PrimitiveLeafPlugin):
         elif getattr(erf_val, "shape", None) is not None:
             result.shape = erf_val.shape
         ctx.bind_value_for_var(out_var, result)
+
+    def _lower_source(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
+        if set(eqn.params) - {"sharding", "out_sharding"} or any(
+            value is not None for value in eqn.params.values()
+        ):
+            raise NotImplementedError(
+                "SOURCE erfc requires its native parameter-free contract "
+                "and unspecified placement"
+            )
+        x = ctx.require_value_for_var(eqn.invars[0])
+        outvar = eqn.outvars[0]
+        output = ctx.allocate_value_for_var(
+            outvar, name_hint=ctx.fresh_name("erfc_out")
+        )
+        output_dtype = output.dtype
+        if (
+            output_dtype is None
+            or x.dtype != output_dtype
+            or x.dtype
+            not in {
+                ir.DataType.FLOAT16,
+                ir.DataType.BFLOAT16,
+                ir.DataType.FLOAT,
+                ir.DataType.DOUBLE,
+            }
+        ):
+            raise NotImplementedError(
+                "SOURCE erfc requires identical floating operand/result types"
+            )
+        if x.dtype in {ir.DataType.FLOAT16, ir.DataType.BFLOAT16}:
+            # StableHLO's materializeWithUpcast applies only to this primitive;
+            # the source GELU's prefixes and final Mul keep their native dtype.
+            wide = ir.Value(
+                name=ctx.fresh_name("erfc_local_float32_input"),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=x.shape,
+            )
+            wide = ctx.builder.op(
+                "Cast", [x], {"to": int(ir.DataType.FLOAT)}, output=wide
+            )
+            inner = ir.Value(
+                name=ctx.fresh_name("erfc_local_float32_result"),
+                type=ir.TensorType(ir.DataType.FLOAT),
+                shape=output.shape,
+            )
+            result = source_erfc(ctx, wide, inner)
+            result = ctx.builder.op(
+                "Cast", [result], {"to": int(output_dtype)}, output=output
+            )
+        else:
+            result = source_erfc(ctx, x, output)
+        ctx.bind_value_for_var(outvar, result)

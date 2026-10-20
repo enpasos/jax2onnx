@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -144,10 +145,47 @@ def test_full_grid_has_two_unique_cells_per_anchored_row_and_keeps_pending_scope
 ):
     inventory = json.loads(probe.DEFAULT_BASELINE.read_text())
     plan = probe.build_probe_plan(inventory)
-    assert len(plan.rows) == 1802
-    assert len(plan.cells) == 3604
-    assert len({cell.identity for cell in plan.cells}) == 3604
-    assert len({row.display for row in plan.rows}) == 1768
+    assert len(plan.rows) == len(inventory["cases"]) == 1852
+    assert len(plan.cells) == 2 * len(plan.rows) == 3704
+    assert len({cell.identity for cell in plan.cells}) == len(plan.cells)
+    assert len({row.display for row in plan.rows}) == 1818
+    # Frozen origin/ordinal + full registration/row/contract mapping of the
+    # original core, independent of the newly retained optional obligations.
+    core = [
+        [inventory["registrations"][row[0]], row[1:5], inventory["contracts"][row[5]]]
+        for row in inventory["cases"]
+        if inventory["registrations"][row[0]][2]
+        not in {"examples.maxtext", "examples.maxdiffusion"}
+    ]
+    assert len(core) == 1802
+    assert (
+        hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        == "7fa9b3891d80bd68893268fe916e0185acb82f6f6e02161f824b939c08e3ec89"
+    )
+    core_rows = [
+        row
+        for row in plan.rows
+        if row.display[0] not in {"examples.maxtext", "examples.maxdiffusion"}
+    ]
+    assert len({row.display for row in core_rows}) == 1768
+    optional_rows = {
+        (row.origin, row.ordinal)
+        for row in plan.rows
+        if row.display[0] in {"examples.maxtext", "examples.maxdiffusion"}
+    }
+    assert len(optional_rows) == 50
+    assert optional_rows == {
+        (origin, ordinal)
+        for family in ("maxtext", "maxdiffusion")
+        for origin, ordinal in inventory["optional"][family]["baseline"]["members"]
+    }
+    for family, count in (("maxtext", 45), ("maxdiffusion", 5)):
+        baseline = inventory["optional"][family]["baseline"]
+        assert len(baseline["members"]) == count
+        assert baseline["source_export"] == "AUDIT_PENDING"
+        assert baseline["target_numerics"] == "UNVERIFIED"
     assert sum(bool(row.unresolved_recipes) for row in plan.rows) == 63
     assert sum(cell.stage == "recipe-pending" for cell in plan.cells) == 126
     assert sum(row.criteria is not None for row in plan.rows) == 17
@@ -302,7 +340,9 @@ def test_default_cli_only_plans_and_execution_requires_explicit_bound(
     output = tmp_path / "plan.json"
     assert probe.main(["--output", str(output)]) == 0
     payload = json.loads(output.read_text())
-    assert payload["counts"]["cells"] == 3604
+    inventory = json.loads(probe.DEFAULT_BASELINE.read_text())
+    assert payload["counts"]["raw_rows"] == len(inventory["cases"]) == 1852
+    assert payload["counts"]["cells"] == 2 * len(inventory["cases"]) == 3704
     assert (
         payload["scenario_policy"]["factory"] == "instantiate original recipe unchanged"
     )

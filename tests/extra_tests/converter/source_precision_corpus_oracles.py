@@ -47,7 +47,7 @@ LINEAR_SOURCE_SHA256: Final = (
 LINEAR_ORACLE_VERSION: Final = "leading-b-linear-source-counterpart-v1"
 GATHER_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/gather.py"
 GATHER_SOURCE_SHA256: Final = (
-    "2d95f90f2ecc5d7bc1bf1f25e7b2a5f6978fbcc278ebb0b5aca181b22834b80c"
+    "2f611cd91778d3bd4ae89b84deef90773baf52ceeafcc1cd5b2178d2c0d903e2"
 )
 GATHER_ORACLE_VERSION: Final = "gather-trig-native-copy-source-counterpart-v2"
 # Complete original native traces, including index normalization and Where JIT.

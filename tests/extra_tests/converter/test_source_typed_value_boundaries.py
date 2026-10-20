@@ -384,6 +384,26 @@ def test_new_typed_boundaries_do_not_admit_unreviewed_semantics(kind: str) -> No
         assert proto.graph.output[0].type.tensor_type.elem_type == 9
         _accept_declared_storage(proto, feeds, references)
         return
+    if kind == "integer_add":
+        # Keep the original x + x callable and prove signed modular overflow.
+        feeds = [
+            (np.asarray([np.iinfo(np.int32).max, np.iinfo(np.int32).min], np.int32),)
+        ]
+        _, proto, report, references = _artifact(fn, [spec], feeds=feeds)
+        expected = np.asarray([-2, 0], np.int32)
+        assert (
+            report.inputs[0].traced.dtype == report.exported_outputs[0].dtype == "int32"
+        )
+        assert proto.graph.input[0].type.tensor_type.elem_type == 6
+        assert proto.graph.output[0].type.tensor_type.elem_type == 6
+        for outputs in references[0]:
+            assert (
+                outputs[0].dtype == expected.dtype
+                and outputs[0].shape == expected.shape
+            )
+            assert outputs[0].tobytes() == expected.tobytes()
+        _accept_declared_storage(proto, feeds, references)
+        return
     with pytest.raises(SourcePrecisionError) as error:
         ui._to_onnx(fn, [spec], precision_policy=PrecisionPolicy.SOURCE)
     assert error.value.category == "profile-exclusion"

@@ -29,7 +29,6 @@ from jax2onnx.converter.precision_policy import (
     active_precision_policy,
     precision_policy_scope,
 )
-from jax2onnx.converter.source_profile import SourcePrecisionError
 from jax2onnx.plugins.plugin_system import _SourceFunctionTrace
 from jax2onnx.precision import (
     CheckStatus,
@@ -38,6 +37,9 @@ from jax2onnx.precision import (
     SourceSample,
     get_precision_report,
     validate_source_samples,
+)
+from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
+    _artifact as _product_artifact,
 )
 
 _ORIGINAL_ARANGE = jnp.arange
@@ -946,10 +948,31 @@ def test_native_sequence_binding_does_not_widen_product_admission(
             else jnp.linspace(0, 1, 3)
         )
 
-    _reference(target, ())
-    with pytest.raises(SourcePrecisionError) as caught:
-        user_interface._to_onnx(target, [], precision_policy=PrecisionPolicy.SOURCE)
-    assert caught.value.category == "profile-exclusion"
+    def consumed() -> Any:
+        value = target()
+        return value, value + value
+
+    for fn, output_count in ((target, 1), (consumed, 2)):
+        _, proto, report, references = _product_artifact(fn, [], feeds=((),))
+        dtype = references[0][0][0].dtype
+        expected = np.asarray(
+            [0, 1, 2] if component == "arange" else [0, 0.5, 1], dtype
+        )
+        expected_outputs = (
+            (expected,) if output_count == 1 else (expected, expected + expected)
+        )
+        assert len(report.exported_outputs) == output_count
+        assert all(
+            value.dtype == dtype.name and value.shape == (3,)
+            for value in report.traced_outputs
+        )
+        for outputs in references[0]:
+            for actual, reference in zip(outputs, expected_outputs, strict=True):
+                assert (
+                    actual.dtype == reference.dtype and actual.shape == reference.shape
+                )
+                assert actual.tobytes() == reference.tobytes()
+        _accepted(proto, (), list(expected_outputs), both=True)
 
 
 @pytest.mark.parametrize(

@@ -196,13 +196,15 @@ class IotaPlugin(PrimitiveLeafPlugin):
         if dtype not in _SUPPORTED_IOTA_DTYPES:
             raise TypeError(f"Unsupported dtype for lax.iota: {dtype}")
         target_dtype = numpy_dtype_to_ir(dtype)
+        dim_extent = shape[dimension]
         use_native_range_dtype = (
             int(getattr(builder, "opset", 0) or 0) >= 27
             and dtype in _OPSET27_NATIVE_RANGE_DTYPES
+            and isinstance(dim_extent, (int, np.integer))
+            and int(dim_extent) <= (256 if dtype.name == "bfloat16" else 2048)
         )
         range_dtype = target_dtype if use_native_range_dtype else ir.DataType.INT64
 
-        dim_extent = shape[dimension]
         if use_native_range_dtype and isinstance(dim_extent, (int, np.integer)):
             limit = _const_scalar_of_dtype(ctx, int(dim_extent), dtype)
         else:

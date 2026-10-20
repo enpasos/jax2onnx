@@ -941,7 +941,24 @@ def test_layer_norm_family_inventory_and_open_options(
         inventory,
         baseline_sha256=hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
     )
-    assert len(plan.rows) == 1802 and len(plan.cells) == 3604
+    assert len(plan.rows) == len(inventory["cases"]) == 1852
+    assert len(plan.cells) == 2 * len(plan.rows) == 3704
+    # Frozen origin/ordinal + full registration/row/contract mapping of the
+    # original core, independent of the newly retained optional obligations.
+    core = [
+        [inventory["registrations"][row[0]], row[1:5], inventory["contracts"][row[5]]]
+        for row in inventory["cases"]
+        if inventory["registrations"][row[0]][2]
+        not in {"examples.maxtext", "examples.maxdiffusion"}
+    ]
+    assert len(core) == 1802
+    assert (
+        hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        == "7fa9b3891d80bd68893268fe916e0185acb82f6f6e02161f824b939c08e3ec89"
+    )
+
     assert len(inventory["unresolved_recipes"]) == 63
     defaults = {
         (origin, ordinal)
@@ -964,7 +981,8 @@ def test_layer_norm_family_inventory_and_open_options(
     )
     assert sum((cell.origin, cell.ordinal) in defaults for cell in plan.cells) == 24
     assert sum((cell.origin, cell.ordinal) in options for cell in plan.cells) == 36
-    assert sum(cell.origin not in _ROW_COUNTS for cell in plan.cells) == 3544
+    unselected_cells = sum(cell.origin not in _ROW_COUNTS for cell in plan.cells)
+    assert unselected_cells == len(plan.cells) - 2 * len(selected) == 3644
     contracts = []
     option_cells = []
     for row in rows:
@@ -1026,9 +1044,9 @@ def test_layer_norm_family_inventory_and_open_options(
         "new_option_rows": 18,
         "new_option_cells": option_cells,
         "complete_raw_contracts": contracts,
-        "full_denominator": [1802, 3604],
+        "full_denominator": [len(plan.rows), len(plan.cells)],
         "opaque_records": 63,
-        "unselected_cells_unchanged": 3544,
+        "unselected_cells_unchanged": unselected_cells,
         "acceptance": "Only retained per-cell family evidence establishes runtime results",
     }
     (tmp_path / "family-ledger.json").write_text(

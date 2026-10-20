@@ -52,11 +52,38 @@ def _no_runtime(monkeypatch: pytest.MonkeyPatch):
 
 
 def _plan():
-    # Current manual accounting may grow; the equal raw contracts are tested here.
-    # execute_corpus_revision separately hashes actual historical inventory bytes.
+    # Synthetic test fixture: project the proven unchanged original core from
+    # the current baseline. This label is not a claim about historical bytes;
+    # execute_corpus_revision/CLI separately validates the authentic bytes.
     inventory = json.loads(probe.DEFAULT_BASELINE.read_text())
-    return probe.build_probe_plan(
-        inventory, baseline_sha256=oracles.HISTORICAL_BASELINE_SHA256
+    # Frozen origin/ordinal + full registration/row/contract mapping of the
+    # original core, independent of the newly retained optional obligations.
+    core = [
+        [inventory["registrations"][row[0]], row[1:5], inventory["contracts"][row[5]]]
+        for row in inventory["cases"]
+        if inventory["registrations"][row[0]][2]
+        not in {"examples.maxtext", "examples.maxdiffusion"}
+    ]
+    assert len(core) == 1802
+    assert (
+        hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        == "7fa9b3891d80bd68893268fe916e0185acb82f6f6e02161f824b939c08e3ec89"
+    )
+    plan = probe.build_probe_plan(inventory)
+    rows = tuple(
+        row
+        for row in plan.rows
+        if row.display[0] not in {"examples.maxtext", "examples.maxdiffusion"}
+    )
+    identities = {(row.origin, row.ordinal) for row in rows}
+    cells = tuple(
+        cell for cell in plan.cells if (cell.origin, cell.ordinal) in identities
+    )
+    assert len(rows) == 1802 and len(cells) == 3604
+    return replace(
+        plan, baseline_sha256=oracles.HISTORICAL_BASELINE_SHA256, rows=rows, cells=cells
     )
 
 
@@ -447,6 +474,11 @@ def test_unlisted_vmap_callback_absence_remains_absent_and_default_admission_unc
         "counterpart",
         "digest",
         "report",
+        "control-revision",
+        "counterpart-digest",
+        "raw-callback",
+        "check-status",
+        "extra-check",
     ],
 )
 def test_audited_control_invariant_cannot_pass_by_omission_or_corruption(fault):
@@ -465,8 +497,22 @@ def test_audited_control_invariant_cannot_pass_by_omission_or_corruption(fault):
         controls[-1]["corpus_structure"] = None
     elif fault == "digest":
         controls[-1]["artifact_sha256"] = None
-    else:
+    elif fault == "report":
         controls[-1]["export_report"]["profile"] = "source-diagnostic-v1"
+    elif fault == "control-revision":
+        controls[-1]["control_revision"] = "source-static-add-ordinary-dot-v4"
+    elif fault == "counterpart-digest":
+        controls[-1]["corpus_structure"][
+            "counterpart_sha256"
+        ] = "019faedec1851d794c9ed9055c98bb37e88f0175cb2622b37b65ecf534e5d924"
+    elif fault == "raw-callback":
+        controls[-1]["raw_callback_status"] = "passed"
+        controls[-1]["corpus_structure"]["raw_callback_status"] = "passed"
+    elif fault == "check-status":
+        controls[-1]["export_report"]["checks"][0]["status"] = CheckStatus.FAILED
+    else:
+        checks = controls[-1]["export_report"]["checks"]
+        controls[-1]["export_report"]["checks"] = (*checks, checks[0])
     assert not probe._corpus_controls_admitted(controls)
 
 

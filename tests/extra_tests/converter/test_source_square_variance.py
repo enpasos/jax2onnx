@@ -1489,10 +1489,6 @@ def test_singleton_reshape_rejects_other_transforms(corruption: str) -> None:
     if corruption == "regroup":
         params["new_sizes"] = (6, 1)
         target = target.update(shape=(6, 1))
-        # Preserve the original parameter ID as its now-audited static positive.
-        for opset in (16, 23):
-            validate_source_jaxpr(_graph("reshape", source, target, params), opset)
-        return
     elif corruption == "permute":
         params["dimensions"] = (1, 0)
     elif corruption == "zero":
@@ -1507,6 +1503,12 @@ def test_singleton_reshape_rejects_other_transforms(corruption: str) -> None:
         target = target.update(weak_type=True)
     else:
         params["new_sizes"] = (2, 3, 1)
+    if corruption in {"regroup", "permute", "zero"}:
+        # Common tensor/index CPU checks cover permutation, regrouping and
+        # literal-zero extents bitwise; preserve these IDs as admission controls.
+        for opset in (16, 23):
+            validate_source_jaxpr(_graph("reshape", source, target, params), opset)
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(_graph("reshape", source, target, params), 23)
     assert caught.value.primitive == "reshape"
@@ -1855,11 +1857,14 @@ def test_symbolic_singleton_reshape_retains_transform_exclusions(
         source.update(shape=shape),
         {"new_sizes": shape, "dimensions": dimensions},
     )
+    if corruption in {"regroup", "permute"}:
+        # The common shared-B tensor checks retain exact values at B=2/5;
+        # only the static tail is regrouped or permuted here.
+        validate_source_jaxpr(graph, 23)
+        return
     with pytest.raises(SourcePrecisionError) as caught:
         validate_source_jaxpr(graph, 23)
-    if corruption == "regroup":
-        assert caught.value.primitive == "reshape"
-        assert caught.value.category == "profile-exclusion"
+    assert caught.value.category == "profile-exclusion"
 
 
 def test_symbolic_singleton_reshape_distinguishes_bad_result_metadata() -> None:

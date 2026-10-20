@@ -128,7 +128,27 @@ def test_exact_twelve_rows_twenty_four_cells_and_unchanged_original_criteria():
     selected = [c for c in plan.cells if (c.origin, c.ordinal) in identities]
     assert len(identities) == 12 and len(selected) == 24
     assert all(c.origin != "plugin::gather" for c in selected)
-    assert len(plan.cells) - len(selected) == 3580
+    assert len(plan.rows) == 1852 and len(plan.cells) == 3704
+    unselected = [c for c in plan.cells if (c.origin, c.ordinal) not in identities]
+    assert len(unselected) == 3680
+    assert (
+        numerical.sha256(
+            json.dumps(
+                sorted(c.identity for c in selected), separators=(",", ":")
+            ).encode()
+        )
+        == "c1442b8d35579fb4ab2ee04d9ffd95acdb1fb19d5587d8432c3feca7d758dc70"
+    )
+    optional = {
+        (row.origin, row.ordinal)
+        for row in plan.rows
+        if row.display[0] in {"examples.maxtext", "examples.maxdiffusion"}
+    }
+    optional_cells = {
+        c.identity for c in plan.cells if (c.origin, c.ordinal) in optional
+    }
+    assert len(optional_cells) == 100
+    assert optional_cells <= {c.identity for c in unselected}
     assert (
         sum(
             c.stage == "recipe-pending"

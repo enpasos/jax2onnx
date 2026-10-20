@@ -1,0 +1,369 @@
+{
+  "float32": {
+    "arrays": {
+      "ErfT": [
+        {
+          "literal": "+7.853861353153693E-5",
+          "raw_le_hex": "19b5a438"
+        },
+        {
+          "literal": "-8.010193625184903E-4",
+          "raw_le_hex": "80fb51ba"
+        },
+        {
+          "literal": "+5.188327685732524E-3",
+          "raw_le_hex": "d902aa3b"
+        },
+        {
+          "literal": "-2.685381193529856E-2",
+          "raw_le_hex": "87fcdbbc"
+        },
+        {
+          "literal": "+1.128358514861418E-1",
+          "raw_le_hex": "7c16e73d"
+        },
+        {
+          "literal": "-3.761262582423300E-1",
+          "raw_le_hex": "9f93c0be"
+        },
+        {
+          "literal": "+1.128379165726710E+0",
+          "raw_le_hex": "ba6e903f"
+        }
+      ],
+      "ErfcP": [
+        {
+          "literal": "+2.326819970068386E-2",
+          "raw_le_hex": "f49cbe3c"
+        },
+        {
+          "literal": "-1.387039388740657E-1",
+          "raw_le_hex": "68080ebe"
+        },
+        {
+          "literal": "+3.687424674597105E-1",
+          "raw_le_hex": "d0cbbc3e"
+        },
+        {
+          "literal": "-5.824733027278666E-1",
+          "raw_le_hex": "f81c15bf"
+        },
+        {
+          "literal": "+6.210004621745983E-1",
+          "raw_le_hex": "e3f91e3f"
+        },
+        {
+          "literal": "-4.944515323274145E-1",
+          "raw_le_hex": "c028fdbe"
+        },
+        {
+          "literal": "+3.404879937665872E-1",
+          "raw_le_hex": "7154ae3e"
+        },
+        {
+          "literal": "-2.741127028184656E-1",
+          "raw_le_hex": "80588cbe"
+        },
+        {
+          "literal": "+5.638259427386472E-1",
+          "raw_le_hex": "e656103f"
+        }
+      ],
+      "ErfcR": [
+        {
+          "literal": "-1.047766399936249E+1",
+          "raw_le_hex": "83a427c1"
+        },
+        {
+          "literal": "+1.297719955372516E+1",
+          "raw_le_hex": "9ca24f41"
+        },
+        {
+          "literal": "-7.495518717768503E+0",
+          "raw_le_hex": "4adbefc0"
+        },
+        {
+          "literal": "+2.921019019210786E+0",
+          "raw_le_hex": "faf13a40"
+        },
+        {
+          "literal": "-1.015265279202700E+0",
+          "raw_le_hex": "36f481bf"
+        },
+        {
+          "literal": "+4.218463358204948E-1",
+          "raw_le_hex": "3efcd73e"
+        },
+        {
+          "literal": "-2.820767439740514E-1",
+          "raw_le_hex": "5d6c90be"
+        },
+        {
+          "literal": "+5.641895067754075E-1",
+          "raw_le_hex": "b96e103f"
+        }
+      ]
+    },
+    "constants": {
+      "big": {
+        "literal": "16777216",
+        "raw_le_hex": "0000804b"
+      },
+      "eight": {
+        "literal": "8",
+        "raw_le_hex": "00000041"
+      },
+      "half": {
+        "literal": "0.5",
+        "raw_le_hex": "0000003f"
+      },
+      "maxlog": {
+        "literal": "88.72283905206835",
+        "raw_le_hex": "1872b142"
+      },
+      "negative_maxlog": {
+        "literal": "-88.72283905206835",
+        "raw_le_hex": "1872b1c2"
+      },
+      "one": {
+        "literal": "1",
+        "raw_le_hex": "0000803f"
+      },
+      "sqrt_half": {
+        "raw_le_hex": "f304353f",
+        "source": "numpy.sqrt(float64(0.5)).astype(source_dtype)"
+      },
+      "two": {
+        "literal": "2",
+        "raw_le_hex": "00000040"
+      },
+      "zero": {
+        "literal": "0",
+        "raw_le_hex": "00000000"
+      }
+    }
+  },
+  "float64": {
+    "arrays": {
+      "ErfT": [
+        {
+          "literal": "9.60497373987051638749E0",
+          "raw_le_hex": "885d371ebf352340"
+        },
+        {
+          "literal": "9.00260197203842689217E1",
+          "raw_le_hex": "7f069e4eaa815640"
+        },
+        {
+          "literal": "2.23200534594684319226E3",
+          "raw_le_hex": "b735b4bc0270a140"
+        },
+        {
+          "literal": "7.00332514112805075473E3",
+          "raw_le_hex": "90ef723c535bbb40"
+        },
+        {
+          "literal": "5.55923013010394962768E4",
+          "raw_le_hex": "dc1342a40925eb40"
+        }
+      ],
+      "ErfU": [
+        {
+          "literal": "1.00000000000000000000E0",
+          "raw_le_hex": "000000000000f03f"
+        },
+        {
+          "literal": "3.35617141647503099647E1",
+          "raw_le_hex": "baa6ef3fe6c74040"
+        },
+        {
+          "literal": "5.21357949780152679795E2",
+          "raw_le_hex": "ee3ac614dd4a8040"
+        },
+        {
+          "literal": "4.59432382970980127987E3",
+          "raw_le_hex": "12fd80e652f2b140"
+        },
+        {
+          "literal": "2.26290000613890934246E4",
+          "raw_le_hex": "0a7c01014019d640"
+        },
+        {
+          "literal": "4.92673942608635921086E4",
+          "raw_le_hex": "67f5c89d6c0ee840"
+        }
+      ],
+      "ErfcP": [
+        {
+          "literal": "2.46196981473530512524E-10",
+          "raw_le_hex": "79644fa224ebf03d"
+        },
+        {
+          "literal": "5.64189564831068821977E-1",
+          "raw_le_hex": "88343646d70de23f"
+        },
+        {
+          "literal": "7.46321056442269912687E0",
+          "raw_le_hex": "c46dc5de53da1d40"
+        },
+        {
+          "literal": "4.86371970985681366614E1",
+          "raw_le_hex": "66baadac8f514840"
+        },
+        {
+          "literal": "1.96520832956077098242E2",
+          "raw_le_hex": "f720e0a9aa906840"
+        },
+        {
+          "literal": "5.26445194995477358631E2",
+          "raw_le_hex": "58cf64c28f738040"
+        },
+        {
+          "literal": "9.34528527171957607540E2",
+          "raw_le_hex": "d834746c3a348d40"
+        },
+        {
+          "literal": "1.02755188689515710272E3",
+          "raw_le_hex": "2a97d621350e9040"
+        },
+        {
+          "literal": "5.57535335369399327526E2",
+          "raw_le_hex": "b3ffe85d486c8140"
+        }
+      ],
+      "ErfcQ": [
+        {
+          "literal": "1.00000000000000000000E0",
+          "raw_le_hex": "000000000000f03f"
+        },
+        {
+          "literal": "1.32281951154744992508E1",
+          "raw_le_hex": "cc237cfdd5742a40"
+        },
+        {
+          "literal": "8.67072140885989742329E1",
+          "raw_le_hex": "6573e1fe42ad5540"
+        },
+        {
+          "literal": "3.54937778887819891062E2",
+          "raw_le_hex": "0d616f24012f7640"
+        },
+        {
+          "literal": "9.75708501743205489753E2",
+          "raw_le_hex": "d041f602ab7d8e40"
+        },
+        {
+          "literal": "1.82390916687909736289E3",
+          "raw_le_hex": "5171a4fca27f9c40"
+        },
+        {
+          "literal": "2.24633760818710981792E3",
+          "raw_le_hex": "fff4fadaac8ca140"
+        },
+        {
+          "literal": "1.65666309194161350182E3",
+          "raw_le_hex": "e2ed9201a7e29940"
+        },
+        {
+          "literal": "5.57535340817727675546E2",
+          "raw_le_hex": "d642c460486c8140"
+        }
+      ],
+      "ErfcR": [
+        {
+          "literal": "5.64189583547755073984E-1",
+          "raw_le_hex": "629b4250d70de23f"
+        },
+        {
+          "literal": "1.27536670759978104416E0",
+          "raw_le_hex": "a6c5b8ebe667f43f"
+        },
+        {
+          "literal": "5.01905042251180477414E0",
+          "raw_le_hex": "1aa736f481131440"
+        },
+        {
+          "literal": "6.16021097993053585195E0",
+          "raw_le_hex": "0c0cdd580ea41840"
+        },
+        {
+          "literal": "7.40974269950448939160E0",
+          "raw_le_hex": "0e96189793a31d40"
+        },
+        {
+          "literal": "2.97886665372100240670E0",
+          "raw_le_hex": "6703470ab8d40740"
+        }
+      ],
+      "ErfcS": [
+        {
+          "literal": "1.00000000000000000000E0",
+          "raw_le_hex": "000000000000f03f"
+        },
+        {
+          "literal": "2.26052863220117276590E0",
+          "raw_le_hex": "21ce170990150240"
+        },
+        {
+          "literal": "9.39603524938001434673E0",
+          "raw_le_hex": "fd4cd821c5ca2240"
+        },
+        {
+          "literal": "1.20489539808096656605E1",
+          "raw_le_hex": "4d2c057f10192840"
+        },
+        {
+          "literal": "1.70814450747565897222E1",
+          "raw_le_hex": "f57f9c95d9143140"
+        },
+        {
+          "literal": "9.60896809063285878198E0",
+          "raw_le_hex": "c12663aaca372340"
+        },
+        {
+          "literal": "3.36907645100081516050E0",
+          "raw_le_hex": "902db65adef30a40"
+        }
+      ]
+    },
+    "constants": {
+      "big": {
+        "literal": "16777216",
+        "raw_le_hex": "0000000000007041"
+      },
+      "eight": {
+        "literal": "8",
+        "raw_le_hex": "0000000000002040"
+      },
+      "half": {
+        "literal": "0.5",
+        "raw_le_hex": "000000000000e03f"
+      },
+      "maxlog": {
+        "literal": "7.09782712893383996843E2",
+        "raw_le_hex": "ef39fafe422e8640"
+      },
+      "negative_maxlog": {
+        "literal": "-7.09782712893383996843E2",
+        "raw_le_hex": "ef39fafe422e86c0"
+      },
+      "one": {
+        "literal": "1",
+        "raw_le_hex": "000000000000f03f"
+      },
+      "sqrt_half": {
+        "raw_le_hex": "cd3b7f669ea0e63f",
+        "source": "numpy.sqrt(float64(0.5)).astype(source_dtype)"
+      },
+      "two": {
+        "literal": "2",
+        "raw_le_hex": "0000000000000040"
+      },
+      "zero": {
+        "literal": "0",
+        "raw_le_hex": "0000000000000000"
+      }
+    }
+  },
+  "source_block_sha256": "02c5fd9de029079d91b99d53134da54e7813f57d98e16138ada5db260ec73d4a"
+}

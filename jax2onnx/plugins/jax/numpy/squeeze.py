@@ -25,6 +25,10 @@ from jax2onnx.plugins.jax._autodiff_utils import (
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
 from jax2onnx.converter.typing_support import LoweringContextProtocol
+from jax2onnx.converter.precision_policy import (
+    PrecisionPolicy,
+    active_precision_policy,
+)
 from jax2onnx.plugins.plugin_system import (
     PrimitiveLeafPlugin,
     register_native_primitive,
@@ -307,6 +311,8 @@ class JnpSqueezePlugin(PrimitiveLeafPlugin):
             def _patched(
                 a: ArrayLike, axis: int | Sequence[int] | None = None
             ) -> jax.Array:
+                if active_precision_policy() is PrecisionPolicy.SOURCE:
+                    return orig(a, axis=axis)
                 arr = jnp.asarray(a)
                 dims = _resolve_dimensions(
                     rank=arr.ndim,

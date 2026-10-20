@@ -20,6 +20,7 @@ from jax2onnx.plugins._ir_shapes import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax.lax._index_utils import (
     _const_i64,
+    _index_to_i64,
     _gather_int_scalar,
     _lower_i64_vector,
     _scalar_i64,
@@ -126,8 +127,10 @@ def _mode_name(mode: Any) -> str:
 
 
 def _default_fill_value(dtype: ir.DataType) -> np.ndarray[Any, np.dtype[Any]]:
-    np_dtype = ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
-    if np.issubdtype(np_dtype, np.floating):
+    np_dtype = cast(
+        np.dtype[Any], ir_dtype_to_numpy(dtype, default=np.dtype(np.float32))
+    )
+    if np.issubdtype(np_dtype, np.floating) or np_dtype.name == "bfloat16":
         return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(np.nan, dtype=np_dtype))
     if np.issubdtype(np_dtype, np.bool_):
         return cast(np.ndarray[Any, np.dtype[Any]], np.asarray(True, dtype=np_dtype))
@@ -346,6 +349,12 @@ class GatherPlugin(PrimitiveLeafPlugin):
             )
         _ensure_constant_folders_registered(ctx)
         constant_indices_value = ctx.try_evaluate_const(indices_var)
+        if np.dtype(indices_var.aval.dtype) == np.dtype(np.uint64):
+            # GIR folds index tensors through NumPy signed/float intermediates.
+            # Keep this optimization disabled for U64 so captured constants and
+            # dynamic indices share the exact local IR saturation below. Their
+            # canonical bindings, direct outputs and other consumers stay U64.
+            constant_indices_value = None
 
         ctx.get_value_for_var(out_var, name_hint=ctx.fresh_name("gather_out"))
 
@@ -357,6 +366,11 @@ class GatherPlugin(PrimitiveLeafPlugin):
         current_data_var = ctx.get_value_for_var(
             data_var, name_hint=ctx.fresh_name("gather_data")
         )
+
+        if current_indices_var.dtype == ir.DataType.UINT64:
+            current_indices_var = _index_to_i64(
+                ctx, current_indices_var, "gather_unsigned_indices"
+            )
 
         for gir_instr in gir:
             if gir_instr["op"] == "index_tensor":

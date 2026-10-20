@@ -372,7 +372,6 @@ def test_profile_reports_nested_cond_location_and_validates_actual_function_body
         lambda x: jnp.sin(x),
         lambda x: jax.jit(lambda value: jnp.sin(value))(x),
         lambda x: jax.lax.fori_loop(0, 2, lambda index, value: value + value, x),
-        lambda x: x.astype(jnp.int32) + np.int32(1),
         lambda x: (jax.debug.print("value={x}", x=x), x)[1],
     ],
 )
@@ -382,6 +381,49 @@ def test_profile_rejects_current_functionality_outside_the_finite_milestone(
     with pytest.raises(SourcePrecisionError) as captured:
         validate_source_jaxpr(_trace(model, _spec()), 23)
     assert captured.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize("model", [lambda x: x.astype(jnp.int32) + np.int32(1)])
+def test_profile_admits_original_integer_cast_add_with_native_overflow(
+    model: Any,
+) -> None:
+    from jax2onnx.precision import SampleCriteria
+    from tests.extra_tests.converter.test_source_pointwise_mul_exp import (
+        _accept,
+        _artifact,
+    )
+
+    # Retain the original scalar F32 callable and prove its actually consumed
+    # conversion, native I32 addition and exact discrete result contract.
+    original = _trace(model, _spec())
+    validate_source_jaxpr(original, 23)
+    cast = next(
+        eqn for eqn in original.eqns if eqn.primitive.name == "convert_element_type"
+    )
+    addition = next(eqn for eqn in original.eqns if eqn.primitive.name == "add")
+    assert np.dtype(cast.params["new_dtype"]) == np.dtype(np.int32)
+    assert addition.invars[0] is cast.outvars[0]
+    assert all(
+        np.dtype(var.aval.dtype) == np.dtype(np.int32)
+        for var in (*addition.invars, *addition.outvars, *original.outvars)
+    )
+    assert original.outvars[0].aval.weak_type is False
+
+    def observed(x: Any) -> Any:
+        result = model(x)
+        return x, result, jax.lax.eq(result, np.int32(-(2**31))), x.astype(jnp.int32)
+
+    # F64 represents both I32 endpoints exactly. Keep the original operation,
+    # then expose its result, threshold consumer and unchanged source value.
+    values = (np.asarray([1.75, -1.75, 2**31 - 1, -(2**31)], np.float64),)
+    specs = [jax.ShapeDtypeStruct((4,), np.float64)]
+    _, artifact, _, references = _artifact(observed, specs, feeds=(values,))
+    np.testing.assert_array_equal(
+        references[0][0][1],
+        np.asarray([2, 0, -(2**31), -(2**31) + 1], np.int32),
+        strict=True,
+    )
+    _accept(artifact, (values,), references, SampleCriteria("bitwise"))
 
 
 @pytest.mark.parametrize(

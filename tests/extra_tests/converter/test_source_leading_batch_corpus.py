@@ -438,7 +438,7 @@ def test_current_counterpart_rejects_stale_or_other_checkout_source(
 
 
 def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
-    """Current v4 controls keep the historical test and all v1/v2/v3 rejects."""
+    """Current v5 controls keep the historical test and all v1/v2/v3/v4 rejects."""
     registrations, _ = raw_registrations()
     blob = probe.DEFAULT_BASELINE.read_bytes()
     plan = probe.build_probe_plan(
@@ -447,10 +447,10 @@ def test_real_v3_live_controls_reject_v1_and_stale_control_records() -> None:
     controls = probe._corpus_product_controls(plan, registrations)
     assert (
         len(controls) == 4
-        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v4"
+        and probe.CORPUS_CONTROL_REVISION == "source-static-add-ordinary-dot-v5"
     )
     assert probe._corpus_controls_admitted(controls)
-    for defect in ("identifier", "digest", "v3-digest", "v1", "v2", "v3"):
+    for defect in ("identifier", "digest", "v3-digest", "v1", "v2", "v3", "v4"):
         broken = deepcopy(controls)
         if defect == "identifier":
             broken[2]["corpus_structure"][
