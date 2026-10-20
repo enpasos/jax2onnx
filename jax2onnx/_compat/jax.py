@@ -7,6 +7,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import re
+import functools
+import hashlib
+import inspect
+import json
+import sys
+import struct
+import types
+from enum import Enum
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable, cast
 
@@ -14,6 +22,14 @@ import numpy as np
 
 from jax import Array
 from jax import lax as _native_lax
+from jax import numpy as _native_numpy
+from jax._src.numpy import ufunc_api as _native_ufunc_api
+from jax._src.numpy import ufuncs as _native_ufuncs
+from jax._src.lax import lax as _native_lax_impl
+from jax._src.lax import windowed_reductions as _native_windowed
+from jax._src import pjit as _native_pjit
+from jax._src import named_sharding as _native_named_sharding
+from jax import tree_util as _native_tree_util
 from jax._src import core as _native_core
 from jax._src.ad_checkpoint import remat_p as _native_remat_p
 from jax import core as jax_core
@@ -36,6 +52,624 @@ try:
     DropVar = jax_core_ext.DropVar
 except AttributeError:  # pragma: no cover - compatibility with older JAX versions
     DropVar = jax_core.DropVar
+
+
+# Raw replay only: these references are captured before exporter registration.
+# This list confers no SOURCE admission and does not alter native objects.
+_NATIVE_CAPTURE_OWNERS = (
+    (
+        _native_lax.logistic_p,
+        ((_native_lax, "logistic_p"), (_native_lax_impl, "logistic_p")),
+    ),
+    (
+        _native_lax.reduce_window_sum_p,
+        (
+            (_native_lax, "reduce_window_sum_p"),
+            (_native_windowed, "reduce_window_sum_p"),
+        ),
+    ),
+    (
+        _native_lax.reduce_window_max_p,
+        (
+            (_native_lax, "reduce_window_max_p"),
+            (_native_windowed, "reduce_window_max_p"),
+        ),
+    ),
+    *(
+        (vars(_native_numpy)[name], ((_native_numpy, name), (_native_ufuncs, name)))
+        for name in ("maximum", "minimum", "logical_xor")
+    ),
+)
+_NATIVE_CAPTURE_UFUNC_TYPE = _native_ufunc_api.ufunc
+_NATIVE_CAPTURE_JIT_TYPE = type(
+    cast(_native_ufunc_api.ufunc, _native_numpy.maximum)._func
+)
+# These exact native C++ methods/getters have no Python callback dictionaries.
+# Their internal compiled-executable cache is the terminal native boundary.
+_NATIVE_CAPTURE_CPP_BOUNDARY = tuple(
+    vars(_NATIVE_CAPTURE_JIT_TYPE).get(name)
+    for name in ("__getstate__", "__setstate__", "_cache_size", "_clear_cache")
+) + tuple(
+    member.fget if type(member) is property else None
+    for name in ("__signature__", "_cache_miss")
+    for member in (vars(_NATIVE_CAPTURE_JIT_TYPE).get(name),)
+)
+_NATIVE_CAPTURE_CLASS_FIELDS = {
+    cls: frozenset(vars(cls))
+    for cls in (
+        Primitive,
+        _NATIVE_CAPTURE_UFUNC_TYPE,
+        _NATIVE_CAPTURE_JIT_TYPE,
+        _native_named_sharding.UnspecifiedValue,
+    )
+}
+_NATIVE_CAPTURE_UFUNC_FIELDS = frozenset(
+    ("__doc__", "__name__", "_ufunc__static_props")
+)
+_NATIVE_CAPTURE_STATIC_FIELDS = frozenset(
+    (
+        "func",
+        "nin",
+        "nout",
+        "nargs",
+        "identity",
+        "call",
+        "reduce",
+        "accumulate",
+        "at",
+        "reduceat",
+    )
+)
+_NATIVE_CAPTURE_PRIMITIVE_FIELDS = frozenset(("name", "impl", "abstract_eval"))
+_NATIVE_CAPTURE_SYMBOLS = (
+    bool,
+    int,
+    float,
+    complex,
+    str,
+    bytes,
+    tuple,
+    list,
+    dict,
+    set,
+    frozenset,
+    object,
+    type,
+    np.generic,
+    np.number,
+    np.integer,
+    np.signedinteger,
+    np.unsignedinteger,
+    np.inexact,
+    np.floating,
+    np.complexfloating,
+    np.bool_,
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
+    np.uint8,
+    np.uint16,
+    np.uint32,
+    np.uint64,
+    np.float16,
+    np.float32,
+    np.float64,
+    np.complex64,
+    np.complex128,
+    inspect.Parameter.empty,
+)
+_NATIVE_CAPTURE_INITIAL_JIT_INFO = vars(
+    cast(_native_ufunc_api.ufunc, _native_numpy.maximum)._func
+).get("_jit_info")
+_NATIVE_CAPTURE_ENUM_TYPES = (
+    type(inspect.Parameter.POSITIONAL_ONLY),
+    type(getattr(_NATIVE_CAPTURE_INITIAL_JIT_INFO, "inline", None)),
+)
+_NATIVE_CAPTURE_STATE_TYPES = (
+    tuple,
+    list,
+    set,
+    frozenset,
+    dict,
+    types.FunctionType,
+    functools.partial,
+    Primitive,
+    _NATIVE_CAPTURE_UFUNC_TYPE,
+    _NATIVE_CAPTURE_JIT_TYPE,
+    _native_pjit.PjitInfo,
+    property,
+    inspect.Signature,
+    inspect.Parameter,
+    _native_tree_util.PyTreeDef,
+    types.BuiltinFunctionType,
+    types.MethodDescriptorType,
+    types.WrapperDescriptorType,
+    types.GetSetDescriptorType,
+    types.MemberDescriptorType,
+    staticmethod,
+    classmethod,
+)
+_NATIVE_CAPTURE_JIT_FIELDS = frozenset(
+    (
+        "__annotations__",
+        "__name__",
+        "__module__",
+        "__doc__",
+        "__qualname__",
+        "__wrapped__",
+        "_fun",
+        "_jit_info",
+    )
+)
+_NATIVE_CAPTURE_PJIT_FIELDS = (
+    "fun_sourceinfo",
+    "fun_signature",
+    "user_specified_in_shardings",
+    "in_shardings_treedef",
+    "in_shardings_leaves",
+    "out_shardings_treedef",
+    "out_shardings_leaves",
+    "in_layouts_treedef",
+    "in_layouts_leaves",
+    "out_layouts_treedef",
+    "out_layouts_leaves",
+    "static_argnums",
+    "static_argnames",
+    "donate_argnums",
+    "donate_argnames",
+    "device",
+    "backend",
+    "keep_unused",
+    "inline",
+    "use_resource_env",
+    "compiler_options_kvs",
+)
+_NATIVE_CAPTURE_TYPE_BINDINGS = (
+    (_native_core, "Primitive", Primitive),
+    (jax_core_ext, "Primitive", Primitive),
+    (_native_numpy, "ufunc", _NATIVE_CAPTURE_UFUNC_TYPE),
+    (_native_ufunc_api, "ufunc", _NATIVE_CAPTURE_UFUNC_TYPE),
+    (
+        _native_named_sharding,
+        "UnspecifiedValue",
+        _native_named_sharding.UnspecifiedValue,
+    ),
+)
+
+
+_CODE_CONSTRUCTOR_PARAMETERS = (
+    "argcount",
+    "posonlyargcount",
+    "kwonlyargcount",
+    "nlocals",
+    "stacksize",
+    "flags",
+    "codestring",
+    "constants",
+    "names",
+    "varnames",
+    "filename",
+    "name",
+    "qualname",
+    "firstlineno",
+    "linetable",
+    "exceptiontable",
+    "freevars",
+    "cellvars",
+)
+_CODE_NATIVE_CONSTRUCTOR_PARAMETERS = tuple(
+    inspect.signature(types.CodeType).parameters
+)
+_CODE_STRUCTURAL_FIELDS = (
+    "co_argcount",
+    "co_posonlyargcount",
+    "co_kwonlyargcount",
+    "co_nlocals",
+    "co_stacksize",
+    "co_flags",
+    "co_code",
+    "co_consts",
+    "co_names",
+    "co_varnames",
+    "co_filename",
+    "co_name",
+    "co_qualname",
+    "co_firstlineno",
+    "co_linetable",
+    "co_exceptiontable",
+    "co_freevars",
+    "co_cellvars",
+)
+
+
+def canonical_code_fingerprint(code: types.CodeType) -> str:
+    """Fingerprint exact structural code fields, without marshal reference flags.
+
+    Ordinary CodeType constructor fields and recursively owned immutable
+    constants are retained; interpreter adaptive caches are not source state.
+    This is not a universal semantic equivalence test.
+    """
+    if type(code) is not types.CodeType:
+        raise TypeError("code fingerprint requires an actual CodeType")
+    if _CODE_NATIVE_CONSTRUCTOR_PARAMETERS != _CODE_CONSTRUCTOR_PARAMETERS:
+        raise TypeError("native code constructor schema needs an exact adapter")
+
+    def encode(value: object, depth: int) -> Any:
+        if depth > 48:
+            raise ValueError("code constant nesting needs an exact adapter")
+        if value is None:
+            return {"none": True}
+        if value is Ellipsis:
+            return {"ellipsis": True}
+        if type(value) is bool:
+            return {"bool": value}
+        if type(value) is int:
+            return {"int_hex": hex(value)}
+        if type(value) is str:
+            return {"str": value}
+        if type(value) is bytes:
+            return {"bytes": value.hex()}
+        if type(value) is float:
+            return {"float64_be": struct.pack(">d", value).hex()}
+        if type(value) is complex:
+            return {"complex128_be": struct.pack(">dd", value.real, value.imag).hex()}
+        if type(value) is tuple:
+            return {"tuple": [encode(item, depth + 1) for item in value]}
+        if type(value) is frozenset:
+            items = [encode(item, depth + 1) for item in value]
+            return {
+                "frozenset": sorted(
+                    items, key=lambda item: json.dumps(item, sort_keys=True)
+                )
+            }
+        if type(value) is types.CodeType:
+            return {
+                "code": {
+                    name: encode(getattr(value, name), depth + 1)
+                    for name in _CODE_STRUCTURAL_FIELDS
+                }
+            }
+        # No formatting, equality or hashing of unsupported user constants.
+        raise TypeError("code constant type needs an exact adapter")
+
+    record = {
+        "schema": "CodeType-structural-v1",
+        "constructor_parameters": _CODE_NATIVE_CONSTRUCTOR_PARAMETERS,
+        "interpreter": sys.implementation.name,
+        "python_version": (sys.version_info.major, sys.version_info.minor),
+        "value": encode(code, 0),
+    }
+    return hashlib.sha256(
+        json.dumps(record, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+class _NativeCaptureGraph:
+    """Snapshot the bounded native owners and their Python executable state.
+
+    Native C++ descriptors and JIT execution/cache internals end at exact type
+    and executable identities. Every Python wrapper field remains in the graph;
+    no private dictionary or JIT configuration field is discarded. Native Python
+    implementations end at their pinned executable boundary, retaining code,
+    defaults, closures, attributes and actual top-level binding identities.
+    """
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, Any] = {}
+        self.bindings: list[tuple[types.ModuleType, str, object]] = []
+
+    def _record_bindings(self, value: Any) -> None:
+        module_name = value.__module__
+        if type(module_name) is not str:
+            raise ValueError("native implementation module requires an actual string")
+        module = sys.modules.get(module_name)
+        if isinstance(module, types.ModuleType):
+            for name, item in vars(module).copy().items():
+                if item is value:
+                    self.bindings.append((module, name, value))
+
+    @staticmethod
+    def _schema(mapping: Any, expected: frozenset[str]) -> bool:
+        return (
+            all(type(key) is str for key in mapping) and frozenset(mapping) == expected
+        )
+
+    def _class(self, cls: type) -> Any:
+        expected = _NATIVE_CAPTURE_CLASS_FIELDS[cls]
+        if not self._schema(vars(cls), expected):
+            raise ValueError("native capture class schema changed")
+        return {name: self.take(item) for name, item in sorted(vars(cls).items())}
+
+    def _annotation(self, value: Any) -> Any:
+        # Python annotations are metadata, not executable callbacks. Keep exact
+        # leaf identities and the entire annotation container without traversing
+        # arbitrary typing descriptors or class/static state.
+        kind = type(value)
+        if kind is dict:
+            if not all(type(key) is str for key in value):
+                raise ValueError("native annotation keys require actual strings")
+            return {key: self._annotation(item) for key, item in value.items()}
+        if kind is tuple or kind is list:
+            return [self._annotation(item) for item in value]
+        if (
+            value is None
+            or kind is str
+            or kind is bool
+            or kind is int
+            or any(value is symbol for symbol in _NATIVE_CAPTURE_SYMBOLS)
+        ):
+            return {"identity": id(value), "type": self.typename(value)}
+        raise ValueError("unsupported native annotation state")
+
+    @staticmethod
+    def typename(value: Any) -> str:
+        module, name = type(value).__module__, type(value).__qualname__
+        if type(module) is not str or type(name) is not str:
+            raise ValueError("native callable type metadata changed")
+        return module + "." + name
+
+    def take(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if type(value) is bool:
+            return {"bool": value}
+        if type(value) is int:
+            return {"int": value}
+        if type(value) is str:
+            return {"str": value}
+        if type(value) is float:
+            return {"float64_be": struct.pack(">d", value).hex()}
+        if type(value) is bytes:
+            return {"bytes": value.hex()}
+        kind = type(value)
+        if not (
+            any(kind is allowed for allowed in _NATIVE_CAPTURE_STATE_TYPES)
+            or any(kind is allowed for allowed in _NATIVE_CAPTURE_ENUM_TYPES)
+            or any(value is symbol for symbol in _NATIVE_CAPTURE_SYMBOLS)
+            or any(value is member for member in _NATIVE_CAPTURE_CPP_BOUNDARY)
+            or value is _native_named_sharding.UNSPECIFIED
+            or value is Ellipsis
+            or value is NotImplemented
+        ):
+            # Reject before naming/formatting an unowned class or its metaclass.
+            raise ValueError("unsupported native callable state type")
+        key = str(id(value))
+        if key in self.nodes:
+            return {"ref": key}
+        node: dict[str, Any] = {"type": self.typename(value)}
+        self.nodes[key] = node
+        if type(value) in (tuple, list, set, frozenset):
+            items = [self.take(item) for item in value]
+            node["values"] = (
+                sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+                if type(value) in (set, frozenset)
+                else items
+            )
+        elif type(value) is dict:
+            items = [[self.take(k), self.take(v)] for k, v in value.items()]
+            node["items"] = sorted(
+                items, key=lambda pair: json.dumps(pair[0], sort_keys=True)
+            )
+        elif type(value) is types.FunctionType:
+            node.update(
+                code_sha256=canonical_code_fingerprint(value.__code__),
+                name=self.take(value.__name__),
+                qualname=self.take(value.__qualname__),
+                module=self.take(value.__module__),
+                doc=self.take(value.__doc__),
+                defaults=self.take(value.__defaults__),
+                kwdefaults=self.take(value.__kwdefaults__),
+                attributes=self.take(vars(value)),
+                annotations=self._annotation(value.__annotations__),
+                closure=[
+                    self.take(cell.cell_contents) for cell in value.__closure__ or ()
+                ],
+            )
+            self._record_bindings(value)
+        elif type(value) is functools.partial:
+            node.update(
+                function=self.take(value.func),
+                args=self.take(value.args),
+                keywords=self.take(value.keywords),
+                attributes=self.take(vars(value)),
+            )
+        elif type(value) is Primitive:
+            if not any(value is owner for owner, _ in _NATIVE_CAPTURE_OWNERS):
+                raise ValueError("unselected primitive in native capture")
+            members = self._class(Primitive)
+            if not self._schema(vars(value), _NATIVE_CAPTURE_PRIMITIVE_FIELDS):
+                raise ValueError("native Primitive instance schema changed")
+            node.update(fields=self.take(vars(value)), members=members)
+        elif type(value) is _NATIVE_CAPTURE_UFUNC_TYPE:
+            if not any(value is owner for owner, _ in _NATIVE_CAPTURE_OWNERS):
+                raise ValueError("unselected ufunc in native capture")
+            members = self._class(_NATIVE_CAPTURE_UFUNC_TYPE)
+            if (
+                not self._schema(vars(value), _NATIVE_CAPTURE_UFUNC_FIELDS)
+                or type(vars(value)["_ufunc__static_props"]) is not dict
+                or not self._schema(
+                    vars(value)["_ufunc__static_props"], _NATIVE_CAPTURE_STATIC_FIELDS
+                )
+            ):
+                raise ValueError("native ufunc instance/static schema changed")
+            node.update(
+                fields=self.take(vars(value)),
+                members=members,
+            )
+        elif type(value) is _NATIVE_CAPTURE_JIT_TYPE:
+            members = self._class(_NATIVE_CAPTURE_JIT_TYPE)
+            if not self._schema(vars(value), _NATIVE_CAPTURE_JIT_FIELDS):
+                raise ValueError("native JIT wrapper schema changed")
+            self._record_bindings(value)
+            node.update(
+                fields=self.take(vars(value)),
+                members=members,
+                # This pinned native getter exposes a mutable Python callback;
+                # it must not disappear behind the C++ cache boundary.
+                cache_miss=self.take(_NATIVE_CAPTURE_CPP_BOUNDARY[-1](value)),
+            )
+        elif type(value) is _native_pjit.PjitInfo:
+            if tuple(type(value)._fields) != _NATIVE_CAPTURE_PJIT_FIELDS:
+                raise ValueError("native JIT configuration schema changed")
+            node["fields"] = {
+                name: self.take(item)
+                for name, item in zip(_NATIVE_CAPTURE_PJIT_FIELDS, value, strict=True)
+            }
+        elif type(value) is property:
+            node.update(
+                getter=self.take(value.fget),
+                setter=self.take(value.fset),
+                deleter=self.take(value.fdel),
+                doc=self.take(value.__doc__),
+            )
+        elif type(value) is inspect.Signature:
+            node.update(
+                parameters=[self.take(item) for item in value.parameters.values()],
+                return_annotation=self._annotation(value.return_annotation),
+            )
+        elif type(value) is inspect.Parameter:
+            node.update(
+                name=self.take(value.name),
+                kind=self.take(value.kind),
+                default=self.take(value.default),
+                annotation=self._annotation(value.annotation),
+            )
+        elif type(value) is _native_tree_util.PyTreeDef:
+
+            def tree_state(tree: Any) -> Any:
+                data = tree.node_data()
+                if data is not None:
+                    raise ValueError(
+                        "native JIT treedef needs a bounded structural adapter"
+                    )
+                if tree.children():
+                    raise ValueError("native JIT treedef is not a leaf")
+                return {"leaf": True}
+
+            node["tree"] = tree_state(value)
+        elif value is _native_named_sharding.UNSPECIFIED:
+            members = self._class(type(value))
+            node.update(fields=self.take(vars(value)), members=members)
+        elif isinstance(value, Enum) and type(value).__module__ in {
+            "jax._src.api",
+            "inspect",
+        }:
+            node.update(name=self.take(value.name), value=self.take(value.value))
+        elif any(value is symbol for symbol in _NATIVE_CAPTURE_SYMBOLS):
+            module, name = value.__module__, value.__qualname__
+            if type(module) is not str or type(name) is not str:
+                raise ValueError("native symbol metadata changed")
+            node["symbol"] = module + "." + name
+        elif any(value is member for member in _NATIVE_CAPTURE_CPP_BOUNDARY):
+            node["native_jit_executable"] = True
+        elif type(value) in (
+            types.BuiltinFunctionType,
+            types.MethodDescriptorType,
+            types.WrapperDescriptorType,
+            types.GetSetDescriptorType,
+            types.MemberDescriptorType,
+            staticmethod,
+            classmethod,
+        ):
+            # Exact native descriptor identity is recorded by the node reference.
+            # Python functions inside static/class methods still need their state.
+            if type(value) in (staticmethod, classmethod):
+                node["function"] = self.take(value.__func__)
+        elif value is Ellipsis or value is NotImplemented:
+            node["singleton"] = str(value)
+        else:
+            raise ValueError(
+                f"unsupported native callable state: {self.typename(value)}"
+            )
+        return {"ref": key}
+
+
+def _initial_native_capture() -> tuple[dict[int, Any], dict[int, Any], dict[int, str]]:
+    states, bindings, gaps = {}, {}, {}
+    for owner, _ in _NATIVE_CAPTURE_OWNERS:
+        graph = _NativeCaptureGraph()
+        try:
+            if type(owner) is _NATIVE_CAPTURE_UFUNC_TYPE and any(
+                member is None for member in _NATIVE_CAPTURE_CPP_BOUNDARY
+            ):
+                raise ValueError("native JIT executable boundary has an unknown schema")
+            roots = [graph.take(owner)]
+        except (TypeError, ValueError) as exc:
+            # An unsupported installed owner layout remains its own replay gap.
+            gaps[id(owner)] = str(exc)
+            continue
+        states[id(owner)] = {"roots": roots, "nodes": graph.nodes}
+        bindings[id(owner)] = tuple(graph.bindings)
+    return states, bindings, gaps
+
+
+_NATIVE_CAPTURE_BASELINE, _NATIVE_CAPTURE_BINDINGS, _NATIVE_CAPTURE_GAPS = (
+    _initial_native_capture()
+)
+
+
+def selected_native_capture(value: object) -> dict[str, Any] | None:
+    """Capture only exact selected native owners and canonical bound aliases."""
+    member = None
+    owner = value
+    if type(value) is types.MethodType:
+        owner = value.__self__
+        member = "bind" if type(owner) is Primitive else "reduce"
+        if not any(owner is original for original, _ in _NATIVE_CAPTURE_OWNERS):
+            if any(
+                vars(module).get(name) is owner
+                for _, bindings in _NATIVE_CAPTURE_OWNERS
+                for module, name in bindings
+            ):
+                raise ValueError("selected native binding points to a foreign owner")
+            return None
+        if value.__func__ is not vars(type(owner)).get(member):
+            raise ValueError("selected native bound member identity changed")
+    elif not any(value is original for original, _ in _NATIVE_CAPTURE_OWNERS):
+        if any(
+            vars(module).get(name) is value
+            for _, bindings in _NATIVE_CAPTURE_OWNERS
+            for module, name in bindings
+        ):
+            raise ValueError("selected native binding points to a foreign owner")
+        return None
+    if id(owner) in _NATIVE_CAPTURE_GAPS:
+        raise ValueError(_NATIVE_CAPTURE_GAPS[id(owner)])
+    type_bindings = (
+        _NATIVE_CAPTURE_TYPE_BINDINGS[:2]
+        if type(owner) is Primitive
+        else _NATIVE_CAPTURE_TYPE_BINDINGS[2:]
+    )
+    for module, name, original in type_bindings:
+        if vars(module).get(name) is not original:
+            raise ValueError("selected native type binding changed")
+    for original, bindings in _NATIVE_CAPTURE_OWNERS:
+        if original is owner:
+            for module, name in bindings:
+                if vars(module).get(name) is not original:
+                    raise ValueError("selected native public/defining binding changed")
+    for module, name, original in _NATIVE_CAPTURE_BINDINGS[id(owner)]:
+        if vars(module).get(name) is not original:
+            raise ValueError("selected native implementation binding changed")
+    graph = _NativeCaptureGraph()
+    roots = [graph.take(owner)]
+    observed = {"roots": roots, "nodes": graph.nodes}
+    if observed != _NATIVE_CAPTURE_BASELINE[id(owner)]:
+        raise ValueError("selected native callable behavior/state changed")
+    return {"native_owner": id(owner), "member": member, "state": observed}
+
+
+def selected_native_capture_member(owner: object, name: str) -> object | None:
+    """Resolve only the two selected native descriptors on verified owners."""
+    if not any(owner is original for original, _ in _NATIVE_CAPTURE_OWNERS):
+        return None
+    expected = "bind" if type(owner) is Primitive else "reduce"
+    if name != expected:
+        raise ValueError("unselected native attribute path")
+    selected_native_capture(owner)
+    resolved: object = vars(type(owner))[name].__get__(owner, type(owner))
+    return resolved
 
 
 @dataclass(frozen=True)

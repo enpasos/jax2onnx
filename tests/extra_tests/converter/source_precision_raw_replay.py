@@ -27,7 +27,13 @@ import onnx
 import onnx_ir as ir
 
 from jax2onnx.precision import CheckStatus, PrecisionCheck, get_precision_report
-from jax2onnx._compat.jax import is_selected_prng_key_dtype, selected_prng_key_words
+from jax2onnx._compat.jax import (
+    canonical_code_fingerprint,
+    is_selected_prng_key_dtype,
+    selected_prng_key_words,
+    selected_native_capture,
+    selected_native_capture_member,
+)
 from jax2onnx.converter.source_representation import representation_for_aval
 from scripts.source_precision_inventory import canonical_contract
 from tests.extra_tests.converter.source_precision_support import (
@@ -123,7 +129,7 @@ class RawReplayCapture:
     def bind_target(self, target: Any) -> None:
         self.target = target
         try:
-            self.target_state = _capture_target_state(target)
+            self.target_state = _capture_actual_target_state(target)
         except Exception as exc:
             self.gap("instantiated-target-state", exc)
             raise SourcePreparationError(
@@ -141,7 +147,7 @@ class RawReplayCapture:
 
     def check_target(self, role: str) -> bool:
         try:
-            observed = _capture_target_state(self.target)
+            observed = _capture_actual_target_state(self.target)
             if observed != self.target_state:
                 self.save_document(role + "-changed-state", observed)
                 raise SourcePreparationError(
@@ -292,6 +298,16 @@ def structured_source_error(exc: Exception) -> dict[str, Any]:
     }
 
 
+def _selected_native_state(value: Any) -> Any:
+    try:
+        return selected_native_capture(value)
+    except (TypeError, ValueError) as exc:
+        raise SourcePreparationError(
+            f"Selected native callable state needs an exact adapter: {exc}",
+            category="replay-lane-gap",
+        ) from exc
+
+
 def _capture_recipe(value: Any, *, location: str = "callable", depth: int = 0) -> Any:
     """Capture only registered recipe containers and bounded dataclass objects.
 
@@ -302,6 +318,9 @@ def _capture_recipe(value: Any, *, location: str = "callable", depth: int = 0) -
         raise SourcePreparationError(
             "Original recipe nesting needs an adapter", category="replay-lane-gap"
         )
+    native = _selected_native_state(value)
+    if native is not None:
+        return native
     unresolved: list[str] = []
     canonical = canonical_contract(value, unresolved=unresolved)
     if not unresolved:
@@ -509,7 +528,23 @@ def _jax_scalar_dtype_binding(value: Any) -> dict[str, str] | None:
     return None
 
 
+def _capture_actual_target_state(target: Any) -> Any:
+    """Require an actual callable adapter; recursive type tokens are metadata."""
+    if isinstance(target, type):
+        binding = _jax_scalar_dtype_binding(target)
+        if binding is not None:
+            return binding
+        raise SourcePreparationError(
+            "An actual class callable needs an instantiated-target adapter",
+            category="replay-lane-gap",
+        )
+    return _capture_target_state(target)
+
+
 def _function_owned_data(value: Any, child: Any, *, depth: int = 0) -> Any:
+    native = _selected_native_state(value)
+    if native is not None:
+        return native
     if depth > 48:
         raise SourcePreparationError(
             "Referenced function data nesting needs an exact adapter",
@@ -590,6 +625,9 @@ def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
                 inspect_code(constant)
 
     def dependency(value: Any) -> Any:
+        native = _selected_native_state(value)
+        if native is not None:
+            return native
         binding = _imported_executable_binding(value)
         if binding is not None:
             # Imported implementation is owned by the environment/source pins.
@@ -618,14 +656,22 @@ def _function_global_state(fn: Any, child: Any) -> dict[str, Any]:
                 )
             member = value
             for attribute in path:
-                if not isinstance(member, types.ModuleType) or attribute not in vars(
-                    member
-                ):
+                if isinstance(member, types.ModuleType) and attribute in vars(member):
+                    member = vars(member)[attribute]
+                    continue
+                try:
+                    native_member = selected_native_capture_member(member, attribute)
+                except (TypeError, ValueError) as exc:
+                    raise SourcePreparationError(
+                        f"Referenced native member changed: {name}.{'.'.join(path)}: {exc}",
+                        category="replay-lane-gap",
+                    ) from exc
+                if native_member is None:
                     raise SourcePreparationError(
                         f"Referenced attribute path needs an exact state adapter: {name}.{'.'.join(path)}",
                         category="replay-lane-gap",
                     )
-                member = vars(member)[attribute]
+                member = native_member
             selected[".".join(path)] = dependency(member)
         result[name] = {"library_namespace": value.__name__, "attributes": selected}
     return result
@@ -645,6 +691,9 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
     def child(item: Any) -> Any:
         return _capture_target_state(item, depth=depth + 1)
 
+    native = _selected_native_state(value)
+    if native is not None:
+        return native
     if is_selected_prng_key_dtype(getattr(value, "dtype", None)):
         words = np.asarray(selected_prng_key_words(value))
         return {
@@ -663,6 +712,7 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, types.FunctionType):
         return {
             "callable": f"{value.__module__}.{value.__qualname__}",
+            "code_sha256": canonical_code_fingerprint(value.__code__),
             "defaults": _function_owned_data(value.__defaults__, child),
             "kwdefaults": _function_owned_data(value.__kwdefaults__, child),
             "attributes": _function_owned_data(value.__dict__, child),
@@ -679,6 +729,7 @@ def _capture_target_state(value: Any, *, depth: int = 0) -> Any:
             "partial": child(value.func),
             "args": child(value.args),
             "kwargs": child(value.keywords),
+            "attributes": _function_owned_data(vars(value), child),
         }
     if getattr(value, "__jax2onnx_factory__", False):
         raise SourcePreparationError(
