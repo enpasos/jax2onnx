@@ -408,14 +408,14 @@ def test_profile_rejects_current_functionality_outside_the_finite_milestone(
     model: Any,
 ) -> None:
     trace = _trace(model, _spec())
-    # Preserve the original four parameter IDs/callables. The first two now
-    # produce the admitted native Sin or its plain JIT carrier; scan/effects
-    # retain their original negative contract.
+    # Preserve the original four parameter IDs/callables. Native Sin/JIT and
+    # the static loop carrier are admitted; effects retain their negative contract.
     if len(trace.eqns) == 1 and trace.eqns[0].primitive.name in {
         "sin",
         "jax.numpy.sin",
         "jit",
         "pjit",
+        "scan",
     }:
         validate_source_jaxpr(trace, 23)
     else:

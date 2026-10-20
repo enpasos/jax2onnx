@@ -47,7 +47,9 @@ from jax2onnx.converter.source_elementary import (
     validate_custom_jvp_forward,
     validate_integer_arithmetic,
     validate_original_elementary_opset,
+    validate_static_zeros,
 )
+from jax2onnx.converter.source_loops import validate_loop_equation
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -1943,6 +1945,8 @@ def _validate_equation(
         return
     if name in ELEMENTARY_OPERATIONS:
         validate_elementary_equation(eqn, inputs, outputs, site)
+    elif name == "jax.numpy.zeros":
+        validate_static_zeros(eqn, outputs, site)
     elif name == "custom_jvp_call":
         validate_custom_jvp_forward(eqn, site, ancestors)
     elif name == "stop_gradient":
@@ -1951,6 +1955,8 @@ def _validate_equation(
         _validate_dim_as_value(eqn, outputs, formal_symbols, site)
     elif name == "jit":
         _validate_jit(eqn, site, ancestors)
+    elif name in {"scan", "while"}:
+        validate_loop_equation(eqn, site, ancestors)
     elif name in {
         "random_seed",
         "random_wrap",
@@ -2238,12 +2244,12 @@ def _validate_equation(
     else:
         site.fail(
             "primitive is outside the profile",
-            "only the finite source-static-v1 operations; loops, scan, unaudited JIT bodies/options, and unreviewed arithmetic families remain excluded",
+            "only the finite source-static-v1 operations; unaudited loop/JIT contracts and unreviewed arithmetic families remain excluded",
         )
 
 
 def validate_source_jaxpr(jaxpr: Any, opset: int) -> None:
-    """Validate one scope and recursively inspect conditionals and plain JIT.
+    """Validate one scope and recursively inspect conditionals, loops and plain JIT.
 
     Pass this function as the common converter's validator to also check actual
     retraced ONNX Function bodies. A callback alone does not identify the enclosing

@@ -406,6 +406,43 @@ def scan_arity(params: Any, total_invars: int) -> tuple[int, int, int]:
     return num_consts, num_carry, num_xs
 
 
+def native_scan_flat_tree_partitions(
+    params: Any,
+) -> tuple[tuple[int, ...], tuple[int, ...], bool] | None:
+    """Inspect JAX 0.11 roles and whether the current lowerer can partition them.
+
+    Older supported scans use integer counts and need no flat-tree imports.
+    Counts alone do not prove the output partition or descriptor ownership.
+    """
+    if "ft_in" not in params:
+        return None
+    from jax._src.flattree import FlatTree
+
+    descriptors = (params["ft_in"], params["ft_out"])
+    result = []
+    supported = True
+    for index, (descriptor, count) in enumerate(zip(descriptors, (3, 2), strict=True)):
+        if not isinstance(descriptor, FlatTree):
+            raise ValueError("requires actual native scan input/output flat trees")
+        groups = getattr(descriptor, "elts", None)
+        if groups is None:
+            # Native filtered/pytree descriptors are valid JAX forms. Only
+            # ft_in requires .elts in the existing lowerer's scan_arity path.
+            groups = descriptor.unpack()
+            supported = supported and index != 0
+        if (
+            not isinstance(groups, tuple)
+            or len(groups) != count
+            or not all(isinstance(group, FlatTree) for group in groups)
+        ):
+            raise ValueError("requires actual native scan input/output role groups")
+        counts = tuple(len(group) for group in groups)
+        if sum(counts) != len(descriptor):
+            raise ValueError("scan flat-tree groups disagree with their leaf count")
+        result.append(counts)
+    return result[0], result[1], supported
+
+
 def dim_constant(value: int) -> Any:
     """Return a symbolic dimension constant when the active JAX exposes one."""
 

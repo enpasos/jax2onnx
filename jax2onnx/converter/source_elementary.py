@@ -14,6 +14,7 @@ from math import prod
 from typing import Any, Final, TYPE_CHECKING
 
 import jax
+import numpy as np
 
 if TYPE_CHECKING:
     from jax2onnx.converter.source_profile import _Site, _Tensor
@@ -112,6 +113,7 @@ def validate_original_elementary_opset(
             "select_n",
             "jit",
             "cond",
+            "while",
             "erfc",
             "custom_jvp_call",
             "stop_gradient",
@@ -127,6 +129,46 @@ def validate_original_elementary_opset(
         ),
         "dtype is outside the original opset18/21 typed expression",
         "strong/weak FP32 data with Boolean predicates and native index roles",
+    )
+
+
+def validate_static_zeros(eqn: Any, outputs: Sequence[_Tensor], site: _Site) -> None:
+    """Admit the existing strong FP32/FP64 zero-fill carrier at loop opsets.
+
+    The normal tracing bindings already replace original ``jnp.zeros`` calls
+    with this exact carrier. Its resolved dtype preserves native x64 behavior;
+    other creation wrappers and dtype/opset routes retain their own exclusions.
+    """
+    from jax2onnx._compat.jax import ShapedArray
+    from jax2onnx.converter.source_profile import _arity
+    from jax2onnx.plugins.jax.numpy.zeros import JnpZerosPlugin
+
+    _arity(eqn, 0, 1, site)
+    site.require(
+        eqn.primitive is JnpZerosPlugin._PRIM and set(eqn.params) == {"shape", "dtype"},
+        "zero-fill carrier identity or parameters are not the native schema",
+        "the existing zero-input jnp.zeros primitive with exactly shape and dtype",
+        category="lowering-defect",
+    )
+    target = outputs[0]
+    site.require(
+        site.opset in {23, 26} and target.dtype in {"float32", "float64"},
+        "zero-fill dtype or opset is outside the audited loop initialization route",
+        "native FP32/FP64 zero fill at opset23/26",
+    )
+    shape, dtype = eqn.params["shape"], eqn.params["dtype"]
+    site.require(
+        isinstance(shape, tuple)
+        and all(type(dim) is int and dim >= 0 for dim in shape)
+        and isinstance(dtype, np.dtype)
+        and dtype == np.dtype(target.dtype)
+        and shape == target.shape
+        and target.symbol is None
+        and type(eqn.outvars[0].aval) is ShapedArray
+        and eqn.outvars[0].aval.weak_type is False,
+        "zero-fill attributes or result differ from the native typed contract",
+        "static nonnegative native extents, the resolved dtype and a matching strong ShapedArray",
+        category="lowering-defect",
     )
 
 
