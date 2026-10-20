@@ -18,7 +18,7 @@ argument are unchanged. Private work preserves more selected calculations at
 the precision chosen by the model and JAX configuration. Complete-model,
 low-precision and deployment acceptance remain unfinished, so this work does
 not yet change how you prepare or export a model. The
-[technical checkpoint](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
+[technical checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint)
 records the exact scope, results and remaining diagnostics.
 
 Private work preserves selected loop state, runtime flags and empty results.
@@ -30,6 +30,14 @@ other-input and deployment coverage remain unfinished. One unchanged masked
 FP64 example also passes saved-artifact CPU comparisons on both runtime stacks
 against its saved PRIMARY JAX references. These results cover the recorded
 samples. The public export call is unchanged.
+
+The private implementation now preserves an original full Linear model
+configured explicitly for FP64 arithmetic, with either retained parameter storage or an explicit
+conversion of its stored values to FP64. The original model source, complete
+weights, options and state remain available. The caller enables JAX x64 before
+preparation; export does not globally rewrite the computation. These finite
+checks do not provide a public preparation API or general scientific FP64
+support, and widening existing FP32 weights cannot recover lost precision.
 
 The completed migration will offer one ordinary source-preserving export
 contract across the existing functionality and fixed third-party sources, with

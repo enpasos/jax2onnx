@@ -1,5 +1,154 @@
 # Private source-policy integration
 
+## Explicit FP64 Linear preparation checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `b2a866bb`; ACCEPTED DUAL936
+ON UNCHANGED PRODUCTION, FRESH DUAL145 AND FULL PRIMARY V4 PASS; ALL SEVEN
+NORMAL CODE HOOKS PASS**. This finite explicit Linear-preparation checkpoint
+does not complete general scientific FP64 support or change public **LEGACY**
+behavior. Strict documentation build and the separate documentation commit
+remain pending.
+
+### Implemented behavior and numerical boundary
+
+The private preparation accepts an already constructed exact `nnx.Linear` and
+returns an ordinary NNX clone configured for explicitly requested FP64
+computation. It retains the supplied model source, complete captured weights,
+options, graph aliases, state, Variable metadata and promotion/dot callables.
+Omitted storage conversion retains the actual parameter values and declaration;
+explicit FP64 storage converts complete cloned kernel/bias values. Existing FP64
+payloads never pass through FP32. The original object and its native behavior
+remain available. Widening stored FP32 values cannot recover precision lost at
+creation.
+
+JAX x64 must already be effective before preparation. This helper neither enables
+x64 nor rewrites arbitrary computations globally; the caller selects and restores
+its own local configuration. Unsupported subclasses, storage conversion with
+setter hooks, storage families and conflicting preferred result types retain
+explicit boundaries.
+Ordinary SOURCE validation remains in force after preparation.
+
+Native `Precision` enum pairs, including HIGH/HIGHEST, are additionally admitted
+only when both matrix inputs and the result are FP64, with absent or FP64
+`preferred_element_type`. The existing shape, weakness, layout and physical
+storage checks remain. This does not admit general nondefault matrix precision,
+FP16/FP32 HIGH/HIGHEST, precision presets or explicit algorithms.
+
+The maintained original raw Linear rows **0 and 3** retain their **128×64**
+weights, original seed **0**, original FP32 B2 input values and an additional B5
+feed. The prepared parameterization has **24 cases and 96 actual target returns
+per stack**: both raw models, caller-x64 contexts, DEFAULT/HIGH/HIGHEST and
+retained/converted storage, using one saved symbolic artifact per case in both
+CPU optimization modes. Original eager and JIT references are captured before
+SOURCE export.
+
+The separate a priori sample criterion uses exact `Fraction` arithmetic:
+`|target-native| <= 2*gamma129*(sum_i(abs(x_i*w_i))+abs(b))`, with
+`u=2**-53` and `gamma129=129*u/(1-129*u)`. Its finite normal-range and no-overflow
+assumptions are checked from the original operands before target execution.
+Shapes, FP64 result types and finite outputs are separate exact checks. The two
+runtime modes' observed byte equality is an additional finite sample control,
+not a portable bitwise-FP64 guarantee. Custom getter/promotion/dot functions do
+not borrow that bound.
+
+The original raw **Gemm callbacks remain FAILED**: SOURCE emits native MatMul
+and optional Add. Their metadata and missing numerical criterion
+**`criteria=None` remain unchanged**. Stored export reports still record
+runtime execution and numerical acceptance **UNVERIFIED**. The separate frozen
+finite comparisons establish only their stated sample result.
+
+### Actual qualification and retained failures
+
+| Evidence epoch | Actual result and limit |
+| --- | --- |
+| Focused v1, each stack | **933 PASS / three FAIL of 936**, zero errors/skips. All 92 added cases pass. Three existing diagnostic assertions require stale default-only wording; these remain failed runs. |
+| Rejected regex remedy v1 | Rejected without application or runtime; no passing test epoch. The reviewed v2 aligns exactly three diagnostic expectations in two existing files, preserving production and intended FP16/FP32 rejections. |
+| Focused v2, each stack | ROOT-observed actual exit **120 / ENOSPC**. Terminal receipts/XML are empty or invalid; phase/process evidence is missing. Outcomes cannot be reconstructed as passes. |
+| Focused v3, each stack | **936 cases / 2,808 phases PASS**, zero failures/errors/skips and all 92 additions pass. Both actual terminals exit zero and every phase is recorded exactly once. Independent acceptance binds the nine-path epoch. All **577 physical production paths** remain identical after the later two test/tool pin updates; this is an accepted production bridge, not a fresh936 rerun. |
+| Full PRIMARY v3 | **10,559 PASS / 37 FAIL of 10,596**, zero errors/skips; all **31,788 phase keys** are present exactly once. Actual ROOT process exits **1**. This complete failed execution remains unaccepted. |
+| Audited provenance remedy | Applied exactly two hash literals: the accepted DOT module pin and its derived approved counterpart digest. All 11 original dot metadata recipes, lambdas and contracts remain unchanged; all approval predicates and raw callback/numerical rules remain intact. |
+| Unrun focused3 harness v1 | Rejected for its list/tuple selector serialization contract before runtime. Corrected v2 receives static acceptance; neither is a failed product-runtime epoch. |
+| Fresh corpus3 v4, each stack | **145 cases / 435 phases PASS**, zero failures/errors/skips, covering all three affected modules and **all 37 formerly failed IDs**. Independent review accepts this actual separate post-pin epoch. |
+| Full PRIMARY v4 | **10,596 cases / 31,788 phases PASS**, zero failures/errors/skips. Controller and all four workers hold identical ordered IDs; every process exits zero, every phase passes exactly once, and source/Git pins hold. Actual ROOT terminal: session **61508**, chunk **cb0f4f**, exit **0**. |
+| Final eleven-path quality | Python 3.11 AST, Black, Ruff and four whole policies pass. Prior actual **552-file mypy plus 17 RNG checks** carries on the identical **577 physical production paths**. All **930 Python / 163 other input files (1,093 total)** hold. |
+| Final independent readiness | **436 checks PASS**, accepting this finite eleven-path checkpoint and binding actual full v4, fresh dual145, original dual936 bridge, source/environment/quality and all failed history. |
+| Normal code hooks and commit | All seven actual hooks **PASS**: Black, Ruff legacy-alias hook, reflection, mypy, markers, builder and annotations. Actual ROOT session **9612**, terminal **019492**, exits **0**. Code commit **`b2a866bb3e8c579cd2595be28eb318a86438d747`**, parent `454b0c5e90291297072ccb77e5cb67398db647e5`, contains exactly the eleven qualified blobs; all 1,093 input contents hold through hooks/commit and the worktree is clean at verification. |
+| Documentation gates | Strict MkDocs and the separate documentation commit remain **PENDING**. |
+
+The failed full v3 first-barrier audit retains **19 direct diagnostics**
+(14 DOT source-pin and five dependent Linear module-pin errors) separately from
+**18 static dependency attributions** (14 baseline-control failures and four
+Linear artifact-stage failures whose tracebacks omit source detail). The later
+passing epochs do not rewrite those diagnostic limits or the failed receipts.
+
+The exact committed scope is seven implementation/PoC/test paths, two existing
+diagnostic-expectation files and two audited test/tool provenance constants:
+
+- `jax2onnx/_compat/jax.py`
+- `jax2onnx/_source_preparation.py`
+- `jax2onnx/converter/source_profile.py`
+- `jax2onnx/plugins/jax/lax/dot_general.py`
+- `internal_docs/precision/poc/fixed_source_preparation.py`
+- `tests/extra_tests/converter/test_fixed_source_preparation_poc.py`
+- `tests/extra_tests/converter/test_source_fp64_preparation.py`
+- `tests/extra_tests/converter/test_source_function_context.py`
+- `tests/extra_tests/converter/test_source_nnx_linear_reshape_dispatch.py`
+- `scripts/source_precision_probe.py`
+- `tests/extra_tests/converter/source_precision_corpus_oracles.py`
+
+| Current evidence record | SHA256 |
+| --- | --- |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-code-commit-b2a866bb.json` | `6538322d034684d215f340ec58377d36144db2ee9027522ea993eefda159abb0` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/fp64-full-v4-final-code-checkpoint-readiness.json` | `853e14ba7ea0386e22860ffb0cbfbd7e07f2a87e3bdaf3c423d457a1383b622f` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/code-commit-v1.log` | `f06fa6caf16c173373ba1ec7e12d62ef3e4b8469a4c52ac8b8e4e3299d5c9539` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-full-primary-v4-actual-terminal.json` | `98abf61e23c79b51e02b58285a52889d52e8d49d8fd365f8f7993b785c6e8847` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/fp64-dual-corpus145-v4-actual-review.json` | `4200894037ddfa391483411d1e8fc108c8f8414fe979e8a2a22bd617ce94e011` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-fp64-corpus-pin-quality-pass.json` | `0c43829485ad49ea66e9ff26f9f15099396f9d3a8bef20bd2d68de31de7c1aae` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/source-pins-after-corpus-pin-remedy-v1.json` | `e7c2fde43fbaf473a3fb9a2e871589b91d7b696dd75410dc0d69720db8c8e270` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-full-primary-v3-actual-terminal.json` | `6b0e772ffa61ac345261253a4aa79c9fe8aacbb303eabb7f140766d9ddaba712` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/fp64-corpus-pin-remedy-v1-static-review.json` | `2d409bef682736fba117c2808d0d64b73f4b65492b1396b36d16305a52a0a53e` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-corpus-pin-remedy-application-v1.json` | `5de27c02fc302e7aa59a48fa7599cc20b8450b125cab5fda0ec0e2d21d6358e8` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/fp64-dual-focused-v3-actual-review.json` | `da2d900a77d5e1fb4a71351a1f508aa58f490f732e8c8952830c00f667715bbe` |
+| `/tmp/jax2onnx-astra-fixture-key-review-v1/fp64-corpus-pin-focused3-v2-and-failed-full-v3-review.json` | `4ad749362e28c21b953e49f5dbd5d9d7f6bdd86c1021e6921b9a06cd9946876b` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-focused-primary-v3-actual-terminal.json` | `4956ff80c65c15a22704ac60da1aebc3bcdb4be45dadbec35b94da540a9f5276` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-focused-secondary-v3-actual-terminal.json` | `9e12e44ad5e590b7cc4da5413f7221c7237dc536ae41675c5313f90dfd3875f4` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-fp64-context-quality-pass.json` | `67bfe86a419217782705ec9f11d5f7da5f9b22035b19705c91c6a0653efacabc` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-fp64-focused936-v1-failed.json` | `f5cc7aff475eb4c7d3f698f883ed9178a0f63ec98dcc2f1e1ed0cfdb136ccf4e` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-fp64-focused-v2-enospc-terminal.json` | `bf07c7acb8298c7d9f62806a49a74b82ca44a0967706059947cb2e06c7995bb4` |
+
+The final quality record carries the original actual mypy/RNG result through
+byte-identical production and binds the exact eleven-path/source-pin lineage.
+Its then-unrun runtime labels are superseded by the later actual dual145 and
+full v4 records. The independent readiness review precedes staging; the later
+ROOT commit receipt supplies the actual hook/commit result and verifies every
+committed blob. The 17 RNG checks belong to the prior actual quality run, not
+to the fresh normal mypy hook.
+
+### Remaining full-scope work
+
+Next qualify the unchanged CNN on its original nonzero input and the next
+scientific batch. Raw replay v4 still awaits independent static review and a
+future runtime epoch; the FP16 Add/Mul repair has static acceptance but its
+native/target and cost gates remain pending. The **22 original compositions /
+44 numerically unverified artifacts** still need their explicit comparison
+criteria and finite acceptance.
+
+Issue52's opset-21 FP64-input admission gap, general fixed-source preparation,
+broader matrices/loops/scientific workloads, BF16 execution/numerics, the FP32
+reciprocal observation, eight original failed Sign reports per stack, strict
+Erfc full/native failures, failed original Gather callbacks and all 50 optional
+obligations remain open. The inventory stays **1,852 raw rows / 3,704 caller
+obligations**. Full phases B–F still require one ordinary source-preserving
+export across every existing capability and fixed third-party source; no mixed
+public precision interface or activation is added.
+
+## Historical checkpoint record
+
+The following pre-FP64 record is retained unchanged, including its then-current
+next steps. Later results supersede only the exact gates named above.
+
+
+
 Local implementation and review, updated 2026-10-20, beyond the public-behavior
 baseline at `fae17822`. All eight saved artifacts across the original six source
 selectors now have independently accepted finite CPU samples on each supported

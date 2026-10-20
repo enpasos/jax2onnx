@@ -8,6 +8,17 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
+The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
+**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
+and all **930 Python / 163 other input contents (1,093 total)** held through
+commit. Accepted original dual **936/2,808** evidence carries on unchanged
+production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
+v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
+Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
+preparation does not complete general scientific FP64 or the B–F migration.
+Strict documentation build and the separate documentation commit remain
+pending; public behavior stays **LEGACY**.
+
 Current private elementary/reduction evidence passes **183 cases / 549 phases
 per supported stack**, with zero test failures/errors/skips and independent
 actual-evidence acceptance. Bounded native bindings/typed lowerers and the
@@ -251,12 +262,15 @@ eager/JIT references. This finite result adds no fresh SECONDARY native or
 whole-family acceptance. Issue52's opset-21 FP64-input admission gap remains a
 concrete engineering task.
 
-Implement the unchanged CNN's native activation/pooling path with its original graph callback, and qualify the
-separately accepted FP64 preparation candidate against its actual full Linear
-and frozen arithmetic controls. That seven-path candidate remains external,
-unapplied and unexecuted; 92 is only its forecast count. Continue the original
-scientific scatter/trigonometry, remaining normalization, fixed-source and
-end-to-end contracts through the same ordinary pipeline. The strict Erfc and
+Implement the unchanged CNN's native activation/pooling path with its original
+graph callback. Explicit FP64 Linear preparation is now applied with accepted
+original dual936/2,808 evidence on unchanged production, including all 92 additions.
+The two audited provenance constants are applied, fresh dual145 and full
+PRIMARY v4 pass; final readiness, seven normal code hooks and the exact eleven-path
+code commit `b2a866bb` are complete. Preserve the actual full Linear and its separate frozen exact arithmetic
+criterion; no raw criteria or callback verdict is replaced. Continue
+the original scientific scatter/trigonometry, remaining normalization,
+fixed-source and end-to-end contracts through the same ordinary pipeline. The strict Erfc and
 other known numerical failures remain explicit.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain

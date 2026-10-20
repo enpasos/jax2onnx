@@ -19,6 +19,17 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
+The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
+**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
+and all **930 Python / 163 other input contents (1,093 total)** held through
+commit. Accepted original dual **936/2,808** evidence carries on unchanged
+production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
+v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
+Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
+preparation does not complete general scientific FP64 or the B–F migration.
+Strict documentation build and the separate documentation commit remain
+pending; public behavior stays **LEGACY**.
+
 The private elementary/reduction selection now passes **183 cases / 549
 phases on each supported stack**, with zero test failures/errors/skips and
 independent actual-evidence acceptance. It includes finite FP32/FP64 Asin
@@ -75,9 +86,16 @@ zero but strict-wrapper exit 99. All 586 converter-selection cases pass on each
 stack. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**,
 with zero failures/errors/skips. All seven normal code hooks pass, all 1,091
 source/input files hold through commit, and the worktree is clean at commit
-verification. The unchanged CNN path and accepted external FP64 preparation
-candidate are the next product steps; the latter is still unapplied and
-unexecuted.
+verification. The unchanged CNN path remains a next product step. The explicit FP64
+Linear preparation is now applied and passes the dual focused selection;
+the full PRIMARY v4 and seven normal code hooks pass, and `b2a866bb` holds the
+qualified bytes.
+
+Next qualify the unchanged CNN on its original nonzero input and the next
+scientific batch. Raw replay v4 awaits independent static review and runtime
+qualification; the FP16 repair has static acceptance, with native/target and
+cost checks pending. The 22 original compositions / 44 artifacts still need
+explicit comparison criteria and numerical acceptance.
 
 One unchanged [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
 also passes its original criterion on both ORT stacks against saved PRIMARY
@@ -124,8 +142,8 @@ evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
 preceding code checkpoint `1533d60b` remains accepted. The
 [next work](precision_migration_plan.md#next-implementation-work) continues the
-Conv/Scan integration, the unchanged CNN path and the separately reviewed FP64
-preparation candidate while preserving original source, inputs and criteria.
+remaining Conv/CNN work and qualification of explicit FP64 Linear preparation
+while preserving original source, inputs and criteria.
 Remaining registered families, scopes and export boundaries require the full contract.
 
 The [follow-up review on 2026-10-18](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)

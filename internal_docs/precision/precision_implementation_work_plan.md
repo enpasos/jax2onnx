@@ -5,6 +5,17 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
+The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
+**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
+and all **930 Python / 163 other input contents (1,093 total)** held through
+commit. Accepted original dual **936/2,808** evidence carries on unchanged
+production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
+v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
+Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
+preparation does not complete general scientific FP64 or the B–F migration.
+Strict documentation build and the separate documentation commit remain
+pending; public behavior stays **LEGACY**.
+
 The integrated private elementary/reduction selection passes **183 cases /
 549 phases per supported stack**, zero test failures/errors/skips, with
 independent review of actual source, artifacts and saved comparisons. This is
@@ -53,10 +64,11 @@ checks, and fixture style/AST checks pass. The complete PRIMARY suite passes
 **10,504 cases / 31,512 phases**, with zero failures/errors/skips and all 1,091
 source/input files held. All seven normal code hooks pass, and the worktree is
 clean at commit verification. Continue the unchanged CNN's native
-activation/pooling path and graph contract, and qualify the accepted
-external scientific FP64 preparation candidate (seven unapplied paths, 92
-forecast cases only). These are concrete product steps through the same
-pipeline. The separately
+activation/pooling path and graph contract. Explicit FP64 Linear preparation
+is now applied in eleven paths. Accepted unchanged-production dual936,
+fresh dual145, complete PRIMARY v4 and all seven normal code hooks pass.
+The exact eleven paths are committed at `b2a866bb`; continue the unchanged CNN
+on nonzero inputs and the next scientific batch through the same pipeline. The separately
 accepted [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
 retains its original criterion and saved PRIMARY references on both ORT stacks;
 Issue52 still needs an owning fix for its opset-21 FP64-input admission gap.
@@ -65,8 +77,8 @@ Keep all 51 raw loop rows, remaining normalization graph contracts,
 whole-carrier MLIR, general fixed-source preparation, optional models,
 FP16/BF16 rounding and scientific FP64 open under the full B–F gates. Strict
 Erfc full/native comparisons, eight original Sign reports per stack and original
-Gather callbacks remain failed; 44 original compositions remain numerically
-unverified. Production FTZ/runtime policy and criteria are unchanged. Public
+Gather callbacks remain failed; 22 original compositions / 44 artifacts remain
+numerically unverified with comparison criteria still open. Production FTZ/runtime policy and criteria are unchanged. Public
 behavior stays **LEGACY**, with no profile-limited finish or permanent mixed
 public precision interface.
 
@@ -433,7 +445,7 @@ planning work is separate from production-code ownership.
 | Original-six saved artifacts, both stacks | Preserve all six selectors/eight artifacts, original state/flags and separately frozen numerical criteria. | Independently accepted bounded structure and 384 actual returns / 16 CPU sessions per stack; 768 returns total. Raw callbacks remain six FAILED / two PASSED per stack and stored reports UNVERIFIED. PRIMARY exit99/missing origins retained. | Frozen 117-derived epoch; separate from current MAIN and public acceptance |
 | Native FP32 Conv and Scan metadata | Preserve actual native convolution options and original NNX/Linen calls; retain physical shapes until child Functions finish lowering. | Committed eight-path integration. Corrected earlier failed epochs retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99; all 586 converter cases pass per stack. Production typing on 551 files, 17 RNG checks, and fixture style/AST checks pass. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit. | `3223d080`; independent finite acceptance, clean worktree at commit verification; all 17 raw Conv rows remain obligations |
 | Masked FP64 saved sample | Preserve the unchanged artifact, original inputs/criterion and saved PRIMARY eager/JIT references. | Independently accepted four target returns on both ORT stacks; eight comparisons / 48 scalars, maximum absolute error 4.440892098500626e-16; four sample-API validations. No fresh SECONDARY native claim. | Separate finite sample evidence; Issue52 opset-21 FP64-input gap and whole-family acceptance remain open |
-| Scientific FP64 preparation | Configure an actual full Linear clone and preserve native all-FP64 precision enum contracts. | Independent source/static acceptance; seven paths, 92 forecast cases, no collection/runtime evidence. | External, unapplied and unexecuted |
+| Explicit FP64 Linear preparation | Configure the actual full Linear clone; retain original source, weights, options/state and native all-FP64 enum pairs. | Eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 after the two provenance pins, and complete PRIMARY v4 10,596/31,788 PASS. Raw0/raw3: 24 prepared cases / 96 target returns per stack under the separate a priori exact Fraction bound; raw Gemm callbacks FAILED, criteria=None and stored reports UNVERIFIED unchanged. | Full v3 10,559 PASS/37 FAIL remains failed history. Independent readiness and seven normal code hooks pass; the exact eleven paths are committed at `b2a866bb`. Strict docs build/docs commit and broader scientific FP64/B–F remain open. [Canonical record](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in

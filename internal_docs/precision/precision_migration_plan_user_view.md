@@ -10,7 +10,7 @@ Public behavior and the current `enable_double_precision` argument remain
 unchanged while private work preserves more selected calculations at the
 precision chosen by the model and JAX configuration.
 Complete-model, low-precision and target acceptance remain unfinished. The
-[technical checkpoint](poc/source_integration_findings.md#original-six-saved-samples-and-native-conv-integration)
+[technical checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint)
 records exact results and remaining diagnostics; the
 [implementation work plan](precision_implementation_work_plan.md) defines the
 full coverage gates. No release or deadline is promised.
@@ -21,10 +21,18 @@ saved-artifact CPU comparisons on both supported stacks. These results retain
 their original structural verdicts and apply to the saved source snapshot.
 The finite convolution checkpoint is committed, and one unchanged masked FP64
 example also passes saved-artifact CPU comparisons against its saved PRIMARY
-JAX references on both runtime stacks. The next work completes the unchanged CNN
-path, validates explicit FP64 preparation and resolves the remaining scientific
-input-admission gap before extending the same contract to other models and
-targets.
+JAX references on both runtime stacks. Explicit FP64 Linear preparation now has
+finite native and CPU comparisons. Next, the unchanged CNN needs comparisons
+on its original nonzero input, alongside broader scientific, low-precision and
+complete-model coverage before the public transition.
+
+The private implementation now preserves an original full Linear model
+configured explicitly for FP64 arithmetic, with either retained parameter storage or an explicit
+conversion of its stored values to FP64. The original model source, complete
+weights, options and state remain available. The caller enables JAX x64 before
+preparation; export does not globally rewrite the computation. These finite
+checks do not provide a public preparation API or general scientific FP64
+support, and widening existing FP32 weights cannot recover lost precision.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),

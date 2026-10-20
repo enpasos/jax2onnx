@@ -5,6 +5,17 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
+The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
+**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
+and all **930 Python / 163 other input contents (1,093 total)** held through
+commit. Accepted original dual **936/2,808** evidence carries on unchanged
+production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
+v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
+Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
+preparation does not complete general scientific FP64 or the B–F migration.
+Strict documentation build and the separate documentation commit remain
+pending; public behavior stays **LEGACY**.
+
 The public-behavior and implementation analysis below retains that baseline.
 The later local branch integration is identified separately: private converter
 code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
@@ -93,8 +104,13 @@ Production typing on 551 files, 17 RNG checks, and final fixture style/AST check
 pass. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**, with
 zero failures/errors/skips. All seven normal code hooks pass; all 1,091 inputs
 hold through commit and the worktree is clean at commit verification. CNN
-implementation is external work in progress; FP64 preparation is
-source/static-accepted only, with seven unapplied paths and 92 unexecuted forecast cases.
+implementation is external work in progress. Explicit FP64 Linear preparation
+is now applied in eleven paths: seven implementation/PoC/test paths, two
+diagnostic-expectation files and two audited test/tool provenance constants.
+Accepted dual936 evidence carries on identical production; fresh dual145 and
+the full PRIMARY 10,596-case v4 pass. Independent final readiness and all seven
+normal code hooks pass; commit `b2a866bb` preserves the eleven qualified paths.
+This does not close broader scientific FP64 work.
 
 The unchanged [masked FP64 saved artifact](poc/source_integration_findings.md#masked-fp64-saved-sample)
 passes its original 5e-8 / 1e-12 criterion on both ORT stacks using saved PRIMARY
