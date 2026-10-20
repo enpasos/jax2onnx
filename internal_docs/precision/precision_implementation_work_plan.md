@@ -5,16 +5,17 @@ source-precision behavior across the existing functionality, with genuine
 technical limits stated explicitly. The private foundation, shared converter,
 and CPU evidence module are committed and reviewed. Full coverage remains open.
 
-The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
-**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
-and all **930 Python / 163 other input contents (1,093 total)** held through
-commit. Accepted original dual **936/2,808** evidence carries on unchanged
-production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
-v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
-Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
-preparation does not complete general scientific FP64 or the B–F migration.
-Strict documentation build and the separate documentation commit remain
-pending; public behavior stays **LEGACY**.
+The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
+corrected dual-stack checks, the complete PRIMARY suite and all seven normal
+code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
+and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
+do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
+the full B–F migration remains open.
+
+The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
+documentation build passed, and its eight-document update is committed at
+`97929998`. The canonical findings retain its original runtime and failed epochs.
 
 The integrated private elementary/reduction selection passes **183 cases /
 549 phases per supported stack**, zero test failures/errors/skips, with
@@ -59,19 +60,24 @@ epochs remain, with actual SECONDARY totals corrected for three legacy runtime-f
 SECONDARY has 684 PASS / three unchanged legacy SKIP, pytest zero and strict
 wrapper exit 99. All 586 converter-selection cases pass on each stack; assertions
 after those legacy skips did not execute. The reviewed fixture correction
-retains controls and production bytes. Production typing on 551 files, 17 RNG
-checks, and fixture style/AST checks pass. The complete PRIMARY suite passes
+retains controls and production bytes. Production typing on 551 files, 17 RNG factory report
+entries, and fixture style/AST checks pass. The complete PRIMARY suite passes
 **10,504 cases / 31,512 phases**, with zero failures/errors/skips and all 1,091
 source/input files held. All seven normal code hooks pass, and the worktree is
-clean at commit verification. Continue the unchanged CNN's native
-activation/pooling path and graph contract. Explicit FP64 Linear preparation
-is now applied in eleven paths. Accepted unchanged-production dual936,
-fresh dual145, complete PRIMARY v4 and all seven normal code hooks pass.
-The exact eleven paths are committed at `b2a866bb`; continue the unchanged CNN
-on nonzero inputs and the next scientific batch through the same pipeline. The separately
-accepted [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
-retains its original criterion and saved PRIMARY references on both ORT stacks;
-Issue52 still needs an owning fix for its opset-21 FP64-input admission gap.
+clean at commit verification. The later explicit FP64 Linear checkpoint is
+committed at `b2a866bb`, with documentation at `97929998`.
+
+The current CNN/pooling, nonzero finite-sample, scientific FP64 and raw replay
+work is committed at `118ddd8b` after its corrected focused/full and commit
+gates; see the
+[canonical current record](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint). Preserve the full original CNN and its eight
+parameter arrays, native weak-pool conversion before Div, and the original
+Issue52 NPZ/inputs, opset 21 and rtol=1e-5 / atol=1e-6. The CNN's separate a priori
+predicate covers its recorded samples; opaque provider algorithms remain
+**UNVERIFIED**. A passing subnormal diagnostic retains the native-bitwise sample
+as **FAILED** and its raising acceptance guard. Raw callbacks and `criteria=None`
+remain unchanged. Run the full 1,852-row / 3,704-caller map after this checkpoint;
+49 maintained lane controls do not supply that map.
 
 Keep all 51 raw loop rows, remaining normalization graph contracts,
 whole-carrier MLIR, general fixed-source preparation, optional models,
@@ -443,9 +449,10 @@ planning work is separate from production-code ownership.
 | Native loop admission | Validate actual native scan/while schemas, body roles, weak results, static complex/empty storage and real Boolean dependencies; admit only the reviewed strong static FP32/FP64 zeros route. | Actual dual477 / 1,431 phases PASS per stack, all old 440 IDs retained, no failures/errors/skips; two earlier failed epochs retained. Full PRIMARY 10,395 cases / 31,185 phases and all seven normal code hooks PASS; 1,088 source/input pins held through commit. [Latest findings](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples). | `c033d301`; committed seven-path checkpoint with independent finite acceptance |
 | First saved original014/0 samples | Preserve the saved original source/artifact, wrapped graph failure, actual state/flags and original reference-first tolerances. | Independent bounded structural fidelity acceptance; two actual CPU sessions / 32 calls and 128 reference comparisons pass only the exact captured samples. Original test/callback FAILED, earlier report UNVERIFIED; other cells were pending at that epoch. | Separate 117-derived saved-artifact evidence; not loop-code or whole-model acceptance |
 | Original-six saved artifacts, both stacks | Preserve all six selectors/eight artifacts, original state/flags and separately frozen numerical criteria. | Independently accepted bounded structure and 384 actual returns / 16 CPU sessions per stack; 768 returns total. Raw callbacks remain six FAILED / two PASSED per stack and stored reports UNVERIFIED. PRIMARY exit99/missing origins retained. | Frozen 117-derived epoch; separate from current MAIN and public acceptance |
-| Native FP32 Conv and Scan metadata | Preserve actual native convolution options and original NNX/Linen calls; retain physical shapes until child Functions finish lowering. | Committed eight-path integration. Corrected earlier failed epochs retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99; all 586 converter cases pass per stack. Production typing on 551 files, 17 RNG checks, and fixture style/AST checks pass. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit. | `3223d080`; independent finite acceptance, clean worktree at commit verification; all 17 raw Conv rows remain obligations |
-| Masked FP64 saved sample | Preserve the unchanged artifact, original inputs/criterion and saved PRIMARY eager/JIT references. | Independently accepted four target returns on both ORT stacks; eight comparisons / 48 scalars, maximum absolute error 4.440892098500626e-16; four sample-API validations. No fresh SECONDARY native claim. | Separate finite sample evidence; Issue52 opset-21 FP64-input gap and whole-family acceptance remain open |
-| Explicit FP64 Linear preparation | Configure the actual full Linear clone; retain original source, weights, options/state and native all-FP64 enum pairs. | Eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 after the two provenance pins, and complete PRIMARY v4 10,596/31,788 PASS. Raw0/raw3: 24 prepared cases / 96 target returns per stack under the separate a priori exact Fraction bound; raw Gemm callbacks FAILED, criteria=None and stored reports UNVERIFIED unchanged. | Full v3 10,559 PASS/37 FAIL remains failed history. Independent readiness and seven normal code hooks pass; the exact eleven paths are committed at `b2a866bb`. Strict docs build/docs commit and broader scientific FP64/B–F remain open. [Canonical record](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) |
+| Native FP32 Conv and Scan metadata | Preserve actual native convolution options and original NNX/Linen calls; retain physical shapes until child Functions finish lowering. | Committed eight-path integration. Corrected earlier failed epochs retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99; all 586 converter cases pass per stack. Production typing on 551 files, 17 RNG factory report entries, and fixture style/AST checks pass. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit. | `3223d080`; independent finite acceptance, clean worktree at commit verification; all 17 raw Conv rows remain obligations |
+| Masked FP64 saved sample | Preserve the unchanged artifact, original inputs/criterion and saved PRIMARY eager/JIT references. | Independently accepted four target returns on both ORT stacks; eight comparisons / 48 scalars, maximum absolute error 4.440892098500626e-16; four sample-API validations. No fresh SECONDARY native claim. | Separate finite saved-sample evidence; current Issue52 opset-21 qualification is recorded above, while whole-family acceptance remains open |
+| CNN, pooling, scientific FP64 and raw replay | Preserve original model/parameters, native sum/conversion/Div, fixed finite nonzero predicate, original Issue52 inputs/criterion and raw lane outcomes. | Corrected scientific 141 cases / 423 phases PASS per stack; original failed diagnostic37 retained. Raw callbacks and native-bitwise subnormal FAILED samples remain explicit. | `118ddd8b`; independent finite acceptance, corrected dual37 and full PRIMARY PASS, all seven normal code hooks PASS; full inventory map not run. [Canonical record](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint) |
+| Explicit FP64 Linear preparation | Configure the actual full Linear clone; retain original source, weights, options/state and native all-FP64 enum pairs. | Eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 after the two provenance pins, and complete PRIMARY v4 10,596/31,788 PASS. Raw0/raw3: 24 prepared cases / 96 target returns per stack under the separate a priori exact Fraction bound; raw Gemm callbacks FAILED, criteria=None and stored reports UNVERIFIED unchanged. | Full v3 10,559 PASS/37 FAIL remains failed history. Independent readiness and seven normal code hooks pass; the exact eleven paths are committed at `b2a866bb`. Strict docs build passed and docs are committed at `97929998`; broader scientific FP64/B–F remain open. [Canonical record](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) |
 
 M2 has one owner for the coupled converter body and shared test harness. M3
 owns the source profile and its tests. M4 proceeds independently in

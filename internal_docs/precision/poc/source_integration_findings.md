@@ -1,5 +1,93 @@
 # Private source-policy integration
 
+## CNN pooling, scientific FP64 and raw replay checkpoint
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `118ddd8b`; INDEPENDENT FINITE
+ACCEPTANCE, 1,798 CASES PER STACK, FULL PRIMARY 10,884 AND ALL SEVEN NORMAL
+CODE HOOKS PASS**.
+The current source has 940 Python and 164 other inputs (1,104 total), including
+579 package Python paths. Public behavior remains **LEGACY**. This finite
+checkpoint does not complete B–F or run the full 1,852-row / 3,704-caller map.
+
+### Scoped implementation and numerical evidence
+
+The raw replay lane preserves original recipes, options, values, state, caller
+settings and independent native roles. It separates capture, tracing, product
+export and original callback outcomes. Its 49 maintained controls cover the
+reviewed lane and known gaps; they do not execute the full denominator or
+establish model-wide numerical acceptance. Original callback failures and raw
+`criteria=None` remain unchanged.
+
+The CNN path retains the complete original FP32 model, all eight parameter
+arrays, nonzero feeds, static/symbolic batch contracts and named ownership.
+Native disjoint window sums remain separate from division by four. Signed-zero
+ReLU selection is checked as a complete owned composite, including its exact
+selector casts; unsupported floating data casts still fail. Weak FLOAT pool
+sums convert to DOUBLE before Div only where the actual native trace requires
+it. Existing Conv tests retain their stricter no-Cast contract.
+
+The original nonzero CNN samples use the fixed a priori exact-input forward
+roundoff predicate, with exact dyadic centers and outward-rounded error bounds.
+It is neither a fitted tolerance nor a theorem about an opaque provider's
+algorithms. The provider-wide theorem stays **UNVERIFIED**. Separate finite
+receipts do not replace original raw callbacks, missing raw criteria or stored
+export reports' **UNVERIFIED** execution/numerical statuses.
+
+Selected scientific FP64 elementary, scatter, remat and nested scan contracts
+now include opset 21. The original Issue52 helper, NPZ, input bytes and
+`rtol=1e-5, atol=1e-6` remain unchanged. Its boundary check permits rank-only
+annotations solely for five proven unused inner Loop constant-state outputs;
+initial inputs, body IO, mutable carry, outer and stacked outputs remain strict.
+Native and both CPU target arrays/optimized graphs are saved before acceptance
+assertions. All metadata corruptions must fail the structural helper.
+
+The Min/Max subnormal regressions have two obligations: exact nonzero source
+operand selection, and the unchanged native-bitwise criterion. The latter
+remains **FAILED**, with runtime execution **VALIDATED** and a raising acceptance
+guard. Passing the paired diagnostic means that it detected this unmet target
+criterion. It does not establish native bitwise agreement, an ONNX impossibility
+or a new public precision mode.
+
+### Actual qualification and retained failures
+
+| Gate | Actual result or current limit |
+| --- | --- |
+| Initial PRIMARY diagnostic37 | 1,788 PASS / 10 FAIL of 1,798; 5,394 unique phases, zero errors/skips, source/input pins held. Five failures concerned Issue52/MinMax assertions and five concerned CNN/pool test helpers. This complete failed epoch remains failed evidence. |
+| Finite modules in that failed epoch | Raw replay: 49 cases / 147 phases PASS; nonzero CNN: 46 / 138 PASS; Linen forwarding: 10 / 30 PASS. These are subscopes of the failed epoch, not another aggregate acceptance run. |
+| Corrected scientific selection, each stack | 141 cases / 423 unique phases PASS; zero failed/error/skip, actual exit 0 and source/input pins held. Original Issue52 runs both CPU modes against fresh eager/JIT references. Native-bitwise subnormal samples remain FAILED inside passing diagnostics. |
+| Current quality v2 | Fresh pinned Black/Ruff on 26 changed Python paths plus four whole policies PASS. Prior actual mypy on 554 sources and 17 RNG factory report entries carries on byte-identical 579 package files. The 17 entries are not 17 executed tests. This is not full-suite or numerical acceptance. |
+| Corrected 37-module selection, each stack | **1,798 cases / 5,394 unique phases PASS**, zero failures/errors/skips; exact same ordered IDs, actual exit 0 and source/input pins held on PRIMARY and SECONDARY. |
+| Full PRIMARY | **10,884 cases / 32,652 unique phases PASS**, zero failures/errors/skips. All four workers and controller-seen IDs match actual collection; every process exits zero and source/input pins hold. The 10,596 prior IDs remain in order after the exact four CNN anchor mappings, with 288 additions. |
+| Independent final acceptance | The post-full-run readiness review accepts this finite checkpoint. It independently checks saved CNN envelopes/paired allowances, Issue52 outputs, failed native-bitwise subnormal evidence, source bindings and completed-run artifacts. Its then-pending hook/commit gates are resolved by the later ROOT receipt below. |
+| Normal code hooks and commit | All seven actual hooks **PASS**. Code commit **`118ddd8be1623c5bb890c072aabd7e651525b9c9`**, parent `97929998`, contains exactly 28 qualified paths. All 940 Python / 164 other input contents remain byte-identical through commit; the worktree is clean at verification. ROOT session **88673**, terminal **1ca828**, exits **0**. |
+| Code-checkpoint strict MkDocs | Actual code-checkpoint build **PASS** in 10.00 seconds; ROOT session **36353**, terminal **f86eb9**, exit **0**. |
+
+The preceding Linear checkpoint's strict documentation build did pass and its
+eight-document update is committed at **`97929998`**, after code commit
+`b2a866bb`. Any then-pending wording in the retained checkpoint below records
+that earlier point in time. Historical mentions of 17 RNG checks refer to
+factory report entries, not 17 executed test cases.
+
+| Current evidence | SHA256 |
+| --- | --- |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-diagnostic37-primary-v1-actual-terminal.json` | `9aff7e7f29833b68218594d029519dd34afbf659df40d60f1ced7071185395c2` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-science-contract-dual-v2-terminal.json` | `6965f6633cc8bb459fca05b3e6a08de8d447fbb48fa42e44e7dfabf824f8e85e` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-production-quality-v2.json` | `dea725487b024150ebd3eb81c2c45aecf94f649ee28d897a5592596116723507` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-corrected37-dual-v2-actual-terminals.json` | `d9490e1b98ca381a617b944156459ac6efca00ca0e9188b7edf1aba8040283db` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-full-primary-v1-actual-terminal.json` | `f877a9bc9398a2c576ccd25780e93f08679fbe0a742e82f8083fed454cd52981` |
+| `/tmp/jax2onnx-astra-cnn-scientific-checkpoint-readiness-v1.md` | `83537768e998fa2ec3c47fb7eb9138c085d800cc842528b809764252f1ea945d` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-code-docs-strict-v1-actual-terminal.json` | `490c4276b9dd0c90c6a9923f96ec56d9994bc9400a65a711ce705a940098b4d6` |
+| `/tmp/jax2onnx-cnn-scientific-root-integration-v1/root-code-commit-118ddd8b-v1.json` | `22d7ac87831d10e37f1f9fed17c7807db6444db98f0abbd20e73c8475f365933` |
+| `/tmp/jax2onnx-fp64-root-integration-v1/root-docs-commit-97929998.json` | `fd4c37419711146bc265f435215c565dc4959fd309d5ecb14c7c86d06b78014f` |
+
+Next run and review the full raw inventory map. The complete map has not run; bounded lane controls are not that
+execution. Preserve all original unresolved criteria, callback failures,
+optional-environment obligations, fixed-source workflows and genuine target
+limits. Broader normalization/models, low precision and full B–F remain open.
+The following earlier sections retain their historical bodies and then-current
+status; this section supersedes only the exact gates explicitly named above.
+
+
 ## Explicit FP64 Linear preparation checkpoint
 
 Status: **COMMITTED LOCAL CODE CHECKPOINT `b2a866bb`; ACCEPTED DUAL936

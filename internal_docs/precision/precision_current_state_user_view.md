@@ -18,7 +18,7 @@ argument are unchanged. Private work preserves more selected calculations at
 the precision chosen by the model and JAX configuration. Complete-model,
 low-precision and deployment acceptance remain unfinished, so this work does
 not yet change how you prepare or export a model. The
-[technical checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint)
+[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 records the exact scope, results and remaining diagnostics.
 
 Private work preserves selected loop state, runtime flags and empty results.
@@ -38,6 +38,20 @@ weights, options and state remain available. The caller enables JAX x64 before
 preparation; export does not globally rewrite the computation. These finite
 checks do not provide a public preparation API or general scientific FP64
 support, and widening existing FP32 weights cannot recover lost precision.
+
+Private comparisons now cover the unchanged original CNN, including pooling
+and its original nonzero inputs, and selected scientific FP64 examples.
+Pooling preserves the native FP32 sum and any later FP64 conversion chosen by
+JAX. The CNN comparison uses a fixed error bound derived from the original
+inputs and weights; results for those samples do not establish a general
+guarantee for provider kernels.
+
+For the recorded Min/Max subnormal samples, exact source operand selection is
+checked separately from bitwise equality with native JAX. The native-bitwise
+criterion remains **FAILED**; a passing diagnostic does not accept that result.
+Full coverage, fixed-source workflows and the public transition remain open.
+The [technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+records exact results, retained failures and remaining work.
 
 The completed migration will offer one ordinary source-preserving export
 contract across the existing functionality and fixed third-party sources, with

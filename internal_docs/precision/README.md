@@ -19,16 +19,20 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
-**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
-and all **930 Python / 163 other input contents (1,093 total)** held through
-commit. Accepted original dual **936/2,808** evidence carries on unchanged
-production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
-v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
-Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
-preparation does not complete general scientific FP64 or the B–F migration.
-Strict documentation build and the separate documentation commit remain
-pending; public behavior stays **LEGACY**.
+The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
+corrected dual-stack checks, the complete PRIMARY suite and all seven normal
+code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
+and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
+do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
+the full B–F migration remains open.
+
+The corrected selection passes **1,798 cases / 5,394 phases per stack**; full
+PRIMARY passes **10,884 cases / 32,652 phases**, with zero failures/errors/skips.
+
+The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
+documentation build passed, and its eight-document update is committed at
+`97929998`. The canonical findings retain its original runtime and failed epochs.
 
 The private elementary/reduction selection now passes **183 cases / 549
 phases on each supported stack**, with zero test failures/errors/skips and
@@ -86,21 +90,23 @@ zero but strict-wrapper exit 99. All 586 converter-selection cases pass on each
 stack. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**,
 with zero failures/errors/skips. All seven normal code hooks pass, all 1,091
 source/input files hold through commit, and the worktree is clean at commit
-verification. The unchanged CNN path remains a next product step. The explicit FP64
-Linear preparation is now applied and passes the dual focused selection;
-the full PRIMARY v4 and seven normal code hooks pass, and `b2a866bb` holds the
-qualified bytes.
+verification. The later Linear checkpoint and the current CNN/scientific work
+have separate source and qualification records.
 
-Next qualify the unchanged CNN on its original nonzero input and the next
-scientific batch. Raw replay v4 awaits independent static review and runtime
-qualification; the FP16 repair has static acceptance, with native/target and
-cost checks pending. The 22 original compositions / 44 artifacts still need
-explicit comparison criteria and numerical acceptance.
+The new CNN comparison uses a fixed, a priori forward-roundoff predicate for
+its recorded nonzero samples. Provider-wide arithmetic guarantees remain
+**UNVERIFIED**. Original raw callbacks remain **FAILED** and missing raw
+`criteria=None` is unchanged; independent finite predicates do not replace them.
+The corrected scientific selection passes 141 cases / 423 phases on each stack,
+including the unchanged Issue52 payload and its original opset-21 tolerance.
+Paired Min/Max subnormal diagnostics preserve exact source operand selection
+while recording the unmet native-bitwise criterion as **FAILED**.
+See the [current evidence and pending gates](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint).
 
-One unchanged [masked FP64 saved sample](poc/source_integration_findings.md#masked-fp64-saved-sample)
-also passes its original criterion on both ORT stacks against saved PRIMARY
-native references. This adds finite scientific evidence; the Issue52 opset-21
-FP64-input admission gap and broader scientific work remain open.
+The FP16 repair has static acceptance, with native/target and cost checks
+pending. The 22 original compositions / 44 artifacts still need explicit
+comparison criteria and numerical acceptance. General fixed sources, optional
+models and broader scientific/low-precision support remain open.
 
 ## What the experiments establish
 
@@ -142,7 +148,7 @@ evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
 preceding code checkpoint `1533d60b` remains accepted. The
 [next work](precision_migration_plan.md#next-implementation-work) continues the
-remaining Conv/CNN work and qualification of explicit FP64 Linear preparation
+remaining inventory mapping, end-to-end models and fixed-source workflows
 while preserving original source, inputs and criteria.
 Remaining registered families, scopes and export boundaries require the full contract.
 

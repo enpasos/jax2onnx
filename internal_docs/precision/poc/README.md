@@ -1,15 +1,16 @@
 # Precision Contract Experiments
 
-The latest private [FP64 Linear checkpoint](source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
-**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
-and all **930 Python / 163 other input contents (1,093 total)** held through
-commit. Accepted original dual **936/2,808** evidence carries on unchanged
-production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
-v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
-Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
-preparation does not complete general scientific FP64 or the B–F migration.
-Strict documentation build and the separate documentation commit remain
-pending; public behavior stays **LEGACY**.
+The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
+corrected dual-stack checks, the complete PRIMARY suite and all seven normal
+code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
+and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
+do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
+the full B–F migration remains open.
+
+The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
+documentation build passed, and its eight-document update is committed at
+`97929998`. The canonical findings retain its original runtime and failed epochs.
 
 Earlier saved-model evidence: the original six source selectors have independent structural and
 finite CPU-sample acceptance for eight saved artifacts on each supported stack:
@@ -43,10 +44,11 @@ scopes and earlier experiments with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
-| Explicit FP64 Linear preparation | Can the unchanged full Linear receive explicitly selected FP64 computation/storage through ordinary SOURCE validation? | [Latest findings](source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint): eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 and full PRIMARY v4 10,596/31,788 PASS. Raw0/raw3 retain 24 prepared cases / 96 target returns per stack, a priori Fraction bounds, failed raw Gemm callbacks, criteria=None and UNVERIFIED reports. Full v3 failures retained; independent readiness and seven normal hooks pass, with exact qualified bytes committed at `b2a866bb`. Strict docs build/docs commit pending. |
+| CNN, native pooling, scientific FP64 and raw replay | Do unchanged originals retain exact source structure and separately declared numerical criteria? | [Current findings](source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint): reviewed implementation; corrected scientific 141 cases / 423 phases pass per stack. The failed PRIMARY diagnostic1798 and its 49 raw-lane / 46 CNN controls are retained. Corrected dual37 and full PRIMARY pass; all seven normal code hooks pass and the exact 28-path checkpoint is committed at `118ddd8b`. Raw callbacks/criteria=None and native-bitwise subnormal FAILED evidence remain separate. |
+| Explicit FP64 Linear preparation | Can the unchanged full Linear receive explicitly selected FP64 computation/storage through ordinary SOURCE validation? | [Latest findings](source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint): eleven applied paths; accepted dual936/2,808 on unchanged production, fresh dual145/435 and full PRIMARY v4 10,596/31,788 PASS. Raw0/raw3 retain 24 prepared cases / 96 target returns per stack, a priori Fraction bounds, failed raw Gemm callbacks, criteria=None and UNVERIFIED reports. Full v3 failures retained; independent readiness and seven normal hooks pass, with exact qualified bytes committed at `b2a866bb`. Strict docs build passed; docs committed at `97929998`. |
 | Preceding native Conv/Scan integration | Do actual physical shapes survive child Function lowering while original sources/options remain intact? | [Latest findings](source_integration_findings.md#original-six-saved-samples-and-native-conv-integration): committed at `3223d080`; earlier failed epochs corrected and retained. V3 PRIMARY 687 PASS; SECONDARY 684 PASS/3 unchanged legacy SKIP, pytest exit 0 / strict wrapper exit 99. All 586 converter cases pass per stack; legacy post-skip numerics unexecuted. Complete PRIMARY 10,504 cases / 31,512 phases PASS, zero failures/errors/skips; all seven normal hooks pass and all 1,091 inputs hold through commit, with a clean worktree at verification. |
 | Original-six saved samples, both stacks | Do all eight original artifacts per stack preserve their frozen native/state/flag comparisons? | [Latest findings](source_integration_findings.md#original-six-saved-samples-and-native-conv-integration): independent bounded structure and 384 actual returns / 16 CPU sessions per stack. Six raw callbacks FAILED, two PASSED per stack; stored reports UNVERIFIED and PRIMARY exit99 retained. |
-| Masked FP64 saved sample | Does the unchanged artifact pass its original criterion on both ORT stacks? | [Latest findings](source_integration_findings.md#masked-fp64-saved-sample): four bitwise-identical target returns, eight comparisons / 48 scalars against saved PRIMARY eager/JIT references, four sample-API validations; original rtol=5e-8 / atol=1e-12. No fresh SECONDARY native or whole-family claim; Issue52 opset-21 FP64-input gap remains. |
+| Masked FP64 saved sample | Does the unchanged artifact pass its original criterion on both ORT stacks? | [Latest findings](source_integration_findings.md#masked-fp64-saved-sample): four bitwise-identical target returns, eight comparisons / 48 scalars against saved PRIMARY eager/JIT references, four sample-API validations; original rtol=5e-8 / atol=1e-12. No fresh SECONDARY native or whole-family claim for this saved artifact; later Issue52 opset-21 evidence is recorded in the current checkpoint. |
 | Ordinary native loop admission | Do actual native loop bodies and typed roles survive the shared SOURCE validator? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): actual dual477 / 1,431 PASS; finite scan at opsets 23/26 and while at opsets 18/23/26, original metadata and all 51 raw obligations retained. Complete PRIMARY 10,395/31,185 and seven normal code hooks PASS; committed at `c033d301`. |
 | First saved original014/0 | Does this unchanged saved artifact preserve its complete bounded Function structure and exact captured target samples? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): independent structural acceptance; actual two CPU sessions / 32 calls pass the original reference comparisons. Raw test/callback FAILED and earlier report UNVERIFIED; later full saved-artifact follow-through is recorded above, while whole-model acceptance remains open. |
 | Elementary/reduction and same-width Asin | Do bounded native calls and owning lowerings preserve the reviewed typed/value contracts? | [Current findings](source_integration_findings.md#elementary-and-reduction-checkpoint): actual 183/549 PASS per stack; finite Asin F32/F64 and B=2/5 positives; eight Sign numerical reports FAILED, 44 compositions UNVERIFIED, both raw Gather callbacks FAILED with separate positive finite comparisons. Code `11748451`, full PRIMARY 10,237/30,711, dual focused 1,937/5,811 and seven normal hooks PASS; numerical limits remain. |
@@ -91,13 +93,13 @@ full/model/Erfc epochs remain historical evidence.
 The original-six/eight-artifact saved samples are now accepted on both stacks;
 original callbacks and stored reports retain their distinct outcomes. The
 PRIMARY capture failure and missing final origins remain historical limits.
-The Conv/Scan finite checkpoint is committed. The unchanged CNN
-path is external work in progress. The explicit FP64 Linear preparation is
-applied in eleven paths with accepted dual936 on identical production, fresh
-dual145 and complete PRIMARY v4 passes. Final readiness and all seven normal
-code hooks pass; the eleven-path checkpoint is committed at `b2a866bb`. General fixed
-sources, optional models, FP16/BF16 rounding and scientific workloads remain
-required by the full B–F contract.
+The Conv/Scan and explicit FP64 Linear checkpoints are committed, including
+the latter's strict documentation build and documentation commit `97929998`.
+The current CNN/scientific/raw-replay code checkpoint is independently accepted
+and committed at `118ddd8b`. Its nonzero CNN predicate is finite sample evidence, with provider-wide
+algorithms **UNVERIFIED**. Exact source subnormal selection does not turn a failed
+native-bitwise sample into numerical acceptance. General fixed sources,
+optional models, low precision and the full B–F migration remain open.
 
 ## Run it
 

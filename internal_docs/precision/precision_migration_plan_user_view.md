@@ -10,7 +10,7 @@ Public behavior and the current `enable_double_precision` argument remain
 unchanged while private work preserves more selected calculations at the
 precision chosen by the model and JAX configuration.
 Complete-model, low-precision and target acceptance remain unfinished. The
-[technical checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint)
+[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
 records exact results and remaining diagnostics; the
 [implementation work plan](precision_implementation_work_plan.md) defines the
 full coverage gates. No release or deadline is promised.
@@ -22,9 +22,21 @@ their original structural verdicts and apply to the saved source snapshot.
 The finite convolution checkpoint is committed, and one unchanged masked FP64
 example also passes saved-artifact CPU comparisons against its saved PRIMARY
 JAX references on both runtime stacks. Explicit FP64 Linear preparation now has
-finite native and CPU comparisons. Next, the unchanged CNN needs comparisons
-on its original nonzero input, alongside broader scientific, low-precision and
-complete-model coverage before the public transition.
+finite native and CPU comparisons.
+
+Private comparisons now cover the unchanged original CNN, including native
+pooling and its original nonzero inputs, and selected scientific FP64 examples.
+They preserve JAX's chosen types, including a native FP32 pool sum followed by
+an FP64 conversion where JAX requires it. The fixed CNN error bound applies to
+the recorded samples; a general guarantee for provider kernels remains
+**UNVERIFIED**.
+
+Exact operand selection for the recorded Min/Max subnormals does not establish
+bitwise equality with native JAX: that criterion remains **FAILED**, even when
+a diagnostic correctly detects it. Full coverage and fixed-source workflows
+still need acceptance before the public transition. See the
+[technical checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+for exact results, retained failures and remaining work.
 
 The private implementation now preserves an original full Linear model
 configured explicitly for FP64 arithmetic, with either retained parameter storage or an explicit
@@ -93,8 +105,11 @@ structural callback; it establishes no new corpus acceptance. Static NCHW
 input/output boundaries and the shared optimizer/naming dependency have passed
 independent review. Eight historical min/max signed-zero observations per stack
 remain failed under their original criteria; new artifacts from the bounded
-lowerer now pass those samples. Subnormal failures and a measured execution-cost
-increase remain visible. One shared batch dimension through Add and named
+lowerer now pass those samples. The opset-21 subnormal diagnostic checks exact
+operand selection while retaining native-bitwise numerical acceptance as
+**FAILED**; its test passing does not establish native-bitwise agreement.
+Subnormal failures and a measured execution-cost increase remain visible.
+One shared batch dimension through Add and named
 composition has private implementation evidence with unchanged source and
 multiple batches. Broader acceptance across 310 symbolic and seven NCHW rows
 remains open;

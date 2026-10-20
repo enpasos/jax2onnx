@@ -5,16 +5,17 @@ Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
 
-The latest private [FP64 Linear checkpoint](poc/source_integration_findings.md#explicit-fp64-linear-preparation-checkpoint) is committed at
-**`b2a866bb`**: eleven qualified paths, all seven normal code hooks passing,
-and all **930 Python / 163 other input contents (1,093 total)** held through
-commit. Accepted original dual **936/2,808** evidence carries on unchanged
-production; fresh corpus checks pass **145/435 per stack**, and full PRIMARY
-v4 passes **10,596 cases / 31,788 phases**, with zero failures/errors/skips.
-Full v3's **10,559 PASS / 37 FAIL** remains failed history. This finite Linear
-preparation does not complete general scientific FP64 or the B–F migration.
-Strict documentation build and the separate documentation commit remain
-pending; public behavior stays **LEGACY**.
+The private [CNN, pooling, scientific FP64 and raw-replay checkpoint](poc/source_integration_findings.md#cnn-pooling-scientific-fp64-and-raw-replay-checkpoint)
+is committed at **`118ddd8b`** after independent finite-checkpoint acceptance,
+corrected dual-stack checks, the complete PRIMARY suite and all seven normal
+code hooks. It retains the unchanged full-CNN nonzero comparison, native pooling
+and selected scientific FP64 at opset 21. The raw lane's 49 maintained controls
+do not run the full 1,852-row / 3,704-caller map. Public behavior stays **LEGACY**;
+the full B–F migration remains open.
+
+The preceding explicit FP64 Linear code checkpoint is `b2a866bb`. Its strict
+documentation build passed, and its eight-document update is committed at
+`97929998`. The canonical findings retain its original runtime and failed epochs.
 
 The public-behavior and implementation analysis below retains that baseline.
 The later local branch integration is identified separately: private converter
@@ -100,11 +101,12 @@ frozen source/input files. Both earlier focused failure epochs are retained with
 687 cases; SECONDARY has 684 passes / three unchanged legacy runtime-fusion
 skips, pytest zero but strict-wrapper exit 99. All 586 converter-selection cases
 pass on each stack; numerical assertions after those legacy skips did not run.
-Production typing on 551 files, 17 RNG checks, and final fixture style/AST checks
+Production typing on 551 files, 17 RNG factory report entries, and final fixture style/AST checks
 pass. The complete PRIMARY suite passes **10,504 cases / 31,512 phases**, with
 zero failures/errors/skips. All seven normal code hooks pass; all 1,091 inputs
-hold through commit and the worktree is clean at commit verification. CNN
-implementation is external work in progress. Explicit FP64 Linear preparation
+hold through commit and the worktree is clean at commit verification. The later
+CNN/pooling implementation is included in the independently accepted current
+code checkpoint linked above. Explicit FP64 Linear preparation
 is now applied in eleven paths: seven implementation/PoC/test paths, two
 diagnostic-expectation files and two audited test/tool provenance constants.
 Accepted dual936 evidence carries on identical production; fresh dual145 and
@@ -116,8 +118,10 @@ The unchanged [masked FP64 saved artifact](poc/source_integration_findings.md#ma
 passes its original 5e-8 / 1e-12 criterion on both ORT stacks using saved PRIMARY
 eager/JIT references. Four target returns are bitwise identical; eight
 comparisons / 48 scalars have maximum absolute error 4.440892098500626e-16.
-There is no fresh SECONDARY native claim. Issue52's opset-21 FP64-input admission
-gap and broader scientific contracts remain open.
+That saved-artifact result makes no fresh SECONDARY native claim. The later
+scientific selection separately passes 141 cases / 423 phases per stack,
+including unchanged Issue52 at opset 21. Broader scientific contracts remain
+open; the current checkpoint's focused/full integration gates have passed.
 
 Broader models, the optional 45 MaxText/five MaxDiffusion obligations, general
 fixed-source preparation, low precision and scientific FP64 remain open.
