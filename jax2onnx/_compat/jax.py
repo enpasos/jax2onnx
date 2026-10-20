@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from importlib import import_module
 from dataclasses import dataclass, field
 import re
 import functools
@@ -31,6 +32,10 @@ from jax._src import pjit as _native_pjit
 from jax._src import named_sharding as _native_named_sharding
 from jax import tree_util as _native_tree_util
 from jax._src import core as _native_core
+from jax._src import config as _native_config
+from jax._src import mesh as _native_mesh
+from jax._src import xla_metadata_lib as _native_xla_metadata
+from jax._src.lax.control_flow import loops as _native_loops
 from jax._src.ad_checkpoint import remat_p as _native_remat_p
 from jax import core as jax_core
 
@@ -42,7 +47,40 @@ from jax.extend import core as jax_core_ext
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Primitive
 from jax.extend.linear_util import WrappedFun as WrappedFun
 from jax.interpreters import ad, batching
-from jax._src.random.prng import KeyTy as PRNGKeyDType
+
+# Native HiJAX nonzero is available only on the newer supported stacks. Pin
+# its actual implementation instead of invoking a carrier-provided callback.
+try:
+    _native_numpy_hijax = import_module("jax._src.numpy.hijax")
+except ModuleNotFoundError as error:
+    if error.name != "jax._src.numpy.hijax":
+        raise
+    _NATIVE_NONZERO_TYPE: type[Any] | None = None
+    _NATIVE_NONZERO_IMPL: Callable[..., Any] | None = None
+    _NATIVE_HI_CALL: Primitive | None = None
+else:
+    _NATIVE_NONZERO_TYPE = _native_numpy_hijax.Nonzero
+    _NATIVE_NONZERO_IMPL = _native_numpy_hijax._nonzero_impl
+    _NATIVE_HI_CALL = import_module("jax._src.hijax").call_hi_primitive_p
+
+if TYPE_CHECKING:
+    from jax._src.random.prng import KeyTy as PRNGKeyDType
+    from jax._src.random.threefry2x32 import threefry_prng_impl as _NATIVE_THREEFRY_IMPL
+else:
+    try:
+        from jax._src.random.prng import KeyTy as PRNGKeyDType
+        from jax._src.random.threefry2x32 import (
+            threefry_prng_impl as _NATIVE_THREEFRY_IMPL,
+        )
+    except ModuleNotFoundError as error:
+        # Only absence of this exact split module selects the older native layout.
+        # Dependency/import failures inside an available module must propagate.
+        if error.name != "jax._src.random.prng":
+            raise
+        _legacy_prng = import_module("jax._src.prng")
+        PRNGKeyDType = _legacy_prng.KeyTy
+        _NATIVE_THREEFRY_IMPL = _legacy_prng.threefry_prng_impl
+
 
 AbstractValue = jax_core.AbstractValue
 ShapedArray = jax_core.ShapedArray
@@ -52,6 +90,15 @@ try:
     DropVar = jax_core_ext.DropVar
 except AttributeError:  # pragma: no cover - compatibility with older JAX versions
     DropVar = jax_core.DropVar
+
+
+# Recipe metadata only: pin the actual native function before plugin binding.
+_NATIVE_LOGISTIC_FUNCTION: object = vars(_native_lax_impl).get("logistic")
+_NATIVE_LOGISTIC_CODE: object = (
+    _NATIVE_LOGISTIC_FUNCTION.__code__
+    if type(_NATIVE_LOGISTIC_FUNCTION) is types.FunctionType
+    else None
+)
 
 
 # Raw replay only: these references are captured before exporter registration.
@@ -224,6 +271,11 @@ _NATIVE_CAPTURE_PJIT_FIELDS = (
     "inline",
     "use_resource_env",
     "compiler_options_kvs",
+)
+_NATIVE_CAPTURE_PJIT_FIELDS_WITH_ABSTRACT_AXES = (
+    *_NATIVE_CAPTURE_PJIT_FIELDS[:19],
+    "abstracted_axes",
+    *_NATIVE_CAPTURE_PJIT_FIELDS[19:],
 )
 _NATIVE_CAPTURE_TYPE_BINDINGS = (
     (_native_core, "Primitive", Primitive),
@@ -510,11 +562,25 @@ class _NativeCaptureGraph:
                 cache_miss=self.take(_NATIVE_CAPTURE_CPP_BOUNDARY[-1](value)),
             )
         elif type(value) is _native_pjit.PjitInfo:
-            if tuple(type(value)._fields) != _NATIVE_CAPTURE_PJIT_FIELDS:
+            fields = vars(type(value)).get("_fields")
+            if type(fields) is not tuple or any(
+                type(name) is not str for name in fields
+            ):
+                raise ValueError(
+                    "native JIT configuration fields require an actual string tuple"
+                )
+            if fields not in (
+                _NATIVE_CAPTURE_PJIT_FIELDS,
+                _NATIVE_CAPTURE_PJIT_FIELDS_WITH_ABSTRACT_AXES,
+            ):
                 raise ValueError("native JIT configuration schema changed")
+            if (
+                fields == _NATIVE_CAPTURE_PJIT_FIELDS_WITH_ABSTRACT_AXES
+                and value.abstracted_axes is not None
+            ):
+                raise ValueError("native JIT abstracted axes needs an exact adapter")
             node["fields"] = {
-                name: self.take(item)
-                for name, item in zip(_NATIVE_CAPTURE_PJIT_FIELDS, value, strict=True)
+                name: self.take(item) for name, item in zip(fields, value, strict=True)
             }
         elif type(value) is property:
             node.update(
@@ -660,6 +726,117 @@ def selected_native_capture(value: object) -> dict[str, Any] | None:
     return {"native_owner": id(owner), "member": member, "state": observed}
 
 
+def _native_logistic_default_layout(function: types.FunctionType) -> str:
+    """Recognize only the two native argument/default layouts, without reflection."""
+    if type(function) is not types.FunctionType:
+        raise TypeError("native logistic metadata requires the actual Python function")
+    code = function.__code__
+    if (
+        code.co_posonlyargcount != 0
+        or code.co_flags & (inspect.CO_VARARGS | inspect.CO_VARKEYWORDS)
+        or code.co_varnames[:2] != ("x", "accuracy")
+    ):
+        raise TypeError("native logistic argument schema needs an exact adapter")
+    defaults, keywords = function.__defaults__, function.__kwdefaults__
+    if code.co_argcount == 2 and code.co_kwonlyargcount == 0:
+        if (
+            type(defaults) is tuple
+            and len(defaults) == 1
+            and defaults[0] is None
+            and keywords is None
+        ):
+            return "positional"
+    elif code.co_argcount == 1 and code.co_kwonlyargcount == 1:
+        if (
+            defaults is None
+            and type(keywords) is dict
+            and len(keywords) == 1
+            and all(type(key) is str for key in keywords)
+            and "accuracy" in keywords
+            and keywords["accuracy"] is None
+        ):
+            return "keyword"
+    raise TypeError("native logistic default schema needs an exact adapter")
+
+
+def _native_logistic_metadata_state() -> (
+    tuple[dict[str, Any], tuple[tuple[types.ModuleType, str, object], ...]]
+):
+    function = _NATIVE_LOGISTIC_FUNCTION
+    if type(function) is not types.FunctionType:
+        raise TypeError(
+            "native logistic metadata requires the captured Python function"
+        )
+    if any(
+        vars(module).get("logistic") is not function
+        for module in (_native_lax, _native_lax_impl)
+    ):
+        raise TypeError("native logistic public/defining identity changed")
+    if function.__code__ is not _NATIVE_LOGISTIC_CODE:
+        raise TypeError("native logistic code identity changed")
+    if vars(function) or function.__closure__ is not None:
+        # Includes __signature__ and __wrapped__; neither may override this guard.
+        raise TypeError("native logistic function attribute/closure schema changed")
+    for actual, expected in (
+        (function.__module__, "jax.lax"),
+        (function.__name__, "logistic"),
+        (function.__qualname__, "logistic"),
+    ):
+        if type(actual) is not str or actual != expected:
+            raise TypeError("native logistic function naming changed")
+    _native_logistic_default_layout(function)
+    graph = _NativeCaptureGraph()
+    root = graph.take(function)
+    return {"root": root, "nodes": graph.nodes}, tuple(graph.bindings)
+
+
+_NATIVE_LOGISTIC_METADATA_STATE: dict[str, Any] | None = None
+_NATIVE_LOGISTIC_METADATA_BINDINGS: tuple[
+    tuple[types.ModuleType, str, object], ...
+] = ()
+_NATIVE_LOGISTIC_METADATA_GAP: str | None = None
+try:
+    _NATIVE_LOGISTIC_METADATA_STATE, _NATIVE_LOGISTIC_METADATA_BINDINGS = (
+        _native_logistic_metadata_state()
+    )
+except (TypeError, ValueError) as _logistic_error:
+    # Unknown installed layouts stay an explicit selected-recipe gap, import safe.
+    _NATIVE_LOGISTIC_METADATA_GAP = str(_logistic_error)
+
+
+def native_logistic_metadata_contract(value: object) -> dict[str, Any] | None:
+    """Canonicalize only this native function's default-location recipe metadata.
+
+    The full actual function state is verified independently of the emitted token.
+    No callable, native capture, explicit argument, or numerical contract changes.
+    """
+    if value is not _NATIVE_LOGISTIC_FUNCTION:
+        claimed = False
+        if type(value) is types.FunctionType:
+            module, name = value.__module__, value.__qualname__
+            claimed = (
+                type(module) is str
+                and type(name) is str
+                and module == "jax.lax"
+                and name == "logistic"
+            )
+        if claimed or any(
+            vars(module).get("logistic") is value
+            for module in (_native_lax, _native_lax_impl)
+        ):
+            raise TypeError("native logistic metadata received a foreign function")
+        return None
+    if _NATIVE_LOGISTIC_METADATA_GAP is not None:
+        raise TypeError(_NATIVE_LOGISTIC_METADATA_GAP)
+    state, _ = _native_logistic_metadata_state()
+    for binding_module, name, original in _NATIVE_LOGISTIC_METADATA_BINDINGS:
+        if vars(binding_module).get(name) is not original:
+            raise TypeError("native logistic implementation binding changed")
+    if state != _NATIVE_LOGISTIC_METADATA_STATE:
+        raise TypeError("native logistic implementation state changed")
+    return {"callable": "jax.lax.logistic", "kwdefaults": {"accuracy": None}}
+
+
 def selected_native_capture_member(owner: object, name: str) -> object | None:
     """Resolve only the two selected native descriptors on verified owners."""
     if not any(owner is original for original, _ in _NATIVE_CAPTURE_OWNERS):
@@ -695,31 +872,292 @@ _NATIVE_ABSTRACT_RULES = tuple(
 )
 
 
+def native_aval_metadata_schema() -> str:
+    """Own exact native ShapedArray layouts, independently of module symbols."""
+    slots = tuple(ShapedArray.__slots__)
+    if slots == ("shape", "sharding", "vma", "memory_space"):
+        return "vma"
+    common = (
+        "shape",
+        "dtype",
+        "weak_type",
+        "sharding",
+        "manual_axis_type",
+        "memory_space",
+    )
+    if slots == (*common, "__weakref__"):
+        return "manual"
+    if slots == (*common, "layout", "_stripped_weak_type", "__weakref__"):
+        return "manual-layout"
+    raise TypeError("native ShapedArray metadata schema needs an exact adapter")
+
+
+def native_manual_axis_metadata(varying: frozenset[str]) -> tuple[str, Any]:
+    """Construct the installed manual-axis role for strict metadata fixtures."""
+    if native_aval_metadata_schema() == "vma":
+        return "vma", varying
+    return "manual_axis_type", _native_core.ManualAxisType(varying=varying)
+
+
 def _require_plain_native_aval(aval: Any) -> None:
     from jax.sharding import NamedSharding, PartitionSpec
     from jax._src.mesh import AbstractMesh
 
     if type(aval) is not ShapedArray:
         raise TypeError("native signature requires an ordinary exact ShapedArray")
+    schema = native_aval_metadata_schema()
     sharding = aval.sharding
     if not (
         type(sharding) is NamedSharding
         and type(sharding.mesh) is AbstractMesh
         and sharding.mesh.empty
         and sharding.memory_kind is None
+        and type(sharding.spec) is PartitionSpec
         and sharding.spec == PartitionSpec(*(None for _ in aval.shape))
-        and aval.manual_axis_type is _native_core.empty_mat
         and aval.memory_space is _native_core.MemorySpace.Device
     ):
-        raise TypeError(
-            "native signature has unsupported sharding, manual axes or memory space"
-        )
-    # JAX 0.11 adds layout to ShapedArray; the older native class has no slot.
-    if (
-        hasattr(_native_core, "AutoLayout")
-        and aval.layout is not _native_core.AutoLayout
-    ):
+        raise TypeError("native signature has unsupported sharding or memory space")
+    if schema == "vma":
+        if type(aval.vma) is not frozenset or aval.vma:
+            raise TypeError("native signature has unsupported varying manual axes")
+    elif aval.manual_axis_type is not _native_core.empty_mat:
+        raise TypeError("native signature has unsupported manual axes")
+    if schema == "manual-layout" and aval.layout is not _native_core.AutoLayout:
         raise TypeError("native signature has unsupported explicit layout")
+
+
+def _native_context_protocol() -> str:
+    slots = tuple(_native_core.JaxprEqnContext.__slots__)
+    if slots == (
+        "compute_type",
+        "threefry_partitionable",
+        "xla_metadata",
+        "cur_abstract_mesh",
+    ):
+        return "mutable"
+    common = ("compute_type", "threefry_partitionable", "cur_abstract_mesh")
+    end = ("remove_size_one_mesh_axis", "xla_metadata", "configs", "__weakref__")
+    if slots == (*common, *end):
+        return "interned"
+    if slots == (*common, "cur_layout_mode", *end):
+        return "interned-layout"
+    if slots == (
+        *common,
+        "cur_layout_mode",
+        "remove_size_one_mesh_axis",
+        "no_collectives",
+        "xla_metadata",
+        "configs",
+        "__weakref__",
+    ):
+        return "interned-layout-no-collectives"
+    raise TypeError("native equation context schema needs an exact adapter")
+
+
+def _native_metadata_value(value: Any, depth: int = 0) -> Any:
+    if depth > 48:
+        raise TypeError("native context metadata nesting needs an exact adapter")
+    if value is None:
+        return ("none",)
+    if type(value) is bool:
+        return ("bool", value)
+    if type(value) is int:
+        return ("int", hex(value))
+    if type(value) is str:
+        return ("str", value)
+    if type(value) is bytes:
+        return ("bytes", value.hex())
+    if type(value) is float:
+        return ("float64", struct.pack(">d", value).hex())
+    if type(value) is complex:
+        return ("complex128", struct.pack(">dd", value.real, value.imag).hex())
+    if type(value) is tuple:
+        return (
+            "tuple",
+            tuple(_native_metadata_value(item, depth + 1) for item in value),
+        )
+    if type(value) is frozenset:
+        items = [_native_metadata_value(item, depth + 1) for item in value]
+        return ("frozenset", tuple(sorted(items, key=lambda item: json.dumps(item))))
+    raise TypeError("native context metadata value needs an exact adapter")
+
+
+def _native_metadata_dict(value: Any) -> Any:
+    if value is None:
+        return None
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise TypeError("native context metadata requires an exact string-keyed dict")
+    return tuple((key, _native_metadata_value(value[key])) for key in sorted(value))
+
+
+def current_native_eqn_context() -> Any:
+    """Read the current native context through its actual constructor protocol."""
+    if _native_context_protocol() == "mutable":
+        return _native_core.JaxprEqnContext(
+            _native_config.compute_on_context_manager.value,
+            _native_config.threefry_partitionable.value,
+            _native_xla_metadata.current_xla_metadata(),
+        )
+    return _native_core.JaxprEqnContext()
+
+
+def _native_context_fields(context: Any) -> Any:
+    if context is None or type(context) is not _native_core.JaxprEqnContext:
+        raise TypeError(
+            "native signature requires the actual recorded equation context"
+        )
+    protocol = _native_context_protocol()
+    if not (
+        (context.compute_type is None or type(context.compute_type) is str)
+        and type(context.threefry_partitionable) is bool
+        and type(context.cur_abstract_mesh) is _native_mesh.AbstractMesh
+        and context.cur_abstract_mesh.empty
+    ):
+        raise TypeError("native equation context fields are malformed or unsupported")
+    fields: tuple[Any, ...] = (
+        context.compute_type,
+        context.threefry_partitionable,
+        id(context.cur_abstract_mesh),
+        _native_metadata_dict(context.xla_metadata),
+    )
+    if protocol != "mutable":
+        if type(context.remove_size_one_mesh_axis) is not bool or hasattr(
+            context, "configs"
+        ):
+            raise TypeError("native equation context configuration is unsupported")
+        fields += (context.remove_size_one_mesh_axis,)
+    if protocol in ("interned-layout", "interned-layout-no-collectives"):
+        if context.cur_layout_mode is not _native_core.LayoutMode.AUTO:
+            raise TypeError(
+                "native signature requires the native automatic layout context"
+            )
+        fields += (id(context.cur_layout_mode),)
+    if protocol == "interned-layout-no-collectives":
+        if type(context.no_collectives) is not frozenset or context.no_collectives:
+            raise TypeError(
+                "native signature requires the native empty no-collectives context"
+            )
+        fields += (_native_metadata_value(context.no_collectives),)
+    return fields
+
+
+def _native_context_configurations() -> tuple[tuple[str, Any], ...]:
+    protocol = _native_context_protocol()
+    mesh = (
+        _native_mesh.abstract_mesh_context_manager
+        if protocol in ("interned-layout", "interned-layout-no-collectives")
+        else _native_config.abstract_mesh_context_manager
+    )
+    result: tuple[tuple[str, Any], ...] = (
+        ("compute", _native_config.compute_on_context_manager),
+        ("threefry", _native_config.threefry_partitionable),
+        ("metadata", _native_config.xla_metadata_context_manager),
+        ("mesh", mesh),
+    )
+    if protocol != "mutable":
+        result += (
+            ("remove-size-one", _native_config.remove_size_one_mesh_axis_from_type),
+        )
+    if protocol in ("interned-layout", "interned-layout-no-collectives"):
+        result += (("layout", _native_core.layout_tracing_mode),)
+    if protocol == "interned-layout-no-collectives":
+        result += (("no-collectives", _native_config.no_collectives),)
+    return result
+
+
+def _native_context_state(role: str, value: Any) -> Any:
+    if value is _native_xla_metadata.config_ext.unset:
+        return ("unset",)
+    if role == "metadata":
+        if value is None:
+            return None
+        if (
+            type(value) is not _native_xla_metadata.XlaMetadata
+            or type(value.hash) is not int
+        ):
+            raise TypeError("native metadata configuration requires its actual wrapper")
+        return (value.hash, _native_metadata_dict(value.val))
+    if role == "compute":
+        if value is not None and type(value) is not str:
+            raise TypeError(
+                "native compute configuration requires an actual string or None"
+            )
+        return value
+    if role in ("threefry", "remove-size-one"):
+        if type(value) is not bool:
+            raise TypeError("native Boolean context configuration is malformed")
+        return value
+    if role == "mesh":
+        if value is not None and type(value) is not _native_mesh.AbstractMesh:
+            raise TypeError("native mesh configuration requires an actual AbstractMesh")
+        return id(value)
+    if role == "layout" and type(value) is _native_core.LayoutMode:
+        return id(value)
+    if role == "no-collectives" and type(value) is frozenset:
+        return _native_metadata_value(value)
+    raise TypeError("native context configuration role is unsupported")
+
+
+@dataclass(frozen=True)
+class NativeContextSnapshot:
+    context: Any
+    states: tuple[tuple[str, Any, Any, Any, Any, Any], ...]
+
+
+def native_context_snapshot() -> NativeContextSnapshot:
+    """Retain exact local/effective roles, including unset and metadata contents."""
+    states = []
+    for role, configuration in _native_context_configurations():
+        local, effective = configuration.get_local(), configuration.value
+        states.append(
+            (
+                role,
+                configuration,
+                local,
+                effective,
+                _native_context_state(role, local),
+                _native_context_state(role, effective),
+            )
+        )
+    context = (
+        None
+        if _native_context_protocol() == "mutable"
+        else current_native_eqn_context()
+    )
+    return NativeContextSnapshot(context, tuple(states))
+
+
+def require_native_context_restored(before: NativeContextSnapshot) -> None:
+    after = native_context_snapshot()
+    if before.context is not after.context or len(before.states) != len(after.states):
+        raise RuntimeError("native equation context was not restored")
+    for old, new in zip(before.states, after.states, strict=True):
+        if not (
+            old[0] == new[0]
+            and old[1] is new[1]
+            and old[2] is new[2]
+            and old[3] is new[3]
+            and old[4:] == new[4:]
+        ):
+            raise RuntimeError(
+                "native equation context local/effective state was not restored"
+            )
+
+
+@contextmanager
+def recorded_native_context(context: Any) -> Iterator[None]:
+    """Use the original native manager and verify caller plus recorded state."""
+    recorded = _native_context_fields(context)
+    before = native_context_snapshot()
+    try:
+        with context.manager:
+            yield
+    finally:
+        require_native_context_restored(before)
+        if _native_context_fields(context) != recorded:
+            raise RuntimeError(
+                "recorded native equation context changed during inference"
+            )
 
 
 def infer_native_abstract_results(
@@ -730,8 +1168,6 @@ def infer_native_abstract_results(
     Callers must first own the parameter and carrier schemas and child bodies.
     This does not validate a lowerer, captures, dataflow or numerical behavior.
     """
-    from jax._src.mesh import AbstractMesh
-
     rule = next(
         (
             rule
@@ -745,20 +1181,7 @@ def infer_native_abstract_results(
             "native signature requires an explicitly selected canonical primitive"
         )
     context = getattr(eqn, "ctx", None)
-    if context is None or type(context) is not _native_core.JaxprEqnContext:
-        raise TypeError(
-            "native signature requires the actual recorded equation context"
-        )
-    if not (
-        type(context.cur_abstract_mesh) is AbstractMesh
-        and context.cur_abstract_mesh.empty
-    ):
-        raise TypeError("native signature requires an empty recorded abstract mesh")
-    if (
-        hasattr(_native_core, "LayoutMode")
-        and context.cur_layout_mode is not _native_core.LayoutMode.AUTO
-    ):
-        raise TypeError("native signature requires the native automatic layout context")
+    _native_context_fields(context)
     for var in (*eqn.invars, *eqn.outvars):
         _require_plain_native_aval(var.aval)
         if any(
@@ -768,15 +1191,10 @@ def infer_native_abstract_results(
             raise TypeError(
                 "native signature does not own quantization variable metadata"
             )
-    before = _native_core.JaxprEqnContext()
-    try:
-        with context.manager:
-            inferred, effects = rule.evaluator(
-                *(var.aval for var in eqn.invars), **eqn.params
-            )
-    finally:
-        if _native_core.JaxprEqnContext() is not before:
-            raise RuntimeError("native equation context was not restored")
+    with recorded_native_context(context):
+        inferred, effects = rule.evaluator(
+            *(var.aval for var in eqn.invars), **eqn.params
+        )
     if rule.multiple_results:
         if type(inferred) not in (tuple, list):
             raise TypeError(
@@ -788,6 +1206,91 @@ def infer_native_abstract_results(
     for aval in inferred:
         _require_plain_native_aval(aval)
     return inferred, effects
+
+
+def native_nonzero_expansion(eqn: JaxprEqn) -> ClosedJaxpr:
+    """Trace only the actual native Nonzero implementation, never a callback.
+
+    This adapter exposes the same composition used before public ``nonzero``
+    started emitting HiJAX calls. It does not admit other HiJAX carriers or
+    extend the SOURCE profile.
+    """
+    from jax import ShapeDtypeStruct, make_jaxpr
+
+    if (
+        type(eqn) is not JaxprEqn
+        or _NATIVE_HI_CALL is None
+        or eqn.primitive is not _NATIVE_HI_CALL
+        or type(eqn.params) is not dict
+        or tuple(eqn.params) != ("_prim",)
+    ):
+        raise NotImplementedError("HiJAX lowering requires the native Nonzero carrier")
+    carrier = eqn.params["_prim"]
+    if _NATIVE_NONZERO_TYPE is None or type(carrier) is not _NATIVE_NONZERO_TYPE:
+        raise NotImplementedError(
+            "only the actual native Nonzero HiJAX carrier is supported"
+        )
+    fields = vars(carrier)
+    if frozenset(fields) != frozenset(
+        (
+            "in_avals",
+            "out_aval",
+            "params",
+            "in_avals_flat",
+            "in_tree",
+            "out_avals_flat",
+            "out_tree",
+            "size",
+            "axes",
+            "out_dtype",
+        )
+    ):
+        raise TypeError("native Nonzero carrier schema needs an exact adapter")
+    parameters = fields["params"]
+    if (
+        type(parameters) is not dict
+        or any(type(key) is not str for key in parameters)
+        or set(parameters) != {"size", "axes", "out_dtype"}
+    ):
+        raise TypeError("native Nonzero parameter schema needs an exact adapter")
+    size, axes, dtype = (parameters[name] for name in ("size", "axes", "out_dtype"))
+    if not (
+        type(size) is int
+        and size >= 0
+        and type(axes) is tuple
+        and all(type(axis) is int for axis in axes)
+        and len(axes) == len(set(axes))
+        and type(dtype) in (type(np.dtype(np.int32)), type(np.dtype(np.int64)))
+        and dtype in (np.dtype(np.int32), np.dtype(np.int64))
+        and fields["size"] is size
+        and fields["axes"] is axes
+        and fields["out_dtype"] is dtype
+        and len(eqn.invars) in (1, 1 + len(axes))
+        and len(eqn.outvars) == len(axes)
+        and not eqn.effects
+    ):
+        raise TypeError("native Nonzero parameters or arity are unsupported")
+    for var in (*eqn.invars, *eqn.outvars):
+        _require_plain_native_aval(var.aval)
+    rank = len(eqn.invars[0].aval.shape)
+    if any(axis < 0 or axis >= rank for axis in axes):
+        raise TypeError("native Nonzero axes are out of range")
+    implementation = _NATIVE_NONZERO_IMPL
+    if implementation is None:
+        raise TypeError("native Nonzero implementation is unavailable")
+    specs = [
+        ShapeDtypeStruct(
+            var.aval.shape,
+            var.aval.dtype,
+            sharding=var.aval.sharding,
+            weak_type=var.aval.weak_type,
+        )
+        for var in eqn.invars
+    ]
+    with recorded_native_context(eqn.ctx):
+        return make_jaxpr(
+            functools.partial(implementation, size=size, axes=axes, out_dtype=dtype)
+        )(*specs)
 
 
 def fresh_var_like(var: Any) -> Any:
@@ -834,6 +1337,101 @@ def native_jit_boolean_inline_hints() -> tuple[object, object]:
     return inline.AUTO, inline.JAX_LATE
 
 
+_NATIVE_MUL_SIGNATURE = tuple(
+    (parameter.name, parameter.kind, parameter.default)
+    for parameter in inspect.signature(_native_lax_impl.mul).parameters.values()
+)
+
+
+def native_mul_parameter_names() -> frozenset[str]:
+    """Own the two native multiply APIs without tolerating optional fields."""
+    parameter = inspect.Parameter
+    if not (
+        type(_NATIVE_MUL_SIGNATURE) is tuple
+        and all(
+            type(item) is tuple
+            and len(item) == 3
+            and type(item[0]) is str
+            and (
+                item[1] is parameter.POSITIONAL_OR_KEYWORD
+                or item[1] is parameter.KEYWORD_ONLY
+            )
+            and (item[2] is parameter.empty or item[2] is None)
+            for item in _NATIVE_MUL_SIGNATURE
+        )
+    ):
+        raise TypeError("native multiply parameter schema needs an exact adapter")
+    operands = (
+        ("x", parameter.POSITIONAL_OR_KEYWORD, parameter.empty),
+        ("y", parameter.POSITIONAL_OR_KEYWORD, parameter.empty),
+    )
+    if _NATIVE_MUL_SIGNATURE == operands:
+        return frozenset()
+    if _NATIVE_MUL_SIGNATURE == (
+        *operands,
+        ("out_dtype", parameter.KEYWORD_ONLY, None),
+    ):
+        return frozenset({"out_dtype"})
+    raise TypeError("native multiply parameter schema needs an exact adapter")
+
+
+_NATIVE_TILE_MISSING: object = object()
+_NATIVE_TILE_PRIMITIVE: object = vars(_native_lax_impl).get(
+    "tile_p", _NATIVE_TILE_MISSING
+)
+
+
+def native_tile_primitive() -> Primitive | None:
+    """Return the captured canonical Tile, or the exact older absence schema."""
+    public: object = vars(_native_lax).get("tile_p", _NATIVE_TILE_MISSING)
+    defining: object = vars(_native_lax_impl).get("tile_p", _NATIVE_TILE_MISSING)
+    if _NATIVE_TILE_PRIMITIVE is _NATIVE_TILE_MISSING:
+        if public is _NATIVE_TILE_MISSING and defining is _NATIVE_TILE_MISSING:
+            return None
+    elif type(_NATIVE_TILE_PRIMITIVE) is Primitive:
+        if public is defining is _NATIVE_TILE_PRIMITIVE:
+            return _NATIVE_TILE_PRIMITIVE
+    raise TypeError("native tile primitive bindings need an exact adapter")
+
+
+_NATIVE_POLYNOMIAL_MISSING: object = object()
+_NATIVE_POLYNOMIAL_LOWER: object = vars(_native_lax_impl).get(
+    "_polynomial_lower", _NATIVE_POLYNOMIAL_MISSING
+)
+_NATIVE_POLYNOMIAL_PRIMITIVE: object = vars(_native_lax_impl).get(
+    "polynomial_p", _NATIVE_POLYNOMIAL_MISSING
+)
+
+
+def native_polynomial_lowering(
+    primitive: Primitive | None = None,
+) -> Callable[..., Array] | None:
+    """Return the captured native lowering, with exact absence before JAX 0.12."""
+    if primitive is not None and primitive is not _NATIVE_POLYNOMIAL_PRIMITIVE:
+        raise TypeError("polynomial lowering requires its captured native primitive")
+    public: object = vars(_native_lax).get("polynomial_p", _NATIVE_POLYNOMIAL_MISSING)
+    defining: object = vars(_native_lax_impl).get(
+        "polynomial_p", _NATIVE_POLYNOMIAL_MISSING
+    )
+    lowering: object = vars(_native_lax_impl).get(
+        "_polynomial_lower", _NATIVE_POLYNOMIAL_MISSING
+    )
+    if _NATIVE_POLYNOMIAL_PRIMITIVE is _NATIVE_POLYNOMIAL_MISSING:
+        if (
+            public is defining is _NATIVE_POLYNOMIAL_MISSING
+            and lowering is _NATIVE_POLYNOMIAL_LOWER is _NATIVE_POLYNOMIAL_MISSING
+        ):
+            return None
+    elif (
+        type(_NATIVE_POLYNOMIAL_PRIMITIVE) is Primitive
+        and public is defining is _NATIVE_POLYNOMIAL_PRIMITIVE
+        and type(_NATIVE_POLYNOMIAL_LOWER) is types.FunctionType
+        and lowering is _NATIVE_POLYNOMIAL_LOWER
+    ):
+        return cast(Callable[..., Array], _NATIVE_POLYNOMIAL_LOWER)
+    raise TypeError("native polynomial lowering bindings need an exact adapter")
+
+
 def native_remat_primitive() -> Primitive:
     """Return native checkpoint identity without creating a primitive by name."""
     from jax._src.ad_checkpoint import remat_p
@@ -854,9 +1452,7 @@ def is_native_precision_pair(value: object) -> bool:
 
 def is_selected_threefry_impl(value: object) -> bool:
     """Require the installed implementation object, never an equal descriptor."""
-    from jax._src.random.threefry2x32 import threefry_prng_impl
-
-    return value is threefry_prng_impl
+    return value is _NATIVE_THREEFRY_IMPL
 
 
 def is_selected_prng_key_dtype(dtype: object) -> bool:
@@ -880,9 +1476,8 @@ def selected_prng_key_words(value: Any) -> Any:
 def selected_prng_key_from_words(words: Any) -> Any:
     """Restore the selected logical key from its explicitly declared storage."""
     from jax import random
-    from jax._src.random.threefry2x32 import threefry_prng_impl
 
-    return random.wrap_key_data(words, impl=threefry_prng_impl)
+    return random.wrap_key_data(words, impl=_NATIVE_THREEFRY_IMPL)
 
 
 def is_unpartitioned_prng_placement(value: object, rank: int) -> bool:
@@ -1152,6 +1747,49 @@ def _resolve_abstract_token() -> type[Any]:
 AbstractToken: type[Any] = _resolve_abstract_token()
 
 
+_NATIVE_SCAN_ABSTRACT_PARAMETERS = tuple(
+    inspect.signature(_native_loops._scan_abstract_eval).parameters
+)
+
+
+def native_scan_parameter_names() -> set[str]:
+    """Select only one of the three explicitly owned native scan schemas."""
+    common = {"jaxpr", "reverse", "length", "unroll"}
+    if _NATIVE_SCAN_ABSTRACT_PARAMETERS == (
+        "args",
+        "reverse",
+        "length",
+        "num_consts",
+        "num_carry",
+        "jaxpr",
+        "linear",
+        "unroll",
+        "_split_transpose",
+    ):
+        return common | {"num_consts", "num_carry", "linear", "_split_transpose"}
+    if _NATIVE_SCAN_ABSTRACT_PARAMETERS == (
+        "args",
+        "reverse",
+        "length",
+        "num_consts",
+        "num_carry",
+        "jaxpr",
+        "unroll",
+    ):
+        return common | {"num_consts", "num_carry"}
+    if _NATIVE_SCAN_ABSTRACT_PARAMETERS == (
+        "args",
+        "reverse",
+        "length",
+        "ft_in",
+        "ft_out",
+        "jaxpr",
+        "unroll",
+    ):
+        return common | {"ft_in", "ft_out"}
+    raise TypeError("native scan parameter schema needs an exact adapter")
+
+
 def scan_arity(params: Any, total_invars: int) -> tuple[int, int, int]:
     """Return ``(num_consts, num_carry, num_xs)`` for a ``scan`` equation.
 
@@ -1344,6 +1982,8 @@ __all__ = [
     "fresh_var_like",
     "jax_core",
     "jax_core_ext",
+    "native_nonzero_expansion",
+    "native_polynomial_lowering",
     "new_jaxpr_eqn",
     "scan_arity",
 ]

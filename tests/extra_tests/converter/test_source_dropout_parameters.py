@@ -1825,3 +1825,47 @@ def test_dropout_validator_rejects_malformed_explicit_schema(defect: str) -> Non
         eqn.params["rate"] = np.nan if defect == "rate-nan" else 1.0
     with pytest.raises(SourcePrecisionError):
         DropoutDiagnosticValidator()._ordinary(eqn, "malformed-dropout", 23)
+
+
+@pytest.mark.parametrize("x64", [False, True])
+@pytest.mark.parametrize("fault", ["other-schema", "unknown", "dtype", "boolean"])
+def test_native_uniform_multiply_schema_cannot_ignore_or_reinterpret_parameters(
+    x64: bool, fault: str
+) -> None:
+    from jax2onnx._compat.jax import ClosedJaxpr
+    from jax2onnx.plugins.jax.random._source_prng import prove_native_uniform
+
+    with _native_settings(x64):
+        key = jax.random.key(17, impl="threefry2x32")
+        equation = jax.make_jaxpr(
+            lambda value: jax.random.uniform(value, (2, 3), dtype=jnp.float32)
+        )(key).jaxpr.eqns[0]
+        # Calibrate the actual installed native carrier before one corruption.
+        assert prove_native_uniform(equation) is not None
+        closed = equation.params["jaxpr"]
+        body = closed.jaxpr
+        equations = list(body.eqns)
+        multiply = equations[10]
+        assert multiply.primitive is jax.lax.mul_p
+        original = dict(multiply.params)
+        if fault == "other-schema":
+            damaged = {} if original else {"out_dtype": None}
+        elif fault == "unknown":
+            damaged = {**original, "unowned": None}
+        else:
+            damaged = {
+                **original,
+                "out_dtype": np.float32 if fault == "dtype" else False,
+            }
+        equations[10] = multiply.replace(params=damaged)
+        changed_body = body.replace(eqns=equations)
+        changed = equation.replace(
+            params={
+                **equation.params,
+                "jaxpr": ClosedJaxpr(changed_body, closed.consts),
+            }
+        )
+        with pytest.raises(ValueError, match="primitive parameter"):
+            prove_native_uniform(changed)
+        assert dict(multiply.params) == original
+        assert prove_native_uniform(equation) is not None

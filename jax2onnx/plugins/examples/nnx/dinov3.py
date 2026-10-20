@@ -9,6 +9,7 @@ from typing import Literal, NotRequired, Optional, TypedDict, cast, overload
 
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 from flax import nnx
 
@@ -59,8 +60,8 @@ class DinoRoPE(nnx.Module):
         shift_coords: Optional[float] = None,
         jitter_coords: Optional[float] = None,
         rescale_coords: Optional[float] = None,
-        periods_dtype: jnp.dtype = jnp.bfloat16,
-        dtype: jnp.dtype = jnp.float32,
+        periods_dtype: DTypeLike = jnp.bfloat16,
+        dtype: DTypeLike = jnp.float32,
     ):
         if dim % (4 * num_heads) != 0:
             raise ValueError("dim must be divisible by 4 * num_heads.")

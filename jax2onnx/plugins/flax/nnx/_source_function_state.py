@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import inspect
 from typing import Any, Callable, Mapping
 
 from flax import errors, nnx
@@ -24,6 +25,91 @@ def _failure(message: str, *, defect: bool = False) -> SourcePrecisionError:
         requirement="fixed NNX topology and explicitly carried numeric state owned by the current trace",
         action="prepare a fresh NNX owner with split/merge inside the enclosing traced call",
     )
+
+
+_NNX_GRAPH_SIGNATURES: tuple[
+    tuple[tuple[str, inspect._ParameterKind, object], ...], ...
+] = tuple(
+    tuple(
+        (parameter.name, parameter.kind, parameter.default)
+        for parameter in inspect.signature(function).parameters.values()
+    )
+    for function in (nnx.split, nnx.iter_graph)
+)
+
+
+def _nnx_graph_protocol() -> bool:
+    """Select graph-only or explicit graph mode from exact native API shapes."""
+    parameter = inspect.Parameter
+    if not (
+        type(_NNX_GRAPH_SIGNATURES) is tuple
+        and len(_NNX_GRAPH_SIGNATURES) == 2
+        and all(type(signature) is tuple for signature in _NNX_GRAPH_SIGNATURES)
+        and all(
+            type(item) is tuple
+            and len(item) == 3
+            and type(item[0]) is str
+            and any(
+                item[1] is kind
+                for kind in (
+                    parameter.POSITIONAL_ONLY,
+                    parameter.POSITIONAL_OR_KEYWORD,
+                    parameter.VAR_POSITIONAL,
+                    parameter.KEYWORD_ONLY,
+                )
+            )
+            and (item[2] is parameter.empty or item[2] is None)
+            for signature in _NNX_GRAPH_SIGNATURES
+            for item in signature
+        )
+    ):
+        raise _failure("NNX graph API schema needs an exact adapter", defect=True)
+    split = (
+        ("node", parameter.POSITIONAL_OR_KEYWORD, parameter.empty),
+        ("filters", parameter.VAR_POSITIONAL, parameter.empty),
+    )
+    iteration = (("node", parameter.POSITIONAL_ONLY, parameter.empty),)
+    graph = ("graph", parameter.KEYWORD_ONLY, None)
+    if _NNX_GRAPH_SIGNATURES == (split, iteration):
+        return False
+    if _NNX_GRAPH_SIGNATURES == ((*split, graph), (*iteration, graph)):
+        return True
+    raise _failure("NNX graph API schema needs an exact adapter", defect=True)
+
+
+def _split_graph(owner: Any) -> Any:
+    if _nnx_graph_protocol():
+        return nnx.split(owner, graph=True)
+    return nnx.split(owner)
+
+
+def _iter_graph(owner: Any) -> Any:
+    if _nnx_graph_protocol():
+        return nnx.iter_graph(owner, graph=True)
+    return nnx.iter_graph(owner)
+
+
+def _nnx_variable_roles() -> tuple[str, str]:
+    fields = nnx.Variable.required_metadata
+    if type(fields) is frozenset and all(type(name) is str for name in fields):
+        if fields == frozenset({"has_ref", "is_hijax", "is_mutable", "eager_sharding"}):
+            return "has_ref", "is_hijax"
+        if fields == frozenset({"ref", "hijax", "eager_sharding"}):
+            return "ref", "hijax"
+    raise _failure("NNX Variable metadata schema needs an exact adapter", defect=True)
+
+
+def _require_ordinary_variable_metadata(metadata: Any) -> None:
+    roles = _nnx_variable_roles()
+    if not (
+        type(metadata) is dict
+        and all(type(name) is str for name in metadata)
+        and nnx.Variable.required_metadata <= metadata.keys()
+        and all(type(metadata[role]) is bool for role in roles)
+    ):
+        raise _failure("NNX Variable metadata is malformed", defect=True)
+    if any(metadata[role] for role in roles):
+        raise _failure("Mutable NNX Function state requires ordinary non-Ref Variables")
 
 
 @dataclass(frozen=True)
@@ -51,7 +137,7 @@ class _StateEntry:
 
 
 def _split(owner: Any) -> tuple[Any, tuple[_StateEntry, ...], tuple[Any, ...]]:
-    graphdef, state = nnx.split(owner, graph=True)
+    graphdef, state = _split_graph(owner)
     entries: list[_StateEntry] = []
     leaves: list[Any] = []
     for path, value in nnx.to_flat_state(state):
@@ -169,7 +255,7 @@ class NNXFunctionState:
         ownership check and rollback must instead retain that exact object.
         Nothing from this snapshot is stored in the descriptor or cache.
         """
-        values = dict(nnx.iter_graph(owner, graph=True))
+        values = dict(_iter_graph(owner))
         changed = set(self.effects or ())
         originals = []
         for entry in self.entries:
@@ -178,10 +264,7 @@ class NNXFunctionState:
             value = values[entry.path]
             if isinstance(value, nnx.Variable):
                 metadata = value.get_metadata()
-                if metadata.get("ref") or metadata.get("hijax"):
-                    raise _failure(
-                        "Mutable NNX Function state requires ordinary non-Ref Variables"
-                    )
+                _require_ordinary_variable_metadata(metadata)
                 value = type(value).from_metadata(value.get_raw_value(), metadata)
             originals.append((entry.path, value))
         return nnx.from_flat_state(originals)

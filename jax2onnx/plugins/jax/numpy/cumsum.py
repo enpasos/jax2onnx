@@ -6,6 +6,7 @@ from typing import Any, Callable, ClassVar, Final, Optional, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 import onnx_ir as ir
 from numpy.typing import ArrayLike
@@ -28,7 +29,6 @@ from jax2onnx.plugins.plugin_system import (
     register_native_primitive,
 )
 
-
 _CUMSUM_PRIM: Final = make_jnp_primitive("jax.numpy.cumsum")
 
 
@@ -36,7 +36,7 @@ def _typed_jnp_cumsum(
     x: ArrayLike,
     *,
     axis: int | None = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
 ) -> jax.Array:
     cumsum_fn = cast(Callable[..., jax.Array], jnp.cumsum)
@@ -135,7 +135,7 @@ class JnpCumSumPlugin(PrimitiveLeafPlugin):
         *,
         axis: int | None = None,
         reverse: bool = False,
-        dtype: np.dtype[Any] | type | None = None,
+        dtype: DTypeLike | None = None,
         **_: Any,
     ) -> ShapedArray:
         out_shape = x.shape
@@ -231,7 +231,7 @@ def _cumsum_impl(
     x: ArrayLike,
     *rest: Any,
     axis: Optional[int] = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
     precision: Any | None = None,
     exclusive: bool = False,
@@ -324,7 +324,7 @@ def _runtime_cumsum(
     x: ArrayLike,
     *rest: Any,
     axis: int | None = None,
-    dtype: np.dtype[Any] | type | None = None,
+    dtype: DTypeLike | None = None,
     reverse: bool = False,
     precision: Any | None = None,
     exclusive: bool = False,

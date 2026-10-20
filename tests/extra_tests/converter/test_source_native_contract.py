@@ -25,6 +25,11 @@ from jax2onnx._compat.jax import (
     ShapedArray,
     Var,
     infer_native_abstract_results,
+    current_native_eqn_context,
+    native_context_snapshot,
+    require_native_context_restored,
+    native_manual_axis_metadata,
+    native_scan_parameter_names,
 )
 from jax2onnx.converter import source_native_contract as contract
 from jax2onnx.converter.precision_policy import (
@@ -40,11 +45,11 @@ _FAMILIES = ("scan", "while", "scatter", "scatter-add", "scatter-mul", "remat2")
 
 @pytest.fixture(autouse=True)
 def _restore_context() -> Iterator[None]:
-    context, policy = native_core.JaxprEqnContext(), active_precision_policy()
+    context, policy = native_context_snapshot(), active_precision_policy()
     x64 = jax.config.x64_enabled
     with jax.enable_x64(True):
         yield
-    assert native_core.JaxprEqnContext() is context
+    require_native_context_restored(context)
     assert jax.config.x64_enabled is x64
     assert active_precision_policy() is policy
 
@@ -107,11 +112,7 @@ def _trace(kind: str, dtype: Any = np.float64) -> Any:
 
 def _parameters(eqn: Any) -> set[str]:
     if eqn.primitive is jax.lax.scan_p:
-        return {"jaxpr", "reverse", "length", "unroll"} | (
-            {"ft_in", "ft_out"}
-            if "ft_in" in eqn.params
-            else {"num_consts", "num_carry"}
-        )
+        return native_scan_parameter_names()
     if eqn.primitive is jax.lax.while_p:
         return {"cond_jaxpr", "body_jaxpr", "cond_nconsts", "body_nconsts"}
     if eqn.primitive in (
@@ -176,6 +177,7 @@ def _forged_aval(
         "weak_type",
         "sharding",
         "manual_axis_type",
+        "vma",
         "memory_space",
         "layout",
         "_stripped_weak_type",
@@ -354,11 +356,11 @@ def test_nondefault_metadata_is_rejected_on_each_side_of_inference(
     elif corruption == "partition-spec":
         changes["sharding"] = NamedSharding(aval.sharding.mesh, PartitionSpec())
     elif corruption == "manual-axis":
-        changes["manual_axis_type"] = native_core.ManualAxisType(
-            varying=frozenset({"worker"})
-        )
+        field, value = native_manual_axis_metadata(frozenset({"worker"}))
+        changes[field] = value
     elif corruption == "manual-lookalike":
-        changes["manual_axis_type"] = SimpleNamespace(
+        field, _ = native_manual_axis_metadata(frozenset())
+        changes[field] = SimpleNamespace(
             empty=True, varying=frozenset(), unreduced=frozenset(), reduced=frozenset()
         )
     elif corruption.endswith("memory"):
@@ -420,7 +422,7 @@ def test_primary_layout_metadata_is_not_silently_erased() -> None:
         with pytest.raises(SourcePrecisionError):
             _validate(changed)
     with use_layout_mode(LayoutMode.JAX):
-        context = native_core.JaxprEqnContext()
+        context = current_native_eqn_context()
     with pytest.raises(SourcePrecisionError):
         _validate(_equation(eqn, ctx=context))
 
@@ -438,7 +440,7 @@ def test_nonempty_native_equation_mesh_is_not_default_context() -> None:
     eqn = _trace("remat2")
     mesh = AbstractMesh((2,), ("worker",))
     with use_abstract_mesh(mesh):
-        context = native_core.JaxprEqnContext()
+        context = current_native_eqn_context()
     assert type(context) is native_core.JaxprEqnContext
     assert context.cur_abstract_mesh is mesh and not mesh.empty
     with pytest.raises(SourcePrecisionError):
@@ -473,26 +475,44 @@ def test_recorded_native_context_is_active_and_restored_on_both_exits(
 ) -> None:
     with jax.threefry_partitionable(False), set_xla_metadata(contract_role="recorded"):
         eqn = _trace("remat2")
-    original = native_core.positional_effects
     observed = []
+    recorded_body = eqn.params["jaxpr"]
 
-    def effects(body: Any) -> Any:
-        observed.append(native_core.JaxprEqnContext())
+    def observe() -> None:
+        observed.append(current_native_eqn_context())
         assert observed[-1].threefry_partitionable is False
         assert observed[-1].xla_metadata["contract_role"] == "recorded"
         if fail:
             raise ValueError("controlled canonical-evaluator failure")
-        return original(body)
 
-    monkeypatch.setattr(native_core, "positional_effects", effects)
+    if hasattr(native_core, "positional_effects"):
+        original = native_core.positional_effects
+
+        def effects(body: Any) -> Any:
+            observe()
+            return original(body)
+
+        monkeypatch.setattr(native_core, "positional_effects", effects)
+    else:
+        # The older trusted remat evaluator reads this actual native property.
+        # Forward unrelated reads unchanged; never replace the native oracle.
+        descriptor = vars(type(recorded_body))["effects"]
+        assert type(descriptor) is property
+
+        def effects(body: Any) -> Any:
+            if body is recorded_body:
+                observe()
+            return descriptor.fget(body)
+
+        monkeypatch.setattr(type(recorded_body), "effects", property(effects))
     with jax.threefry_partitionable(True), set_xla_metadata(contract_role="caller"):
-        before = native_core.JaxprEqnContext()
+        before = native_context_snapshot()
         if fail:
             with pytest.raises(SourcePrecisionError):
                 _validate(eqn)
         else:
             _validate(eqn)
-        assert native_core.JaxprEqnContext() is before
+        require_native_context_restored(before)
     assert len(observed) == 1
 
 

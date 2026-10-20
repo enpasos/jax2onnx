@@ -42,6 +42,7 @@ from jax2onnx.converter.source_profile import (
     validate_source_jaxpr,
 )
 from jax2onnx.converter.source_representation import normalized_shape_dimensions
+from jax2onnx.plugins.jax.lax.erfc import ErfcPlugin
 from jax2onnx.plugins.plugin_system import FunctionPlugin
 from jax2onnx.precision import CheckStatus, get_precision_report
 from tests.extra_tests.converter.source_precision_diagnostics import (
@@ -545,9 +546,13 @@ def test_malformed_erfc_contracts_fail_before_lowering(defect: str) -> None:
                 "accuracy": "accuracy",
                 "placement": "out_sharding",
             }[defect]
-        ] = (
-            None if defect != "placement" else object()
-        )
+        ] = {
+            "unknown": None,
+            "accuracy": jax.lax.AccuracyMode.HIGHEST,
+            "placement": object(),
+        }[
+            defect
+        ]
     elif defect in {"integer", "complex"}:
         # Use a static shape so rejection exercises Erfc's dtype rule itself.
         dtype = np.int32 if defect == "integer" else np.complex64
@@ -571,6 +576,141 @@ def test_malformed_erfc_contracts_fail_before_lowering(defect: str) -> None:
         if defect in {"arity", "outputs", "dtype", "shape", "weak", "weak-metadata"}
         else "profile-exclusion"
     )
+
+
+_NONDEFAULT_ACCURACIES = (
+    pytest.param(False, id="false"),
+    pytest.param(0, id="zero"),
+    pytest.param(jax.lax.AccuracyMode.DEFAULT, id="native-default-mode"),
+    pytest.param(jax.lax.AccuracyMode.HIGHEST, id="native-highest-mode"),
+    pytest.param(jax.lax.Tolerance(atol=1e-6), id="native-tolerance"),
+    pytest.param(object(), id="arbitrary-object"),
+)
+
+
+def _erfc_parameter_graph(params: dict[str, Any]) -> Any:
+    native = _body(
+        jax.make_jaxpr(jax.lax.erfc)(jax.ShapeDtypeStruct((2, 3), np.float32))
+    )
+    (equation,) = native.eqns
+    return SimpleNamespace(
+        invars=native.invars,
+        constvars=(),
+        outvars=native.outvars,
+        effects=(),
+        eqns=[
+            SimpleNamespace(
+                primitive=equation.primitive,
+                invars=equation.invars,
+                outvars=equation.outvars,
+                effects=(),
+                params=params,
+            )
+        ],
+    )
+
+
+def test_native_default_erfc_accuracy_is_absent_or_none() -> None:
+    native = jax.make_jaxpr(jax.lax.erfc)(jax.ShapeDtypeStruct((2, 3), np.float32))
+    (equation,) = _body(native).eqns
+    assert equation.params.get("accuracy") is None
+    validate_source_jaxpr(native, 23)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"accuracy": None}, id="none"),
+        pytest.param(
+            {"accuracy": None, "sharding": None, "out_sharding": None},
+            id="none-unspecified-placement",
+        ),
+    ],
+)
+def test_default_erfc_parameter_metadata_is_admitted(params: dict[str, Any]) -> None:
+    # Synthetic metadata control; native public-default behavior is checked above.
+    validate_source_jaxpr(_erfc_parameter_graph(params), 23)
+
+
+class _ErfcInputReached(RuntimeError):
+    pass
+
+
+@pytest.mark.parametrize("policy", [PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE])
+@pytest.mark.parametrize(
+    "params", [{}, {"accuracy": None}, {"accuracy": None, "out_sharding": None}]
+)
+def test_default_erfc_accuracy_reaches_existing_lowering(
+    params: dict[str, Any], policy: PrecisionPolicy
+) -> None:
+    def input_reached(*args: Any, **kwargs: Any) -> Any:
+        raise _ErfcInputReached("existing input access")
+
+    context = SimpleNamespace(
+        precision_policy=policy,
+        require_value_for_var=input_reached,
+        get_value_for_var=input_reached,
+        fresh_name=lambda hint: hint,
+    )
+    equation = SimpleNamespace(params=params, invars=[object()], outvars=[object()])
+    before = dict(params)
+    with pytest.raises(_ErfcInputReached, match="existing input access"):
+        ErfcPlugin().lower(context, equation)
+    assert params == before
+
+
+class _ErfcContextPoison:
+    def __init__(self, policy: PrecisionPolicy) -> None:
+        self.precision_policy = policy
+
+    def __getattribute__(self, name: str) -> Any:
+        raise AssertionError(
+            f"Erfc accessed context before rejecting parameters: {name}"
+        )
+
+
+@pytest.mark.parametrize("accuracy", _NONDEFAULT_ACCURACIES)
+def test_nondefault_erfc_accuracy_is_rejected_by_profile(accuracy: Any) -> None:
+    with pytest.raises(SourcePrecisionError) as caught:
+        validate_source_jaxpr(_erfc_parameter_graph({"accuracy": accuracy}), 23)
+    assert caught.value.category == "profile-exclusion"
+    assert caught.value.primitive == "erfc"
+
+
+@pytest.mark.parametrize("accuracy", _NONDEFAULT_ACCURACIES)
+@pytest.mark.parametrize("policy", [PrecisionPolicy.LEGACY, PrecisionPolicy.SOURCE])
+def test_nondefault_erfc_accuracy_rejects_before_policy_or_ir_access(
+    accuracy: Any, policy: PrecisionPolicy
+) -> None:
+    equation = SimpleNamespace(params={"accuracy": accuracy})
+    with pytest.raises(NotImplementedError, match="accuracy"):
+        ErfcPlugin().lower(_ErfcContextPoison(policy), equation)
+    assert equation.params["accuracy"] is accuracy
+
+
+@pytest.mark.parametrize("accuracy", _NONDEFAULT_ACCURACIES)
+def test_direct_source_erfc_accuracy_rejects_before_ir_access(accuracy: Any) -> None:
+    equation = SimpleNamespace(params={"accuracy": accuracy})
+    with pytest.raises(NotImplementedError, match="accuracy"):
+        ErfcPlugin()._lower_source(_ErfcContextPoison(PrecisionPolicy.SOURCE), equation)
+    assert equation.params["accuracy"] is accuracy
+
+
+@pytest.mark.parametrize("entry", ["profile", "source-plugin"])
+def test_unknown_none_erfc_parameter_stays_rejected(entry: str) -> None:
+    params = {"unreviewed": None}
+    if entry == "profile":
+        with pytest.raises(SourcePrecisionError) as caught:
+            validate_source_jaxpr(_erfc_parameter_graph(params), 23)
+        assert caught.value.category == "profile-exclusion"
+    else:
+        with pytest.raises(NotImplementedError, match="accuracy"):
+            ErfcPlugin()._lower_source(
+                _ErfcContextPoison(PrecisionPolicy.SOURCE),
+                SimpleNamespace(params=params),
+            )
+    assert params == {"unreviewed": None}
 
 
 def test_x64_off_double_erfc_is_configuration_conflict() -> None:

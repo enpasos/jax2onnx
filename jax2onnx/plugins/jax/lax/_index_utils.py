@@ -10,7 +10,7 @@ import numpy as np
 import onnx_ir as ir
 
 from jax2onnx.converter.typing_support import SymbolicDimOrigin
-from jax2onnx.ir_utils import tensor_attr
+from jax2onnx.ir_utils import const_value_to_numpy, tensor_attr
 from jax2onnx.plugins._ir_shapes import (
     DimInput,
     _ensure_value_metadata,
@@ -240,6 +240,21 @@ def _builder_op(
         raise AttributeError("IR build context missing builder")
 
     attrs = dict(attributes or {})
+    if op_type in {"Squeeze", "Unsqueeze"} and int(builder.opset) < 13:
+        if len(inputs) > 1:
+            if len(inputs) != 2 or "axes" in attrs:
+                raise ValueError(f"{op_type} has ambiguous legacy axes arguments")
+            axes_input = inputs[1]
+            if axes_input is not None:
+                axes = const_value_to_numpy(axes_input)
+                if axes is None or axes.ndim != 1 or axes.dtype != np.dtype(np.int64):
+                    raise ValueError(
+                        f"{op_type} before opset 13 requires constant INT64 axes"
+                    )
+                attrs["axes"] = tuple(int(axis) for axis in axes)
+            inputs = inputs[:1]
+        if op_type == "Unsqueeze" and "axes" not in attrs:
+            raise ValueError("Unsqueeze before opset 13 requires explicit axes")
     method = getattr(builder, op_type, None)
 
     if output is not None:

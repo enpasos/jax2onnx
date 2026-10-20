@@ -13,7 +13,13 @@ import onnx
 import pytest
 
 from jax2onnx import user_interface as ui
-from jax2onnx._compat.jax import ClosedJaxpr, ShapedArray, Var, scan_arity
+from jax2onnx._compat.jax import (
+    ClosedJaxpr,
+    ShapedArray,
+    Var,
+    scan_arity,
+    native_scan_parameter_names,
+)
 from jax2onnx.converter.precision_policy import (
     PrecisionPolicy,
     active_precision_policy,
@@ -837,6 +843,10 @@ def test_closed_scan_constant_payloads_are_checked_before_lowering(
         params["ft_in"] = descriptor
     else:
         params["num_consts"] -= 1
+    if "linear" in native_scan_parameter_names():
+        assert type(params["linear"]) is tuple
+        assert len(params["linear"]) == len(equation.invars)
+        params["linear"] = params["linear"][1:]
     params["jaxpr"] = ClosedJaxpr(rebound, [payload, *closed.consts])
     changed = equation.replace(invars=equation.invars[1:], params=params)
     carrier = SimpleNamespace(
@@ -912,3 +922,114 @@ def test_logical_key_loop_transport_remains_an_explicit_implementation_gap() -> 
             precision_policy=PrecisionPolicy.SOURCE,
         )
     assert error.value.category == "profile-exclusion"
+
+
+@pytest.mark.parametrize("split_transpose", [False, True])
+def test_native_scan_split_transpose_choice_retains_original_forward_contract(
+    split_transpose: bool,
+) -> None:
+    def target(value: Any) -> Any:
+        return jax.lax.scan(
+            lambda carry, _: (-carry, carry),
+            value,
+            None,
+            length=3,
+            _split_transpose=split_transpose,
+        )
+
+    with jax.enable_x64(True):
+        values = [np.asarray([-0.0, 2.0], np.float64)]
+        graph = jax.make_jaxpr(target)(jax.ShapeDtypeStruct((2,), np.float64)).jaxpr
+        eqn = next(e for e in graph.eqns if e.primitive is jax.lax.scan_p)
+        parameters = eqn.params
+        bindings = {name: id(value) for name, value in parameters.items()}
+        assert set(parameters) == native_scan_parameter_names()
+        if "linear" in parameters:
+            assert type(parameters["linear"]) is tuple
+            assert all(value is False for value in parameters["linear"])
+            assert parameters["_split_transpose"] is split_transpose
+        validate_source_jaxpr(graph, 23)
+        assert eqn.params is parameters
+        assert {name: id(value) for name, value in parameters.items()} == bindings
+        _product(target, values)
+
+
+def test_native_transformed_scan_keeps_linearity_roles_and_original_evaluation() -> (
+    None
+):
+    def primal(value: Any) -> Any:
+        return jax.lax.scan(lambda carry, _: (-carry, carry), value, None, length=3)
+
+    def target(value: Any) -> Any:
+        return jax.jvp(primal, (value,), (jnp.ones_like(value),))
+
+    with jax.enable_x64(True):
+        graph = jax.make_jaxpr(target)(jax.ShapeDtypeStruct((2,), np.float64)).jaxpr
+        equation = next(e for e in graph.eqns if e.primitive is jax.lax.scan_p)
+        parameters = equation.params
+        before = {name: id(value) for name, value in parameters.items()}
+        assert set(parameters) == native_scan_parameter_names()
+        if "linear" in parameters:
+            assert type(parameters["linear"]) is tuple
+            assert len(parameters["linear"]) == len(equation.invars)
+            assert any(value is True for value in parameters["linear"])
+        validate_source_jaxpr(graph, 23)
+        assert {name: id(value) for name, value in parameters.items()} == before
+        _product(target, [np.asarray([1.0, -2.0], np.float64)])
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-linear",
+        "missing-split",
+        "linear-list",
+        "linear-integer",
+        "linear-count",
+        "split-integer",
+        "hybrid",
+    ],
+)
+def test_scan_linearity_and_split_metadata_cannot_escape_the_native_schema(
+    fault: str,
+) -> None:
+    graph = _trace_loop("scan")
+    equation = next(e for e in graph.eqns if e.primitive is jax.lax.scan_p)
+    parameters = dict(equation.params)
+    if "linear" in native_scan_parameter_names():
+        if fault == "missing-linear":
+            parameters.pop("linear")
+        elif fault == "missing-split":
+            parameters.pop("_split_transpose")
+        elif fault == "linear-list":
+            parameters["linear"] = list(parameters["linear"])
+        elif fault == "linear-integer":
+            parameters["linear"] = (0,) * len(equation.invars)
+        elif fault == "linear-count":
+            parameters["linear"] = (*parameters["linear"], False)
+        elif fault == "split-integer":
+            parameters["_split_transpose"] = 0
+        else:
+            parameters["ft_in"] = object()
+    else:
+        # These roles are absent from the installed newer native schema.
+        # Preserve their absence: adding either older role is an owned-schema
+        # negative, while0.8.1 exercises each actual malformed value above.
+        parameters["linear"] = (False,) * len(equation.invars)
+        parameters["_split_transpose"] = False
+        if fault == "missing-linear":
+            parameters.pop("linear")
+        elif fault == "missing-split":
+            parameters.pop("_split_transpose")
+        elif fault == "hybrid":
+            parameters["num_consts" if "ft_in" in parameters else "ft_in"] = object()
+    corrupted = equation.replace(params=parameters)
+    test_graph = SimpleNamespace(
+        invars=graph.invars,
+        constvars=graph.constvars,
+        outvars=graph.outvars,
+        effects=graph.effects,
+        eqns=[corrupted if e is equation else e for e in graph.eqns],
+    )
+    with pytest.raises(SourcePrecisionError):
+        validate_source_jaxpr(test_graph, 23)

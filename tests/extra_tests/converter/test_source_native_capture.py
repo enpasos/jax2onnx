@@ -15,13 +15,14 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from jax._src import core as native_core
 import numpy as np
 import pytest
 
 from jax2onnx._compat.jax import (
     Primitive,
     canonical_code_fingerprint,
+    native_context_snapshot,
+    require_native_context_restored,
     _NativeCaptureGraph,
     selected_native_capture,
     selected_native_capture_member,
@@ -51,11 +52,11 @@ _UFUNCS = ("maximum", "minimum", "logical_xor")
 
 @pytest.fixture(autouse=True)
 def _restore_caller() -> Iterator[None]:
-    context = native_core.JaxprEqnContext()
+    context = native_context_snapshot()
     policy, x64 = active_precision_policy(), jax.config.x64_enabled
     before = {name: selected_native_capture(owner) for name, owner in _OWNERS.items()}
     yield
-    assert native_core.JaxprEqnContext() is context
+    require_native_context_restored(context)
     assert active_precision_policy() is policy
     assert jax.config.x64_enabled is x64
     assert {
@@ -1032,3 +1033,64 @@ def test_code_integer_constants_have_no_decimal_string_conversion_limit() -> Non
         for value in (large, large + 1, -large)
     }
     assert len(fingerprints) == 3
+
+
+def test_native_jit_configuration_snapshot_retains_all_actual_21_or_22_fields() -> None:
+    owner = _OWNERS["maximum"]
+    wrapper = vars(owner)["_ufunc__static_props"]["func"]
+    info = vars(wrapper)["_jit_info"]
+    snapshot = selected_native_capture(owner)
+    assert snapshot is not None
+    captured = snapshot["state"]["nodes"][str(id(info))]["fields"]
+    assert set(captured) == set(info._fields)
+    assert len(captured) in (21, 22)
+    if "abstracted_axes" in info._fields:
+        assert len(captured) == 22 and info.abstracted_axes is None
+        assert captured["abstracted_axes"] is None
+    else:
+        assert len(captured) == 21
+
+
+@pytest.mark.parametrize(
+    "fault", ["extra", "missing", "order", "abstracted-axes", "field-lookalike"]
+)
+def test_native_jit_configuration_rejects_unowned_schema_or_abstracted_axes(
+    fault: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _OWNERS["maximum"]
+    wrapper = vars(owner)["_ufunc__static_props"]["func"]
+    info = vars(wrapper)["_jit_info"]
+    fields = info._fields
+    invoked = []
+
+    class ForeignField:
+        def __eq__(self, other: Any) -> bool:
+            invoked.append("eq")
+            raise AssertionError("unowned JIT field equality ran")
+
+    if fault == "abstracted-axes" and "abstracted_axes" in fields:
+        monkeypatch.setitem(
+            vars(wrapper), "_jit_info", info._replace(abstracted_axes=("B",))
+        )
+    else:
+        altered = {
+            "extra": (*fields, "unowned_field"),
+            "missing": fields[:-1],
+            "order": tuple(reversed(fields)),
+            "abstracted-axes": (*fields, "abstracted_axes"),
+            "field-lookalike": (ForeignField(), *fields[1:]),
+        }[fault]
+        monkeypatch.setattr(type(info), "_fields", altered)
+    _reject(owner)
+    assert not invoked
+
+
+def test_original_primitive_true_bind_behavior_is_captured_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _OWNERS["reduce_window_sum_p"]
+    # This is the older native execution seam; on newer classes it is an
+    # unowned added field and must remain rejected rather than gaining a role.
+    monkeypatch.setitem(vars(owner), "_true_bind", lambda *args, **kwargs: None)
+    _reject(owner)

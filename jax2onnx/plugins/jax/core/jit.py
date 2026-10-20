@@ -10,7 +10,7 @@ import numpy as np
 import jax
 
 from jax._src import core as jcore
-from jax2onnx._compat.jax import fresh_var_like
+from jax2onnx._compat.jax import ClosedJaxpr, fresh_var_like
 from jax2onnx.converter.typing_support import LoweringContextProtocol
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.plugins.jax.random._source_prng import (
@@ -53,7 +53,7 @@ class JitPlugin(PrimitiveLeafPlugin):
     _PRIM: ClassVar[Any | None] = None
 
     @staticmethod
-    def _freshen_closed_jaxpr(closed: Any) -> jcore.ClosedJaxpr:
+    def _freshen_closed_jaxpr(closed: Any) -> ClosedJaxpr:
         """Clone a ClosedJaxpr with fresh Vars so multiple jit bodies don't alias."""
 
         inner_jaxpr = getattr(closed, "jaxpr", closed)
@@ -91,12 +91,10 @@ class JitPlugin(PrimitiveLeafPlugin):
             debug_info=inner_jaxpr.debug_info,
             is_high=getattr(inner_jaxpr, "is_high", False),
         )
-        return jcore.ClosedJaxpr(cloned, consts)
+        return ClosedJaxpr(cloned, consts)
 
     def lower(self, ctx: LoweringContextProtocol, eqn: jcore.JaxprEqn) -> None:
-        closed: SimpleNamespace | jcore.ClosedJaxpr | None = eqn.params.get(
-            "call_jaxpr"
-        )
+        closed: SimpleNamespace | ClosedJaxpr | None = eqn.params.get("call_jaxpr")
         if closed is None:
             thunk = eqn.params.get("call_jaxpr_thunk")
             if thunk is not None:
@@ -104,7 +102,7 @@ class JitPlugin(PrimitiveLeafPlugin):
         if closed is None:
             maybe_jaxpr = eqn.params.get("jaxpr")
             # Newer JAX passes a ClosedJaxpr directly via `jaxpr`.
-            if isinstance(maybe_jaxpr, jcore.ClosedJaxpr):
+            if isinstance(maybe_jaxpr, ClosedJaxpr):
                 closed = maybe_jaxpr
             elif maybe_jaxpr is not None:
                 consts = eqn.params.get("consts", ())

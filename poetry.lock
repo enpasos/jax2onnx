@@ -1836,36 +1836,36 @@ xprof = ["xprof"]
 
 [[package]]
 name = "jax"
-version = "0.11.2"
+version = "0.12.0"
 description = "Differentiate, compile, and transform Numpy code."
 optional = false
 python-versions = ">=3.12"
 groups = ["main", "gpu", "maxdiffusion"]
 markers = "python_version >= \"3.13\""
 files = [
-    {file = "jax-0.11.2-py3-none-any.whl", hash = "sha256:59e7ed9bd9ace049f4856752fe580c890e0164e1c023f40fadac386408daad66"},
-    {file = "jax-0.11.2.tar.gz", hash = "sha256:540dc0bed96bd5a0d8acca15cf16198fea98ef2fc151d40bdf1ace49eb76efd9"},
+    {file = "jax-0.12.0-py3-none-any.whl", hash = "sha256:758dd93b8c0682572fc9211da0e9441f73a9522ab315a4c9dbdd14673416f809"},
+    {file = "jax-0.12.0.tar.gz", hash = "sha256:320f52f19953fc08d224e9993632ac16b5ba2e5cfce926a30a253a7bee45e22a"},
 ]
 
 [package.dependencies]
-jaxlib = "0.11.2"
+jaxlib = ">=0.11.2,<=0.12.0"
 ml_dtypes = ">=0.5.0"
-numpy = ">=2.1"
+numpy = ">=2.2"
 opt_einsum = "*"
 scipy = ">=1.15"
 
 [package.extras]
-ci = ["jaxlib (==0.11.1)"]
-cuda = ["jax-cuda12-plugin[with-cuda] (==0.11.2)", "jaxlib (==0.11.2)"]
-cuda12 = ["jax-cuda12-plugin[with-cuda] (==0.11.2)", "jaxlib (==0.11.2)"]
-cuda12-local = ["jax-cuda12-plugin (==0.11.2)", "jaxlib (==0.11.2)"]
-cuda13 = ["jax-cuda13-plugin[with-cuda] (==0.11.2)", "jaxlib (==0.11.2)"]
-cuda13-local = ["jax-cuda13-plugin (==0.11.2)", "jaxlib (==0.11.2)"]
+ci = ["jaxlib (==0.11.2)"]
+cuda = ["jax-cuda12-plugin[with-cuda] (==0.12.0)", "jaxlib (==0.12.0)"]
+cuda12 = ["jax-cuda12-plugin[with-cuda] (==0.12.0)", "jaxlib (==0.12.0)"]
+cuda12-local = ["jax-cuda12-plugin (==0.12.0)", "jaxlib (==0.12.0)"]
+cuda13 = ["jax-cuda13-plugin[with-cuda] (==0.12.0)", "jaxlib (==0.12.0)"]
+cuda13-local = ["jax-cuda13-plugin (==0.12.0)", "jaxlib (==0.12.0)"]
 k8s = ["kubernetes"]
 minimum-jaxlib = ["jaxlib (==0.11.2)"]
-oneapi = ["jax-oneapi-plugin[with-oneapi] (==0.11.2)", "jaxlib (==0.11.2)"]
-rocm7-local = ["jax-rocm7-plugin (==0.11.2.*)", "jaxlib (==0.11.2)"]
-tpu = ["jaxlib (==0.11.2)", "libtpu (==0.0.48.*)", "requests"]
+oneapi = ["jax-oneapi-plugin[with-oneapi] (==0.12.0)", "jaxlib (==0.12.0)"]
+rocm7-local = ["jax-rocm7-plugin (==0.12.0.*)", "jaxlib (==0.12.0)"]
+tpu = ["jaxlib (==0.12.0)", "libtpu (==0.0.50.*)", "requests"]
 xprof = ["xprof"]
 
 [[package]]
@@ -1908,35 +1908,35 @@ scipy = ">=1.14"
 
 [[package]]
 name = "jaxlib"
-version = "0.11.2"
+version = "0.12.0"
 description = "XLA library for JAX"
 optional = false
 python-versions = ">=3.12"
 groups = ["main", "gpu", "maxdiffusion"]
 markers = "python_version >= \"3.13\""
 files = [
-    {file = "jaxlib-0.11.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:eca80e745b7623369a76b5f685676ec233a33a55d69f60fa7e57cbefcfd47adc"},
-    {file = "jaxlib-0.11.2-cp312-cp312-manylinux_2_27_aarch64.whl", hash = "sha256:d497004e80daa91b98258d645b374e8dff480bf017d2c5f3e30b1371ac8f54b1"},
-    {file = "jaxlib-0.11.2-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:6338a1f0956f60d02529404ac33a8070015a52635cdb6bbb15d0d199757077bb"},
-    {file = "jaxlib-0.11.2-cp312-cp312-win_amd64.whl", hash = "sha256:53217a47d14eedd8fb5101f16aab1dfd58067835b4fb11910b50306218c7e620"},
-    {file = "jaxlib-0.11.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:766bd90e27a0ff53b87bb9d70c73565ec80b9b1165320ccb8f72de46b85510df"},
-    {file = "jaxlib-0.11.2-cp313-cp313-manylinux_2_27_aarch64.whl", hash = "sha256:5f9d3833cb2bea5e346bd2138ba74992017e0841c63d890a0157a13f9cbf439e"},
-    {file = "jaxlib-0.11.2-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:5f3cac8d7030c1f80a182025d7171ea3b1245162a710f6e58d25ee3fe1748aac"},
-    {file = "jaxlib-0.11.2-cp313-cp313-win_amd64.whl", hash = "sha256:523e72d6e8d188b30bee9b6c62e5e9b769ac118aab5f07343588ba64d45cf9f3"},
-    {file = "jaxlib-0.11.2-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:edad6b2a18d63dc2964cc97a16d126dad41621edac79d651e0f6c8785d891369"},
-    {file = "jaxlib-0.11.2-cp314-cp314-manylinux_2_27_aarch64.whl", hash = "sha256:061468eb5ac6b6213215fd1102b237bcbc93f24480c881245b73619d0c2a321e"},
-    {file = "jaxlib-0.11.2-cp314-cp314-manylinux_2_27_x86_64.whl", hash = "sha256:1f31d8a6b1fb13181ff1807757506d10f6e7cba6b2707f7f80f73b853cb2ff22"},
-    {file = "jaxlib-0.11.2-cp314-cp314-win_amd64.whl", hash = "sha256:ea5e58673775ec7d3f46ade4e2d5a0d1673f30bb76f2a70c9b0036eafe5e4053"},
-    {file = "jaxlib-0.11.2-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:a17074e2c58fa5610f6ec61955939d53e6372f59931d75eb1010926e6d81565d"},
-    {file = "jaxlib-0.11.2-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:5b052113f7a8acb0b6f14b356c83bb0f1e7ba90df0b22bbcf476d3750de5ea22"},
-    {file = "jaxlib-0.11.2-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:d100ddb54a68d59cc3103729082324fccc4ca65e1d1b03c325208c43dd5c3c40"},
-    {file = "jaxlib-0.11.2-cp315-cp315-macosx_11_0_arm64.whl", hash = "sha256:c2563f58a5d16f6b8d68bb65c1ba83e9ec81bea0d93cd3b1a73b0a5ffe76c1bb"},
-    {file = "jaxlib-0.11.2-cp315-cp315-manylinux_2_27_aarch64.whl", hash = "sha256:8df25d031827658fa434e6a8ff5c749700711fcc1553757d4bde4621019180cb"},
-    {file = "jaxlib-0.11.2-cp315-cp315-manylinux_2_27_x86_64.whl", hash = "sha256:b2965e43db9951a4b5e11dfd437477944fa5a4cc4f4fb969725788b90ebd7c09"},
-    {file = "jaxlib-0.11.2-cp315-cp315-win_amd64.whl", hash = "sha256:75db0922c72c511c71f9d022d7dcaca0d5492d30ad815041857fc447948c91f3"},
-    {file = "jaxlib-0.11.2-cp315-cp315t-macosx_11_0_arm64.whl", hash = "sha256:dc154e762e6a5b19d5061e69397edccfea8c3acfbc831e487e2f6e403a218d3a"},
-    {file = "jaxlib-0.11.2-cp315-cp315t-manylinux_2_27_aarch64.whl", hash = "sha256:33d9c43f729f0e5b597f3fca73b2e1b342877e063a7e259ab57b6cc6e686369e"},
-    {file = "jaxlib-0.11.2-cp315-cp315t-manylinux_2_27_x86_64.whl", hash = "sha256:4b553584279c42018dae4ede7963c7db6cdb35d1f36804b18a07256146c4529f"},
+    {file = "jaxlib-0.12.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:d0008267aa542fdcb3d3bb4f95aa3fb29bdefbff18a069393a2e3e64946e7a0d"},
+    {file = "jaxlib-0.12.0-cp312-cp312-manylinux_2_27_aarch64.whl", hash = "sha256:6a7b70d0da8c5cb02fcbbbee90579a2814f990a5b369889e05b9d8f992470fc4"},
+    {file = "jaxlib-0.12.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:d419724cd5ad0da933ec56b086a04df28501fbd7b99816ef42be1335785b5134"},
+    {file = "jaxlib-0.12.0-cp312-cp312-win_amd64.whl", hash = "sha256:0d2fef3f4ce794b35ba292458cea0d33cfb39aac4fed32828bd1fca527ca2dd0"},
+    {file = "jaxlib-0.12.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:25fb46d89277e08028db9dcb542b2e2e8377cb387fa57457c58f88fb8acb4252"},
+    {file = "jaxlib-0.12.0-cp313-cp313-manylinux_2_27_aarch64.whl", hash = "sha256:4c9116ff873e23d0ea793b9d8f819435eb609e09b8ab5ad63076dc985f7da99c"},
+    {file = "jaxlib-0.12.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:595e642efe8277a1cb0dacdd0b152354a32dc54688b1446daa1d4b42e4b8a8f0"},
+    {file = "jaxlib-0.12.0-cp313-cp313-win_amd64.whl", hash = "sha256:a2f18e1fbc5755ba0107057ff8cbdcf0f81fbca6e543c700437c21d05c35db9b"},
+    {file = "jaxlib-0.12.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:0815ec4296fb933f056a0a465413ee95771b61717878e67f84bcbff0d5e1a975"},
+    {file = "jaxlib-0.12.0-cp314-cp314-manylinux_2_27_aarch64.whl", hash = "sha256:6e8b29aa8504634b46b7991e3c6b10b3b8a01ecb692896e68c3d88ce6174514c"},
+    {file = "jaxlib-0.12.0-cp314-cp314-manylinux_2_27_x86_64.whl", hash = "sha256:2f98ba66694e8f22277ad5bb7914882370ec7f9034f90db21ad0e3db9f1b6863"},
+    {file = "jaxlib-0.12.0-cp314-cp314-win_amd64.whl", hash = "sha256:8e71dd077247680984c5f8ba38aff6e43776f508a150a1bed11806016c8e2bfb"},
+    {file = "jaxlib-0.12.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:0d1d93c60bfaaf7d17dc3f41896c203212c4d66a61351788ac51365b85c1161c"},
+    {file = "jaxlib-0.12.0-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:ea9747f2f36e10fdfd69478636da349ba0b228037d1942a49a69d6dd8b29cd31"},
+    {file = "jaxlib-0.12.0-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:c76c9a512938fef8197bd84e6727fc91f525c0b325cd0ec360d079b7c3010992"},
+    {file = "jaxlib-0.12.0-cp315-cp315-macosx_11_0_arm64.whl", hash = "sha256:1d8c5dcae6fe7bd2a6388f217c507b40afe84747ea8a68d65af660f19970ce57"},
+    {file = "jaxlib-0.12.0-cp315-cp315-manylinux_2_27_aarch64.whl", hash = "sha256:b4024050ec0ee9924bdbee3f47792a8c2ac30c6e381a0f1d425205c9d620af52"},
+    {file = "jaxlib-0.12.0-cp315-cp315-manylinux_2_27_x86_64.whl", hash = "sha256:16445bff7f29b734d89b5f94652f1a9192eeb88a4d858157a28606fcc50ec7f6"},
+    {file = "jaxlib-0.12.0-cp315-cp315-win_amd64.whl", hash = "sha256:1d61a215ecb8c8ae5b89e3a81f58356b9d0c86855523b26f659648ac47559a76"},
+    {file = "jaxlib-0.12.0-cp315-cp315t-macosx_11_0_arm64.whl", hash = "sha256:9cf9466cc5848dc8e8d1c916af0b4ebae92b7cc6d2bdf7a720492cbc609f69dd"},
+    {file = "jaxlib-0.12.0-cp315-cp315t-manylinux_2_27_aarch64.whl", hash = "sha256:311b3fb7c2b5814b2ac883f3eed89263daf9a81cb156c5571e10865ec7f75f08"},
+    {file = "jaxlib-0.12.0-cp315-cp315t-manylinux_2_27_x86_64.whl", hash = "sha256:94bfa3b2998f9d9ada008d25565d757af70a2dd3e7bcb133f746ecc42fcb62f6"},
 ]
 
 [package.dependencies]

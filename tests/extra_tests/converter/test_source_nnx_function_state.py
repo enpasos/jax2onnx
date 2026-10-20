@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ from jax2onnx.plugins._source_function_state import (
 )
 from jax2onnx.plugins.plugin_system import FunctionPlugin
 from jax2onnx.plugins.flax.nnx._source_function_state import prepare_nnx_function_state
+from jax2onnx.plugins.flax.nnx import _source_function_state as nnx_state
 from jax2onnx.precision import CheckStatus, get_precision_report
 from tests.extra_tests.converter.test_source_mlp_runtime_acceptance import (
     _FLAGS,
@@ -1456,3 +1458,286 @@ def test_invalid_key_failure_metadata_survives_actual_delayed_body_retrace(
         )
         assert _configuration() == configuration
         assert _binding_context() == binding_context
+
+
+def _graph_api_records(explicit_graph: bool) -> tuple[Any, Any]:
+    parameter = inspect.Parameter
+    split = (
+        ("node", parameter.POSITIONAL_OR_KEYWORD, parameter.empty),
+        ("filters", parameter.VAR_POSITIONAL, parameter.empty),
+    )
+    iteration = (("node", parameter.POSITIONAL_ONLY, parameter.empty),)
+    graph = ("graph", parameter.KEYWORD_ONLY, None)
+    return (
+        ((*split, graph), (*iteration, graph)) if explicit_graph else (split, iteration)
+    )
+
+
+@pytest.mark.parametrize("explicit_graph", [False, True], ids=["inherent", "explicit"])
+def test_nnx_graph_protocol_preserves_exact_native_call_shapes(
+    explicit_graph: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = object()
+    partition = (object(), object())
+    visited = (((), owner),)
+    calls = []
+
+    def split(value: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(("split", value, args, kwargs))
+        return partition
+
+    def iteration(value: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(("iteration", value, args, kwargs))
+        return iter(visited)
+
+    monkeypatch.setattr(
+        nnx_state, "_NNX_GRAPH_SIGNATURES", _graph_api_records(explicit_graph)
+    )
+    monkeypatch.setattr(nnx, "split", split)
+    monkeypatch.setattr(nnx, "iter_graph", iteration)
+    assert nnx_state._nnx_graph_protocol() is explicit_graph
+    assert nnx_state._split_graph(owner) is partition
+    assert tuple(nnx_state._iter_graph(owner)) == visited
+    keywords = {"graph": True} if explicit_graph else {}
+    assert calls == [("split", owner, (), keywords), ("iteration", owner, (), keywords)]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "mixed-split",
+        "mixed-iteration",
+        "graph-kind",
+        "graph-default",
+        "extra",
+        "missing",
+        "node-name",
+        "record-type",
+        "node-default",
+    ],
+)
+def test_nnx_graph_protocol_rejects_unknown_schema_before_native_calls(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    split, iteration = _graph_api_records(True)
+    old_split, old_iteration = _graph_api_records(False)
+    parameter = inspect.Parameter
+    if fault == "mixed-split":
+        split = old_split
+    elif fault == "mixed-iteration":
+        iteration = old_iteration
+    elif fault == "graph-kind":
+        split = (*split[:-1], ("graph", parameter.POSITIONAL_OR_KEYWORD, None))
+    elif fault == "graph-default":
+        split = (*split[:-1], ("graph", parameter.KEYWORD_ONLY, False))
+    elif fault == "extra":
+        split = (*split, ("extra", parameter.KEYWORD_ONLY, None))
+    elif fault == "missing":
+        split = (split[0], split[2])
+    elif fault == "node-name":
+        iteration = (
+            ("owner", parameter.POSITIONAL_ONLY, parameter.empty),
+            iteration[1],
+        )
+    elif fault == "record-type":
+        iteration = list(iteration)
+    else:
+        iteration = (("node", parameter.POSITIONAL_ONLY, None), iteration[1])
+    monkeypatch.setattr(nnx_state, "_NNX_GRAPH_SIGNATURES", (split, iteration))
+    calls = []
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        calls.append(True)
+        pytest.fail("unknown graph protocol invoked a native graph operation")
+
+    monkeypatch.setattr(nnx, "split", forbidden)
+    monkeypatch.setattr(nnx, "iter_graph", forbidden)
+    with pytest.raises(SourcePrecisionError):
+        nnx_state._nnx_graph_protocol()
+    for operation in (nnx_state._split_graph, nnx_state._iter_graph):
+        with pytest.raises(SourcePrecisionError):
+            operation(object())
+    assert not calls
+
+
+def _variable_metadata_record(old: bool) -> tuple[Any, Any, Any]:
+    roles = ("has_ref", "is_hijax") if old else ("ref", "hijax")
+    fields = frozenset((*roles, "eager_sharding", *(("is_mutable",) if old else ())))
+    metadata: dict[str, Any] = {name: True for name in fields}
+    metadata.update({name: False for name in roles})
+    # Opposite-version names remain ordinary user metadata in this schema.
+    metadata.update(
+        {
+            name: object()
+            for name in (("ref", "hijax") if old else ("has_ref", "is_hijax"))
+        }
+    )
+    metadata["witness"] = {"tags": [object(), object()]}
+    return roles, fields, metadata
+
+
+@pytest.mark.parametrize("old", [False, True], ids=["current", "minimum"])
+def test_nnx_variable_roles_preserve_full_native_metadata_and_user_aliases(
+    old: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles, fields, metadata = _variable_metadata_record(old)
+    before = dict(metadata)
+    monkeypatch.setattr(nnx.Variable, "required_metadata", fields)
+    assert nnx_state._nnx_variable_roles() == roles
+    nnx_state._require_ordinary_variable_metadata(metadata)
+    assert metadata.keys() == before.keys()
+    assert all(metadata[name] is value for name, value in before.items())
+
+
+@pytest.mark.parametrize("old", [False, True], ids=["current", "minimum"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-ref",
+        "missing-hijax",
+        "missing-other",
+        "ref-int",
+        "hijax-int",
+        "ref",
+        "hijax",
+    ],
+)
+def test_nnx_variable_roles_reject_missing_nonbool_and_mutable_reference_flags(
+    old: bool, fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles, fields, metadata = _variable_metadata_record(old)
+    if fault.startswith("missing"):
+        name = (
+            roles[0]
+            if fault == "missing-ref"
+            else (
+                roles[1]
+                if fault == "missing-hijax"
+                else "is_mutable" if old else "eager_sharding"
+            )
+        )
+        del metadata[name]
+    else:
+        metadata[roles[0 if fault.startswith("ref") else 1]] = (
+            0 if fault.endswith("int") else True
+        )
+    before = dict(metadata)
+    monkeypatch.setattr(nnx.Variable, "required_metadata", fields)
+    with pytest.raises(SourcePrecisionError):
+        nnx_state._require_ordinary_variable_metadata(metadata)
+    assert metadata.keys() == before.keys()
+    assert all(metadata[name] is value for name, value in before.items())
+
+
+@pytest.mark.parametrize("fault", ["mixed", "missing", "extra"])
+def test_nnx_variable_roles_reject_unknown_required_metadata_schema(
+    fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, fields, metadata = _variable_metadata_record(False)
+    fields = (
+        fields | {"has_ref", "is_hijax", "is_mutable"}
+        if fault == "mixed"
+        else fields - {"eager_sharding"} if fault == "missing" else fields | {"extra"}
+    )
+    monkeypatch.setattr(nnx.Variable, "required_metadata", fields)
+    with pytest.raises(SourcePrecisionError):
+        nnx_state._nnx_variable_roles()
+    with pytest.raises(SourcePrecisionError):
+        nnx_state._require_ordinary_variable_metadata(metadata)
+
+
+@pytest.mark.parametrize("failure_call", [1, 2], ids=["preflight", "partial-update"])
+def test_nnx_shared_owner_rollback_preserves_native_graph_under_ambient_tree(
+    failure_call: int,
+) -> None:
+    # Reuse the complete original identity/metadata/no-advance/partial-failure
+    # assertions. Only their state reader requests graph semantics explicitly.
+    explicit_graph = nnx_state._nnx_graph_protocol()
+    configuration = _configuration()
+    if explicit_graph:
+        before = nnx.set_graph_mode.current_value()
+        original_snapshot = array_snapshot
+        original_no_tracers = _no_tracers
+        observations = []
+
+        def graph_snapshot(owner: Any) -> Any:
+            assert nnx.set_graph_mode.current_value() is False
+            with nnx.set_graph_mode(True):
+                result = original_snapshot(owner)
+            assert nnx.set_graph_mode.current_value() is False
+            observations.append(True)
+            return result
+
+        def graph_no_tracers(owner: Any) -> None:
+            assert nnx.set_graph_mode.current_value() is False
+            with nnx.set_graph_mode(True):
+                original_no_tracers(owner)
+            assert nnx.set_graph_mode.current_value() is False
+            observations.append(True)
+
+        with (
+            nnx.set_graph_mode(False),
+            patch.dict(
+                globals(),
+                {"array_snapshot": graph_snapshot, "_no_tracers": graph_no_tracers},
+            ),
+        ):
+            assert nnx.set_graph_mode.current_value() is False
+            test_nnx_state_update_failure_rolls_back_values_variable_identities_and_aliases(
+                failure_call
+            )
+            assert nnx.set_graph_mode.current_value() is False
+        assert observations
+        assert nnx.set_graph_mode.current_value() is before
+    else:
+        # The older native API always uses graph semantics and has no tree-mode
+        # context. This remains a full native assertion path, with no skip.
+        test_nnx_state_update_failure_rolls_back_values_variable_identities_and_aliases(
+            failure_call
+        )
+        assert nnx_state._nnx_graph_protocol() is False
+    assert _configuration() == configuration
+
+
+def test_nnx_native_graph_preserves_actual_owner_cycle_and_variable_aliases() -> None:
+    with _runtime_configuration(False), _deny_runtime():
+        owner = _UpdatePair()
+        owner.cycle = owner
+        variable = owner.first
+        raw = variable.get_raw_value()
+        nested, pair = raw["nested"], raw["nested"][1]
+        metadata = variable.get_metadata()
+        witness, tags = (
+            metadata["witness_metadata"],
+            metadata["witness_metadata"]["tags"],
+        )
+        items = tuple(tags)
+        explicit_graph = nnx_state._nnx_graph_protocol()
+        mode = nnx.set_graph_mode(False) if explicit_graph else nullcontext()
+        with mode:
+            if explicit_graph:
+                assert nnx.set_graph_mode.current_value() is False
+            prepared = prepare_nnx_function_state(owner, type(owner).__call__, 918)
+            assert prepared is not None
+            descriptor, initial = prepared
+            clone = nnx.merge(
+                descriptor.graphdef, descriptor._state(initial), copy=True
+            )
+            if explicit_graph:
+                assert nnx.set_graph_mode.current_value() is False
+        assert clone is not owner and clone.cycle is clone
+        assert clone.alias is clone.first and clone.first is not variable
+        copied = clone.first.get_raw_value()["nested"]
+        assert copied[0] is copied[1][0]
+        assert owner.cycle is owner and owner.alias is owner.first is variable
+        assert variable.get_raw_value() is raw and raw["nested"] is nested
+        assert nested[1] is pair and nested[0] is pair[0]
+        actual_metadata = variable.get_metadata()
+        assert actual_metadata.keys() == metadata.keys()
+        assert all(actual_metadata[name] is value for name, value in metadata.items())
+        assert (
+            actual_metadata["witness_metadata"] is witness and witness["tags"] is tags
+        )
+        assert all(
+            actual is original for actual, original in zip(tags, items, strict=True)
+        )

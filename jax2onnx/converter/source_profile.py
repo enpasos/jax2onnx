@@ -437,16 +437,17 @@ def _validate_erfc(
 ) -> None:
     """The native unary contract; target numerical evidence remains separate."""
     _arity(eqn, 1, 1, site)
-    _params(eqn, set(), site)
+    _params(eqn, {"accuracy"}, site)
     site.require(
         site.opset in (23, 26),
         "erfc is outside the audited opset subset",
         "explicit opset 23 or 26 for the typed Erfc representation",
     )
     site.require(
-        all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
-        "erfc placement is outside the profile",
-        "native Erfc without parameters and with unspecified placement",
+        eqn.params.get("accuracy") is None
+        and all(eqn.params.get(name) is None for name in _PLACEMENT_PARAMS),
+        "erfc accuracy or placement is outside the profile",
+        "native Erfc with absent/None accuracy and unspecified placement",
     )
     source, target = inputs[0], outputs[0]
     _float_values((source,), site)

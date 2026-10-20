@@ -1,9 +1,98 @@
 # Source Precision Implementation Work Plan
 
-Status: accepted implementation contract, updated 2026-10-20. Completion means consistent
-source-precision behavior across the existing functionality, with genuine
-technical limits stated explicitly. The private foundation, shared converter,
-and CPU evidence module are committed and reviewed. Full coverage remains open.
+Status: accepted implementation contract, updated 2026-10-21; **WAVE-2 JAX 0.12
+PRIMARY FULL AND SECONDARY AFFECTED SELECTION PASS; MINIMUM REMAINS FAILED**.
+This is a local WIP progress snapshot. Completion still requires consistent
+source-precision behavior across existing functionality, with concrete technical
+limits stated explicitly. Public behavior remains **LEGACY**; all B–F acceptance,
+the public transition and qualification of the declared minimum remain open.
+
+The current JAX/JAXLIB **0.12.0** PRIMARY full passes **11,518 cases / 34,554
+phases**, zero failures/errors/skips (ROOT `80151` / `723e37`, exit0), with each
+identity and phase exactly once and source/inputs held. Independent review
+confirms ordered retention of **11,322 / 11,427 / 11,482** historical identities,
+including all 44 first-run failures. The separate preliminary Git-newline
+postcheck failure is retained; exact HEAD/status were later confirmed without
+repeating the native full. Three-stack metadata first gates and **four positive /
+26 negative synthetic controls** pass; those controls are not numerical proof.
+
+The fresh Python 3.11 SECONDARY affected20 selection passes **1,328 cases /
+3,984 phases**, zero failures/errors/skips (ROOT `18462` / `11c651`, exit0),
+with every collected identity's three phases once and source/inputs held.
+Independent review confirms the phases, XML and retained ordered affected IDs.
+Modern PRIMARY full and affected SECONDARY qualification and their independent
+actual reviews are complete. The
+complete SECONDARY suite was not run; no all-supported-stack accepted checkpoint
+follows from these results. Normal hooks and strict documentation checks are
+required before committing a local WIP progress snapshot.
+
+The first JAX 0.12 full remains **FAILED**: **11,438 PASS / 44 call failures /
+zero errors or skips**, **11,482 cases / 34,446 phases**, exit1. All identities
+and phases ran; raw `schedule_complete=false` denotes acceptance failure.
+The five-file strict-default-None Erfc and exact diagnostic-tuple correction is
+applied locally. All **24** subnormal numerical reports remain **FAILED**, with
+original models, feeds, bitwise criteria, words/hashes and raising gates.
+The repair selection passed **117 cases per PRIMARY and SECONDARY**, zero
+failures/errors/skips, without instrumented phase counts.
+
+Quality passes **all eight checks** under held source epoch
+`dbfc367467f4ef929f3fd23803f13fd2cf54acb1d533f2c9455bd70c659fc18d`:
+**953 Python / 164 other inputs**, **582 production Python files**, **557 typed
+source files**; **17 RNG factories** is an inventory count. Native Erfc's
+**28 cases / eight older public-keyword absences / 16 within-stack raw-StableHLO
+and eager/compiled comparisons** retain optimized-HLO differences and establish
+no cross-version or ONNX proof. Actual Sign captures and the **30-file / six-ELF**
+inventory leave loaded-code and executing-worker MXCSR ownership open. Prior
+collector and numerical failures remain. The
+[canonical current status and exact evidence](poc/source_integration_findings.md#minimum-version-result-and-current-jax-upgrade)
+bind these separate scopes.
+
+The v7 declared-minimum JAX **0.8.1** / Flax **0.12.1** full remains **FAILED
+and unaccepted**: **223 failures / 97 errors / one skip / 11,419 cases**, pytest
+exit1, with held source/inputs and the lost outer-tool handle documented.
+The historical **11,427-case PRIMARY pass used JAX 0.11.2**. Current floors
+remain **JAX >=0.8.1 / Flax >=0.12.1**, preserving **Python 3.11**. The user's
+roughly-half-of-downloads report is a planning constraint, not newly measured
+telemetry. A **JAX-only 0.10.2 floor proposal** awaits explicit decision;
+**Flax 0.12.8 is the actually qualified secondary pairing, not a required
+companion floor**. The Flax floor remains 0.12.1; its metadata allows
+`jax>=0.8.1` without an upper bound, while its pairing with a proposed JAX 0.10.2
+floor requires separate qualification.
+
+## Current binding minimum-version obligation
+
+The original obligation below remains binding before generalized contractions.
+Its isolated import failure is historical; subsequent import repair did not
+close actual minimum-stack full qualification. Until an explicit user policy
+change, the declared JAX >=0.8.1 support contract remains in force.
+
+The next separate packet repairs a concrete compatibility defect at the
+advertised **JAX 0.8.1 minimum**, before generalized contractions. An isolated
+native probe actually failed to import the compatibility module's newer PRNG
+path; this supersedes the earlier minimum-version UNVERIFIED status. The repair
+must own the old/new PRNG bindings, native aval and equation-context protocols,
+all 21/22 JIT configuration fields and the older scan parameters centrally,
+with meaningful corruption/restoration controls and actual minimum-stack
+qualification. Keep JAX >=0.8.1, original native failures and all existing
+functionality; no public selector, legacy fallback or numerical-policy waiver
+is authorized. Full B–F migration and public activation remain open.
+
+The immediate gates are:
+
+1. Prepare a **local WIP progress snapshot** with normal hooks and strict
+   documentation checks, explicitly distinct from minimum qualification and
+   all-supported-stack acceptance. Any source change requires fresh affected
+   and quality gates.
+2. Complete the still-binding minimum repair and qualification above before
+   generalized contractions, subject only to an explicit user support-policy
+   decision. Continue all existing-functionality, fixed-source and full B–F
+   gates before any public transition; no selector, fallback or waiver is added.
+
+## Historical committed checkpoint context
+
+The following paragraphs retain their original committed-checkpoint scopes.
+Their then-current stack and then-next-packet wording is historical; the current
+minimum qualification failure and still-binding obligation are stated above.
 
 The bounded canonical native capture adapter is committed at `98ace5f9`, with
 **859 cases / 2,577 phases on each installed stack**, including 207 capture controls and all 652 retained
@@ -18,17 +107,6 @@ The complete PRIMARY suite passes **11,322 cases / 33,966 phases**, zero
 failures/errors/skips, retaining all 11,115 prior passing IDs and adding 207.
 Quality and all seven normal code hooks pass; all **945 Python / 164 other
 inputs** retain their qualified contents through commit.
-
-The next separate packet repairs a concrete compatibility defect at the
-advertised **JAX 0.8.1 minimum**, before generalized contractions. An isolated
-native probe actually failed to import the compatibility module's newer PRNG
-path; this supersedes the earlier minimum-version UNVERIFIED status. The repair
-must own the old/new PRNG bindings, native aval and equation-context protocols,
-all 21/22 JIT configuration fields and the older scan parameters centrally,
-with meaningful corruption/restoration controls and actual minimum-stack
-qualification. Keep JAX >=0.8.1, original native failures and all existing
-functionality; no public selector, legacy fallback or numerical-policy waiver
-is authorized. Full B–F migration and public activation remain open.
 
 The private shared native result check is committed at `00d0a43c`, with
 **627 cases / 1,881 phases on each supported stack**, the complete PRIMARY

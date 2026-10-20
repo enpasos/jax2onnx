@@ -29,6 +29,7 @@ from jax2onnx._compat.jax import (
     is_selected_prng_key_dtype,
     is_selected_threefry_impl,
     is_unpartitioned_prng_placement,
+    native_mul_parameter_names,
 )
 from jax2onnx.converter.source_representation import (
     normalized_shape_dimensions,
@@ -420,7 +421,12 @@ def prove_native_uniform(eqn: Any) -> _Uniform | None:
     _aval(outputs[8], dtype, shape, False)
     for index, operands, expected_shape, parameters in (
         (9, (outputs[3], outputs[2]), scalar_shape, {}),
-        (10, (outputs[8], outputs[9]), shape, {"out_dtype": None}),
+        (
+            10,
+            (outputs[8], outputs[9]),
+            shape,
+            {name: None for name in native_mul_parameter_names()},
+        ),
         (11, (outputs[10], outputs[2]), shape, {}),
         (12, (outputs[2], outputs[11]), shape, {}),
     ):

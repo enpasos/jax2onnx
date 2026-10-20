@@ -47,6 +47,10 @@ class ErfcPlugin(PrimitiveLeafPlugin):
     """Preserve the typed SOURCE expression and the existing LEGACY lowering."""
 
     def lower(self, ctx: LoweringContextProtocol, eqn: JaxprEqn) -> None:
+        if eqn.params.get("accuracy") is not None:
+            raise NotImplementedError(
+                "Erfc requires absent/None accuracy; explicit accuracy is unsupported"
+            )
         if ctx.precision_policy is PrecisionPolicy.SOURCE:
             self._lower_source(ctx, eqn)
             return
@@ -92,12 +96,11 @@ class ErfcPlugin(PrimitiveLeafPlugin):
         ctx.bind_value_for_var(out_var, result)
 
     def _lower_source(self, ctx: NativeLoweringContext, eqn: JaxprEqn) -> None:
-        if set(eqn.params) - {"sharding", "out_sharding"} or any(
+        if set(eqn.params) - {"accuracy", "sharding", "out_sharding"} or any(
             value is not None for value in eqn.params.values()
         ):
             raise NotImplementedError(
-                "SOURCE erfc requires its native parameter-free contract "
-                "and unspecified placement"
+                "SOURCE erfc requires absent/None accuracy and unspecified placement"
             )
         x = ctx.require_value_for_var(eqn.invars[0])
         outvar = eqn.outvars[0]

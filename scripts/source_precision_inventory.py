@@ -375,6 +375,11 @@ def canonical_contract(
     if typename == "jax2onnx.converter.typing_support.RngTrace":
         return {"rng_kind": value.kind, "seed": value.seed}
     if isinstance(value, (types.FunctionType, types.BuiltinFunctionType)):
+        from jax2onnx._compat.jax import native_logistic_metadata_contract
+
+        logistic = native_logistic_metadata_contract(value)
+        if logistic is not None:
+            return logistic
         result = {"callable": f"{value.__module__}.{value.__qualname__}"}
         if isinstance(value, types.FunctionType):
             if (

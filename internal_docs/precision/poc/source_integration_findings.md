@@ -1,5 +1,134 @@
 # Private source-policy integration
 
+## Minimum-version result and current JAX upgrade
+
+Status, 2026-10-21: **WAVE-2 JAX 0.12 PRIMARY FULL AND SECONDARY AFFECTED
+SELECTION PASS; DECLARED MINIMUM REMAINS FAILED**. This is a local WIP progress
+snapshot. Public behavior remains **LEGACY**; all-supported-stack acceptance,
+full B–F migration and the public transition remain open. These finite results
+support only a local WIP progress snapshot, not a completed migration checkpoint.
+
+The current JAX/JAXLIB **0.12.0** PRIMARY full run passes **11,518 cases /
+34,554 phases**, **zero failures, errors or skips**, in **801.272 seconds**
+(ROOT `80151` / `723e37`, exit0). ROOT and independent review verify each
+collected identity's setup/call/teardown exactly once, matching controller/four
+worker collections, normal plugin autoload, four workers and `loadscope`, with
+source and inputs held. The original **11,322 / 11,427 / 11,482** identity
+sequences remain in order, including all 44 first-run failures; 36 new Erfc
+controls follow the first 0.12 collection. A preliminary pure postcheck failed
+because it compared stripped and unstripped Git newlines; the exact saved
+HEAD/status were subsequently verified. That failed postcheck is retained;
+the native full run was not repeated.
+
+The fresh wave-2 first gates separately pass on all three installed native
+stacks, with **four positive / 26 negative synthetic applicability controls**.
+Those are metadata and synthetic-control results, not numerical proof. The
+Python 3.11 SECONDARY affected-20-file selection passes **1,328 cases / 3,984
+phases**, **zero failures, errors or skips**, in **348.692 seconds** (ROOT
+`18462` / `11c651`, exit0). ROOT and independent review verify each collected
+identity's three phases exactly once, the retained ordered affected identities,
+matching XML and held source/inputs. Its actual collection was ROOT `92364` /
+`53fbe2`, exit0.
+This is an affected selection on JAX/JAXLIB 0.10.2 and Flax 0.12.8, not a
+complete SECONDARY suite or declared-minimum qualification.
+
+The first JAX 0.12 PRIMARY full run remains closed and **FAILED**:
+**11,438 PASS / 44 call failures / zero errors or skips**, **11,482 cases /
+34,446 phases** (ROOT `1450` / `d7b9ac`, exit1), with every identity and phase
+verified and held source/inputs. Its raw `schedule_complete=false` is an
+acceptance-success flag, not evidence of omitted execution. The 36 Erfc
+guard/category failures and eight diagnostic-tuple assertions retain their
+original source epoch and failed status.
+
+The reviewed five-file correction is applied locally. Erfc admits only absent
+or singleton-`None` default accuracy; every non-None request rejects before
+either policy accesses values or IR. Its expression, coefficients and local
+low-precision casts are unchanged. Two exact JAX 0.12.0 / ORT 1.31.0 tuples
+record observed subnormal deviations. All **24** replay reports (**eight
+matrix / 16 signed Min/Max**) remain numerically **FAILED**, with original
+words/hashes, bitwise criteria and actual raising gates. Passing diagnostic
+controls do not relabel those reports. The earlier repair selection passed
+**117 cases on PRIMARY and 117 on SECONDARY**, zero failures/errors/skips
+(ROOT `73657` / `7c499d`, exit0); those ordinary focused runs have **no
+instrumented phase-count proof**.
+
+Current quality passes **all eight checks**, holding **953 Python / 164 other
+inputs**, **1,117 total**, including **582 production Python files**, under
+source epoch `dbfc367467f4ef929f3fd23803f13fd2cf54acb1d533f2c9455bd70c659fc18d`.
+Typing covers **557 source files**; **17 RNG factories** is an inventory count,
+not 17 executed tests. Earlier 94/94 components, 66/64 context, 560-case SOURCE
+and metadata gates retain their separate source epochs. Earlier 67-PASS/one-FAIL
+and 64-PASS/one-FAIL component executions remain failed history.
+
+The distinct native Erfc v2 capture records **28 cases**, **eight genuine older
+public-keyword absences**, and **16 available within-stack default/None
+comparisons** with identical raw **StableHLO** and exact eager/compiled output
+bytes on its introduced five-value probe. Raw optimized-HLO differences remain
+preserved. This is neither cross-version bitwise equivalence nor SOURCE/ONNX/ORT
+or universal numerical proof. The failed v1 collector is retained separately.
+Actual native Sign stage captures and the bounded **30-file / six-ELF** offline
+inventory preserve their own source epoch. Loaded/executed Sign instruction
+ownership, relocation-resolved loaded RX bytes and the actual executing worker's
+MXCSR/operand state remain open; original Sign numerical reports remain **FAILED**.
+
+The v7 declared-minimum JAX **0.8.1** / Flax **0.12.1** full run remains
+**FAILED and unaccepted**: **223 failures / 97 errors / one skip**, **11,419
+cases**, pytest exit1, with source/inputs held. ROOT observed all six original
+OS processes absent. Tool handle `31003` was lost; the OS record does not invent
+an unavailable outer tool exit. The historical v7 PRIMARY **11,427-case /
+34,281-phase pass used JAX 0.11.2**, distinct from both current 0.12 epochs.
+
+Declared floors remain **JAX >=0.8.1 / Flax >=0.12.1**, preserving **Python
+3.11**. The user reports roughly half of downloads use Python 3.11; this is a
+planning constraint, not independently measured telemetry here. A **JAX-only
+0.10.2 floor** is a proposal awaiting explicit user decision. **Flax 0.12.8 is
+the actually qualified secondary pairing, not a required companion floor**.
+Flax 0.12.1 declares `jax>=0.8.1` without an upper bound; retaining that oldest
+Flax alongside a proposed JAX 0.10.2 floor needs separate actual qualification.
+
+Before any generalized-contraction packet, the current minimum-repair
+obligations remain binding: central old/new PRNG, native aval/equation-context,
+JIT configuration and older scan ownership, meaningful corruption/restoration
+controls and actual minimum qualification. The exact original obligation is
+retained in the [work plan](../precision_implementation_work_plan.md#current-binding-minimum-version-obligation).
+No public selector, legacy fallback or numerical-policy waiver is authorized.
+The original **1,852-row / 3,704-caller** SOURCE baseline remains unchanged;
+the polynomial adapter adds no accepted row. Modern PRIMARY full and affected
+SECONDARY qualification and their independent actual reviews are complete.
+Normal hooks and strict documentation checks are required before
+committing a **local WIP progress snapshot**. That snapshot does not
+qualify the failed minimum or complete the existing-functionality, fixed-source,
+full B–F or public-transition targets.
+
+| Evidence | SHA256 |
+| --- | --- |
+| Current JAX 0.12 full raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax012-compat-v2/run/root-receipt.json` | `50edccc8d45141120436b05ae4cde387c11e4e5361ee0d6a0bda0a6d8f7ebc89` |
+| ROOT current full actual terminal: `/tmp/jax2onnx-jax012-root-integration-v2/root-full-primary-actual-terminal-v1.json` | `c65e7c634869dd3abc69b3278431bc75c6e9c2f0bff8b3ddeb838b12109d154c` |
+| Independent current full actual audit: `/tmp/jax2onnx-astra-jax012-wave2-primary-full-actual-audit-v1.json` | `68a96c45c19e8afbfaa6fee1c8c86629ae63518f3b5da69173fc9835a8dccba7` |
+| Wave-2 first gates/control actual receipt: `/tmp/jax2onnx-jax012-root-integration-v2/root-first-gates-and-controls-actual-v1.json` | `ea9d84c6867fec6b95d05d5f547cb44ad283e61ee0531e773460523cb342ac3c` |
+| Independent wave-2 first gates and collection audit: `/tmp/jax2onnx-astra-jax012-wave2-first-gates-collection-audit-v1.json` | `d5050d3a3b6e9d84bdfc65034b6bd926d0ddf0e5c24e5e59fbd64e53f79e41b1` |
+| SECONDARY affected20 collection only: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-affected20-secondary-jax012-compat-v2/collect/root-receipt.json` | `b2f6009c13066a5336ccfd0b59ac96ebd7fa51ae293a4b3eaa4f20f3035b615f` |
+| SECONDARY affected20 actual raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-affected20-secondary-jax012-compat-v2/run/root-receipt.json` | `22ef4be3ad177bafe79f6b698f4a8335b3e6ea25e37949e9b01e19bbebe75eaa` |
+| ROOT SECONDARY affected20 actual terminal: `/tmp/jax2onnx-jax012-root-integration-v2/root-affected20-secondary-actual-terminal-v1.json` | `cb382bf6022fd4b46590ed7e44b1a5172bbcbf2dd7d01757f8233a3a74e4865e` |
+| Independent SECONDARY affected20 actual audit: `/tmp/jax2onnx-astra-jax012-wave2-secondary-affected20-actual-audit-v1.json` | `9b8d7508d7167075caf075ed310c483baabc948b5a9bc3a270ad7576c507a9c6` |
+| First JAX 0.12 failed full raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax012-compat-v1/run/root-receipt.json` | `b8009270de1bea966ca152fe42f6675eaf7ccaef6b4c3ffc83df617e94be3fb1` |
+| Applied exact five-file repair: `/tmp/jax2onnx-jax012-root-integration-v1/root-erfc-tuples-application-v1.json` | `43a8eb8afb7ae161458df71946d4e8210b822891e5a548acafdde454b01223bf` |
+| Independent 24 FAILED diagnostic witness audit: `/tmp/jax2onnx-astra-jax012-subnormal-witness-audit-v1.json` | `7499a7a680de8a3d401751cdce216390398df9778e72184b25911649ebe49440` |
+| ROOT 117/117 focused terminal; phases not instrumented: `/tmp/jax2onnx-jax012-root-integration-v1/root-erfc-focused-terminal-v1.json` | `a956b91683c36c5c3fbc32d7b99033954db3fdf485239a960ad18616f39c3d25` |
+| Wave-2 eight-check quality: `/tmp/jax2onnx-jax012-root-integration-v2/root-production-quality-v1.json` | `19b7d98f4e2cdd46b26c05b33828258f93cb64bacc17c9beb23c6360566088d3` |
+| Held source/input pins: `/tmp/jax2onnx-jax012-root-integration-v2/source-pins-candidate-v2.json` | `dbfc367467f4ef929f3fd23803f13fd2cf54acb1d533f2c9455bd70c659fc18d` |
+| Independent native Erfc v2 audit: `/tmp/jax2onnx-astra-erfc-native-schema-actual-audit-v2.json` | `f3b1265bfa5229c134555fe3bef263c6ea1ec63375666486a25fa2e20eb5b910` |
+| Independent native Sign stage-capture audit: `/tmp/jax2onnx-astra-sign-primary-stage-capture-actual-audit-v1.json` | `01d7dc149725350ff0add3e119f3f18c6af87cf7ce93cd60221bdc8302d93adb` |
+| Independent Sign offline-inventory audit: `/tmp/jax2onnx-astra-sign-primary-offline-actual-audit-v1.json` | `22edbcc918d546a6887bb690f7656c7e6ab3b45815a5b1535ce9de4aafd1ca5c` |
+| Failed v7 minimum raw receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-minimum-jax081-compat-v7/run/root-receipt.json` | `f6a92ab81ad80a009fc927fa852000346e4649d2b2547da45fe8e69d6b11e78f` |
+| ROOT minimum OS-terminal limitation: `/tmp/jax2onnx-jax081-compat-root-integration-v7/root-full-minimum-actual-os-terminal-v1.json` | `936b59c9d3c1d3b1d97412229d187fe7d7c2db48fb95daed168b77f16555505b` |
+| Historical JAX 0.11.2 v7 full receipt: `/dev/shm/jax2onnx-cnn-scientific-runtime-v1/checkpoint-full-primary-jax081-compat-v7/run/root-receipt.json` | `c284daa8a13c44c73c211c899bbb08f4d14b956ca0e31c4b5525440e966e8f30` |
+
+All prior draft evidence bindings remain in the external manifest. The complete
+earlier findings body below remains byte-identical. Its installed-stack scopes,
+minimum-import diagnostic and then-next-packet wording describe their original
+epochs; the current status above supersedes those earlier planning statements.
+
 ## Canonical native capture checkpoint
 
 Status: **COMMITTED LOCAL CODE CHECKPOINT `98ace5f9`; ACTUAL AFFECTED

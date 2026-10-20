@@ -58,6 +58,14 @@ def _maybe_static_extent(value: Any) -> int | None:
     return None
 
 
+def _literal_zero_reshape_attributes(
+    ctx: LoweringContextProtocol,
+) -> Dict[str, Any] | None:
+    # These shapes contain explicit nonnegative extents, without -1. A zero
+    # means an empty dimension, rather than copying the source dimension.
+    return {"allowzero": 1} if ctx.opset >= 14 else None
+
+
 def _static_elementwise_indices_in_bounds(
     indices_val: ir.Value,
     operand_shape: Sequence[Any],
@@ -99,6 +107,8 @@ class ScatterSpec:
     update_window_dims: Tuple[int, ...]
     inserted_window_dims: Tuple[int, ...]
     scatter_dims_to_operand_dims: Tuple[int, ...]
+    operand_batching_dims: Tuple[int, ...] = ()
+    scatter_indices_batching_dims: Tuple[int, ...] = ()
 
 
 def _normalize_dimension_numbers(dnums_like: Any) -> ScatterSpec:
@@ -120,12 +130,173 @@ def _normalize_dimension_numbers(dnums_like: Any) -> ScatterSpec:
         update_window_dims=_get("update_window_dims"),
         inserted_window_dims=_get("inserted_window_dims"),
         scatter_dims_to_operand_dims=_get("scatter_dims_to_operand_dims"),
+        operand_batching_dims=_get("operand_batching_dims"),
+        scatter_indices_batching_dims=_get("scatter_indices_batching_dims"),
     )
+
+
+def _expand_batched_elementwise_indices(
+    ctx: Any,
+    *,
+    indices_val: ir.Value,
+    operand_shape: Sequence[Any],
+    indices_shape: Sequence[Any],
+    updates_shape: Sequence[Any],
+    spec: ScatterSpec,
+    mode: Any,
+) -> tuple[ir.Value, tuple[Any, ...], ScatterSpec]:
+    """Make native batch coordinates explicit for a full point scatter.
+
+    Batch axes address separate operand slices rather than update windows.
+    Form their runtime coordinate columns without changing update values or
+    their row-major order, then reuse the ordinary elementwise reduction.
+    """
+    operand_batch = spec.operand_batching_dims
+    indices_batch = spec.scatter_indices_batching_dims
+    if not operand_batch and not indices_batch:
+        return indices_val, tuple(indices_shape), spec
+    rank = len(operand_shape)
+    indices_rank = len(indices_shape)
+    scatter_axes = spec.scatter_dims_to_operand_dims
+    if not (
+        operand_batch
+        and len(operand_batch) == len(indices_batch)
+        and len(set(operand_batch)) == len(operand_batch)
+        and operand_batch == tuple(sorted(operand_batch))
+        and len(set(indices_batch)) == len(indices_batch)
+        and all(0 <= axis < rank for axis in operand_batch)
+        and all(0 <= axis < indices_rank - 1 for axis in indices_batch)
+        and len(set(scatter_axes)) == len(scatter_axes)
+        and not set(operand_batch) & set(scatter_axes)
+        and set(operand_batch) | set(scatter_axes) == set(range(rank))
+        and not spec.update_window_dims
+        and spec.inserted_window_dims == tuple(sorted(scatter_axes))
+        and indices_rank >= 2
+        and indices_shape[-1] == len(scatter_axes)
+        and tuple(updates_shape) == tuple(indices_shape[:-1])
+        and all(
+            operand_shape[operand_axis] == indices_shape[indices_axis]
+            for operand_axis, indices_axis in zip(
+                operand_batch, indices_batch, strict=True
+            )
+        )
+    ):
+        raise NotImplementedError(
+            "unsupported batched point scatter dimensions or shapes"
+        )
+    mode_name = getattr(mode, "name", None)
+    if mode_name not in {"FILL_OR_DROP", "PROMISE_IN_BOUNDS"}:
+        raise NotImplementedError(
+            "batched point scatter mode requires an exact supported adapter"
+        )
+
+    indices_i64 = _cast_to_i64(ctx, indices_val, "scatter_batched_indices_i64")
+    _stamp_type_and_shape(indices_i64, tuple(indices_shape))
+    indices_shape_val = _shape_of(ctx, indices_i64, "scatter_batched_indices_shape")
+    prefix_axes = _const_i64(
+        ctx, np.arange(indices_rank - 1, dtype=np.int64), "scatter_batched_prefix_axes"
+    )
+    prefix_shape = _builder_op(
+        ctx,
+        "Gather",
+        [indices_shape_val, prefix_axes],
+        name_hint="scatter_batched_prefix_shape",
+        dtype=ir.DataType.INT64,
+        shape=(indices_rank - 1,),
+        attributes={"axis": 0},
+    )
+    one_vector = _const_i64(
+        ctx, np.asarray([1], np.int64), "scatter_batched_one_vector"
+    )
+    column_shape_val = _builder_op(
+        ctx,
+        "Concat",
+        [prefix_shape, one_vector],
+        name_hint="scatter_batched_column_shape",
+        dtype=ir.DataType.INT64,
+        shape=(indices_rank,),
+        attributes={"axis": 0},
+    )
+    column_shape = (*indices_shape[:-1], 1)
+    zero = _scalar_i64(ctx, 0, "scatter_batched_zero")
+    one = _scalar_i64(ctx, 1, "scatter_batched_one")
+    batch_mapping = dict(zip(operand_batch, indices_batch, strict=True))
+    columns = []
+    for operand_axis in range(rank):
+        if operand_axis in batch_mapping:
+            indices_axis = batch_mapping[operand_axis]
+            extent = _gather_int_scalar(
+                ctx, indices_shape_val, indices_axis, "scatter_batched_extent"
+            )
+            coordinates = _builder_op(
+                ctx,
+                "Range",
+                [zero, extent, one],
+                name_hint="scatter_batch_coordinates",
+                dtype=ir.DataType.INT64,
+                shape=(indices_shape[indices_axis],),
+            )
+            reshape_dims = [1] * indices_rank
+            reshape_dims[indices_axis] = -1
+            reshape_shape = _const_i64(
+                ctx, np.asarray(reshape_dims, np.int64), "scatter_batch_reshape_shape"
+            )
+            coordinate_shape = tuple(
+                indices_shape[axis] if axis == indices_axis else 1
+                for axis in range(indices_rank)
+            )
+            coordinates = _builder_op(
+                ctx,
+                "Reshape",
+                [coordinates, reshape_shape],
+                name_hint="scatter_batch_coordinates_reshaped",
+                dtype=ir.DataType.INT64,
+                shape=coordinate_shape,
+            )
+            column = _builder_op(
+                ctx,
+                "Expand",
+                [coordinates, column_shape_val],
+                name_hint="scatter_batch_coordinate_column",
+                dtype=ir.DataType.INT64,
+                shape=column_shape,
+            )
+        else:
+            component = _const_i64(
+                ctx,
+                np.asarray([scatter_axes.index(operand_axis)], np.int64),
+                "scatter_batched_component",
+            )
+            column = _builder_op(
+                ctx,
+                "Gather",
+                [indices_i64, component],
+                name_hint="scatter_batched_index_column",
+                dtype=ir.DataType.INT64,
+                shape=column_shape,
+                attributes={"axis": -1},
+            )
+        columns.append(column)
+    full_shape = (*indices_shape[:-1], rank)
+    expanded = _builder_op(
+        ctx,
+        "Concat",
+        columns,
+        name_hint="scatter_batched_full_indices",
+        dtype=ir.DataType.INT64,
+        shape=full_shape,
+        attributes={"axis": -1},
+    )
+    return expanded, full_shape, ScatterSpec((), tuple(range(rank)), tuple(range(rank)))
 
 
 def _classify_scatter_pattern(spec: ScatterSpec, operand_rank: int) -> str:
     """Return the supported scatter kind: ``"elementwise"`` or ``"slice"``."""
 
+    if spec.operand_batching_dims or spec.scatter_indices_batching_dims:
+        raise NotImplementedError(
+            "native scatter batch coordinates must be expanded first"
+        )
     scatter_axes = tuple(int(a) for a in spec.scatter_dims_to_operand_dims)
     if any(ax < 0 or ax >= operand_rank for ax in scatter_axes):
         raise NotImplementedError("scatter axes out of operand rank range")
@@ -304,6 +475,7 @@ def _reshape_indices_to_2d(
         name_hint="scatter_indices_2d",
         dtype=ir.DataType.INT64,
         shape=(None, index_depth),
+        attributes=_literal_zero_reshape_attributes(ctx),
     )
 
     return indices_2d, num_updates
@@ -359,6 +531,7 @@ def _reshape_updates_flat(
         name_hint="scatter_updates_flat",
         dtype=getattr(updates_val.type, "dtype", None),
         shape=(None,),
+        attributes=_literal_zero_reshape_attributes(ctx),
     )
     return _as_value(updates_flat)
 
@@ -1625,6 +1798,16 @@ def lower_scatter_common(
     operand_shape = tuple(getattr(operand_var.aval, "shape", ()))
     indices_shape = tuple(getattr(indices_var.aval, "shape", ()))
     updates_shape = tuple(getattr(updates_var.aval, "shape", ()))
+
+    indices_val, indices_shape, spec = _expand_batched_elementwise_indices(
+        ctx,
+        indices_val=indices_val,
+        operand_shape=operand_shape,
+        indices_shape=indices_shape,
+        updates_shape=updates_shape,
+        spec=spec,
+        mode=mode,
+    )
 
     try:
         lower_scatter_elementwise(

@@ -52,7 +52,7 @@ from tests.extra_tests.converter.source_precision_diagnostics import (
 _CRITERIA = SampleCriteria("tolerant", rtol=1e-5, atol=1e-6)
 _ISSUE52_HASHES = {
     "helpers/issue52_scatter_payload_fixture.py": (
-        "1a371a5653454bd3b26a55b7d0aa6c8069904b752cf242430badd009cd058033"
+        "4e1b3100642ae02dc3e5cc1f2a32cb4c21c9cc03a3451d0636920065ccce6e55"
     ),
     "payloads/issue52_feedforward_payload.npz": (
         "c87923703463d7d6129d1c053a3f1d651312ee296fcbed47aaca698f5e6083f8"
@@ -409,6 +409,28 @@ def test_issue52_helper_and_payload_are_the_original_immutable_inputs() -> None:
     root = Path(__file__).resolve().parents[1]
     for relative, expected in _ISSUE52_HASHES.items():
         assert hashlib.sha256((root / relative).read_bytes()).hexdigest() == expected
+
+    from tests.extra_tests.helpers import issue52_scatter_payload_fixture as original
+
+    # Nondefault recorded flags prove preservation rather than synthesised
+    # defaults; current schemas must continue removing the retired keywords.
+    recorded = {
+        "jaxpr": object(),
+        "linear": (False, True),
+        "_split_transpose": True,
+        "copy_semantics": object(),
+    }
+    before = dict(recorded)
+    sanitized = original._sanitize_params(recorded)
+    parameters = original.jax_compat.native_scan_parameter_names()
+    assert recorded == before and sanitized is not recorded
+    assert sanitized["jaxpr"] is recorded["jaxpr"]
+    assert "copy_semantics" not in sanitized
+    for name in ("linear", "_split_transpose"):
+        if name in parameters:
+            assert sanitized[name] is recorded[name]
+        else:
+            assert name not in sanitized
 
 
 @pytest.mark.parametrize("kind", ["scatter", "scatter-add", "scatter-mul"])

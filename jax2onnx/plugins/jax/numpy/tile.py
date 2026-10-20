@@ -6,13 +6,13 @@ from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
-from jax import lax
 from jax2onnx._compat.jax import (
     AbstractValue,
     JaxprEqn,
     ShapedArray,
     Tracer,
     batching,
+    native_tile_primitive,
 )
 import jax.numpy as jnp
 import numpy as np
@@ -27,6 +27,7 @@ from jax2onnx.converter.typing_support import (
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.jax._autodiff_utils import (
     register_allowlisted_original_rule_forwarding,
+    register_jvp_via_jax_jvp,
 )
 from jax2onnx.plugins.jax.lax._index_utils import _const_i64
 from jax2onnx.plugins.jax.numpy._common import get_orig_impl, make_jnp_primitive
@@ -46,6 +47,7 @@ from jax2onnx.utils.shape_poly import is_dim_expr
 
 _ORIG_TILE: Final = jnp.tile
 _TILE_PRIM: Final = make_jnp_primitive("jax.numpy.tile")
+_NATIVE_TILE_PRIMITIVE: Final = native_tile_primitive()
 
 
 def _tile_param(a: jax.Array) -> jax.Array:
@@ -515,7 +517,10 @@ class JnpTilePlugin(PrimitiveLeafPlugin):
 
 # Forwarded AD for jnp.tile can emit raw lax primitive "tile" equations.
 # Reuse this lowering for both names until a dedicated lax.tile plugin exists.
-PLUGIN_REGISTRY.setdefault(lax.tile_p.name, PLUGIN_REGISTRY[JnpTilePlugin._PRIM.name])
+if _NATIVE_TILE_PRIMITIVE is not None:
+    PLUGIN_REGISTRY.setdefault(
+        _NATIVE_TILE_PRIMITIVE.name, PLUGIN_REGISTRY[JnpTilePlugin._PRIM.name]
+    )
 
 
 @JnpTilePlugin._PRIM.def_impl
@@ -584,8 +589,13 @@ def _tile_batch_rule(
 batching.primitive_batchers[JnpTilePlugin._PRIM] = _tile_batch_rule
 
 
-register_allowlisted_original_rule_forwarding(
-    orig_prim=lax.tile_p,
-    new_prim=JnpTilePlugin._PRIM,
-    forward_batching=False,
-)
+if _NATIVE_TILE_PRIMITIVE is None:
+    # Older native jnp.tile decomposes into reshape/broadcast/reshape. Delegate
+    # differentiation to that captured implementation and its existing rules.
+    register_jvp_via_jax_jvp(JnpTilePlugin._PRIM, _tile_impl)
+else:
+    register_allowlisted_original_rule_forwarding(
+        orig_prim=_NATIVE_TILE_PRIMITIVE,
+        new_prim=JnpTilePlugin._PRIM,
+        forward_batching=False,
+    )

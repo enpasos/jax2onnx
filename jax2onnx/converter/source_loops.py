@@ -18,6 +18,7 @@ import numpy as np
 from jax2onnx._compat.jax import (
     ClosedJaxpr,
     native_scan_flat_tree_partitions,
+    native_scan_parameter_names,
     scan_arity,
 )
 
@@ -164,11 +165,19 @@ def validate_loop_equation(eqn: Any, site: _Site, ancestors: frozenset[int]) -> 
         _recurse(condition, site, ancestors, "while-cond")
         _recurse(body, site, ancestors, "while-body")
     else:
-        common = {"jaxpr", "reverse", "length", "unroll"}
-        modern = {"ft_in", "ft_out"}
         legacy = {"num_consts", "num_carry"}
-        fields = common | (modern if "ft_in" in eqn.params else legacy)
+        fields = native_scan_parameter_names()
         _params(eqn, fields, site, required=fields)
+        if "linear" in fields:
+            site.require(
+                type(eqn.params["linear"]) is tuple
+                and len(eqn.params["linear"]) == len(eqn.invars)
+                and all(type(value) is bool for value in eqn.params["linear"])
+                and type(eqn.params["_split_transpose"]) is bool,
+                "scan linearity or split-transpose metadata is malformed",
+                "the unchanged native Boolean linearity tuple with one entry per operand and Boolean split-transpose flag",
+                category="lowering-defect",
+            )
         site.require(
             type(eqn.params["reverse"]) is bool
             and type(eqn.params["length"]) is int

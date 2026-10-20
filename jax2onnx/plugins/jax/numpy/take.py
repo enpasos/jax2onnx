@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Final, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import numpy as np
 from numpy.typing import ArrayLike
 import onnx_ir as ir
@@ -36,7 +37,6 @@ from jax2onnx.plugins.plugin_system import (
     with_rng_seed,
 )
 
-
 _TAKE_PRIM: Final = make_jnp_primitive("jax.numpy.take")
 
 
@@ -46,7 +46,7 @@ class _ArangeTakeModule(nnx.Module):
         num_embeddings: int,
         features: int,
         *,
-        dtype: jnp.dtype | type = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.embedding = nnx.Param(
