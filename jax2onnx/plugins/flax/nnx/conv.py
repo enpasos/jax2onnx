@@ -26,6 +26,7 @@ from jax2onnx.converter.typing_support import (
     IRBuilderProtocol,
     LoweringContextProtocol,
 )
+from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx._compat.jax import JaxprEqn, Primitive, ShapedArray
 from jax2onnx.plugins._post_check_onnx_graph import expect_graph as EG
 from jax2onnx.plugins.plugin_system import (
@@ -1488,7 +1489,7 @@ class ConvPlugin(PrimitiveLeafPlugin):
         ConvPlugin._ORIGINAL_CALL = real_orig
         prim = ConvPlugin._PRIM
 
-        def patched(self: nnx.Conv, x: Any, out_sharding: Any | None = None) -> Any:
+        def legacy(self: nnx.Conv, x: Any, out_sharding: Any | None = None) -> Any:
             original_x = x
             kernel_size = getattr(self, "kernel_size", ())
             if isinstance(kernel_size, int):
@@ -1590,6 +1591,11 @@ class ConvPlugin(PrimitiveLeafPlugin):
             if input_batch_shape is not None:
                 y = lax.reshape(y, input_batch_shape + y.shape[1:])
             return y
+
+        def patched(self: nnx.Conv, *args: Any, **kwargs: Any) -> Any:
+            if active_precision_policy() is PrecisionPolicy.SOURCE:
+                return real_orig(self, *args, **kwargs)
+            return legacy(self, *args, **kwargs)
 
         # Mark the shim so a subsequent patch can recover the original.
         # mypy: 'patched' is typed as a plain Callable, so attribute writes need an Any cast

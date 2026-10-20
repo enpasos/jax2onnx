@@ -150,14 +150,12 @@ def _set_value_dtype_from_var(
 def _relax_value_for_var(
     ctx: LoweringContextProtocol, value: ir.Value, var: Any
 ) -> None:
-    relax_value_to_rank_only(value)
     if ctx.precision_policy is PrecisionPolicy.SOURCE:
-        representation = representation_for_aval(var.aval)
-        if representation.encoding == "complex-real-pair":
-            # Projection helpers require the declared real/imaginary axis even
-            # when logical Loop dimensions are relaxed for runtime inference.
-            shape = (None,) * len(representation.logical_shape) + (2,)
-            _stamp_type_and_shape(value, shape)
+        # Keep the stamped physical contract while child operations/Functions
+        # are lowered. Rank-only Loop metadata belongs to ir_postprocess, after
+        # consumers have checked native shapes and packed complex channels.
+        return
+    relax_value_to_rank_only(value)
 
 
 def _maybe_cast_value(

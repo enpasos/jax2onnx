@@ -50,6 +50,7 @@ from jax2onnx.converter.source_elementary import (
     validate_static_zeros,
 )
 from jax2onnx.converter.source_loops import validate_loop_equation
+from jax2onnx.converter.source_convolution import validate_native_conv
 from jax2onnx.converter.source_representation import (
     source_shape_contract,
     validate_source_shapes,
@@ -1913,6 +1914,7 @@ def _validate_equation(
             "exp",
             "erfc",
             "dot_general",
+            "conv_general_dilated",
             "jit",
             "select_n",
             "eq",
@@ -2156,6 +2158,8 @@ def _validate_equation(
         )
     elif name == "dot_general":
         _validate_dot(eqn, inputs, outputs, site)
+    elif name == "conv_general_dilated":
+        validate_native_conv(eqn, inputs, outputs, site)
     elif name == "copy":
         _validate_copy(eqn, inputs, outputs, site)
     elif name == "reshape":
