@@ -27,7 +27,8 @@ contracts / 636 caller obligations and the 1,852-row / 3,704-caller inventory
 remain unchanged. The [current checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
 binds the exact counts, source epochs and retained failures.
 
-Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+The preceding accepted local code checkpoint **`11748451`** is committed. Its
+complete PRIMARY suite
 passes **10,237 cases / 30,711 phases**, and the focused selection passes
 **1,937 cases / 5,811 phases on each supported stack**, with zero test
 failures/errors/skips in those executions. All seven normal code hooks pass;
@@ -37,12 +38,22 @@ and the worktree is clean at commit verification. The focused and full results
 have independent finite-checkpoint acceptance. These results retain the separate
 failed numerical gates; they do not complete the precision migration.
 
-Generic SOURCE admission currently accepts explicit opsets **16, 18, 21, 23,
-24, 26 and 27**; operation/type-specific checks still apply. This is not a
-Cartesian support claim. Product `scan`/`while` admission has a separately frozen external candidate,
-which is unapplied and uncommitted; its 121-case forecast is not a collection
-result, and frozen-byte/runtime/typing/dual qualification remains pending. Existing
-source-loop evidence uses diagnostic admission. No public precision mode has been introduced.
+Generic SOURCE admission accepts explicit opsets **16, 18, 21, 23, 24, 26
+and 27**, with operation/type-specific checks. Native forward scan now uses
+ordinary admission at **23/26**, and while at **18/23/26**, including the original
+opset 18 row. Typed carries, actual JAX 0.11 partitions, recursive bodies, static
+complex/empty outputs, runtime flags and native result weakness retain their
+finite contracts. Strong static FP32/FP64 zeros are admitted at **23/26** only.
+
+The seven-path loop checkpoint **`c033d301`** is committed after independent
+acceptance: **477 cases / 1,431 phases on each stack** and the complete PRIMARY
+suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
+All old 440 focused identities and original metadata remain; the typed-key test
+only aligns its message regex. The full collection retains all old 10,237 cases
+in order plus 158 additions. All seven normal code hooks pass, and all 1,088
+source/input files hold through commit. All **51 raw loop rows** remain
+migration obligations rather than a closed family. See the
+[loop checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) for exact gates and retained failed epochs.
 
 The four original GPT_MLP caller/stack cells have independently reviewed
 focused15-v2 numerical evidence at unchanged strict **1e-5**: original
@@ -55,20 +66,27 @@ receipts carry bounded acceptance; export reports keep runtime/numerics
 Earlier tensor/index and Erfc evidence retains its recorded scope. Erfc graph/schema checks cover opsets 23/26; configured CPU numerics cover
 opset 23 only. Its strict full-seven-output and native-agreement gates remain
 **FAILED**, and FP16/BF16 numerics remain **UNVERIFIED**, with no production FTZ
-or runtime-policy change. Original-six body fidelity/target numerics, optional
-45 MaxText/five MaxDiffusion obligations, general fixed-source preparation and
-scientific FP64 remain open. The fresh original-six follow-through passes
-both-stack six-ID collections, then its first PRIMARY cell returns one
-schema/ports-validated artifact before **failing the original raw graph
-callback**. Offline review verifies the wrapper-scope mismatch, lexical If-branch
-input capture and original parameter positions. Complete body fidelity remains
-**UNVERIFIED** at full serialized-expansion scope. The two masks, second Linear,
-state streams and all 30 deterministic/42 stochastic Function equations now
-match the unpatched prepared trace under the bounded offline review. Complete
-Threefry/bitcast/Erfc expansion correspondence across the 1,725 serialized
-stochastic nodes remains the next offline check; target numerics remain
-**UNVERIFIED**, with zero ORT sessions/runs. This external follow-through does not change the accepted code
-checkpoint. Public behavior stays **LEGACY** until the complete B–F contract is met.
+or runtime-policy change.
+
+The first saved original-six PRIMARY artifact now has bounded structural/source
+fidelity acceptance across all 1,725 stochastic and 157 deterministic Function
+nodes. A separate saved-artifact run passes the exact captured samples in two
+CPU sessions / 32 calls, with exact state and both optimization settings; the
+original reference-first tolerance is unchanged. Independent review accepts only
+this artifact/sample binding. The original test/raw callback remains **FAILED**,
+and its earlier stored report remains numerically **UNVERIFIED**. The other five
+PRIMARY and all six SECONDARY cells remain pending acceptance. The separate
+PRIMARY capture continuation exits 99 at its final counter guard after retaining
+all five cells, seven returned exports and 288 native outputs; target execution
+remains zero and numerics remain UNVERIFIED. The
+[canonical record](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) binds the measured errors, criteria and historical
+zero-ORT capture epoch.
+
+The six-path native FP32 Conv candidate is externally source/static-accepted,
+unapplied, and uncollected; its 93 forecast cases are not runtime evidence.
+Broader models, the optional 45 MaxText/five MaxDiffusion obligations, general
+fixed-source preparation, low precision and scientific FP64 remain open.
+Public behavior stays **LEGACY** until the complete B–F contract is met.
 
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are

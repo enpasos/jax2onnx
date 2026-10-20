@@ -10,10 +10,17 @@ Public behavior and the current `enable_double_precision` argument remain
 unchanged while private work preserves more selected calculations at the
 precision chosen by the model and JAX configuration.
 Complete-model, low-precision and target acceptance remain unfinished. The
-[technical checkpoint](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+[technical checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples)
 records exact results and remaining diagnostics; the
 [implementation work plan](precision_implementation_work_plan.md) defines the
 full coverage gates. No release or deadline is promised.
+
+Selected loop state, runtime flags and empty outputs now have private export
+coverage and have passed the complete primary regression checks. The exact captured CPU samples from one saved original model also
+pass their existing comparison rules. Its original structural check remains
+failed, and the remaining model/input/target cases still need validation.
+The next work extends this evidence to the original models and convolution
+contracts while preserving their source and comparison requirements.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -45,8 +52,8 @@ The calling experiment makes omitted/false/true legacy settings,
 source-preserving calls, warnings, and conflicts directly comparable. Its
 private selector is an experiment interface. Positive results cover selected
 CPU samples, including audited named functions and two-branch conditionals.
-Broader loops/JIT forms, general deployment diagnostics and operation coverage
-remain open beyond the later bounded Where/JIT checkpoint. BF16 model validity alone does
+Remaining loop/JIT forms, general deployment diagnostics and operation coverage
+remain open beyond the reviewed private loop and Where/JIT cases. BF16 model validity alone does
 not establish execution support. The private CPU sample check records execution
 settings and refuses to accept a failed or untested numerical sample. The known
 FP16 square/sum result remains a failure on the recorded runtimes. Passing the

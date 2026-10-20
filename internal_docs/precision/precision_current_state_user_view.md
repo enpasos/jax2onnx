@@ -18,8 +18,15 @@ argument are unchanged. Private work preserves more selected calculations at
 the precision chosen by the model and JAX configuration. Complete-model,
 low-precision and deployment acceptance remain unfinished, so this work does
 not yet change how you prepare or export a model. The
-[technical checkpoint](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
+[technical checkpoint](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples)
 records the exact scope, results and remaining diagnostics.
+
+Private work now preserves selected loop state, captured runtime flags and empty
+results through the ordinary export path. The private loop checkpoint has
+passed its complete primary regression checks. One saved original model's captured
+CPU samples also pass their existing comparison rules; its original structural
+check still fails, and other model/input/target combinations remain unfinished.
+These results do not change the public export call.
 
 The completed migration will offer one ordinary source-preserving export
 contract across the existing functionality and fixed third-party sources, with
@@ -84,9 +91,9 @@ The local follow-up also preserves weak typing in stored model parameters and
 nested configuration values when reusing a named function. Optional exporter
 optimizations now respect the selected source calculation too. These repairs
 have separate regression coverage; they do not certify runtime precision.
-No public source option is available. The later Where/JIT checkpoint covers
-selected compiled bodies; broader loops/JIT forms, operations and deployment
-validation remain open.
+No public source option is available. Selected compiled bodies and native loops
+have private regression coverage. Remaining loop/JIT forms, operations and
+deployment validation still need evidence.
 
 A further FP32 reciprocal example agrees with JAX under the tested ORT sessions
 with optimization off, but differs when optimization is on. A captured FP16

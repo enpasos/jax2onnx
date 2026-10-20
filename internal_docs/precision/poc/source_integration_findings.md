@@ -1,18 +1,137 @@
 # Private source-policy integration
 
 Local implementation and review, updated 2026-10-20, beyond the public-behavior
-baseline at `fae17822`. Private SOURCE behavior now has independently accepted
-actual elementary/reduction evidence: **183 cases / 549 phases PASS per supported
-stack**, zero test failures/errors/skips. That test result includes known failed
-numerical diagnostics and does not certify every selected source row.
-Local code checkpoint **`11748451`** now passes full PRIMARY **10,237 cases /
-30,711 phases**, focused **1,937 cases / 5,811 phases per supported stack**,
-and all seven normal code hooks. Exact committed bytes and held **923 Python /
-163 other input pins** are verified, with a clean worktree at commit verification.
-Public behavior stays **LEGACY**.
-The current result is recorded first. Every section beginning with the preceding
-tensor/index/Erfc checkpoint below is historical: its then-current wording,
-source bytes, results and failed epochs retain their original scope.
+baseline at `fae17822`. The native loop checkpoint **`c033d301`** is committed
+after independent acceptance: **477 cases / 1,431 phases on each supported
+stack** and the complete PRIMARY suite's **10,395 cases / 31,185 phases** pass,
+with zero failures/errors/skips. All seven normal code hooks pass, preserving
+the 1,088 qualified source/input files through commit. The preceding accepted
+code checkpoint is `11748451`; its evidence remains below. Public behavior stays **LEGACY**.
+
+The current loop and saved-model results are recorded first. All following
+checkpoint sections retain their historical source epochs, counts, failed
+results and then-current next steps. A later result supersedes only the gate
+and exact artifact/source binding it explicitly identifies.
+
+## Loop admission and first saved-model samples
+
+Status: **COMMITTED LOCAL CODE CHECKPOINT `c033d301`; ACTUAL DUAL-STACK
+FOCUSED AND COMPLETE PRIMARY ACCEPTANCE; SEVEN NORMAL CODE HOOKS PASS**.
+The commit is **`c033d3013b559ba228e1f73c5f3ffb8783f0f8a8`**, with parent
+`003b3e59436a533b917486796067b5d587c781a3`: seven Python files, 1,294 insertions
+and 14 deletions, whose committed bytes match the qualified sources. The
+worktree is clean at commit verification. The exact seven paths include the native loop compatibility and
+admission rules, the narrowly typed zeros carrier, and their existing/new tests.
+The frozen execution inputs contain **925 Python / 163 other files (1,088 total)**.
+The first saved-model continuation is separate evidence from a
+`11748451`-derived immutable snapshot, rather than qualification of the loop code.
+
+| Evidence epoch | Actual result and limit |
+| --- | --- |
+| Focused loop v1, each stack | **436 PASS / four FAIL of 440**, zero errors/skips; retained failures identify missing ordinary zeros admission and a typed-key diagnostic spelling mismatch. |
+| Focused loop v2, each stack | **462 PASS / 15 FAIL of 477**, zero errors/skips; fourteen malformed probes unexpectedly traced native `broadcast_in_dim` instead of the intended zeros carrier, and the complex-negative probe failed before the intended zeros rejection. This failed epoch remains recorded. |
+| Focused loop v3, each stack | **477 cases / 1,431 phases PASS**, zero failures/errors/skips, held source/input bytes and independent acceptance. All previous 440 identities are retained. |
+| Current complete PRIMARY | **10,395 cases / 31,185 phases PASS**, zero failures/errors/skips, 989.181 seconds. All four workers match the fresh ordered collection, which retains all preceding **10,237** cases plus **158** additions; the controller and four workers exit zero. All 1,088 source/input pins hold. |
+| Current code qualification | Independent full-run/readiness review accepts the finite checkpoint. Normal code commit `c033d301` passes all seven actual hooks with no bypass; all 1,088 source/input pins hold through hooks and commit. Strict documentation build and the separate docs commit remain subsequent gates. No push, merge, publication or public precision transition is claimed. |
+
+### Ordinary SOURCE loop admission
+
+Native forward `scan` is admitted at opsets **23/26**, and native `while` at
+**18/23/26**, with every actual child operation retaining its own typed/opset
+checks. This includes the unchanged original while row 20 at opset 18 and the
+original `unroll=4` scan. JAX 0.11 flat-tree partitions and the older explicit
+const/carry counts are checked at the compatibility boundary. Native result
+weakness is retained separately from carry dtype/shape invariants.
+
+The finite rules preserve real/discrete/static-complex storage, captured values,
+zero-trip and empty results, nested JIT/If/Function bodies, and both Boolean
+runtime choices through the same artifact. Every child body is validated,
+including a zero-trip body. Only the existing strong static FP32/FP64
+`jax.numpy.zeros` carrier is newly admitted at opsets 23/26; other creation
+wrappers and dtype/opset routes remain excluded. Original metadata, callables,
+inputs, opsets, callbacks and missing numerical criteria remain unchanged; the
+existing typed-key negative test only aligns its diagnostic regex. Corrected
+test fixtures inspect native zero creation without substituting their own
+selected-dtype semantics.
+
+These results do not close all **51 raw loop rows**. Symbolic/logical-key loop
+transport, unsupported transformed descriptors, reverse scan and remaining
+family/model contracts retain their explicit implementation or migration gaps.
+All **318 elementary raw contracts / 636 caller obligations**, the complete
+**1,852-row / 3,704-caller inventory**, and all **50 optional obligations** remain.
+Eight original Sign numerical reports per stack stay **FAILED**, 44 original
+composition artifacts stay numerically **UNVERIFIED**, and the strict Erfc
+full/native gates and original Gather raw callback failures are unchanged.
+
+### Saved original014/0: bounded structure and target samples
+
+The original first PRIMARY test remains **FAILED** at its unchanged raw graph
+callback. Its saved artifact is schema/ports-valid; the callback's direct-root
+inspection misses inputs captured by the If branches and the wrapped SuperBlock
+path. The earlier stored export report still records runtime/numerics
+**UNVERIFIED**, and the original capture-only epoch retains zero ORT calls.
+
+A later independent offline review closes the exact saved artifact's remaining
+serialized-expansion fidelity gap. Disjoint producer/dependency proofs account
+for all **1,725 stochastic and 157 deterministic Function nodes**, including the
+native Threefry/bitcast/Erfc expression, both masks, second Linear and all state
+positions. It finds no mismatch for this binding. This bounded structural
+acceptance neither changes the raw callback nor establishes universal kernel
+equivalence or other model/stack cells.
+
+ROOT then executes this exact saved artifact in **two CPU sessions / 32 calls**,
+with runtime optimization disabled and enabled. Both ORT 1.31.0 sessions use
+CPUExecutionProvider, sequential execution, one intra/inter-op thread and no
+custom session configuration. The same captured B5-zero and B5-nonzero inputs,
+T/F/F/T flags, state feedback and four native reference roles
+produce **128 comparisons / 19,200 floating values**, with exact count/key state.
+The original reference-first criterion remains **rtol=3e-4, atol=2e-6**. Maximum
+absolute error is **7.450580596923828e-6**; the worst observed error uses
+**0.09051417824110118** of its allowed tolerance. Both modes and repeated replays
+return byte-identical target arrays. No new trace, export or native evaluation
+occurs in this saved-artifact run. Independent actual-sample review accepts
+**only these exact captured samples**.
+
+The other five PRIMARY and all six SECONDARY original cells remain pending
+acceptance. The separate PRIMARY capture continuation exits **99** at the final
+`run_capture.py:384` counter guard: `raw_eager_evaluations` is **2**, whereas
+`factory_limit` is **5**. All **five selected cells**, **seven returned exports**
+and **288 native outputs** were retained before this failure, with held saved
+source/input pins and **zero ORT constructors/runs**. This is a failed capture
+epoch, not a successful run; artifact-body fidelity and target numerics remain
+**UNVERIFIED**. Ordinal015 retains its own frozen atol rather than inheriting an
+older default. No tolerance, source, input,
+callback or model substitution closes these obligations. The saved014 result
+does not rewrite its failed raw test or claim whole-model, other-input,
+other-stack or public acceptance.
+
+### Next implementation and evidence gates
+
+Continue the remaining original-model cells under their own frozen criteria,
+then reconcile each structural/runtime/numerical outcome without replacing the
+raw failures. A separate **six-path native FP32 Conv candidate** has independent
+source/static acceptance and **93 forecast cases only**. It is **unapplied**:
+no collection, runtime or full-package typing qualification is established.
+The unchanged CNN and its actual next blocker remain required, rather than a
+smaller replacement model. A separate scientific FP64 preparation implementation
+is external work in progress; it is unapplied and has no runtime qualification.
+
+The full B–F goal remains one ordinary source-preserving public contract over
+all existing functionality and fixed third-party sources. General fixed-source
+preparation, optional models, FP16/BF16 rounding, scientific FP64 and full
+end-to-end acceptance remain open. No permanent public mode/profile selector or
+per-operation LEGACY fallback completes the migration.
+
+| Current evidence | Local record | SHA256 |
+| --- | --- | --- |
+| Actual loop dual477 v3 | `/tmp/jax2onnx-loop-root-integration-v1/root-loop-actual-dual477-v3-pass.json` | `989172c294756923794dde5b332ee18c031fadc43e8d0ae63b42460c8bad1999` |
+| Actual complete PRIMARY v3 | `/tmp/jax2onnx-loop-root-integration-v1/checkpoint-full-primary-v3/root-actual-run-terminal.json` | `1000d9dbb0feb987f6ac82daf5dd64bc14e4fcb55bb984a0537bdc44a69729de` |
+| Independent full-run/readiness acceptance | `/tmp/jax2onnx-loop-root-integration-v1/astra-loop-v3-code-checkpoint-readiness.json` | `08fbe696733569b6b0100b57b11380049afc18b84cc87ca61b827873fd9d0a2a` |
+| Actual code commit and seven hooks | `/tmp/jax2onnx-loop-root-integration-v1/root-code-commit-c033d301.json` | `7a03765b8a3b8e7855d408a9e16ad1c7196a60eba82af4a0fe54232211de97c2` |
+| Remaining PRIMARY failed capture receipt | `/tmp/jax2onnx-original6-remaining-root-v1/results/primary/capture/receipt.json` | `47305391d482b02b694f4f8d1688d8fe884236d5802b852411fa5bfba90512f8` |
+| Saved014 ROOT actual terminal | `/tmp/jax2onnx-original6-saved014-root-v1/root-actual-terminal.json` | `dedc273986c03c6ef72461746b465caa3c8396bf7a9aa9dc2522a445c523506e` |
+| Independent saved014 structure | `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-original6-first-expanded-source-fidelity-review.json` | `9d73346cc3fc5157446bccbf74d8fa8b25a6fb8e96a1c7c3c5b1fc1f26b3b210` |
+| Independent actual saved014 sample acceptance | `/tmp/jax2onnx-astra-fixture-key-review-v1/actual-original6-saved014-samples-acceptance.json` | `ade7a692793598077f681d688a5318a8fb8bb6630888e6e28c00c101cb405f4f` |
 
 ## Elementary and reduction checkpoint
 
@@ -166,7 +285,11 @@ hooks and commit, and clean worktree at commit verification. The earlier
 `1533d60b` full/hook result remains acceptance of its preceding source epoch.
 Passing regression diagnostics do not reclassify any known numerical failure.
 
-### Next gates
+### Historical original-six capture and then-planned gates
+
+This capture-only record precedes the saved-artifact structural and sample
+continuation above. Its failure, zero-target-execution counts and then-open
+expansion gap remain historical evidence.
 
 The fresh original-six follow-through uses the qualified post-elementary
 immutable snapshot. ROOT's release binds the original six IDs and unchanged

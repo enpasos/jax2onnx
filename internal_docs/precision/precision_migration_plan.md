@@ -18,7 +18,8 @@ Gather raw graph callbacks remain **FAILED** despite separately verified finite
 numerical comparisons. The [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
 retains the exact source, criteria, counts and failed epochs.
 
-Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+The preceding accepted local code checkpoint **`11748451`** is committed. Its
+complete PRIMARY suite
 passes **10,237 cases / 30,711 phases**, and the focused selection passes
 **1,937 cases / 5,811 phases on each supported stack**, with zero test
 failures/errors/skips in those executions. All seven normal code hooks pass;
@@ -28,11 +29,18 @@ and the worktree is clean at commit verification. The focused and full results
 have independent finite-checkpoint acceptance. These results retain the separate
 failed numerical gates; they do not complete the precision migration.
 
+The native loop checkpoint **`c033d301`** is committed after independent
+acceptance: **477 cases / 1,431 phases per stack** and the complete PRIMARY
+suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
+All seven normal code hooks pass, preserving all 1,088 source/input files
+through the seven-path commit. Separate saved-artifact evidence accepts only the first
+original model's exact captured CPU samples, preserving its failed raw callback
+and earlier unverified export report. See the [latest findings](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples).
+
 The inventory still retains all 1,852 rows / 3,704 caller obligations, including
 318 elementary raw contracts / 636 caller obligations and 50 optional obligations.
 Strict Erfc full/native gates remain failed, with configured numerical evidence
-only at opset 23 and low-precision numerics unverified. Original-six body
-fidelity/target numerics, broader complete models, optional-environment work,
+only at opset 23 and low-precision numerics unverified. Remaining original-six cells and model-wide acceptance, broader complete models, optional-environment work,
 general fixed-source preparation and scientific FP64 remain open. No tolerance,
 model/input or FTZ/runtime-policy change closes those gaps. Public behavior
 stays **LEGACY** until the full B–F single-contract migration is complete.
@@ -195,34 +203,38 @@ and seven normal hooks qualify the committed bytes. Earlier failed full-v1,
 focused14-v1 and focused15-v1 executions remain failed history. Full-v2/v3 were
 collection-only. No single aggregate execution is invented from these cohorts.
 
-Generic SOURCE admission now accepts opsets 16, 18, 21, 23, 24, 26 and 27 with
-operation/type-specific checks. Product `scan`/`while` admission has a frozen external candidate, unapplied
-and uncommitted: five existing/two new paths, 121 forecast cases **not collected**,
-with frozen-byte/runtime/typing/dual qualification pending. It is the next prepared
-implementation checkpoint after original-six follow-through; existing source-loop
-evidence remains diagnostic.
+Generic SOURCE admission accepts opsets 16, 18, 21, 23, 24, 26 and 27 with owning
+operation/type checks. Native forward scan is now admitted at opsets 23/26 and while at
+18/23/26, including actual original while row 20 at opset 18. Native schemas, JAX 0.11
+flat-tree partitions, carry/result weakness, recursively validated JIT/If/Function
+bodies, static complex/empty storage and real Boolean dependencies retain their
+finite contracts. Only strong static FP32/FP64 zeros at opsets 23/26 are newly admitted
+among creation wrappers. The seven-path packet is committed at **`c033d301`**, with actual dual477
+acceptance, a **10,395-case / 31,185-phase** complete PRIMARY PASS and all seven
+normal code hooks passing. The qualified 1,088 source/input files hold through
+commit.
+All 51 raw loop rows remain obligations rather than a closed family.
 
-The fresh original-six snapshot passes both-stack collection of the six exact
-original IDs with zero model/native/trace/export/ORT calls during collection.
-Its actual first PRIMARY cell returns one schema/ports-validated artifact and
-body manifest, then **fails the unchanged original raw graph callback**: unused
-root inputs and the absent expected top-level SuperBlock path while the root
-contains If. Offline review verifies a wrapper-scope mismatch: both branch
-GraphProto bodies lexically capture those inputs and call SuperBlock, while
-the raw checker examines direct root nodes. Original parameter positions and
-recorded state-branch behavior are preserved. All 30 deterministic/42 stochastic
-Function equations match the unpatched prepared trace; both mask consumers,
-second Linear and separate state streams are verified. Full body fidelity stays
-**UNVERIFIED** because complete expansion-level correspondence across the 1,725
-serialized stochastic nodes has not been reproved. The next work is a bounded
-offline Threefry/bitcast/Erfc expansion-correspondence check using the saved
-artifact and qualified primitive lowerings, followed by review of a scoped
-wrapper-aware structural counterpart. Preserve the failed raw callback and
-original model/criteria. Target numerics remain **UNVERIFIED**, with zero ORT
-sessions/runs and no new trace/export or continuation result. Code checkpoint `11748451` remains separately accepted. Continue remaining normalization graph contracts, fixed-source
-preparation and all functionality through the shared pipeline. The
-[current findings](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
-retain those gates and the earlier Erfc limits.
+The original-six first PRIMARY raw test remains **FAILED** at its unchanged graph
+callback. The saved artifact now has independently accepted complete bounded
+Function-node correspondence and separate target-sample evidence: two CPU
+sessions / 32 calls preserve exact state and pass the four captured native
+reference roles under the original tolerance. This does not rewrite the earlier
+stored report, qualify other inputs/cells/stacks, or close model-wide acceptance.
+Continue the other five PRIMARY and all six SECONDARY cells under their own
+frozen criteria. The separate PRIMARY capture continuation exits 99 at its final
+counter guard after retaining all five cells, seven returned exports and 288
+native outputs. No ORT execution occurred; artifact-body fidelity and target
+numerics remain UNVERIFIED. In particular, ordinal015 retains its own atol. The
+[canonical record](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples) keeps the historical capture-only and actual
+saved-artifact epochs separate.
+
+A six-path native FP32 Conv candidate is independently source/static-accepted but
+unapplied. Its 93 forecast cases are not collection or runtime evidence; full
+package typing remains a ROOT gate. Qualify the original Conv/CNN sources without
+changing metadata, feeds, opsets, callbacks or missing criteria, then continue
+remaining normalization, fixed-source and end-to-end work through the shared
+pipeline. The strict Erfc and other known numerical failures remain explicit.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime
@@ -282,8 +294,9 @@ unchanged.
 The named binder removes the blanket nonempty `input_params` gate while
 preserving each declared value's native type, scope and actual variable binding.
 Dynamic layouts, nondefault normalization, unlisted operations, effects, broader
-symbolic shapes, loops and unsupported JIT forms remain temporary audited-profile
-gates; a successfully bound parameter does not bypass those checks.
+symbolic shapes, remaining loop forms and unsupported JIT forms remain temporary
+audited-profile gates; the finite native loop rules above do not close the family,
+and a successfully bound parameter does not bypass those checks.
 Where the existing converter supports them, they remain required migration work.
 
 The implementation follows these acceptance requirements:
@@ -610,10 +623,10 @@ operations instead of unvalidated Mean, LpNormalization, ReduceSumSquare, and
 ReduceL2 fusions. A recursive validator checks both branches and actual retraced
 function bodies before lowering. The later shared-B Add/named-composition packet
 adds its finite symbolic contract, and the later Where/JIT checkpoint admits
-bounded pure closed JIT bodies. Loops, `scan`, unsupported JIT forms, broader
-symbolic shapes, effects and other unaudited operations remain outside the
-audited profile, without
-implying that ONNX cannot support them. This advances Stage 3; it does not
+bounded pure closed JIT bodies. The later native loop packet admits its finite
+scan/while contracts through the same recursive validator. Remaining loop/JIT
+forms, broader symbolic shapes, effects and other unaudited operations retain
+temporary gates, without implying that ONNX cannot support them. This advances Stage 3; it does not
 complete the stage, establish general numerical equivalence, or make a public
 mode available.
 

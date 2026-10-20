@@ -1,28 +1,28 @@
 # Precision Contract Experiments
 
-Status: private elementary/reduction selection independently accepted on actual
-artifacts and saved comparisons, updated 2026-10-20. **183 cases / 549 phases pass
-on each supported stack**, including diagnostics that preserve failed numerical
-gates. Code checkpoint **`11748451`** passes the complete PRIMARY suite
-(**10,237 cases / 30,711 phases**), the focused selection on each supported stack
-(**1,937 cases / 5,811 phases**) and all seven normal code hooks. Qualified
-**923 Python / 163 other input pins** hold through hooks/commit; all 86 committed
-Python files match, with a clean worktree at commit verification. Public options/defaults stay
-**LEGACY**; no public source mode is established.
+Status: applied ordinary SOURCE loop changes pass **477 cases / 1,431 phases on
+each supported stack**, independently accepted with zero test failures/errors/
+skips. The complete PRIMARY suite passes **10,395 cases / 31,185 phases**. Loop
+checkpoint **`c033d301`** is committed after independent acceptance and all seven
+normal code hooks, preserving the 1,088 source/input files. The preceding
+accepted code checkpoint is `11748451`. Public options and
+defaults stay **LEGACY**; no public source mode is established.
 
-The [current findings](source_integration_findings.md#elementary-and-reduction-checkpoint)
+The [preceding elementary findings](source_integration_findings.md#elementary-and-reduction-checkpoint)
 separate finite Asin positives, eight failed Sign numerical reports, 44
 numerically unverified original compositions and two failed raw Gather callbacks
 with separate positive finite comparisons. These experiments inform the
 [target design](../precision_target_state.md) and
 [migration plan](../precision_migration_plan.md).
 
-The first row covers this checkpoint. The following four rows retain the
-preceding tensor/index/Erfc/inventory scopes; later rows link earlier experiments
-with their original evidence.
+The first two rows cover the current loop and separate saved-artifact results.
+The remaining rows retain the preceding elementary/tensor/index/Erfc/inventory
+scopes and earlier experiments with their original evidence.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Ordinary native loop admission | Do actual native loop bodies and typed roles survive the shared SOURCE validator? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): actual dual477 / 1,431 PASS; finite scan at opsets 23/26 and while at opsets 18/23/26, original metadata and all 51 raw obligations retained. Complete PRIMARY 10,395/31,185 and seven normal code hooks PASS; committed at `c033d301`. |
+| First saved original014/0 | Does this unchanged saved artifact preserve its complete bounded Function structure and exact captured target samples? | [Latest findings](source_integration_findings.md#loop-admission-and-first-saved-model-samples): independent structural acceptance; actual two CPU sessions / 32 calls pass the original reference comparisons. Raw test/callback FAILED and earlier report UNVERIFIED; other cells and whole-model acceptance pending. |
 | Elementary/reduction and same-width Asin | Do bounded native calls and owning lowerings preserve the reviewed typed/value contracts? | [Current findings](source_integration_findings.md#elementary-and-reduction-checkpoint): actual 183/549 PASS per stack; finite Asin F32/F64 and B=2/5 positives; eight Sign numerical reports FAILED, 44 compositions UNVERIFIED, both raw Gather callbacks FAILED with separate positive finite comparisons. Code `11748451`, full PRIMARY 10,237/30,711, dual focused 1,937/5,811 and seven normal hooks PASS; numerical limits remain. |
 | Common tensor/index operations | Do unchanged raw tensor/index contracts preserve values, weakness, shapes and index semantics? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 296 cases per stack; 63 original rows retained; 56 selected rows / 112 tested caller contexts contain 109 positive artifact contexts and three native/configuration negatives; seven other rows were deferred in that selector; the later elementary selection separately checks the two trigonometric Gather rows. |
 | Source-typed Erfc | Does the reviewed expression preserve typed structure, and which configured CPU outputs pass? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): graph/schema evidence at opsets 23/26; configured CPU numerical evidence at opset 23 only, with finite direct/ordinary/named positives; full-seven-output and native-agreement gates FAILED, low-precision numerics UNVERIFIED. |
@@ -55,26 +55,21 @@ with their original evidence.
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The [current checkpoint record](source_integration_findings.md#elementary-and-reduction-checkpoint)
-binds the actual dual183 cohort, its nine failed samples and separate callback/
-composition limits. It preserves the failed author12, narrow two-case repair
-retry and secondary precollection failure as distinct epochs. A passing
-diagnostic test does not turn a failed numerical gate into acceptance.
+The [current checkpoint record](source_integration_findings.md#loop-admission-and-first-saved-model-samples)
+binds the actual loop result and both retained failed focused epochs. The
+preceding elementary record keeps its nine failed samples and separate
+callback/composition limits; a passing diagnostic test does not accept a failed
+numerical gate. The accepted `11748451` code checkpoint and all earlier failed
+full/model/Erfc epochs remain historical evidence.
 
-The earlier accepted `1533d60b` full-primary/hook checkpoint and all failed model,
-normalization and Erfc epochs remain in the
-[canonical history](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint).
-The new `11748451` code checkpoint has completed its focused/full/normal-hook
-qualification. Failed full-v1, focused14-v1 and focused15-v1 epochs remain failed;
-full-v2/v3 are collection-only. Original-six follow-through collects six
-original IDs per stack with zero runtime calls during collection. Its first
-PRIMARY cell returns one schema/ports-validated artifact, then **fails the
-unchanged original raw graph callback**. Offline review verifies lexical
-If-branch input capture and a wrapper-scope mismatch; full body fidelity and
-target numerics remain **UNVERIFIED**, with zero ORT sessions/runs.
-That external follow-through failure leaves code checkpoint `11748451` accepted. Original complete
-models, general fixed-source preparation, optional models, FP16/BF16 and
-scientific FP64 remain required. Public behavior stays **LEGACY**.
+The first original-six PRIMARY raw test still fails its unchanged structural
+callback. Complete bounded source fidelity and the exact captured samples from
+that saved artifact are now accepted separately. Its earlier stored report
+remains unverified, and the other five PRIMARY/all six SECONDARY cells remain
+pending. A six-path native Conv candidate has source/static acceptance only:
+93 forecast cases, unapplied and uncollected. Original complete models,
+fixed-source preparation, optional models, FP16/BF16 and scientific FP64 remain
+required. Public behavior stays **LEGACY**.
 
 ## Run it
 
@@ -193,20 +188,15 @@ rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive
 static tails. The Pointwise extension adds native floating Exp and equal-tail
 shared-B/static-1 Mul at those ranks, with exact source weakness.
 The later Where/JIT checkpoint adds static BOOL dependencies, bounded floating
-selection and pure closed JIT bodies. Broader symbolic operations, loops, scan,
-unsupported JIT forms, effects and unaudited operations remain excluded from
-audited admission.
-Bodies are validated recursively. Same-width BitCast requires explicit opset26;
-different-width bitcasts need a different representation and are rejected.
-No opset is raised automatically. These are experiment limits, not universal
-ONNX support classifications. Separate diagnostic regressions now cover finite
-noncomplex/complex loops and broader JIT forms without broadening this product
-profile;
-the [work plan](../precision_implementation_work_plan.md) records their exact gates.
-Product `scan`/`while` admission has a frozen external candidate that is unapplied
-and uncommitted; 121 forecast cases are **not collected**, and frozen-byte/runtime/
-typing/dual qualification remains pending. It is a prepared next checkpoint after
-original-six follow-through, not current admitted behavior.
+selection and pure closed JIT bodies. Broader symbolic operations, unsupported JIT forms, effects and unaudited
+operations retain temporary gates. Native scan/while now have the finite
+ordinary SOURCE contracts in the [latest checkpoint](source_integration_findings.md#loop-admission-and-first-saved-model-samples),
+including static complex/empty storage and actual recursive bodies. All 51 raw
+loop rows remain obligations. Same-width BitCast still requires explicit
+opset 26; other widths and unaudited forms are not admitted. No opset is raised
+automatically. The earlier diagnostic-loop records retain their historical
+scope; the loop packet's complete 10,395-case PRIMARY run and all seven normal
+code hooks now pass at committed checkpoint `c033d301`.
 
 The audited matrix profile retains its FP16-operands/preferred-FP32 branch for
 positive static rank-2/rank-3 standard axes. It now also admits same-type

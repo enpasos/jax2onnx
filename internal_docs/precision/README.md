@@ -30,7 +30,8 @@ with separately verified finite numerical comparisons. The
 [canonical checkpoint record](poc/source_integration_findings.md#elementary-and-reduction-checkpoint)
 separates those gates and preserves failed epochs.
 
-Local code checkpoint **`11748451`** is committed: the complete PRIMARY suite
+The preceding accepted local code checkpoint **`11748451`** is committed. Its
+complete PRIMARY suite
 passes **10,237 cases / 30,711 phases**, and the focused selection passes
 **1,937 cases / 5,811 phases on each supported stack**, with zero test
 failures/errors/skips in those executions. All seven normal code hooks pass;
@@ -40,6 +41,14 @@ and the worktree is clean at commit verification. The focused and full results
 have independent finite-checkpoint acceptance. These results retain the separate
 failed numerical gates; they do not complete the precision migration.
 
+The native loop checkpoint **`c033d301`** is committed after independent
+acceptance: **477 cases / 1,431 phases per stack** and the complete PRIMARY
+suite's **10,395 cases / 31,185 phases** pass, with zero failures/errors/skips.
+All seven normal code hooks pass, preserving the 1,088 qualified source/input
+files through commit. The reviewed scan/while contracts use ordinary SOURCE
+admission. The [latest findings](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples)
+retain the two failed focused epochs and distinguish each gate.
+
 Public behavior stays **LEGACY**. The inventory remains **1,852 rows / 3,704
 caller obligations**, including all 318 elementary raw contracts / 636 caller
 obligations and all 50 optional model obligations. The failed strict Erfc
@@ -47,13 +56,11 @@ full/native gates, unverified low-precision and complete original-model work,
 optional-environment prerequisites, general fixed-source preparation and
 scientific FP64 remain open. The full B–F single-contract migration remains the
 goal over all existing functionality and fixed third-party sources, with no
-permanent public mode/profile selector or loss of existing capabilities. The
-fresh original-six follow-through passes both-stack collection. Its first
-PRIMARY cell returns one schema/ports-validated artifact and then **fails the
-original raw graph callback**. Offline review verifies a wrapper-scope mismatch:
-the If branches capture the reported inputs. Complete body fidelity and target
-numerics remain unverified, with **zero ORT calls**. This external
-follow-through failure does not change the accepted `11748451` code checkpoint.
+permanent public mode/profile selector or loss of existing capabilities. The first saved original-model artifact now has independent bounded structural
+acceptance and passing comparisons against its exact captured CPU samples. The
+original raw graph callback stays **FAILED**, and the earlier stored export
+report stays numerically **UNVERIFIED**. Other original cells and model-wide
+acceptance remain open; see the [separate saved-artifact result](poc/source_integration_findings.md#loop-admission-and-first-saved-model-samples).
 
 ## What the experiments establish
 
@@ -94,10 +101,10 @@ result preservation and selected wider normalization now have bounded positive
 evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
 preceding code checkpoint `1533d60b` remains accepted. The
-[next work](precision_migration_plan.md#next-implementation-work) is the bounded
-original-model follow-through on the qualified snapshot, with offline
-body-fidelity review of its first actual artifact before continuation. Remaining
-registered families, scopes and export boundaries still require the full contract.
+[next work](precision_migration_plan.md#next-implementation-work) continues the
+remaining original-model cells under their unchanged criteria and qualifies the
+separate native Conv candidate. That candidate is still external and static-only.
+Remaining registered families, scopes and export boundaries require the full contract.
 
 The [follow-up review on 2026-10-18](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
 also closed a policy-blind optimizer rewrite and function reuse that ignored
