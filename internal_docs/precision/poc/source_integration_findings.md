@@ -1,14 +1,346 @@
 # Private source-policy integration
 
-Local implementation and review, updated 2026-10-20, beyond `main` at `fae17822`.
-The converter has a private SOURCE policy. Public options and legacy defaults
-retain their meanings; no public source mode or release is established. The
-current joint normalization/matrix status is recorded first. The accepted
-NNX-only `437d41fe`, preceding `bb7a7d76` and `7d74a200` checkpoints retain their
-original acceptance and failed epochs. Known runtime rounding failures remain
-separate failed numerical cases.
+Local implementation and review, updated 2026-10-20, beyond the public-behavior
+baseline at `fae17822`. The converter has a private SOURCE policy. Public options
+and LEGACY defaults retain their meanings; no public source mode or release is
+established. The prior ROOT **786-case / 2,358-phase PASS per stack** is retained
+on unchanged production. Separate final-byte test-repair qualification passes
+**29 cases / 87 phases per stack**, with zero failures/errors/skips and held
+current sources. The complete PRIMARY suite passes **10,047 cases / 30,141
+phases**, with zero failures/errors/skips, matching collections and held current
+pins. Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
+Independent final review **accepts this finite code checkpoint** and its
+retained scope limits.
+The current checkpoint is recorded first. Subsequent sections are
+historical checkpoint records: their results, failed epochs and then-current
+barriers retain their original scope and do not describe later code implicitly.
+
+## Tensor index, Erfc and optional inventory checkpoint
+
+Status: **ACCEPTED LOCAL CODE CHECKPOINT — `1533d60b`, all seven normal code
+hooks, actual full-primary and separate dual-stack finite PASS evidence, with
+independent final code-evidence review ACCEPTED**. The prior ROOT selection
+retains **786 cases / 2,358 phases PASS per stack** on unchanged production. The separate final-byte test-repair selection passes **29 cases /
+87 phases on each stack**, zero failures/errors/skips and held current **919
+Python / 163 other inputs**. The independent review accepts that bounded test
+repair for ROOT integration/qualification; it is not full milestone acceptance.
+Earlier accepted code checkpoint `39ddee8c` remains recorded in the next section.
+
+| Checkpoint evidence | Accepted scope |
+| --- | --- |
+| Local code commit | **`1533d60bb82c3860e7098221dc6b9abc68562c0a`**, exact 40 committed blobs match the full-qualified sources; tree clean at commit verification |
+| Retained ROOT dual-stack selection | **PASS: 786 cases / 2,358 phases per stack** on unchanged production; failed focused epochs remain separate |
+| Separate final-byte test-repair qualification | **PASS: 29 cases / 87 phases per stack**, zero failures/errors/skips; current 919 Python / 163 other input pins held |
+| Complete PRIMARY suite | **PASS: 10,047 cases / 30,141 phases**, zero failures/errors/skips; four matching collections/controller observations and held current 919 Python / 163 other inputs; earlier interrupted/failed runs remain history |
+| Secondary milestone qualification | Retained **786-case / 2,358-phase PASS**, plus separate **29-case / 87-phase PASS**; no complete-secondary suite claim |
+| Fresh final-source quality | Pinned Black25/Ruff and diff check PASS on 33 files; actual typing PASS on 547 source files plus RNG report; these are separate from normal hooks |
+| Normal code commit hooks | **PASS: all seven hooks**, zero skips, exit 0; all 919 Python / 163 other input bytes unchanged |
+| Final independent code-evidence review | **ACCEPT**: actual HEAD, all 40 committed blobs and all 1,082 qualified inputs, full PRIMARY result, separate dual29 and retained786 bridge, seven normal code hooks and retained limits verified |
+
+### Actual focused result and retained failures
+
+Each initial ROOT selection collected **779 cases / 2,337 phases**, with
+**770 passes / nine failures**, zero errors and zero skips, on both supported
+stacks. The independently checked passing implementation subset is **674 cases
+per stack**:
+
+| Selected test module | Passing cases per stack |
+| --- | ---: |
+| Tensor/index families | 296 |
+| Gather | 99 |
+| Shared symbolic batch | 43 |
+| Representation | 136 |
+| SOURCE profile | 52 |
+| Erfc | 46 |
+| Original GPT_MLP numerics | 2 |
+
+The nine failures remain failed history: one inventory test fixture discarded
+five legitimate zero-case registrations, and eight old corpus admission checks
+used a stale whole-oracle descriptor pin. The external three-file repair
+preserves unrelated registrations and the exact historical corpus controls,
+updates only the explicit v5 revision and current descriptor digest, and adds
+five corruption cases. Its bounded PRIMARY author smoke passes **14 cases /
+42 phases**, with zero failures/errors/skips, CPUs 12/13, one thread and no ORT
+sessions. All project imports resolve to its detached source snapshot and source
+pins hold. This is author evidence; the original 779-case outcomes are not
+rewritten as passes.
+
+The subsequent ROOT **784-case** selection is also terminal on both stacks:
+**783 passes / one failure**, zero errors/skips, with held source pins. The one
+remaining failure is a stale current Gather test consumer asserting v4 after
+the reviewed v5 control revision. This epoch is distinct from the original
+779-case/770-pass/nine-failure result.
+
+A separate three-test-file consumer supplement updates the two current v5
+assertions, preserves all historical v1/v2/v3 rejects and adds v4 as a negative.
+The current first-selection test now asserts 1,852 rows / 3,704 total / 36
+selected / 3,668 unselected caller cells, freezes the original 36 identities and
+retains their None-criteria check; all 100 optional caller contexts are proved
+unselected. Its PRIMARY author smoke passes **three cases / nine phases**, with
+no ORT and only the existing four Add/dot control artifacts. Production code,
+authentic historical 1,802/3,604/3,578 corpus guards and prior evidence assets
+are unchanged by this supplement. The subsequent final ROOT selection passes
+**786 cases / 2,358 phases on each stack**, with zero failures/errors/skips and
+held sources. It combines the retained 674 implementation cases with 112
+inventory/replay cases; the earlier failed epochs remain unchanged.
+
+The earlier ROOT complete-suite **collection** succeeds with **10,047 distinct
+identities** and held sources. Relative to the preceding 9,667-case checkpoint,
+381 identities are added and one obsolete unsupported-Erfc negative
+(`test_source_profile.py` unsupported case `[lambda4]`) is intentionally removed;
+all other old identities are retained. Collection is not test execution; the
+separate final complete-primary result is recorded below.
+
+Actual prepatch package typing passes **547 source files plus RNG registration**.
+Pinned Black/Ruff checks pass on the 24 checkpoint files. These do not replace
+the final full-suite result or the separate code-commit hook evidence below. The independent
+actual-result review binds **919 Python / 163 other inputs** and verifies both
+focused collections, every phase, XML and import provenance. Passing tests may
+record failed numerical gates; 674 passing cases are not broad CPU acceptance.
+
+### Interrupted and failed complete-suite epochs
+
+The first full-primary attempt ended with **exit 120 during ENOSPC**, with
+source/input pins held. Four worker collections each contained 10,047 cases,
+but the XML and process receipts were truncated; a complete phase/XML result
+is **NOT_AVAILABLE**. One test failure was observed before disk exhaustion,
+with details not flushed. This is an interrupted epoch, not a completed
+full-suite result; its partial evidence remains preserved.
+
+The subsequent complete-primary retry finished all **10,047 cases / 30,141
+phases** with **10,038 passes / nine failures**, zero errors/skips, equal worker
+collections and held sources. These are nine stale finite-profile exclusions
+or current-denominator assertions, not reasons to remove newly audited product
+behavior. The failed full result remains unchanged.
+
+The independently accepted five-file/six-function test repair preserves every
+original parameter ID, callable, criterion and genuine negative. Integer Add
+checks exact modular overflow; native arange/linspace are checked directly and
+through consumers; valid reshape admission is tied to the passing common CPU
+controls. The current 24-cell numerical selector retains its original identities
+and None criteria, with 3,680 unselected cells and all 100 optional contexts
+unselected. Production sources and authentic historical guards/assets remain
+unchanged. Its author smoke passes 29 cases / 87 phases; the import-only
+post-smoke cleanup is explicitly bound by the independent review.
+
+ROOT subsequently applies and qualifies the exact final test bytes on **both
+stacks: 29 cases / 87 phases PASS per stack**, zero failures/errors/skips and
+identical current 919 Python / 163 other input pins held. The five changed test
+files are not selected in the retained 786-case execution and production is
+unchanged, so that prior finite result retains its exact scope. These are
+separate executions; no single 815-case execution is claimed.
+
+The fresh full collection contains the same **10,047 identities**. Final pinned
+Black25/Ruff checks on **33 files**, diff check and the freshly executed package
+typing check (**547 source files plus RNG registration**) pass on held sources.
+These do not replace normal commit hooks.
+
+The final complete PRIMARY execution then passes **10,047 cases / 30,141
+phases**, with zero failures/errors/skips, terminal exit 0 and **677.54 seconds**
+elapsed. All four worker collections match each other and the controller
+observations; the current **919 Python / 163 other input** pins hold. This
+actual full result preserves both earlier failed epochs and the separate
+dual-stack finite scopes above.
+
+The subsequent normal local code commit is
+**`1533d60bb82c3860e7098221dc6b9abc68562c0a`**. All **seven normal code hooks pass**,
+with zero skips and terminal exit 0. The exact **40 committed blobs** match the
+full-qualified sources, all **919 Python / 163 other input** bytes remain
+unchanged through hooks and commit, and the tree is clean at verification.
+Independent final code-evidence review **ACCEPTS this finite local checkpoint**
+and verifies the actual HEAD, all 40 committed blobs and all 1,082 current
+qualified inputs, the full PRIMARY result, separate dual29 result, retained786
+bridge, all seven normal code hooks and the failed/unverified limits below.
+The tree is clean at that review. This is a local code checkpoint with no push
+or public transition; the review deliberately does not bind subsequent
+documentation postimages.
+
+### Current common tensor and index scope
+
+The finite selector freezes **63 original rows / 126 caller-x64 identities**
+across concatenate, dynamic slice/update, gather, iota, pad, reshape, reverse,
+slice, squeeze and transpose. The 296-case module passes on both stacks;
+**56 selected rows / 112 tested caller contexts** contain **109 positive
+artifact contexts and three native/configuration negatives**. Gather ordinals
+2/3 under caller-x64-off retain their FP64/configuration conflicts, and
+`dynamic_update_slice` ordinal 5 under caller-x64-on retains the original-source
+INT64/INT32 index-type error. Those three tests pass by recognizing the original
+negative contracts; they are not positive artifact admissions. The remaining
+seven rows stay deferred: gather ordinals 0/1 (trigonometric composition), pad 3/4
+and slice 2 (scan compositions), reshape 5 (multiple symbolic dimensions) and
+reshape 8 (derived `B*4` extent). No omission or diagnostic counterpart closes
+those product obligations.
+
+Shared-B dimension values preserve native weak INT32/INT64 behavior under the
+effective local x64 setting, including settings opposite to the caller. The
+reviewed unsigned-index path uses an exact local INT64 bridge rather than a
+lossy narrowing cast; tested large unsigned and signed limits retain the native
+clipping/wrapping contract. Squeeze, pad, copy and related tensor paths retain
+the checked source types, shapes and consumed values. These are bounded forms,
+not general symbolic/index/control-flow acceptance. Original factories,
+criteria, opsets, callbacks and the complete 63-row contract aggregate remain
+unchanged.
+
+### Current Erfc representation and numerical evidence
+
+The private SOURCE route has Erfc **graph/schema evidence at opsets 23/26**,
+preserving the reviewed FLOAT/DOUBLE expression, source dtype, shape and
+weakness. Configured CPU numerical evidence is **opset 23 only**: the artifact
+helper and diagnostic worker use that default. Opset 26 CPU numerics remain
+**UNVERIFIED**. FP16/BF16 have structural representation/castback evidence only; their numerical status
+is **UNVERIFIED**. No production FTZ initializer, target configuration or public
+runtime-policy change is introduced.
+
+The configured diagnostic completes **36 native evaluations, four exports,
+eight sessions and 12 runs per stack**. Offline verification of the final focused run
+reproduces the saved-byte summary with unchanged counts and **zero misleading
+zero absolute-error metrics**. The independent earlier offline comparison is
+retained separately. Measured direct Erfc,
+ordinary-composition and named shared-batch outputs pass their fixed gates,
+including 2,004 direct, 1,200 ordinary and 1,008 named scalar comparisons per
+stack. These totals describe comparisons within those finite scopes.
+
+The literal **full-seven-output gate remains FAILED**, and **native reference
+agreement remains FAILED**. Of 10,068 strict fixed comparisons per stack,
+48 fail on the `t` / `half_x` prefix values. Native eager and JIT already disagree
+on those FP32/FP64 subnormal values, and each recorded target word equals one of
+the conflicting native words. No tolerance, sign/class requirement or output
+role is relaxed or discarded; zero-valued absolute-error metrics do not hide
+these word/class failures. The old default-CPU fixed-grid failures remain
+**FAILED**, separate from the configured environment. Named activated
+whole-carrier runtime remains **NOT_ESTABLISHED**.
+
+The earlier six-Function-model run reached Erfc in its first cell, with one
+failed stale-barrier assertion and five unexecuted cells per stack, no returned
+model artifact and no ORT attempt. That observation belongs to the previous
+code. A fresh original-model run is needed after the new lowering; no downstream
+barrier or complete-model result is established here.
+
+### Original GPT_MLP FP32 scope
+
+The unchanged original GPT_MLP ordinal-0 contract now has finite numerical
+**PASS** evidence on both stacks in **two FP32 caller-x64 contexts**. The real
+model, parameters, Boolean runtime control and declared FP32 feature-port
+contract are retained. The criterion is the reviewed generated FP32 default for
+these fixed samples. This advances the earlier artifact-only observation; it
+establishes neither FP64 numerics nor the other original model contracts,
+training/stochastic equivalence or general complete-model coverage.
+
+### Inventory and optional environment matrix
+
+Inventory SHA-256:
+`b875cf3a8169c2919c425eb9d5f11fda9396020945d7ffc4164fb748e153474c`.
+The denominator is **1,852 rows / 3,704 caller obligations**: all **1,802 original
+core rows / 3,604 caller obligations**, with exact canonical registration,
+ordinal, name, feature bits, opset and complete contracts, plus **45 MaxText /
+five MaxDiffusion** retained obligations. The manual inventory has **234 files /
+1,565 functions**, retaining all **752 original anchors**. Retention is not
+SOURCE acceptance; all 50 optional source/model obligations remain
+**AUDIT_PENDING**, with target numerics **UNVERIFIED**.
+
+The six original inventory-only CLI attempts are terminal **four PASS / two
+FAIL**. Each receipt records one observation, held source pins and no native
+model, exporter or ORT entry calls.
+
+| Stack and environment | MaxText / MaxDiffusion observed rows | Actual result |
+| --- | --- | --- |
+| PRIMARY, unconfigured | 0 / 0 | PASS; reviewed optional baseline obligations retained |
+| PRIMARY, defaults | 6 / 1 | PASS, inventory only |
+| PRIMARY, all | 45 / 5 | PASS, inventory only |
+| SECONDARY, unconfigured | 0 / 0 | PASS; documented `one_minus_square` version absence retained |
+| SECONDARY, defaults | Explicit `Environment_Error` observations | FAIL, nonzero exit |
+| SECONDARY, all | Explicit `Environment_Error` observations | FAIL, nonzero exit |
+
+The pinned MaxText revision
+`17d805e3488104b5de96bd19be09491ff73c57c1` declares **Python >=3.12** and uses
+syntax that fails on the Python 3.11 secondary stack. This is an upstream
+prerequisite, not a proved SOURCE/ONNX limit. Core Python 3.11 support remains;
+no upstream ref/source or dependency-policy change is made to manufacture a
+configured import pass.
+
+The initial MaxDiffusion error was missing `PIL.ImageOps`. A bounded secondary
+environment preparation installed only the declared locked **Pillow 12.3.0**
+wheel, verified by SHA-256
+`23d27a3e0307ec2244cc51e7287b919aa68d097504ebe19df4e76a98a3eea5bd`.
+Repository source, dependency policy and upstream refs remain unchanged. The
+supplementary SECONDARY **MaxDiffusion-only defaults** CLI then fails on the next
+actual missing dependency, **tokamax**, with nonzero exit, one observation,
+held pins and no forbidden model/export/ORT calls. The supplementary
+**MaxDiffusion-only all mode is NOT_EXECUTED**. No further environment repair or
+secondary configured positive is claimed. Preserve the initial six attempts
+and this supplementary failed epoch separately.
+
+### Remaining checkpoint and migration work
+
+The current finite code checkpoint is independently accepted. Astra has
+separately **accepted the bounded v3-to-v4 static delta for ROOT validation** of the separate elementary/
+reduction candidate. Its packet has **63 source files, 27 test functions,
+172 declared cases and 318 selected raw rows / 636 caller obligations**. It
+remains **unintegrated and not ROOT-qualified**. Its detached PRIMARY author
+epoch executes all **172 cases / 516 phases**, with **169 passes / three
+failures**, zero errors/skips and held source pins. Its **44 original composition
+diagnostic artifacts remain numerically UNVERIFIED**; raw structural callbacks
+record 30 failures / 14 passes, and both Gather raw callbacks fail with their
+original None criteria unchanged. The 169 passing pytest cases do not establish
+all-source numerical acceptance. The failures are the Asin
+FP32 consumed sum (the pointwise values meet the fixed criterion) and Sign
+FP32/FP64 smallest-subnormal CPU mismatches. These are actual failed target
+samples, not a demonstrated ONNX impossibility. Original model source, input
+bytes, defaults and criteria remain frozen; no FTZ or tolerance change is
+introduced. A frozen three-case diagnostic plan preserves the exact failed selectors; fixes remain separate
+owned work. A later detached seven-case Asin/Sign experiment finishes with
+**one pass / six failures**: the enriched FP32 Asin control passes, the original
+Asin sum still fails, and the FP64 Asin control encounters the missing ORT
+`Asin(22)` DOUBLE kernel. Original and extended Sign checks fail; native
+eager/JIT ordered comparisons disagree for subnormals. This is engineering
+evidence, not a MAIN regression, fix acceptance or ONNX-model impossibility.
+Frozen saved-byte analysis confirms the failed proposals remain unaccepted
+(`/tmp/jax2onnx-source-elementary-reductions-seven-experiment-primary-v2-offline-analysis/analysis.json`,
+SHA-256 `ada90aa959e40f8935c0eb9d3e2f91cfe85905722059ecfe5d7c7139094a022b`).
+Qualify the candidate separately after this code checkpoint. Its source files,
+selector rows and declared tests are not milestone product behavior or
+migration/numerical passes.
+
+Continue unchanged original-model follow-through, native normalization graph
+contracts, whole-carrier MLIR, all remaining registered functionality and general
+fixed-source preparation. All B–F gates remain required, including FP16/BF16
+rounding, selective FP32 and scientific FP64. No partial private profile can
+complete the task, no per-operation LEGACY fallback closes a row, and no permanent
+mixed public precision interface is planned. Public behavior remains **LEGACY**.
+
+Canonical local receipts (provenance, not tracked execution dependencies):
+
+| Evidence | Receipt | SHA-256 |
+| --- | --- | --- |
+| Independent actual-result/environment review | `/tmp/jax2onnx-precision-milestone-actual-results-astra-review-v2.json` | `d49844b7d6f40f3a2a49c01ed43043d40688def522e881987ad1ef10309c4339` |
+| Initial ROOT PRIMARY focus | `/tmp/jax2onnx-precision-milestone-root-v2/focused/primary/root-receipt.json` | `e74a6ad755deb2a4354a118eb352a24700bab230e9428a1f0ceaee01dbbbb54a` |
+| Initial ROOT SECONDARY focus | `/tmp/jax2onnx-precision-milestone-root-v2/focused/secondary/root-receipt.json` | `ea482d7b3f7d56978b8be1224b28d6c68b25df243659bac33c47702303f6a4ad` |
+| Independent reproduction of Erfc saved-byte comparisons | `/tmp/jax2onnx-precision-milestone-root-v2/focused/root-offline-dual-raw-comparisons.json` | `b7cacb87ff74649ad78a15a3c21fc892b90d04c4fffd04f1bca50cdd62682b1f` |
+| External fixture/control repair, with 14-case author smoke and exact source proof | `/tmp/jax2onnx-inventory-replay-repair-candidate-v1/MANIFEST.json` | `fadd72c50dcf56f19430507241a003a8061f678528cf01adfe3f9110f786e97b` |
+| ROOT 784-case PRIMARY epoch, 783 pass / one stale-consumer failure | `/tmp/jax2onnx-precision-milestone-root-v2/focused-repaired/primary/root-receipt.json` | `d4b9026ef2796c94c2107b38a0068e471ea2af62ad3d64ae23b7dba8ef17cdce` |
+| ROOT 784-case SECONDARY epoch, 783 pass / one stale-consumer failure | `/tmp/jax2onnx-precision-milestone-root-v2/focused-repaired/secondary/root-receipt.json` | `4553fecfb838320a7d10809b2c8a5b478ad7bfb5463bb57ce7d0e4ce77bc2e06` |
+| Three current test consumers, with three-case author smoke | `/tmp/jax2onnx-current-test-consumer-candidate-v1/MANIFEST.json` | `e4d3321359faccc59b1c99ebbbfcebde2aaa11630837e69a2e2e7991fd6d70a5` |
+| Actual final ROOT focused PASS on both stacks | `/tmp/jax2onnx-precision-milestone-root-v2/root-final-dual-786-pass.json` | `33a093d2747bc0469c73b718ae364c19ac627da2e552fe0f9b988ea6f69bcab1` |
+| Final Erfc saved-byte verification, both stacks | `/tmp/jax2onnx-precision-milestone-root-v2/focused-final/root-offline-dual-raw-comparisons.json` | `86105ab857d2322290fa8f8ecca0a5364e40d41f3dcde4417c53b64d516d6819` |
+| Elementary/reduction v4 bounded static delta accepted for ROOT validation only | `/tmp/jax2onnx-source-elementary-reductions-astra-review-v4/review.json` | `f5a35f53ff163a7fc9e05776a21ebb893860df580d0eea3a44d7de81826bf345` |
+| First full-primary ENOSPC interruption, no complete result | `/tmp/jax2onnx-precision-milestone-root-v2/root-full-enospc-interruption.json` | `321191c0e4ecbd30b762bd3241d3a68e40a606f0faf7a16ba10d249aed7f6d52` |
+| Complete full-primary failed epoch, 10,038 pass / nine failures | `/tmp/jax2onnx-precision-milestone-root-v2/root-complete-full-primary-nine-test-failures.json` | `5e3c657738a92f384cb656bb7bb0c9ae8791e51ad4a7ec3d66851b63a6397336` |
+| Independent bounded test-only repair acceptance | `/tmp/jax2onnx-stale-profile-full-repair-astra-review-v1.json` | `c8defd807988ce536f262239000bfba338f149b5c705733ff68fe155cb3b1497` |
+| Actual ROOT separate final-byte dual29 PASS and retained786 evidence bridge | `/tmp/jax2onnx-precision-milestone-root-v2/root-final-dual29-test-repair-pass.json` | `9ab2777e8ef9f2758eb1da1bc7ca7fb160e7b4ebbb76106a9ba22e31b19318ad` |
+| Final pinned style checks on 33 files and diff check | `/tmp/jax2onnx-precision-milestone-root-v2/root-final-style33.json` | `607fd77db756eb70d624526e37f160dc73649cfc98ee706247b47e576d976208` |
+| Fresh actual 547-file typing and RNG report | `/tmp/jax2onnx-precision-milestone-root-v2/typing-final-v1.log` | `8c2f34fd5d437e3a0c59e3ebcbff24fe5be4462e05e2b55d4249b63ad29190a0` |
+| Detached elementary v4 author epoch, 169 pass / three failures | `/tmp/jax2onnx-source-elementary-reductions-author-full-v4-primary-v1/receipt.json` | `f940821e2bff2dc6286baf85a47116bd73beca314ebd79c046f148394c815873` |
+| Frozen three-selector diagnostic plan for the detached candidate | `/tmp/jax2onnx-source-elementary-reductions-failure-diagnostics-v1/plan.json` | `604c82f77921b47df1d231f49e37cf09f132719690d3c687ef128f30d8861e4e` |
+| Actual final complete PRIMARY PASS | `/tmp/jax2onnx-precision-milestone-root-v2/root-actual-final-full-primary-pass.json` | `0859886898ef1f2c971ef71dab3d896d4eef659a929dd51fa94482426c796a5c` |
+| Detached elementary v4 author summary, retained diagnostic/raw-callback limits | `/tmp/jax2onnx-source-elementary-reductions-author-full-v4-primary-summary.json` | `bb670cb9855876a56c343a8743dd429b6dd7dfac8f7e2693e3bd7778914099dc` |
+| Actual local code commit, exact 40 blobs and all seven normal code hooks | `/tmp/jax2onnx-precision-milestone-root-v2/root-code-commit.json` | `db4be722fb2889ea146477e927dbc0dbf38b61c8b1c3a8e053240e1d6b69ad34` |
+| Actual normal code-hook log | `/tmp/jax2onnx-precision-milestone-root-v2/code-commit-normal-hooks.log` | `09abdbd7923ef6775bd107a052960f694c944cfb80774aabd03208d0aa60b3ba` |
+| Independent final finite code-checkpoint review | `/tmp/jax2onnx-precision-milestone-code-checkpoint-astra-final-review-v1.json` | `eb76c59d611e2f7c555333d82a37dc3b51453d18b74e73cd422efa808dd13912` |
 
 ## Joint normalization and matrix integration
+
+Historical checkpoint: all observations and then-current barriers in this
+section describe `39ddee8c`, before the tensor/index/Erfc successor above.
 
 Accepted local checkpoint, 2026-10-20: **`39ddee8c5fdf0d4f3a26be53f9e7dd5b0d55c1b6`**,
 parent `e8ab9614`. The complete primary suite passes **9,667 tests / 29,001 phases**,
@@ -60,7 +392,7 @@ execution from activated whole-carrier ordinary JAX MLIR execution, which remain
 **NOT_ESTABLISHED**. Local saved-file counts and test counters do not establish
 process-wide native/export/ORT totals.
 
-The latest separate original-six exploration advances the first original
+At this checkpoint the separate original-six exploration advanced the first original
 Functions014 cell, caller-x64-off, past the matrix boundary to `erfc` at
 `SuperBlock` equation 24 (`profile-validation` / `profile-exclusion`). On each
 stack, six cases were collected, **one test failed on its stale matrix-barrier
@@ -87,8 +419,9 @@ The same saved FP32/FP64 graphs, seven output roles, eager/JIT references and
 unchanged gates pass under `session.set_denormal_as_zero=1`, with optimization
 disabled and all. This is finite configured-target numerical evidence. The
 **default-CPU gates remain FAILED**; no production FTZ initialization or runtime
-policy changes are introduced. SOURCE erfc is still unadmitted; low-precision
-and original whole-model acceptance remain open.
+policy changes were introduced. SOURCE erfc was still unadmitted at this
+checkpoint; the current bounded lowering and retained numerical failures are
+recorded above. Low-precision and original whole-model acceptance remained open.
 
 Separately, the exact original GPT_MLP ordinal-0 contract now has a saved,
 schema-checked SOURCE artifact with FP32 `B×1024×768` feature ports and the real
@@ -103,13 +436,14 @@ models, FP16/BF16 rounding, scientific FP64 and all B–F gates remain open.
 Public export behavior remains LEGACY; the complete ordinary-call contract is
 unchanged.
 
-Next work is to assess finite erfc representation and semantic-lowering scope
-before proposing SOURCE admission. Runtime acceptance stays tied to the declared
+The next work recorded at that checkpoint was to assess finite erfc
+representation and semantic-lowering scope before proposing SOURCE admission. Runtime acceptance stays tied to the declared
 target: the configured pass preserves the known default-CPU failure.
 Original model numerics, native normalization graph contracts, whole-carrier MLIR,
 fixed-source preparation and the full existing-functionality B–F gates remain
-separate work. The exact GPT_MLP contract above remains artifact-only while a
-new numerical proposal is prepared; no new target acceptance is included here.
+separate work. The exact GPT_MLP contract above remained artifact-only while a numerical
+proposal was prepared. Its later finite FP32 acceptance is recorded in the
+current checkpoint; no new target acceptance is inferred for this historical epoch.
 
 Canonical local receipts (provenance, not tracked code dependencies):
 

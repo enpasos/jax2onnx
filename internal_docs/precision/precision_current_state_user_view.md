@@ -13,37 +13,27 @@ changes, rather than capabilities already available.
 The current repair makes selected double-precision calculations load and run
 consistently; the broader precision contract remains a proposal.
 
-The private implementation now preserves the original NNX/Linen MLP controls
-and random state on the tested CPU samples. Selected static normalization and
-explicit Dropout state preparation also pass their reviewed checks on both
-supported stacks. The code checkpoint and its integration checks are complete.
-Public export behavior remains LEGACY; these finite results do not establish
-support for every model or deployment target. The
-[technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-retain the evidence and earlier failures.
+The private implementation retains its **786-case / 2,358-phase ROOT PASS per
+stack** on unchanged production. Separate checks of the final test repair now
+pass **29 cases / 87 phases per stack**, with zero failures/errors/skips. These
+are separate selections. It preserves additional tested tensor/index operations and
+Erfc calculations, and the original GPT_MLP passes finite FP32 checks under
+both caller-x64 settings. Erfc graph/schema checks cover opsets 23/26; the
+measured configured CPU numerical checks cover **opset 23 only**. The full
+seven-output comparison still fails where JAX eager/JIT disagree on subnormal
+intermediate values; FP16/BF16 numerics remain unverified. A fresh original
+Function-model run is still needed.
 
-The preceding private checkpoint, `bb7a7d76`, preserves the tested original
-LayerNorm cases with variable batch sizes and their parameter reshapes. The
-complete primary suite, repaired focused checks on both stacks and actual
-commit hooks pass, with independent acceptance. The
-[technical record](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-keeps these finite results and earlier failures distinct.
-
-The preceding accepted private checkpoint, `437d41fe`, preserves state changes
-through the tested NNX named-function calls. Its finite checks, complete primary
-suite and normal commit checks retain their original acceptance.
-
-The latest accepted private checkpoint, `39ddee8c`, passes the complete
-9,667-test primary suite and all normal commit checks. The six corrected checks
-pass on both supported stacks; the earlier 721-case secondary result retains its
-separate scope. All 30 original LayerNorm callables and tested matrix compositions
-have bounded SOURCE evidence. The native zero-reference qualifier keeps exact
-eager-zero requirements; native ONNX LayerNormalization emission and the
-original graph checks remain open. See the
-[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-for the evidence and preserved failures. Complete-model target numerics,
-fixed-source preparation, FP16/BF16 and scientific FP64 remain part of the full
-migration. Public behavior stays LEGACY.
+The complete PRIMARY suite also passes **10,047 cases / 30,141 phases**, with
+zero failures/errors/skips and held current sources. These private results
+preserve the limits above. Local code checkpoint **`1533d60b`** passes all seven
+normal code hooks. Independent final review **accepts this finite code
+checkpoint** and its retained scope limits. The
+[technical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+keeps passing samples, failed gates and optional-environment limits separate.
+Earlier accepted model/state and normalization results remain in that history.
+Public export behavior stays **LEGACY**. Complete models, general fixed-source
+preparation, FP16/BF16 and scientific FP64 remain required for the full migration.
 
 ## Choosing the Export Setting
 

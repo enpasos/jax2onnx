@@ -14,34 +14,27 @@ export through this path. Public legacy options and defaults retain their rules;
 the full migration and deployment evidence remain unfinished.
 No release or deadline is promised.
 
-The private implementation preserves the tested original NNX/Linen MLP controls
-and random state, selected static normalization, and explicit Dropout state
-preparation on both supported stacks. The preceding checkpoint's
-[technical findings](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-retain those finite results and earlier failures.
+The private implementation retains its **786-case / 2,358-phase ROOT PASS per
+stack** on unchanged production. Separate checks of the final test repair now
+pass **29 cases / 87 phases per stack**, with zero failures/errors/skips. These
+are separate selections. It preserves additional tested tensor/index operations and
+Erfc calculations, and the original GPT_MLP passes finite FP32 checks under
+both caller-x64 settings. Erfc graph/schema checks cover opsets 23/26; the
+measured configured CPU numerical checks cover **opset 23 only**. The full
+seven-output comparison still fails where JAX eager/JIT disagree on subnormal
+intermediate values; FP16/BF16 numerics remain unverified. A fresh original
+Function-model run is still needed.
 
-The preceding checkpoint, `bb7a7d76`, extends this to the tested original LayerNorm
-cases with variable batch sizes and their parameter reshapes. The complete
-primary suite, repaired focused checks on both stacks and actual commit hooks
-pass, with independent acceptance. The
-[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-record that scope and every failed epoch.
-
-The preceding accepted private checkpoint, `437d41fe`, preserves the tested NNX
-state changes through named-function calls. Its finite checks, complete primary
-suite and normal commit checks retain their original acceptance.
-
-The latest accepted private checkpoint, `39ddee8c`, passes the complete
-9,667-test primary suite and all normal commit checks. The six corrected checks
-pass on both supported stacks; the earlier 721-case secondary result retains its
-separate scope. All 30 original LayerNorm callables and tested matrix compositions
-have bounded SOURCE evidence. The native zero-reference qualifier keeps exact
-eager-zero requirements; native ONNX LayerNormalization emission and the
-original graph checks remain open. See the
-[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-for the evidence and preserved failures. Complete-model target numerics,
-fixed-source preparation, FP16/BF16 and scientific FP64 remain part of the full
-migration. Public behavior stays LEGACY.
+The complete PRIMARY suite also passes **10,047 cases / 30,141 phases**, with
+zero failures/errors/skips and held current sources. These private results
+preserve the limits above. Local code checkpoint **`1533d60b`** passes all seven
+normal code hooks. Independent final review **accepts this finite code
+checkpoint** and its retained scope limits. The
+[technical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+keeps passing samples, failed gates and optional-environment limits separate.
+Earlier accepted model/state and normalization results remain in that history.
+Public export behavior stays **LEGACY**. Complete models, general fixed-source
+preparation, FP16/BF16 and scientific FP64 remain required for the full migration.
 
 This document explains how someone exporting models would prepare for and
 evaluate the transition. See the [document guide](README.md),
@@ -193,11 +186,13 @@ The original NNX/Linen MLPs now have finite model/state acceptance. The current
 normalization work retains all 30 original LayerNorm callables, including their
 parameters, dynamic batches, options and declared ONNX versions. Their bounded
 SOURCE counterparts pass; the original graph checks remain open. The NNX adapter
-preserves tested state changes without rewriting the model, and the first
-Function-model scenario now advances past matrix conversion to `erfc`. The latest
-six-case exploration stops after one failed test on each stack, leaving five
-unexecuted and no accepted complete-model target execution. Keep the original
-models, numerical requirements and live controls through the next work.
+preserves tested state changes without rewriting the model. The earlier
+six-Function-model exploration stopped at Erfc before producing a complete model
+artifact. The new bounded Erfc implementation needs fresh follow-through on
+those original models; no later barrier is established by that earlier run.
+The original GPT_MLP now has finite FP32 numerical evidence under both
+caller-x64 settings. Keep the other original models, numerical requirements and
+live controls through the remaining work.
 Each declared runtime flag must remain live through one
 artifact, including variable batches where the original model declares them. A successful
 input check alone does not mean that construction, export or numerical execution

@@ -8,60 +8,34 @@ The bounded `source-static-v1` profile is an internal implementation milestone;
 it is not the completion scope or a planned public precision mode. The shared
 private conversion pipeline and artifact/sample report APIs are committed.
 
-Accepted private code checkpoint, 2026-10-20: **`39ddee8c`**. The complete
-primary suite passes **9,667 tests / 29,001 phases**, with four equal worker
-collections and no failures, errors or skips. All seven normal commit hooks pass;
-the 19 committed paths and 913 Python / 157 other input files match the tested
-release. The final six corrected cases pass on each stack. The earlier
-**721-case secondary pass / 2,163 phases** is retained on unchanged production
-sources, with the four test-file changes recorded separately. This is a finite
-local checkpoint; no full-secondary or public-transition result follows. The
-[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-retain the options 131, focused 159, matrix 44 and retained 348 dual-stack results
-and every failed epoch.
+Current accepted private code checkpoint: the prior ROOT selection retains **786 cases /
+2,358 phases PASS per stack** on unchanged production. A separate final-byte
+test-repair selection passes **29 cases / 87 phases on each stack**, zero
+failures/errors/skips and held current **919 Python / 163 other input hashes**.
+Bounded common tensor/index
+families and source-typed Erfc graphs at opsets 23/26 are implemented, and the
+original GPT_MLP has finite FP32 numerical evidence under both caller-x64
+settings. The complete PRIMARY suite passes **10,047 cases / 30,141 phases**,
+with zero failures/errors/skips, matching collections and held current pins.
+Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
+Independent final review **accepts this finite code checkpoint** and its
+retained scope limits in the [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint).
 
-Pre-full normal typing for 546 files plus the RNG report passed and was explicitly
-reused after checking 574 unchanged inputs for the assertion-only correction.
-The final code commit then ran all seven hooks normally, including mypy.
+The configured Erfc CPU numerical evidence is positive only at **opset 23** for
+the measured direct, ordinary-composition and named shared-batch scopes. Opset
+26 has graph/schema evidence; its CPU numerics remain unverified. Strict full-seven-output
+and native-agreement gates remain **FAILED** on the FP32/FP64 subnormal prefix
+contradiction. FP16/BF16 numerics remain **UNVERIFIED**; production FTZ and runtime
+policy are unchanged. The old original-six Erfc barrier requires fresh
+complete-model follow-through and establishes no new downstream barrier.
 
-All 30 unchanged LayerNorm callables / 60 caller-x64 contexts have bounded
-SOURCE export and numerical evidence under reviewed structural counterparts.
-All 60 original raw graph callbacks still fail; native ONNX LayerNormalization
-emission and those original graph contracts remain separate work. The original
-Function-model follow-through still stops first at `erfc`. The standalone
-candidate retains its default-CPU zero/subnormal failures; the configured CPU
-replay passes its finite saved cases on both stacks. SOURCE erfc remains
-unadmitted and production runtime policy is unchanged. Complete models,
-whole-carrier MLIR, fixed-source preparation and full B–F remain open. Public
-behavior stays LEGACY.
-
-The preceding accepted NNX-only checkpoint is `437d41fe`. The complete primary suite
-passes 9,557 tests, the secondary integration selection passes 58, and all seven
-normal commit hooks pass. The Function/NNX state adapter has independent finite
-acceptance for 13 new and 45 retained cases on each stack. It preserves original
-stateful named calls through the shared private pipeline. The
-[NNX checkpoint record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-keeps this scope separate from complete-model and public acceptance.
-
-The preceding accepted private code checkpoint, `bb7a7d76`, adds shared-batch
-normalization, static parameter reshapes and bounded integration repairs.
-The complete primary suite, repaired focused checks on both stacks and all
-seven actual commit hooks pass, with independent acceptance. The
-[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-retain the exact scope and earlier failed epochs without changing the original
-models, numerical criteria or coverage obligations.
-
-The preceding `7d74a200` checkpoint retains its accepted finite MLP, static
-normalization and explicit Dropout state-preparation results; its
-[acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-keeps the original evidence and limits. The later bounded qualifier resolves
-the native-reference conflict without relaxing target eager-zero requirements.
-The matrix successor also has finite acceptance; original Function-model
-follow-through now reaches `erfc`, without a complete model artifact. The corrected standalone exact-GELU/`erfc` candidate now executes on both stacks
-and retains the default-CPU zero/subnormal failure. The configured CPU replay now
-passes finite saved cases on both stacks; production erfc remains excluded. General fixed-source
-preparation, FP16/BF16, scientific FP64 and all B–F gates remain required. The
-[experiment index](poc/README.md) retains preceding evidence and failures.
+The reconciled inventory retains 1,852 rows / 3,704 caller obligations, including
+all 1,802 original core contracts and 50 optional model obligations. Optional
+imports do not establish SOURCE support; configured secondary environment
+qualification remains incomplete. Earlier accepted code checkpoints and failed
+epochs remain in the [canonical findings](poc/source_integration_findings.md).
+General fixed-source preparation, full original models, FP16/BF16, scientific
+FP64 and all B–F gates remain required. Public behavior stays **LEGACY**.
 
 For the transition from an export user's perspective, read the
 [user view](precision_migration_plan_user_view.md). All companion documents are
@@ -141,7 +115,7 @@ FP32 cast, so equivalent old numbers or unchanged call syntax are not promised.
 
 | Stage | Evidence available | Remaining gate |
 | --- | --- | --- |
-| 1. Inventory | Public-call comparisons, numerical counterexamples, and a registry inventory cover both stacks and identify 1,802 raw metadata rows. | Freeze reproducible row provenance, extra regression/boundary cases, optional integrations, and source scenarios; retain name collisions and known failures explicitly. |
+| 1. Inventory | The reconciled baseline retains 1,852 rows / 3,704 caller obligations: all 1,802 unchanged original core rows plus 45 MaxText and five MaxDiffusion obligations. | Complete optional SOURCE/model/numerical evidence in prepared upstream environments; retain configured import failures, name collisions and known failures explicitly. |
 | 2. Legacy repair | PR #275 is merged and its selected consumers are covered. | Audit remaining consumer gaps without reinterpreting the legacy flag. |
 | 3. Internal source path | Weak input metadata, bounded preferred-FP32 matrix results, and model-chosen FP64 normalization work have source-export evidence. Unvalidated algebraic fusions are disabled under SOURCE. | Use the internal profile as a safe starting point; migrate every existing operator family and distinguish unfinished work from demonstrated representation or runtime limits. |
 | 4. Scopes and artifacts | Selected functions/branches, local precision settings and cache isolation have durable regressions. The committed private facade preserves names, reports and proto/IR/file serialization; actual artifacts reach the CPU sample gate and integrated regression checks pass. | Preserve all existing scopes, dynamic shapes, parameters, layout options, normalization choices, and artifact formats under the same contract. |
@@ -205,16 +179,25 @@ The bounded qualifier preserves exact eager zeros everywhere and exact JIT zeros
 outside the six pretarget-proven native conflict masks. The earlier options-v2
 failure remains history; options 131 and focused 159 now pass on both stacks.
 
-Matrix44 and retained 348 also pass on both stacks, preserving actual parameters,
-Function bodies and conditional consumers. Activated whole-carrier MLIR execution
-remains NOT_ESTABLISHED. The latest original-six model exploration reaches `erfc`
-in its first cell per stack, leaving one failed test and five unexecuted, with
-no model artifact or ORT execution. Complete original-model export, state,
-fixed-source preparation and numerical acceptance remain required. The corrected standalone exact-GELU
-candidate retains the default-CPU zero/subnormal failure. The configured CPU
-replay passes finite saved cases on both stacks; SOURCE erfc remains excluded.
-See the [joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-for current acceptance and the preserved earlier state/matrix/reference failures.
+The preceding Matrix44 and retained 348 acceptance remains valid within its
+recorded scope. The current checkpoint additionally covers the finite common
+tensor/index families, Erfc and the original GPT_MLP FP32 cases. Activated
+whole-carrier MLIR execution remains **NOT_ESTABLISHED**. The earlier original-six
+Function-model run stopped at Erfc before producing a model artifact; after the
+new lowering it needs a fresh run under the unchanged model contracts. Do not
+infer another barrier from that historical result.
+
+Code checkpoint `1533d60b` is independently accepted, with the complete PRIMARY
+suite and all seven normal code hooks passing. Next, address the separate
+172-case elementary/reduction candidate's recorded failures, then qualify it:
+Astra accepts its bounded static delta for ROOT validation, while it remains
+**unintegrated and not ROOT-qualified**. Its detached 172-case PRIMARY author
+epoch has 169 passes / three target-sample failures, retained in the canonical
+findings. It is not current product behavior.
+Continue the remaining original-model,
+normalization graph-contract, fixed-source preparation and target-numerical work
+through the shared pipeline. The [current findings](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+retain the exact Erfc positive scopes and failed full/native gates.
 
 Carry the accepted prerequisites through the shared private pipeline. Retain
 fixed-source external preparation, original native criteria, actual runtime
@@ -252,7 +235,7 @@ The immediate review follow-ups have reached this checkpoint:
 | Preserve native normalization | Native forwarding and bounded static square, variance/std and NNX/Linen/Equinox LayerNorm examples have independent source/CPU acceptance. | Named-scope payload equality covers the actual exported body; whole-carrier JIT equality and complete Functions014/015 acceptance remain open. |
 | Preserve original MLP state and numerics | Original NNX/Linen models pass the finite runtime-control, state-feedback and four-reference matrix; six permanent CI cases pass on both stacks. | The later joined101 runtime suite and primary-full/secondary focused integration are independently accepted; code checkpoint `7d74a200` passes all seven actual hooks. Earlier failures remain recorded. Broader model/PRNG coverage remains open. [Current status](poc/source_integration_findings.md#full-suite-failure-and-finite-repair-status) records the finite repairs. |
 | Preserve native Where and pure JIT | Original Where calls and pure closed JIT bodies retain actual bindings, constants, scopes and native inline hints. The committed Typed checkpoint extends bounded real/discrete selection and masks. | The finite FP16/FP32/FP64 copy-based repair is committed at `778dce3c` after integration, full-suite and hook acceptance; direct-Where history, broader JIT, complex selection and general symbolic shapes remain separate. |
-| Freeze source scenarios | The reviewed plan retains 3,604 cells from all 1,802 raw rows, preserving input bytes and original factories across x64 contexts. | Opaque recipes, optional environments, unresolved numerical criteria and unexecuted cells remain visible; no broad corpus acceptance is claimed. |
+| Freeze source scenarios | The reviewed plan retains 3,704 caller obligations from all 1,852 rows, preserving all 1,802 original core contracts and 50 optional obligations. | Opaque recipes, incomplete optional environments, unresolved numerical criteria and unexecuted cells remain visible; imports do not establish SOURCE acceptance. |
 
 The [accepted work plan](precision_implementation_work_plan.md) connects this
 private foundation to the existing export boundary. Its internal `source-static-v1`
@@ -467,7 +450,8 @@ inline compatibility seam. The raw gather trace now matches completely, while
 its unchanged callback and x64-off conflict remain unresolved. The subsequent
 [Gather counterpart](poc/gather_counterpart_findings.md) validates one exact
 diagnostic structure with those raw failures retained and zero ORT calls.
-Product Gather admission remains unfinished. The subsequent Typed checkpoint
+Those original trigonometric Gather rows remain outside product admission;
+the current common-family checkpoint admits the other bounded Gather forms. The subsequent Typed checkpoint
 covers the bounded value families recorded above, with independent actual-main
 acceptance, 8,659 full-suite passes and all actual hooks passing. The named
 binder and finite preparation proof described above advance separate shared

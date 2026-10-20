@@ -1,15 +1,29 @@
 # Precision Contract Experiments
 
-Status: bounded private integration, updated 2026-10-20, beyond the public-behavior
+Status: accepted private code checkpoint, updated 2026-10-20, beyond the public-behavior
 baseline at `fae17822`.
 The converter carries SOURCE policy through selected real lowerings and scopes.
 Public options and legacy defaults retain their meanings; no public source mode
-is available. These experiments inform the
-[target design](../precision_target_state.md) and
+is available. The prior ROOT **786-case / 2,358-phase PASS per stack** is retained on
+unchanged production. Separate final-byte test-repair qualification passes
+**29 cases / 87 phases per stack**, zero failures/errors/skips and held current
+sources. The complete PRIMARY suite passes **10,047 cases / 30,141 phases**,
+zero failures/errors/skips, with matching collections and held current pins.
+Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
+Independent final review **accepts this finite code checkpoint** and its
+retained scope limits. These experiments
+inform the [target design](../precision_target_state.md) and
 [migration plan](../precision_migration_plan.md).
+
+The first four rows cover this checkpoint; later rows link earlier experiments
+with their original evidence scopes.
 
 | Experiment | Question | Evidence |
 | --- | --- | --- |
+| Common tensor/index operations | Do unchanged raw tensor/index contracts preserve values, weakness, shapes and index semantics? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 296 cases per stack; 63 original rows retained; 56 selected rows / 112 tested caller contexts contain 109 positive artifact contexts and three native/configuration negatives; seven other rows remain deferred. |
+| Source-typed Erfc | Does the reviewed expression preserve typed structure, and which configured CPU outputs pass? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): graph/schema evidence at opsets 23/26; configured CPU numerical evidence at opset 23 only, with finite direct/ordinary/named positives; full-seven-output and native-agreement gates FAILED, low-precision numerics UNVERIFIED. |
+| Original GPT_MLP numerics | Does the unchanged ordinal-0 FP32 model pass finite criteria in both caller-x64 contexts? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): two passing cases per stack; no FP64 or all-model claim. |
+| Optional inventory retention | Do absent/filter-selected optional environments preserve every reviewed obligation? | [Current findings](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint): 1,852 rows / 3,704 caller obligations; initial CLI 4 PASS / 2 FAIL; supplementary secondary MaxDiffusion defaults fails on missing tokamax. No optional SOURCE acceptance. |
 | Native Sum | Do original reduction options and computation types survive interception? | [Sum findings](source_integration_findings.md#native-sum-forwarding-and-measured-composition): committed native forwarding, accepted MAIN integration and retained BitCast barriers. |
 | Native LayerNorm and mean | Do original framework calls retain their native normalization and reduction? | [Forwarding findings](source_integration_findings.md#layernorm-and-mean-native-forwarding): accepted call preservation, retained full-world regressions, and the historical default-export barriers. |
 | Named runtime parameters | Can declared keyword values keep their real types and variable bindings through the root, Function and If? | [Named-parameter findings](named_runtime_parameters_findings.md): audited binder, finite sample evidence and separate all-22 progress ledger. |
@@ -18,7 +32,7 @@ is available. These experiments inform the
 | Original MLP state and bounded normalization | Do original model controls, explicit state and native normalization survive the private pipeline? | [Current acceptance](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance): finite CPU model/state evidence, permanent regression and the actual exported-body proof limit. |
 | Named NNX Function state | Can original trace-local owner updates survive named calls and unblock unchanged models? | [NNX findings](source_integration_findings.md#nnx-function-state-checkpoint): 13 new and 45 retained cases pass per stack; original-model exploration reaches the measured matrix barrier with no target execution. The code checkpoint `437d41fe`, complete 9,557-test primary suite, secondary 58-case selection and all seven normal hooks pass. |
 | Normalization options and tensor matrices | Do unchanged options and tested matrix compositions retain the source contract? | [Joint findings](source_integration_findings.md#joint-normalization-and-matrix-integration): options 131, focused 159, matrix 44 and retained 348 pass on both stacks; checkpoint `39ddee8c` passes primary suite (9,667 cases) and all seven normal hooks; six corrected checks pass on both stacks. Original graph callbacks and complete models remain open. |
-| Shared-batch normalization | Do the original default LayerNorm rows retain their shapes, parameters, opsets and numerical contract? | [Current findings](source_integration_findings.md#shared-batch-normalization-checkpoint): accepted finite checks and code checkpoint `bb7a7d76`; retained failed epochs and remaining family/model work. |
+| Shared-batch normalization | Do the original default LayerNorm rows retain their shapes, parameters, opsets and numerical contract? | [Shared-batch findings](source_integration_findings.md#shared-batch-normalization-checkpoint): accepted finite checks and code checkpoint `bb7a7d76`; retained failed epochs and remaining family/model work. |
 | [Numerical contract](numerical_contract.py) | Do result types, wider sums and intermediate rounding survive execution? | [Numerical findings](numerical_contract_findings.md): actual exports, independent controls and failed runtime acceptance. |
 | [Migration calls](migration_ux.py) | Can callers predict legacy/source differences and diagnostics? | [UX findings](migration_ux_findings.md): input defaults, tracing configuration, weak inputs and option conflicts. |
 | Source corpus | What does the first frozen 36-cell batch actually establish? | [Corpus findings](source_corpus_findings.md): 26 artifacts per stack, explicit failures/pending cells, and unverified lowering/runtime/numerics. |
@@ -37,41 +51,20 @@ is available. These experiments inform the
 | Gather diagnostic counterpart | Can the original indexing/trigonometry source receive an exact structural check while preserving its raw failure? | [Gather findings](gather_counterpart_findings.md): separate SOURCE structure validation for one saved representation; raw callback FAILED and product/runtime/numerics UNVERIFIED. |
 | Typed values and masks | Can native discrete values, masks and static complex components retain their declared semantics? | [Typed findings](typed_values_and_masks_findings.md): committed bounded rules, retained raw/cast failures, accepted integration and new original-model boundary evidence. |
 
-The accepted joint checkpoint **`39ddee8c`** passes the complete **9,667-test
-primary suite** and all seven normal hooks, with exact tested source bytes. Six
-corrected cases pass on each stack; the earlier unchanged-production 721-case
-secondary pass is retained separately. Pre-full typing for 546 files plus RNG evidence was
-explicitly reused under 574 unchanged input hashes; final hooks ran normally.
-The first full run with 9,663 passes and four failures and first six-case run with five passes and one failure failures remain recorded.
-All 60 raw normalization graph callbacks still fail despite the accepted SOURCE
-counterparts. The first original Function-model cell still stops at `erfc`.
-Its standalone candidate retains the default-CPU zero/subnormal failures.
-The configured CPU replay now passes its finite saved cases on both stacks,
-without production runtime-policy changes, SOURCE erfc admission or full-model
-numerical acceptance.
+The [current checkpoint record](source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+binds the retained 786-case / 2,358-phase ROOT pass and separate final-byte
+29-case / 87-phase pass per stack, alongside the new complete PRIMARY
+**10,047-case / 30,141-phase PASS**. Interrupted and failed full-suite epochs
+remain history. A passing diagnostic test can correctly record a failed
+numerical gate; the Erfc full-seven-output and native-agreement failures remain
+failures. Code checkpoint `1533d60b` and all seven normal code hooks pass;
+independent final code-evidence review accepts this finite scope.
 
-The preceding accepted NNX-only checkpoint `437d41fe` retains its 9,557-test
-primary suite, 58-case secondary selection and all seven normal commit hooks. Its
-[findings](source_integration_findings.md#nnx-function-state-checkpoint) preserve
-the adapter evidence, earlier matrix barrier and native-reference failure.
-
-The preceding accepted code checkpoint `bb7a7d76` adds shared-batch normalization,
-static parameter reshapes and bounded integration repairs. The complete primary
-suite, repaired focused checks on both stacks and all seven actual commit hooks
-pass, with independent acceptance. The
-[current findings](source_integration_findings.md#shared-batch-normalization-checkpoint)
-retain the finite scope and failed epochs, including the first isolated model
-exploration. Its later progress is recorded above; original normalization graph contracts
-and complete Function models stay open.
-
-The preceding [MLP and normalization findings](source_integration_findings.md#mlp-state-and-bounded-normalization-acceptance)
-retain the accepted finite model/state matrix and actual exported-body proof
-limit. The [dual-stack runtime result](source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-accepts explicit Dropout state preparation and naming/restoration repairs in
-checkpoint `7d74a200`, with its original integration and hook evidence.
-The full B–F migration remains open. Public behavior stays LEGACY. A passing
-experiment test can confirm a known failure; it does not turn that failure
-into acceptance.
+Earlier accepted code checkpoints, their distinct suite and hook receipts, and
+all original model/state, normalization, Erfc and target failures remain in the
+[canonical history](source_integration_findings.md). The full B–F migration,
+original complete models, general fixed-source preparation, FP16/BF16 and
+scientific FP64 remain open. Public behavior stays **LEGACY**.
 
 ## Run it
 
@@ -178,8 +171,11 @@ graph. See the recorded numerical evidence before choosing a runtime profile.
 ## Scope and limitations
 
 The private harness uses the actual tracing, IR context, plugins, optimizer,
-post-processing and serialization. It checks static floating inputs and a small
-primitive set at opsets 23/26, including selected Function/If cases. The finite
+post-processing and serialization. The current checkpoint adds the bounded
+common tensor/index and Erfc families at the recorded opsets, types and shapes;
+its exact scope and open original rows are linked above. Earlier private
+capabilities include static floating inputs and selected Function/If cases at
+opsets 23/26. The finite
 shared-B extension adds equal rank-two floating inputs through Add and named
 composition. The Leading-B checkpoint adds one atomic native B at axis zero of
 rank-two/three matrix and bias contracts, with FP32/FP64 MatMul and positive

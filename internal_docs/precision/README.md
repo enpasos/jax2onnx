@@ -19,49 +19,39 @@ scientific calculations requiring FP64.
 | Proposed behavior | [Precision in the target design](precision_target_state_user_view.md) | [Target state](precision_target_state.md) |
 | Proposed transition | [Moving to the target behavior](precision_migration_plan_user_view.md) | [Migration plan](precision_migration_plan.md) |
 
-Latest accepted private checkpoint: **`39ddee8c`**. The complete primary suite
-passes **9,667 tests**, and all seven normal commit hooks pass on the exact tested
-sources. The six corrected cases pass on both stacks; the earlier 721-case
-secondary pass is retained on unchanged production sources with its test-only
-differences recorded. Options 131, focused 159, matrix 44 and retained 348 each have
-independent dual-stack finite acceptance. The
-[joint record](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-keeps these scopes, explicit typing reuse and earlier failed epochs separate.
+The private checkpoint retains the ROOT **786-case / 2,358-phase PASS per
+stack** on unchanged production. A separate final-byte test-repair selection
+now passes **29 cases / 87 phases per stack**, with zero failures/errors/skips
+and held current source/input pins. These are distinct executions. Bounded
+tensor/index operations, source-typed Erfc graphs at opsets 23/26 and finite
+original GPT_MLP FP32 evidence retain their recorded scope. The complete PRIMARY
+suite now passes **10,047 cases / 30,141 phases**, with zero failures/errors/skips
+and held current pins. Local code checkpoint **`1533d60b`** passes all seven
+normal code hooks. Independent final review **accepts this finite code
+checkpoint** and its retained scope limits.
+The [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+keeps passing finite scopes, failed full-suite epochs and unfinished migration
+gates separate.
 
-The preceding accepted NNX-only checkpoint, `437d41fe`, retains its 9,557-test
-primary suite, 58-case secondary selection, all seven normal commit hooks and
-finite state-adapter acceptance (13 new and 45 retained cases per stack).
-Its [record](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-keeps those completed checks separate from the new joint integration.
+Configured CPU numerical evidence at **opset 23 only** is positive for the
+measured direct Erfc, ordinary composition and named shared-batch scopes.
+Opset 26 has graph/schema evidence; its CPU numerics remain unverified. The strict seven-output and native
+reference-agreement gates remain **FAILED** because JAX eager/JIT disagree on
+FP32/FP64 subnormal prefix values. FP16/BF16 numerics remain **UNVERIFIED**;
+production FTZ and runtime policy are unchanged. The old six-Function-model Erfc
+barrier is historical and needs a fresh complete-model run after this change.
 
-The preceding accepted private checkpoint, `bb7a7d76`, adds
-shared-batch normalization, static parameter reshapes and bounded integration
-repairs. The complete primary suite, focused checks on both stacks and all
-seven actual commit hooks pass, with independent acceptance. The
-[current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-record the finite scope and every failed epoch.
+The inventory retains **1,852 rows / 3,704 caller obligations**, including all
+1,802 original core rows and 50 optional MaxText/MaxDiffusion obligations.
+Optional imports establish inventory evidence only; configured secondary import
+failures remain environment work. Public behavior stays **LEGACY** until the
+full existing-functionality B–F gates pass, including original models, general
+fixed-source preparation, FP16/BF16 and scientific FP64. No permanent public
+precision-mode or partial-profile choice is planned.
 
-The preceding `7d74a200` checkpoint preserves the finite original NNX/Linen MLP
-controls and state, selected static normalization, and reviewed Dropout
-naming/restoration repairs; its [accepted evidence](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result)
-retains its original scope.
-
-All 30 unchanged LayerNorm callables / 60 caller-x64 contexts now have bounded
-SOURCE export and numerical evidence under reviewed structural counterparts,
-including the 18 nondefault-option rows. Exact eager zero words remain required;
-only the six pretarget-proven native eager/JIT conflict masks qualify JIT signs.
-All 60 original raw graph callbacks still fail: native ONNX LayerNormalization
-emission and the original graph contracts remain open. The latest original
-Function-model exploration reaches `erfc` in its first cell on each stack, with
-one failed test, five unexecuted cells and no model artifact or ORT execution.
-The standalone erfc candidate retains its default-CPU zero/subnormal failures.
-Its finite configured CPU replay now passes on both stacks, without changing
-production runtime policy or admitting SOURCE erfc. Public behavior remains LEGACY until
-the full B–F gates pass,
-including FP16/BF16, scientific FP64 and general fixed-source preparation.
-
-The [experiment index](poc/README.md) links preceding canonical results,
-including their original failures, numerical criteria and limits.
+Earlier accepted checkpoints, their complete-suite and hook receipts, and all
+failed epochs are retained in the [canonical findings](poc/source_integration_findings.md)
+and [experiment index](poc/README.md).
 
 ## What the experiments establish
 
@@ -101,9 +91,11 @@ trace leakage, and an unsafe arithmetic fusion on the source path. Matrix
 result preservation and selected wider normalization now have bounded positive
 evidence. Required FP16 runtime rounding remains a failed gate on the recorded
 targets; the explicit wider example is not an automatic repair. The
-[next work](precision_migration_plan.md#next-implementation-work) is to complete
-the coverage inventory and source-reference tests, then migrate the remaining
-lowerings, scopes, and export boundaries through the shared private path.
+current code checkpoint `1533d60b` is independently accepted. The
+[next work](precision_migration_plan.md#next-implementation-work) is to address
+the separate elementary candidate's recorded failures and qualify it, then migrate
+the remaining registered families, original models, scopes and export boundaries
+through the shared private path.
 
 The [follow-up review on 2026-10-18](poc/source_integration_findings.md#follow-up-review-on-2026-10-18)
 also closed a policy-blind optimizer rewrite and function reuse that ignored

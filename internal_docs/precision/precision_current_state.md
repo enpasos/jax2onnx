@@ -1,6 +1,6 @@
 # Computation Precision Current State
 
-Date: 2026-10-17. Source snapshot:
+Public-behavior analysis baseline: 2026-10-17. Source snapshot:
 [`fae17822e0114e6c00840b8f78adedb7ec36f74e`](https://github.com/enpasos/jax2onnx/commit/fae17822e0114e6c00840b8f78adedb7ec36f74e),
 which includes the merged consumer-adaptation fix from PR #275 and the native
 typed lowering changes from PR #274.
@@ -11,63 +11,45 @@ code now carries `PrecisionPolicy.SOURCE`, while the public API and legacy
 defaults remain unchanged. See the
 [integration findings](poc/source_integration_findings.md) for its bounded scope.
 
-Accepted private code checkpoint, 2026-10-20: **`39ddee8c`**. The complete
-primary suite passes **9,667 tests / 29,001 phases**, with four equal worker
-collections and no failures, errors or skips. All seven normal commit hooks pass;
-the 19 committed paths and 913 Python / 157 other input files match the tested
-release. The final six corrected cases pass on each stack. The earlier
-**721-case secondary pass / 2,163 phases** is retained on unchanged production
-sources, with the four test-file changes recorded separately. This is a finite
-local checkpoint; no full-secondary or public-transition result follows. The
-[joint findings](poc/source_integration_findings.md#joint-normalization-and-matrix-integration)
-retain the options 131, focused 159, matrix 44 and retained 348 dual-stack results
-and every failed epoch.
+Current accepted private code checkpoint, 2026-10-20: the prior ROOT selection retains
+**786 cases / 2,358 phases PASS per stack** on unchanged production. Separate
+final-byte test-repair checks pass **29 cases / 87 phases per stack**, zero
+failures/errors/skips, with held current **919 Python / 163 other inputs**.
+The implementation covers
+the bounded common tensor/index families and source-typed Erfc graphs at opsets
+23/26. The common selector retains all 63 original rows / 126 caller identities;
+56 selected rows cover 112 tested caller contexts, yielding 109 positive
+artifact contexts and three native/configuration negatives. The other seven
+rows remain deferred. Shared-B shape values retain native weak INT32/INT64
+behavior under local x64 settings, and the reviewed index bridge preserves the
+tested signed/unsigned index semantics. The original GPT_MLP has finite FP32
+numerical evidence under both caller-x64 settings, with no FP64 or all-model
+claim.
 
-Pre-full normal typing for 546 files plus the RNG report passed and was explicitly
-reused after checking 574 unchanged inputs for the assertion-only correction.
-The final code commit then ran all seven hooks normally, including mypy.
+The complete PRIMARY suite now passes **10,047 cases / 30,141 phases**, with
+zero failures/errors/skips, matching worker collections and held current pins.
+Local code checkpoint **`1533d60b`** passes all seven normal code hooks.
+Independent final review **accepts this finite code checkpoint** and its
+retained scope limits. The [canonical checkpoint record](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+binds the passing ROOT result and preserves the earlier failed epochs.
 
-All 30 unchanged LayerNorm callables / 60 caller-x64 contexts have bounded
-SOURCE export and numerical evidence under reviewed structural counterparts.
-All 60 original raw graph callbacks still fail; native ONNX LayerNormalization
-emission and those original graph contracts remain separate work. The original
-Function-model follow-through still stops first at `erfc`. The standalone
-candidate retains its default-CPU zero/subnormal failures; the configured CPU
-replay passes its finite saved cases on both stacks. SOURCE erfc remains
-unadmitted and production runtime policy is unchanged. Complete models,
-whole-carrier MLIR, fixed-source preparation and full B–F remain open. Public
-behavior stays LEGACY.
+Erfc representation/lowering evidence is separate from target numerics. The
+configured direct, ordinary-composition and named shared-batch scopes pass at
+**opset 23 only**. Opset 26 has graph/schema evidence and unverified CPU numerics.
+The strict seven-output and native agreement gates remain **FAILED** on the
+FP32/FP64 subnormal prefix contradiction. FP16/BF16 have structural evidence
+only, with numerics **UNVERIFIED**. Production FTZ and runtime policy are
+unchanged. The old six-Function-model barrier needs fresh follow-through; it
+cannot identify the next downstream barrier after Erfc admission.
 
-The preceding accepted NNX-only checkpoint is `437d41fe`. The complete primary suite
-passes 9,557 tests, the secondary integration selection passes 58, and all seven
-normal commit hooks pass. The Function/NNX adapter has independently accepted
-13 new and 45 retained cases on each supported stack. It explicitly carries
-trace-local owner state through the shared named-Function path, including
-updates, alias checks, RNG-key handling and failure restoration. Original model
-code, decorators, defaults and parameters remain unchanged. The
-[NNX findings](poc/source_integration_findings.md#nnx-function-state-checkpoint)
-record the finite restrictions, type-only follow-up and completed commit gates.
-
-The preceding accepted private checkpoint, `bb7a7d76`, adds shared-batch
-normalization, static parameter reshapes and bounded integration repairs.
-The complete primary suite passes 9,544 tests; the repaired focused selection
-passes 172 on each stack. All seven actual commit hooks pass, with independent
-checkpoint acceptance. The [current findings](poc/source_integration_findings.md#shared-batch-normalization-checkpoint)
-retain the finite runtime scope and earlier failed epochs, including the
-separate failed 4,876-case secondary affected-area run.
-
-The preceding `7d74a200` checkpoint retains its accepted original NNX/Linen MLP
-state/control, selected static normalization and explicit Dropout state
-preparation results: 9,296 primary-full tests, 1,052 secondary affected-area
-tests and 101 finite runtime cases per stack. See its
-[acceptance record](poc/source_integration_findings.md#accepted-dual-stack-finite-runtime-result).
-
-The earlier native eager/JIT zero-sign conflict is retained history. Its bounded
-pretarget reference qualifier and the later options selection now have finite
-acceptance; exact eager zero words remain required everywhere. This changes no
-original source, raw callback or target tolerance. The earlier NNX-state and
-matrix barriers remain recorded alongside the latest `erfc` observation. The
-[experiment index](poc/README.md) retains preceding results and failed epochs.
+The current inventory retains 1,852 rows / 3,704 caller obligations, including
+all 1,802 unchanged original core contracts and 45 MaxText plus five MaxDiffusion
+obligations; 234 manual files / 1,565 functions retain all 752 original anchors.
+Optional imports do not establish SOURCE acceptance. The configured secondary
+environment remains incomplete. Public behavior stays **LEGACY** until the full
+B–F contract, including general fixed-source preparation, low-precision rounding
+and scientific FP64, is complete. The [findings](poc/source_integration_findings.md)
+retain earlier accepted code checkpoints and their distinct validation scopes.
 
 For observable behavior and export choices, read the
 [user view](precision_current_state_user_view.md). All companion documents are
@@ -334,8 +316,12 @@ on the recorded runtimes. That numerical defect remains unresolved.
 
 Historical validation totals are recorded in the
 [integration findings](poc/source_integration_findings.md#recorded-validation);
-the [latest checkpoint](poc/option_and_array_creation_findings.md#validation-and-provenance)
-records the complete 5,803-test run.
+the [historical option checkpoint](poc/option_and_array_creation_findings.md#validation-and-provenance)
+records its complete 5,803-test run. The
+[current checkpoint](poc/source_integration_findings.md#tensor-index-erfc-and-optional-inventory-checkpoint)
+records the new 10,047-case primary pass and local code checkpoint `1533d60b`
+with seven passing normal code hooks and accepted independent final code-evidence
+review.
 A green suite can include tests that recognize the known numerical failure;
 it does not establish model-wide or deployment-wide precision compliance.
 
