@@ -40,6 +40,7 @@ from jax2onnx._compat.jax import (
     PRNGKeyDType,
     is_selected_prng_key_dtype,
     selected_prng_key_words,
+    is_native_precision_pair,
 )
 from jax2onnx.converter.source_elementary import (
     ELEMENTARY_OPERATIONS,
@@ -649,12 +650,24 @@ def _validate_dot(
     )
     default = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
     precision = eqn.params.get("precision")
-    site.require(
-        precision is None or precision == default,
-        "matrix precision/algorithm is outside the profile",
-        "default precision without HIGH, HIGHEST, or an explicit algorithm",
-    )
     preferred = eqn.params.get("preferred_element_type")
+    native_fp64 = all(value.dtype == "float64" for value in (*inputs, *outputs)) and (
+        preferred is None or np.dtype(preferred) == np.dtype(np.float64)
+    )
+    # Both supported JAX versions document Precision enums as FP32-only hints.
+    # Explicit algorithms remain separate contracts even when named F64_F64_F64.
+    site.require(
+        precision is None
+        or precision == default
+        or native_fp64
+        and is_native_precision_pair(precision),
+        "matrix precision/algorithm is outside the profile",
+        (
+            "native FP64 Precision enum pairs without explicit algorithms"
+            if native_fp64
+            else "default precision without HIGH, HIGHEST, or an explicit algorithm"
+        ),
+    )
     if inputs[0].dtype == inputs[1].dtype and inputs[0].dtype in {"float32", "float64"}:
         site.require(
             preferred is None or np.dtype(preferred) == np.dtype(inputs[0].dtype),

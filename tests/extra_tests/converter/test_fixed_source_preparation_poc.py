@@ -193,11 +193,6 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
             "profile-exclusion",
             "dot_general",
         ),
-        "linear_prepared": (
-            "profile-validation",
-            "profile-exclusion",
-            "dot_general",
-        ),
     }
     assert barriers.keys() == expected_barriers.keys()
     for name, row in barriers.items():
@@ -222,6 +217,26 @@ def test_fresh_ordinary_source_export_saved_actual_outputs_and_profile_barriers(
             assert fields["requirement"] == (
                 "default precision without HIGH, HIGHEST, or an explicit algorithm"
             )
+    # The actual prepared all-FP64 HIGHEST dot is now admitted. Its saved
+    # artifact is evidence of representation/lowering only; this PoC does not
+    # borrow the native-only gamma128 criterion for target acceptance.
+    linear = report["cases"]["linear_prepared"]
+    assert linear["native"] == "validated" and linear["export"] == "admitted"
+    assert linear["runtime"] == [] and linear["numerical_target_acceptance"] is None
+    assert linear["ordinary_default_audited_validator"] is True
+    assert linear["schema_and_serialization_roundtrip"] is True
+    model = onnx.load_model(
+        output / linear["artifact"]["path"], load_external_data=False
+    )
+    onnx.checker.check_model(model, full_check=True)
+    precision = get_precision_report(model)
+    assert precision is not None and precision.traced_outputs[0].dtype == "float64"
+    assert precision.exported_outputs[0].dtype == "float64"
+    assert all(
+        check.status is CheckStatus.UNVERIFIED
+        for check in precision.checks
+        if check.category in {"runtime-execution", "numerical-acceptance"}
+    )
     for input_dtype, input_type, output_dtype, output_type in (
         ("float16", onnx.TensorProto.FLOAT16, "float32", onnx.TensorProto.FLOAT),
         ("bfloat16", onnx.TensorProto.BFLOAT16, "float32", onnx.TensorProto.FLOAT),

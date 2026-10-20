@@ -298,7 +298,10 @@ def test_scoped_matrix_precision_requirement_survives_source_function_retrace() 
         jax.ShapeDtypeStruct((1, 2), np.float16),
         jax.ShapeDtypeStruct((2, 1), np.float16),
     ]
-    with pytest.raises(NotImplementedError, match="only default precision"):
+    with pytest.raises(
+        NotImplementedError,
+        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+    ):
         export_source_dtypes(model, specs)
     assert jax.config.jax_default_matmul_precision is None
     assert active_precision_policy() is PrecisionPolicy.LEGACY
@@ -348,6 +351,9 @@ def test_source_function_cache_distinguishes_scoped_matrix_requirements() -> Non
     ]
     # Reusing the first body's definition would incorrectly accept the second
     # call despite the explicitly unsupported accumulation requirement.
-    with pytest.raises(NotImplementedError, match="only default precision"):
+    with pytest.raises(
+        NotImplementedError,
+        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+    ):
         export_source_dtypes(model, specs)
     assert jax.config.jax_default_matmul_precision is None

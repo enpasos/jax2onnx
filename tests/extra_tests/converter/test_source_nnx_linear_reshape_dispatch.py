@@ -349,7 +349,10 @@ def test_explicit_module_precision_is_traced_and_rejected_by_existing_lowerer(
     original = jax.make_jaxpr(call)(value)
     dot = next(e for e in _body(original).eqns if e.primitive.name == "dot_general")
     assert dot.params["precision"] == (jax.lax.Precision.HIGHEST,) * 2
-    with pytest.raises(NotImplementedError, match="only default precision"):
+    with pytest.raises(
+        NotImplementedError,
+        match=r"SOURCE dot_general: precision .*native all-FP64 Precision enum pairs",
+    ):
         _export(call, value, named=True)
 
 

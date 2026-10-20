@@ -37,7 +37,7 @@ APPROVED_SELECTOR_SHA256: Final = (
 )
 DOT_SOURCE_PATH: Final = "jax2onnx/plugins/jax/lax/dot_general.py"
 DOT_SOURCE_SHA256: Final = (
-    "2521e4000e356eec1e96c068acd1766c51b76492081ac9a12f4f7e363305517b"
+    "502e578a77d91870fef4a2213909d0972ea5a164ef65484e4c30eb6f6ea9c7d9"
 )
 ORACLE_VERSION: Final = "static-dot-source-counterpart-v2"
 LINEAR_SOURCE_PATH: Final = "jax2onnx/plugins/flax/nnx/linear.py"

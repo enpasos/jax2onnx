@@ -949,7 +949,7 @@ def _corpus_controls_admitted(controls: Sequence[Mapping[str, Any]]) -> bool:
             != "static-dot-source-counterpart-v2:plugin::dot_general:0"
             or structure.get("counterpart_sha256")
             # The descriptor also binds the reviewed whole oracle module.
-            != "5229c9607e86c9f0b0d6a339f6260b43d2b33f068c3182e85de8b54e5c26d873"
+            != "e7e629c9c9506ec0d77049f7ff34e78959041a2a2b70d35af3c9264078e35b11"
             or structure.get("source_structure") != CheckStatus.VALIDATED
             or structure.get("raw_callback_status") != "failed"
             or control.get("raw_callback_status") != "failed"

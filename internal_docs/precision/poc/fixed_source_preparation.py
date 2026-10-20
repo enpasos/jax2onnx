@@ -40,6 +40,7 @@ import numpy as np
 from flax import nnx
 
 from jax2onnx import user_interface
+from jax2onnx._source_preparation import prepare_nnx_linear
 from jax2onnx.converter import source_profile
 from jax2onnx.converter.precision_policy import PrecisionPolicy, active_precision_policy
 from jax2onnx.plugins.plugin_system import (
@@ -217,11 +218,9 @@ def linear_models() -> tuple[Any, Any]:
             nnx.Linear, 128, 64, dtype=with_requested_dtype(), rngs=with_rng_seed(0)
         )
         original = recipe.with_dtype(jnp.float32).instantiate()
-        prepared = nnx.clone(original)
-        prepared.dtype = jnp.float64
-        # Indexed assignment retains the old storage dtype. Replace whole values.
-        prepared.kernel.set_value(original.kernel[...].astype(jnp.float64))
-        prepared.bias.set_value(original.bias[...].astype(jnp.float64))
+        prepared = prepare_nnx_linear(
+            original, compute_dtype=jnp.float64, parameter_dtype=jnp.float64
+        )
     return original, prepared
 
 

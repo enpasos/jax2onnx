@@ -79,6 +79,17 @@ def native_jit_boolean_inline_hints() -> tuple[object, object]:
     return inline.AUTO, inline.JAX_LATE
 
 
+def is_native_precision_pair(value: object) -> bool:
+    """Recognize JAX's two native Precision enums, excluding algorithms/presets."""
+    from jax import lax
+
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and all(type(item) is lax.Precision for item in value)
+    )
+
+
 def is_selected_threefry_impl(value: object) -> bool:
     """Require the installed implementation object, never an equal descriptor."""
     from jax._src.random.threefry2x32 import threefry_prng_impl

@@ -10,6 +10,7 @@ import jax
 import numpy as np
 import onnx_ir as ir
 
+from jax2onnx._compat.jax import is_native_precision_pair
 from jax2onnx.converter.precision_policy import PrecisionPolicy
 from jax2onnx.converter.source_representation import (
     normalized_shape_dimensions,
@@ -317,15 +318,22 @@ class DotGeneralPlugin(PrimitiveLeafPlugin):
             )
         precision = params.get("precision")
         default_pair = (jax.lax.Precision.DEFAULT, jax.lax.Precision.DEFAULT)
-        if precision is not None and precision != default_pair:
+        dtypes = tuple(np.dtype(var.aval.dtype) for var in (*eqn.invars, out_var))
+        preferred = params.get("preferred_element_type")
+        native_fp64 = all(dtype == np.dtype(np.float64) for dtype in dtypes) and (
+            preferred is None or np.dtype(preferred) == np.dtype(np.float64)
+        )
+        if (
+            precision is not None
+            and precision != default_pair
+            and not (native_fp64 and is_native_precision_pair(precision))
+        ):
             raise NotImplementedError(
                 "SOURCE dot_general: precision "
                 f"{precision!r} is outside the audited private subset; "
-                "only default precision without an explicit algorithm is covered"
+                "default precision or native all-FP64 Precision enum pairs are covered, without an explicit algorithm"
             )
 
-        dtypes = tuple(np.dtype(var.aval.dtype) for var in (*eqn.invars, out_var))
-        preferred = params.get("preferred_element_type")
         if (
             dtypes[0] in (np.dtype(np.float32), np.dtype(np.float64))
             and dtypes[0] == dtypes[1] == dtypes[2]
